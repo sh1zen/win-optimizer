@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:fluent="using:FluentIcons.WinUI" xmlns:common="using:WinOptimizer.UI.Features.Common.Controls" x:Class="WinOptimizer.UI.Features.Utilities.UtilitiesPage">
+    <Grid Style="{StaticResource PageGridStyle}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+        <common:PageHeader Title="{x:Bind ViewModel.Heading, Mode=OneWay}" Description="{x:Bind ViewModel.Description, Mode=OneWay}" Icon="AppsList"/>
+        <ScrollView Padding="{StaticResource ScrollContentPadding}" Grid.Row="1">
+            <StackPanel Spacing="{StaticResource PageCardSpacing}">
+                <common:NavigationCard x:Name="SysMonitorSettingsButton" Title="SysMonitor" Description="{x:Bind Extensions.MonitorDescription, Mode=OneWay}" Click="OpenMonitorSettings_Click" AutomationProperties.Name="{x:Bind Extensions.ConfigureLabel, Mode=OneWay}">
+                    <common:NavigationCard.Icon><fluent:FluentIcon Icon="Gauge" IconVariant="Regular" FontSize="28"/></common:NavigationCard.Icon>
+                    <common:NavigationCard.TitleAccessory>
+                        <TextBlock x:Name="WidgetRuntimeState" Text="{x:Bind Extensions.WidgetStateText, Mode=OneWay}" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" FontSize="12" FontWeight="SemiBold" AutomationProperties.LiveSetting="Polite"/>
+                    </common:NavigationCard.TitleAccessory>
+                    <common:NavigationCard.Actions>
+                        <StackPanel Orientation="Horizontal" Spacing="16">
+                            <Button x:Name="ShowWidgetButton" VerticalAlignment="Center" Content="{x:Bind Extensions.ShowWidgetLabel, Mode=OneWay}" Command="{x:Bind Extensions.ShowWidgetCommand}"/>
+                            <ToggleSwitch x:Name="SysMonitorToggle" VerticalAlignment="Center" IsOn="{x:Bind Extensions.IsEnabled, Mode=TwoWay}" IsEnabled="{x:Bind Extensions.CanEdit, Mode=OneWay}" AutomationProperties.Name="{x:Bind Extensions.EnableLabel, Mode=OneWay}"/>
+                        </StackPanel>
+                    </common:NavigationCard.Actions>
+                </common:NavigationCard>
+                <StackPanel Spacing="8">
+                    <TextBlock Text="{x:Bind Extensions.RuntimeError, Mode=OneWay}" TextWrapping="Wrap" Visibility="{x:Bind Extensions.HasRuntimeError, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}" Foreground="{ThemeResource SystemFillColorCriticalBrush}" AutomationProperties.LiveSetting="Polite"/>
+                    <TextBlock Text="{x:Bind Extensions.Status, Mode=OneWay}" TextWrapping="Wrap" Visibility="{x:Bind Extensions.HasStatus, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}" Foreground="{ThemeResource SystemFillColorCriticalBrush}" AutomationProperties.LiveSetting="Polite"/>
+                </StackPanel>
+            </StackPanel>
+        </ScrollView>
+    </Grid>
+</Page>

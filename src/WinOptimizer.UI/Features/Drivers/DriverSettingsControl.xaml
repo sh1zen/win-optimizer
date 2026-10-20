@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl x:Class="WinOptimizer.UI.Features.Drivers.DriverSettingsControl"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <StackPanel Spacing="12">
+        <Border Padding="16" CornerRadius="8" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+            <StackPanel Spacing="12">
+                <ToggleSwitch Header="{x:Bind ViewModel.WhqlLabel, Mode=OneWay}" IsOn="{x:Bind ViewModel.OnlyWhqlUpdates, Mode=TwoWay}" IsEnabled="{x:Bind ViewModel.CanEdit, Mode=OneWay}"/>
+                <TextBlock Text="{x:Bind ViewModel.Description, Mode=OneWay}" TextWrapping="Wrap"/>
+                <TextBlock Text="{x:Bind ViewModel.Status, Mode=OneWay}" TextWrapping="Wrap" IsTextSelectionEnabled="True"/>
+            </StackPanel>
+        </Border>
+    </StackPanel>
+</UserControl>

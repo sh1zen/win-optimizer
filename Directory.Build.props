@@ -1,0 +1,21 @@
+<Project>
+  <!-- All generated project output stays in the repository's build directory. -->
+  <PropertyGroup>
+    <!-- Generate WinRT projections using the installed Windows SDK metadata. -->
+    <CsWinRTWindowsMetadata>sdk</CsWinRTWindowsMetadata>
+    <WinOptimizerBuildRoot>$(MSBuildThisFileDirectory)build\</WinOptimizerBuildRoot>
+    <BaseIntermediateOutputPath>$(WinOptimizerBuildRoot)obj\$(MSBuildProjectName)\</BaseIntermediateOutputPath>
+    <BaseOutputPath>$(WinOptimizerBuildRoot)projects\$(MSBuildProjectName)\</BaseOutputPath>
+    <!-- Ignore generated files left by earlier builds inside source folders. -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);**/obj/**;**/bin/**</DefaultItemExcludes>
+  </PropertyGroup>
+  <PropertyGroup Condition="$(MSBuildProjectName.EndsWith('Tests'))">
+    <BaseOutputPath>$(WinOptimizerBuildRoot)tests\$(MSBuildProjectName)\</BaseOutputPath>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(MSBuildProjectName)' == 'WinOptimizer.UI'">
+    <OutputPath>$(WinOptimizerBuildRoot)</OutputPath>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
+    <PublishDir>$(WinOptimizerBuildRoot)publish\</PublishDir>
+  </PropertyGroup>
+</Project>

@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page
+    x:Class="WinOptimizer.UI.Features.Management.ManagementPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:fluent="using:FluentIcons.WinUI"
+    xmlns:common="using:WinOptimizer.UI.Features.Common.Controls">
+    <Grid Style="{StaticResource PageGridStyle}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+        <common:PageHeader Title="{x:Bind ViewModel.Heading, Mode=OneWay}" Description="{x:Bind ViewModel.Description, Mode=OneWay}" Icon="Board"/>
+        <ScrollView Padding="{StaticResource ScrollContentPadding}" Grid.Row="1">
+            <StackPanel Spacing="{StaticResource PageCardSpacing}">
+                <common:NavigationCard x:Name="EnvironmentCard" Title="{x:Bind ViewModel.EnvironmentDisplayName, Mode=OneWay}" Description="{x:Bind ViewModel.EnvironmentDescription, Mode=OneWay}" Click="EnvironmentCard_Click">
+                    <common:NavigationCard.Icon><fluent:FluentIcon Icon="Code" IconVariant="Regular" FontSize="28"/></common:NavigationCard.Icon>
+                </common:NavigationCard>
+                <common:NavigationCard x:Name="HostsCard" Title="{x:Bind ViewModel.HostsDisplayName, Mode=OneWay}" Description="{x:Bind ViewModel.HostsDescription, Mode=OneWay}" Click="HostsCard_Click">
+                    <common:NavigationCard.Icon><fluent:FluentIcon Icon="Globe" IconVariant="Regular" FontSize="28"/></common:NavigationCard.Icon>
+                </common:NavigationCard>
+                <common:NavigationCard x:Name="BatteryCard" Title="{x:Bind ViewModel.BatteryDisplayName, Mode=OneWay}" Description="{x:Bind ViewModel.BatteryDescription, Mode=OneWay}" Click="BatteryCard_Click">
+                    <common:NavigationCard.Icon><fluent:FluentIcon Icon="BatteryCharge" IconVariant="Regular" FontSize="28"/></common:NavigationCard.Icon>
+                </common:NavigationCard>
+                <common:NavigationCard x:Name="ConnectionCard" Title="{x:Bind ViewModel.ConnectionDisplayName, Mode=OneWay}" Description="{x:Bind ViewModel.ConnectionDescription, Mode=OneWay}" Click="ConnectionCard_Click">
+                    <common:NavigationCard.Icon><fluent:FluentIcon Icon="Globe" IconVariant="Regular" FontSize="28"/></common:NavigationCard.Icon>
+                </common:NavigationCard>
+                <common:NavigationCard x:Name="WindowsStatusCard" Title="{x:Bind ViewModel.WindowsStatusDisplayName, Mode=OneWay}" Description="{x:Bind ViewModel.WindowsStatusDescription, Mode=OneWay}" Click="WindowsStatusCard_Click">
+                    <common:NavigationCard.Icon><fluent:FluentIcon Icon="ShieldCheckmark" IconVariant="Regular" FontSize="28"/></common:NavigationCard.Icon>
+                </common:NavigationCard>
+                <common:NavigationCard x:Name="AutorunsCard" Title="{x:Bind ViewModel.AutorunsDisplayName, Mode=OneWay}" Description="{x:Bind ViewModel.AutorunsDescription, Mode=OneWay}" Click="AutorunsCard_Click">
+                    <common:NavigationCard.Icon><fluent:FluentIcon Icon="PlayCircle" IconVariant="Regular" FontSize="28"/></common:NavigationCard.Icon>
+                </common:NavigationCard>
+                <common:NavigationCard x:Name="ProcessMonitorCard" Title="{x:Bind ViewModel.ProcessMonitorDisplayName, Mode=OneWay}" Description="{x:Bind ViewModel.ProcessMonitorDescription, Mode=OneWay}" Click="ProcessMonitorCard_Click">
+                    <common:NavigationCard.Icon><fluent:FluentIcon Icon="Board" IconVariant="Regular" FontSize="28"/></common:NavigationCard.Icon>
+                </common:NavigationCard>
+            </StackPanel>
+        </ScrollView>
+    </Grid>
+</Page>

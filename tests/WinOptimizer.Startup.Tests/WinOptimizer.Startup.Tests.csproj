@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType><TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <WindowsSdkPackageVersion>10.0.26100.48</WindowsSdkPackageVersion><Platforms>x64</Platforms><RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <WindowsPackageType>None</WindowsPackageType><WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained><UseWinUI>true</UseWinUI>
+    <DefineConstants>DISABLE_XAML_GENERATED_MAIN</DefineConstants><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable><IsPackable>false</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <Page Remove="StartupApp.xaml"/><ApplicationDefinition Include="StartupApp.xaml"/>
+    <ProjectReference Include="..\..\src\WinOptimizer.UI\WinOptimizer.UI.csproj"/>
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260416003"/><PackageReference Include="Microsoft.Windows.CsWinRT" Version="2.2.0"/>
+    <PackageReference Include="Moq" Version="4.20.72"/><PackageReference Include="xunit" Version="2.9.3"/><PackageReference Include="FluentAssertions" Version="7.0.0"/>
+    <Compile Include="..\WinOptimizer.UI.Tests\Services\StartupOrchestratorTests.cs" Link="StartupOrchestratorTests.cs"/>
+    <Compile Include="..\WinOptimizer.UI.Tests\Converters\CustomIconTests.cs" Link="CustomIconTests.cs"/>
+    <Compile Include="..\WinOptimizer.UI.Tests\Services\SettingViewModelFactoryTests.cs" Link="SettingViewModelFactoryTests.cs"/>
+    <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\TechnicalDetailsManagerTests.cs" Link="TechnicalDetailsManagerTests.cs"/>
+    <Compile Include="..\WinOptimizer.UI.Tests\Services\StartupPresentationTests.cs" Link="StartupPresentationTests.cs"/>
+    <Compile Include="..\WinOptimizer.UI.Tests\Services\SectionNavigationTests.cs" Link="SectionNavigationTests.cs"/>
+    <Page Include="..\WinOptimizer.UI.Tests\Services\Navigation*Page.xaml" Link="Services\%(Filename)%(Extension)"/>
+    <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\NavigationRouterTests.cs" Link="NavigationRouterTests.cs"/>
+    <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\SavedWifiViewModelTests.cs" Link="SavedWifiViewModelTests.cs"/>
+    <Compile Include="..\WinOptimizer.UI.Tests\Services\SavedWifiPageTests.cs" Link="SavedWifiPageTests.cs"/>
+    <Compile Include="..\WinOptimizer.UI.Tests\Services\SettingsPageTests.cs" Link="SettingsPageTests.cs"/>
+    <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\SettingsViewModelTests.cs" Link="SettingsViewModelTests.cs"/>
+    <Compile Include="..\WinOptimizer.UI.Tests\Helpers\ExtensionTestDispatcher.cs" Link="ExtensionTestDispatcher.cs"/>
+    <Compile Include="..\WinOptimizer.UI.Tests\Helpers\NativeTestCases.cs" Link="NativeTestCases.cs"/>
+  </ItemGroup>
+</Project>

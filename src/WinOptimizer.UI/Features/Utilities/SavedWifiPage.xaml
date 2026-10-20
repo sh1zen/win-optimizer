@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:vm="using:WinOptimizer.UI.Features.Utilities.ViewModels" xmlns:common="using:WinOptimizer.UI.Features.Common.Controls" x:Class="WinOptimizer.UI.Features.Utilities.SavedWifiPage">
+    <ScrollViewer Style="{StaticResource PageScrollViewerStyle}">
+        <StackPanel Style="{StaticResource PageStackStyle}">
+            <StackPanel Spacing="8">
+                <TextBlock Text="{x:Bind ViewModel.SectionTitle, Mode=OneWay}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                <common:PageHeader Title="{x:Bind ViewModel.Title, Mode=OneWay}" Description="{x:Bind ViewModel.Description, Mode=OneWay}" Icon="Wifi"/>
+            </StackPanel>
+            <HyperlinkButton Content="{x:Bind ViewModel.BackLabel, Mode=OneWay}" Click="Back_Click"/>
+            <StackPanel Orientation="Horizontal" Spacing="12">
+                <Button Content="{x:Bind ViewModel.RefreshLabel, Mode=OneWay}" Command="{x:Bind ViewModel.RefreshCommand}"/>
+                <ProgressRing IsActive="{x:Bind ViewModel.IsBusy, Mode=OneWay}" Visibility="{x:Bind ViewModel.IsBusy, Mode=OneWay}" Width="24" Height="24"/>
+            </StackPanel>
+            <InfoBar IsOpen="{x:Bind ViewModel.HasStatus, Mode=OneWay}" Visibility="{x:Bind ViewModel.HasStatus, Mode=OneWay}" Message="{x:Bind ViewModel.Status, Mode=OneWay}" Severity="{x:Bind ViewModel.StatusSeverity, Mode=OneWay}" IsClosable="False"/>
+            <InfoBar IsOpen="{x:Bind ViewModel.HasDiagnostic, Mode=OneWay}" Visibility="{x:Bind ViewModel.HasDiagnostic, Mode=OneWay}" Message="{x:Bind ViewModel.Diagnostic, Mode=OneWay}" Severity="Warning" IsClosable="False"/>
+            <TextBlock Text="{x:Bind ViewModel.EmptyLabel, Mode=OneWay}" Visibility="{x:Bind ViewModel.ShowEmpty, Mode=OneWay}" TextWrapping="Wrap"/>
+            <ItemsControl ItemsSource="{x:Bind ViewModel.Profiles, Mode=OneWay}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:SavedWifiCard">
+                        <Border Style="{StaticResource PageCardStyle}" Margin="0,0,0,12">
+                            <StackPanel Spacing="8">
+                                <TextBlock Text="{x:Bind Name}" Style="{StaticResource SubtitleTextBlockStyle}" IsTextSelectionEnabled="True" TextWrapping="Wrap"/>
+                                <TextBlock Text="{x:Bind Details}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                                <TextBlock Text="{x:Bind PasswordLabel}" FontWeight="SemiBold"/>
+                                <TextBlock Text="{x:Bind Password}" FontFamily="Consolas" IsTextSelectionEnabled="True" TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </Border>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

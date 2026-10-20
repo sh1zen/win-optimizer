@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:controls="using:CommunityToolkit.WinUI.Controls" xmlns:fluent="using:FluentIcons.WinUI" xmlns:common="using:WinOptimizer.UI.Features.Common.Controls" x:Class="WinOptimizer.UI.Features.Extensions.SystemMonitorSettingsPage">
+    <ScrollViewer Style="{StaticResource PageScrollViewerStyle}">
+        <StackPanel Style="{StaticResource PageStackStyle}">
+            <common:PageHeader Title="SysMonitor" Description="{x:Bind ViewModel.MonitorDescription, Mode=OneWay}" Icon="Gauge" x:Name="ExtensionTitle"/>
+            <StackPanel Spacing="8">
+                <controls:SettingsCard Header="{x:Bind ViewModel.EnableLabel, Mode=OneWay}" Description="{x:Bind ViewModel.WidgetStateText, Mode=OneWay}" Style="{StaticResource PageSettingsCardStyle}">
+                    <controls:SettingsCard.HeaderIcon><fluent:FluentIcon Icon="Power" IconVariant="Regular" IconSize="Size20"/></controls:SettingsCard.HeaderIcon>
+                    <StackPanel Orientation="Horizontal" Spacing="20">
+                        <Button Content="{x:Bind ViewModel.ShowWidgetLabel, Mode=OneWay}" Command="{x:Bind ViewModel.ShowWidgetCommand}"/>
+                        <ToggleSwitch IsOn="{x:Bind ViewModel.IsEnabled, Mode=TwoWay}" IsEnabled="{x:Bind ViewModel.CanEdit, Mode=OneWay}" AutomationProperties.Name="{x:Bind ViewModel.EnableLabel, Mode=OneWay}"/>
+                    </StackPanel>
+                </controls:SettingsCard>
+                <InfoBar IsOpen="{x:Bind ViewModel.HasRuntimeError, Mode=OneWay}" Severity="Error" IsClosable="False" Message="{x:Bind ViewModel.RuntimeError, Mode=OneWay}"/>
+                <InfoBar IsOpen="{x:Bind ViewModel.HasStatus, Mode=OneWay}" Severity="Error" IsClosable="False" Message="{x:Bind ViewModel.Status, Mode=OneWay}"/>
+            </StackPanel>
+            <StackPanel Spacing="8">
+                <TextBlock Text="{x:Bind ViewModel.SettingsLabel, Mode=OneWay}" Style="{StaticResource SubtitleTextBlockStyle}" Margin="0,0,0,6" AutomationProperties.HeadingLevel="Level2"/>
+                <controls:SettingsCard Header="{x:Bind ViewModel.StartupLabel, Mode=OneWay}" Description="{x:Bind ViewModel.StartupDescription, Mode=OneWay}" Style="{StaticResource PageSettingsCardStyle}">
+                    <controls:SettingsCard.HeaderIcon><fluent:FluentIcon Icon="Power" IconVariant="Regular" IconSize="Size20"/></controls:SettingsCard.HeaderIcon>
+                    <ToggleSwitch x:Name="StartupToggle" IsOn="{x:Bind ViewModel.StartWithWindows, Mode=TwoWay}" IsEnabled="{x:Bind ViewModel.CanEdit, Mode=OneWay}" AutomationProperties.Name="{x:Bind ViewModel.StartupLabel, Mode=OneWay}"/>
+                </controls:SettingsCard>
+                <controls:SettingsCard Header="{x:Bind ViewModel.CompactLabel, Mode=OneWay}" Description="{x:Bind ViewModel.CompactDescription, Mode=OneWay}" Style="{StaticResource PageSettingsCardStyle}">
+                    <controls:SettingsCard.HeaderIcon><fluent:FluentIcon Icon="Window" IconVariant="Regular" IconSize="Size20"/></controls:SettingsCard.HeaderIcon>
+                    <ToggleSwitch x:Name="CompactToggle" IsOn="{x:Bind ViewModel.IsCompact, Mode=TwoWay}" IsEnabled="{x:Bind ViewModel.CanEdit, Mode=OneWay}" AutomationProperties.Name="{x:Bind ViewModel.CompactLabel, Mode=OneWay}"/>
+                </controls:SettingsCard>
+                <controls:SettingsCard Header="{x:Bind ViewModel.TopLabel, Mode=OneWay}" Description="{x:Bind ViewModel.TopDescription, Mode=OneWay}" Style="{StaticResource PageSettingsCardStyle}">
+                    <controls:SettingsCard.HeaderIcon><fluent:FluentIcon Icon="Pin" IconVariant="Regular" IconSize="Size20"/></controls:SettingsCard.HeaderIcon>
+                    <ToggleSwitch x:Name="AlwaysOnTopToggle" IsOn="{x:Bind ViewModel.AlwaysOnTop, Mode=TwoWay}" IsEnabled="{x:Bind ViewModel.CanEdit, Mode=OneWay}" AutomationProperties.Name="{x:Bind ViewModel.TopLabel, Mode=OneWay}"/>
+                </controls:SettingsCard>
+                <controls:SettingsCard Header="{x:Bind ViewModel.ThemeLabel, Mode=OneWay}" Style="{StaticResource PageSettingsCardStyle}">
+                    <controls:SettingsCard.HeaderIcon><fluent:FluentIcon Icon="PaintBrushSparkle" IconVariant="Regular" IconSize="Size20"/></controls:SettingsCard.HeaderIcon>
+                    <ComboBox x:Name="WidgetThemePicker" SelectedIndex="{x:Bind ViewModel.ThemeIndex, Mode=TwoWay}" MinWidth="210" IsEnabled="{x:Bind ViewModel.CanEdit, Mode=OneWay}" AutomationProperties.Name="{x:Bind ViewModel.ThemeLabel, Mode=OneWay}">
+                        <ComboBoxItem Content="{x:Bind ViewModel.SystemThemeLabel, Mode=OneWay}"/>
+                        <ComboBoxItem Content="{x:Bind ViewModel.LightLabel, Mode=OneWay}"/>
+                        <ComboBoxItem Content="{x:Bind ViewModel.DarkLabel, Mode=OneWay}"/>
+                    </ComboBox>
+                </controls:SettingsCard>
+                <controls:SettingsCard Header="{x:Bind ViewModel.ScaleLabel, Mode=OneWay}" Description="{x:Bind ViewModel.ScaleDescription, Mode=OneWay}" Style="{StaticResource PageSettingsCardStyle}">
+                    <controls:SettingsCard.HeaderIcon><fluent:FluentIcon Icon="Window" IconVariant="Regular" IconSize="Size20"/></controls:SettingsCard.HeaderIcon>
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <Slider x:Name="WidgetScaleSlider" Value="{x:Bind ViewModel.ScalePercent, Mode=TwoWay}" Minimum="50" Maximum="200" StepFrequency="5" Width="180" VerticalAlignment="Center" IsEnabled="{x:Bind ViewModel.CanEdit, Mode=OneWay}" AutomationProperties.Name="{x:Bind ViewModel.ScaleLabel, Mode=OneWay}"/>
+                        <TextBlock Text="{x:Bind ViewModel.ScaleText, Mode=OneWay}" MinWidth="42" TextAlignment="Right" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </controls:SettingsCard>
+                <controls:SettingsCard Header="{x:Bind ViewModel.RefreshLabel, Mode=OneWay}" Style="{StaticResource PageSettingsCardStyle}">
+                    <controls:SettingsCard.HeaderIcon><fluent:FluentIcon Icon="Clock" IconVariant="Regular" IconSize="Size20"/></controls:SettingsCard.HeaderIcon>
+                    <ComboBox x:Name="RefreshPicker" SelectedIndex="{x:Bind ViewModel.RefreshIndex, Mode=TwoWay}" MinWidth="150" IsEnabled="{x:Bind ViewModel.CanEdit, Mode=OneWay}" AutomationProperties.Name="{x:Bind ViewModel.RefreshLabel, Mode=OneWay}">
+                        <ComboBoxItem Content="1 s"/><ComboBoxItem Content="2 s"/><ComboBoxItem Content="5 s"/>
+                    </ComboBox>
+                </controls:SettingsCard>
+            </StackPanel>
+            <StackPanel Spacing="8">
+                <TextBlock Text="{x:Bind ViewModel.ExpandedContentLabel, Mode=OneWay}" Style="{StaticResource SubtitleTextBlockStyle}" AutomationProperties.HeadingLevel="Level2"/>
+                <TextBlock Text="{x:Bind ViewModel.ExpandedContentDescription, Mode=OneWay}" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                <CheckBox IsEnabled="{x:Bind ViewModel.CanEdit, Mode=OneWay}" Content="{x:Bind ViewModel.TemperaturesLabel, Mode=OneWay}" IsChecked="{x:Bind ViewModel.ShowTemperatures, Mode=TwoWay}"/>
+                <CheckBox IsEnabled="{x:Bind ViewModel.CanEdit, Mode=OneWay}" Content="{x:Bind ViewModel.FansLabel, Mode=OneWay}" IsChecked="{x:Bind ViewModel.ShowFans, Mode=TwoWay}"/>
+                <CheckBox IsEnabled="{x:Bind ViewModel.CanEdit, Mode=OneWay}" Content="{x:Bind ViewModel.MemoryLabel, Mode=OneWay}" IsChecked="{x:Bind ViewModel.ShowMemory, Mode=TwoWay}"/>
+                <CheckBox IsEnabled="{x:Bind ViewModel.CanEdit, Mode=OneWay}" Content="{x:Bind ViewModel.CpuLabel, Mode=OneWay}" IsChecked="{x:Bind ViewModel.ShowCpu, Mode=TwoWay}"/>
+                <CheckBox IsEnabled="{x:Bind ViewModel.CanEdit, Mode=OneWay}" Content="{x:Bind ViewModel.NetworkLabel, Mode=OneWay}" IsChecked="{x:Bind ViewModel.ShowNetwork, Mode=TwoWay}"/>
+                <CheckBox IsEnabled="{x:Bind ViewModel.CanEdit, Mode=OneWay}" Content="{x:Bind ViewModel.GpuUsageLabel, Mode=OneWay}" IsChecked="{x:Bind ViewModel.ShowGpuUsage, Mode=TwoWay}"/>
+                <CheckBox IsEnabled="{x:Bind ViewModel.CanEdit, Mode=OneWay}" Content="{x:Bind ViewModel.GpuMemoryLabel, Mode=OneWay}" IsChecked="{x:Bind ViewModel.ShowGpuMemory, Mode=TwoWay}"/>
+                <CheckBox IsEnabled="{x:Bind ViewModel.CanEdit, Mode=OneWay}" Content="{x:Bind ViewModel.ClockSpeedLabel, Mode=OneWay}" IsChecked="{x:Bind ViewModel.ShowClockSpeed, Mode=TwoWay}"/>
+                <CheckBox IsEnabled="{x:Bind ViewModel.CanEdit, Mode=OneWay}" Content="{x:Bind ViewModel.PowerLabel, Mode=OneWay}" IsChecked="{x:Bind ViewModel.ShowPower, Mode=TwoWay}"/>
+                <CheckBox IsEnabled="{x:Bind ViewModel.CanEdit, Mode=OneWay}" Content="{x:Bind ViewModel.VoltageLabel, Mode=OneWay}" IsChecked="{x:Bind ViewModel.ShowVoltage, Mode=TwoWay}"/>
+                <CheckBox IsEnabled="{x:Bind ViewModel.CanEdit, Mode=OneWay}" Content="{x:Bind ViewModel.StorageActivityLabel, Mode=OneWay}" IsChecked="{x:Bind ViewModel.ShowStorageActivity, Mode=TwoWay}"/>
+                <CheckBox IsEnabled="{x:Bind ViewModel.CanEdit, Mode=OneWay}" Content="{x:Bind ViewModel.StorageThroughputLabel, Mode=OneWay}" IsChecked="{x:Bind ViewModel.ShowStorageThroughput, Mode=TwoWay}"/>
+            </StackPanel>
+            <Border Padding="18" CornerRadius="10" Background="{ThemeResource PageIconBackgroundBrush}">
+                <Grid ColumnSpacing="14">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                    <fluent:FluentIcon Icon="Info" IconVariant="Regular" IconSize="Size20" VerticalAlignment="Top" Foreground="{ThemeResource PageIconForegroundBrush}"/>
+                    <StackPanel Grid.Column="1" Spacing="6">
+                        <TextBlock Text="{x:Bind ViewModel.BackgroundTitle, Mode=OneWay}" FontWeight="SemiBold" Foreground="{ThemeResource PageIconForegroundBrush}"/>
+                        <TextBlock Text="{x:Bind ViewModel.BackgroundDescription, Mode=OneWay}" TextWrapping="Wrap" FontSize="13" Foreground="{ThemeResource PageIconForegroundBrush}"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+            <Expander Header="{x:Bind ViewModel.SensorsTitle, Mode=OneWay}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="{x:Bind ViewModel.SensorsDescription, Mode=OneWay}" TextWrapping="Wrap" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <HyperlinkButton Content="{x:Bind ViewModel.SensorSetupLabel, Mode=OneWay}" NavigateUri="https://github.com/namazso/PawnIO/releases"/>
+                </StackPanel>
+            </Expander>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

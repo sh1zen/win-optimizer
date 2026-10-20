@@ -1,0 +1,59 @@
+<Page x:Class="WinOptimizer.UI.Features.Optimize.Pages.NetworkOptimizePage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:common="using:WinOptimizer.UI.Features.Common.Controls" x:DefaultBindMode="OneWay">
+    <Page.Resources>
+        <DataTemplate x:Key="NetworkChoiceTemplate" xmlns:vm="using:WinOptimizer.UI.Features.Optimize.ViewModels" x:DataType="vm:NetworkTuningChoice">
+            <Border Style="{StaticResource PageCardStyle}">
+                <Grid ColumnSpacing="24">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <StackPanel Spacing="8">
+                        <TextBlock Text="{x:Bind Title}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                        <TextBlock Text="{x:Bind Description}" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        <TextBlock Text="{x:Bind CurrentLabel}" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    </StackPanel>
+                    <StackPanel Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Right" Spacing="8">
+                        <ToggleSwitch IsOn="{x:Bind IsOn}" Visibility="{x:Bind ToggleVisibility}" Toggled="Setting_Toggled"
+                            OnContent="" OffContent="" MinWidth="0" HorizontalAlignment="Right" IsEnabled="{x:Bind IsAvailable}" AutomationProperties.Name="{x:Bind Title}"/>
+                        <ComboBox ItemsSource="{x:Bind Options}" SelectedItem="{x:Bind SelectedOption}" DisplayMemberPath="Label"
+                            Visibility="{x:Bind SelectionVisibility}" SelectionChanged="Setting_SelectionChanged" MinWidth="170" IsEnabled="{x:Bind IsAvailable}" AutomationProperties.Name="{x:Bind Title}"/>
+                        <NumberBox Value="{x:Bind NumberValue}" Minimum="{x:Bind Minimum}" Maximum="{x:Bind Maximum}" SmallChange="{x:Bind Increment}"
+                            Visibility="{x:Bind NumberVisibility}" PlaceholderText="{x:Bind Placeholder}" ValueChanged="Setting_ValueChanged"
+                            SpinButtonPlacementMode="Compact" Width="170" IsEnabled="{x:Bind IsAvailable}" AutomationProperties.Name="{x:Bind Title}"/>
+                        <Button Content="{x:Bind ResetLabel}" Visibility="{x:Bind ResetVisibility}" Click="ClearOverride_Click" HorizontalAlignment="Right" IsEnabled="{x:Bind IsAvailable}"/>
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </DataTemplate>
+    </Page.Resources>
+    <ScrollViewer Style="{StaticResource PageScrollViewerStyle}">
+        <StackPanel Style="{StaticResource PageStackStyle}">
+            <TextBlock Text="{x:Bind ViewModel.SectionTitle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+            <common:PageHeader Title="{x:Bind ViewModel.Title}" Description="{x:Bind ViewModel.Description}" Icon="Globe"/>
+            <InfoBar IsOpen="{x:Bind ViewModel.ShowModeNotice}" Message="{x:Bind ViewModel.ModeNotice}" IsClosable="False"/>
+            <InfoBar IsOpen="{x:Bind ViewModel.HasStatus}" Message="{x:Bind ViewModel.Status}" Severity="{x:Bind ViewModel.StatusSeverity}" IsClosable="False"/>
+            <Border Style="{StaticResource PageCardStyle}">
+                <StackPanel Spacing="16">
+                    <TextBlock Text="{x:Bind ViewModel.CurrentState}" TextWrapping="Wrap"/>
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <Button Content="{x:Bind ViewModel.EnhanceLabel}" Command="{x:Bind ViewModel.EnhanceCommand}"/>
+                        <Button Content="{x:Bind ViewModel.RefreshLabel}" Command="{x:Bind ViewModel.RefreshCommand}"/>
+                        <ProgressRing Width="24" Height="24" IsActive="{x:Bind ViewModel.IsBusy}"/>
+                    </StackPanel>
+                </StackPanel>
+            </Border>
+            <ItemsControl ItemsSource="{x:Bind ViewModel.Groups}" IsEnabled="{x:Bind ViewModel.CanWrite}">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate xmlns:vm="using:WinOptimizer.UI.Features.Optimize.ViewModels" x:DataType="vm:NetworkTuningGroup">
+                        <StackPanel Spacing="8" Margin="0,12,0,12">
+                            <TextBlock Text="{x:Bind Title}" Style="{StaticResource SubtitleTextBlockStyle}" TextWrapping="Wrap"/>
+                            <ItemsControl ItemsSource="{x:Bind Choices}" ItemTemplate="{StaticResource NetworkChoiceTemplate}">
+                                <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Spacing="8"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                            </ItemsControl>
+                        </StackPanel>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

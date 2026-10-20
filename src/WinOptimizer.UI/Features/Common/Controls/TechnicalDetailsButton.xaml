@@ -1,0 +1,199 @@
+<UserControl x:Class="WinOptimizer.UI.Features.Common.Controls.TechnicalDetailsButton" xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:popups="using:WinOptimizer.UI.Features.Common.Helpers" xmlns:models="using:WinOptimizer.UI.Features.Common.Models">
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="ms-appx:///Features/Common/Resources/TechnicalDetailsStyles.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+            <DataTemplate x:Key="DetailRow" x:DataType="models:TechnicalDetailRow">
+                <ContentControl IsTabStop="True" HorizontalContentAlignment="Stretch" AutomationProperties.Name="{x:Bind AccessibleSummary}" AutomationProperties.LocalizedControlType="detail">
+                    <Border Style="{StaticResource TechDetail.Card}">
+                        <Grid>
+                            <!-- Registry identity and the three independently readable states. -->
+                            <StackPanel Visibility="{x:Bind IsRegistry}" Spacing="12">
+                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                                    <StackPanel Spacing="4">
+                                        <TextBlock Text="{x:Bind ValueName}" FontWeight="SemiBold" FontSize="15" TextWrapping="Wrap" IsTextSelectionEnabled="True" />
+                                        <TextBlock Text="{x:Bind ValueType}" Style="{StaticResource TechDetail.Label}" />
+                                    </StackPanel>
+                                    <Button Grid.Column="1" Command="{x:Bind OpenRegeditCommand}" CommandParameter="{x:Bind RegistryPath}" IsEnabled="{x:Bind CanOpenRegedit}" AutomationProperties.Name="{x:Bind RegistryPath}" ToolTipService.ToolTip="Open in Registry Editor" VerticalAlignment="Top" Padding="8">
+                                        <Grid Width="16" Height="16">
+                                            <FontIcon Glyph="&#xE8A7;" FontSize="14" Visibility="{x:Bind RegeditIconSource, Converter={StaticResource NullToVisibilityConverter}}" />
+                                            <Image Source="{x:Bind RegeditIconSource}" Width="16" Height="16" />
+                                        </Grid>
+                                    </Button>
+                                </Grid>
+                                <StackPanel Spacing="4">
+                                    <TextBlock Text="{x:Bind PathLabel}" Style="{StaticResource TechDetail.Label}" />
+                                    <TextBlock Text="{x:Bind RegistryPath}" Style="{StaticResource TechDetail.Value}" />
+                                </StackPanel>
+                                <Grid ColumnDefinitions="*,*,*" ColumnSpacing="8">
+                                    <Border Grid.Column="0" Style="{StaticResource TechDetail.Comparison}">
+                                        <StackPanel Spacing="6">
+                                            <TextBlock Text="{x:Bind CurrentLabel}" Style="{StaticResource TechDetail.Label}" />
+                                            <TextBlock Text="{x:Bind CurrentValue}" Style="{StaticResource TechDetail.Value}" />
+                                        </StackPanel>
+                                    </Border>
+                                    <Border Grid.Column="1" Style="{StaticResource TechDetail.Comparison}" Visibility="{x:Bind IsActionRow, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
+                                        <StackPanel Spacing="6">
+                                            <TextBlock Text="{x:Bind RecommendedLabel}" Style="{StaticResource TechDetail.Label}" />
+                                            <TextBlock Text="{x:Bind RecommendedValue}" Style="{StaticResource TechDetail.Value}" />
+                                        </StackPanel>
+                                    </Border>
+                                    <Border Grid.Column="2" Style="{StaticResource TechDetail.Comparison}" Visibility="{x:Bind IsActionRow, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
+                                        <StackPanel Spacing="6">
+                                            <TextBlock Text="{x:Bind DefaultLabel}" Style="{StaticResource TechDetail.Label}" />
+                                            <TextBlock Text="{x:Bind DefaultValue}" Style="{StaticResource TechDetail.Value}" />
+                                        </StackPanel>
+                                    </Border>
+                                    <Border Grid.Column="1" Style="{StaticResource TechDetail.Comparison}" Grid.ColumnSpan="2" Visibility="{x:Bind IsActionRow}">
+                                        <StackPanel Spacing="6">
+                                            <TextBlock Text="{x:Bind OnApplyLabel}" Style="{StaticResource TechDetail.Label}" />
+                                            <TextBlock Text="{x:Bind OnApplyValue}" Style="{StaticResource TechDetail.Value}" />
+                                        </StackPanel>
+                                    </Border>
+                                </Grid>
+                            </StackPanel>
+                            <StackPanel Visibility="{x:Bind IsScheduledTask}" Spacing="12">
+                                <StackPanel Spacing="4">
+                                    <TextBlock Text="{x:Bind PathLabel}" Style="{StaticResource TechDetail.Label}" />
+                                    <TextBlock Text="{x:Bind TaskPath}" Style="{StaticResource TechDetail.Value}" />
+                                </StackPanel>
+                                <Grid ColumnDefinitions="*,*,*" ColumnSpacing="8">
+                                    <Border Grid.Column="0" Style="{StaticResource TechDetail.Comparison}">
+                                        <StackPanel Spacing="6">
+                                            <TextBlock Text="{x:Bind CurrentLabel}" Style="{StaticResource TechDetail.Label}" />
+                                            <TextBlock Text="{x:Bind CurrentState}" Style="{StaticResource TechDetail.Value}" />
+                                        </StackPanel>
+                                    </Border>
+                                    <Border Grid.Column="1" Style="{StaticResource TechDetail.Comparison}">
+                                        <StackPanel Spacing="6">
+                                            <TextBlock Text="{x:Bind RecommendedLabel}" Style="{StaticResource TechDetail.Label}" />
+                                            <TextBlock Text="{x:Bind RecommendedState}" Style="{StaticResource TechDetail.Value}" />
+                                        </StackPanel>
+                                    </Border>
+                                    <Border Grid.Column="2" Style="{StaticResource TechDetail.Comparison}">
+                                        <StackPanel Spacing="6">
+                                            <TextBlock Text="{x:Bind DefaultLabel}" Style="{StaticResource TechDetail.Label}" />
+                                            <TextBlock Text="{x:Bind DefaultState}" Style="{StaticResource TechDetail.Value}" />
+                                        </StackPanel>
+                                    </Border>
+                                </Grid>
+                            </StackPanel>
+                            <StackPanel Visibility="{x:Bind IsPowerConfig}" Spacing="12">
+                                <StackPanel Spacing="4">
+                                    <TextBlock Text="{x:Bind SubgroupLabel}" Style="{StaticResource TechDetail.Label}" />
+                                    <TextBlock Text="{x:Bind SubgroupAlias}" Style="{StaticResource TechDetail.Value}" />
+                                    <TextBlock Text="{x:Bind SubgroupGuid}" Style="{StaticResource TechDetail.Value}" />
+                                </StackPanel>
+                                <StackPanel Spacing="4">
+                                    <TextBlock Text="{x:Bind SettingLabel}" Style="{StaticResource TechDetail.Label}" />
+                                    <TextBlock Text="{x:Bind SettingAlias}" Style="{StaticResource TechDetail.Value}" />
+                                    <TextBlock Text="{x:Bind SettingGuid}" Style="{StaticResource TechDetail.Value}" />
+                                    <TextBlock Text="{x:Bind PowerUnits}" Style="{StaticResource TechDetail.Label}" />
+                                </StackPanel>
+                                <Grid ColumnDefinitions="*,*,*" ColumnSpacing="8">
+                                    <Border Grid.Column="0" Style="{StaticResource TechDetail.Comparison}">
+                                        <StackPanel Spacing="6">
+                                            <TextBlock Text="{x:Bind CurrentLabel}" Style="{StaticResource TechDetail.Label}" />
+                                            <TextBlock Style="{StaticResource TechDetail.Value}">
+                                                <Run Text="AC: " />
+                                                <Run Text="{x:Bind CurrentAC}" />
+                                            </TextBlock>
+                                            <TextBlock Style="{StaticResource TechDetail.Value}">
+                                                <Run Text="DC: " />
+                                                <Run Text="{x:Bind CurrentDC}" />
+                                            </TextBlock>
+                                        </StackPanel>
+                                    </Border>
+                                    <Border Grid.Column="1" Style="{StaticResource TechDetail.Comparison}">
+                                        <StackPanel Spacing="6">
+                                            <TextBlock Text="{x:Bind RecommendedLabel}" Style="{StaticResource TechDetail.Label}" />
+                                            <TextBlock Style="{StaticResource TechDetail.Value}">
+                                                <Run Text="AC: " />
+                                                <Run Text="{x:Bind RecommendedAC}" />
+                                            </TextBlock>
+                                            <TextBlock Style="{StaticResource TechDetail.Value}">
+                                                <Run Text="DC: " />
+                                                <Run Text="{x:Bind RecommendedDC}" />
+                                            </TextBlock>
+                                        </StackPanel>
+                                    </Border>
+                                    <Border Grid.Column="2" Style="{StaticResource TechDetail.Comparison}">
+                                        <StackPanel Spacing="6">
+                                            <TextBlock Text="{x:Bind DefaultLabel}" Style="{StaticResource TechDetail.Label}" />
+                                            <TextBlock Style="{StaticResource TechDetail.Value}">
+                                                <Run Text="AC: " />
+                                                <Run Text="{x:Bind DefaultAC}" />
+                                            </TextBlock>
+                                            <TextBlock Style="{StaticResource TechDetail.Value}">
+                                                <Run Text="DC: " />
+                                                <Run Text="{x:Bind DefaultDC}" />
+                                            </TextBlock>
+                                        </StackPanel>
+                                    </Border>
+                                </Grid>
+                            </StackPanel>
+                            <StackPanel Visibility="{x:Bind IsPowerShellScript}" Spacing="8">
+                                <TextBlock Text="{x:Bind ScriptLabel}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                <Border Style="{StaticResource TechDetail.CodeBlock}">
+                                    <ScrollViewer Padding="{StaticResource BidirectionalScrollContentPadding}" MaxHeight="240" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+                                        <TextBlock Text="{x:Bind ScriptBody}" Style="{StaticResource TechDetail.CodeText}" Padding="0,0,0,12" />
+                                    </ScrollViewer>
+                                </Border>
+                            </StackPanel>
+                            <StackPanel Visibility="{x:Bind IsRegContent}" Spacing="8">
+                                <TextBlock Text="{x:Bind ContentLabel}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                <Border Style="{StaticResource TechDetail.CodeBlock}">
+                                    <ScrollViewer Padding="{StaticResource BidirectionalScrollContentPadding}" MaxHeight="240" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto">
+                                        <TextBlock Text="{x:Bind ContentBody}" Style="{StaticResource TechDetail.CodeText}" Padding="0,0,0,12" />
+                                    </ScrollViewer>
+                                </Border>
+                            </StackPanel>
+                            <StackPanel Visibility="{x:Bind IsDependency}" Spacing="6">
+                                <TextBlock Text="{x:Bind DependencyLabel}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                                <TextBlock Text="{x:Bind DependencyRelation}" Style="{StaticResource TechDetail.Value}" />
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+                </ContentControl>
+            </DataTemplate>
+            <DataTemplate x:Key="DetailSection" x:DataType="models:TechnicalDetailSection">
+                <StackPanel Spacing="10">
+                    <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                        <TextBlock Text="{x:Bind Label}" FontWeight="SemiBold" FontSize="15" TextWrapping="Wrap" AutomationProperties.HeadingLevel="Level3" />
+                        <Border Grid.Column="1" Background="{ThemeResource SubtleFillColorSecondaryBrush}" CornerRadius="10" Padding="8,2">
+                            <TextBlock Text="{x:Bind Count}" Style="{StaticResource TechDetail.Label}" />
+                        </Border>
+                    </Grid>
+                    <ItemsControl ItemsSource="{x:Bind Rows}" ItemTemplate="{StaticResource DetailRow}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Spacing="8" />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                    </ItemsControl>
+                </StackPanel>
+            </DataTemplate>
+            <Grid x:Key="DetailsContent" x:Name="PopupContent" RowDefinitions="Auto,*" RowSpacing="18">
+                <popups:PopupHandler.DismissAccelerator>
+                    <KeyboardAccelerator Key="D" Modifiers="Control"/>
+                </popups:PopupHandler.DismissAccelerator>
+                <TextBlock Text="{x:Bind Setting.TechnicalDetailsLabel, Mode=OneWay}" Style="{StaticResource TechDetail.Label}" />
+                <ScrollViewer Padding="{StaticResource ScrollContentPadding}" x:Name="DetailsScroll" Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <ItemsControl ItemsSource="{x:Bind Setting.TechnicalDetailSections, Mode=OneWay}" ItemTemplate="{StaticResource DetailSection}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate>
+                                <StackPanel Spacing="20" />
+                            </ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                    </ItemsControl>
+                </ScrollViewer>
+            </Grid>
+        </ResourceDictionary>
+    </UserControl.Resources>
+    <Button x:Name="InfoButton" Click="InfoButton_Click"
+            Width="28" Height="28" Padding="0" CornerRadius="14" Background="Transparent" BorderThickness="0" VerticalAlignment="Center" ToolTipService.ToolTip="{x:Bind Setting.TechnicalDetailsLabel, Mode=OneWay}" AutomationProperties.Name="{x:Bind Setting.TechnicalDetailsLabel, Mode=OneWay}" AutomationProperties.HelpText="{x:Bind Setting.Name, Mode=OneWay}">
+        <FontIcon Glyph="&#xE946;" FontSize="16" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
+    </Button>
+</UserControl>

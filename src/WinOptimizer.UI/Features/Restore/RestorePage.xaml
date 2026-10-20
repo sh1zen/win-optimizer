@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:controls="using:CommunityToolkit.WinUI.Controls" xmlns:fluent="using:FluentIcons.WinUI" xmlns:common="using:WinOptimizer.UI.Features.Common.Controls" x:Class="WinOptimizer.UI.Features.Restore.RestorePage">
+    <Grid Style="{StaticResource PageGridStyle}">
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+        <common:PageHeader Title="{x:Bind ViewModel.Title, Mode=OneWay}" Description="{x:Bind ViewModel.Description, Mode=OneWay}" Icon="History"/>
+        <ScrollViewer Padding="{StaticResource ScrollContentPadding}" Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Spacing="{StaticResource PageSectionSpacing}">
+                <!-- Cards sit directly on the page; each section owns its heading and spacing. -->
+                <StackPanel Spacing="{StaticResource PageCardSpacing}">
+                    <TextBlock Text="{x:Bind ViewModel.ConfigurationLabel, Mode=OneWay}" Style="{StaticResource BodyStrongTextBlockStyle}" TextWrapping="Wrap" AutomationProperties.HeadingLevel="Level2"/>
+                    <controls:SettingsCard Header="{x:Bind ViewModel.BackupRestoreHeader, Mode=OneWay}" Description="{x:Bind ViewModel.BackupRestoreDescription, Mode=OneWay}" Style="{StaticResource PageSettingsCardStyle}">
+                        <controls:SettingsCard.HeaderIcon><fluent:FluentIcon Icon="ArrowSync" IconVariant="Regular"/></controls:SettingsCard.HeaderIcon>
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Button Content="{x:Bind ViewModel.ImportLabel, Mode=OneWay}" Command="{x:Bind ViewModel.ImportConfigCommand}">
+                                <Button.KeyboardAccelerators><KeyboardAccelerator Key="I" Modifiers="Control"/></Button.KeyboardAccelerators>
+                            </Button>
+                            <Button Content="{x:Bind ViewModel.ExportLabel, Mode=OneWay}" Command="{x:Bind ViewModel.ExportConfigCommand}">
+                                <Button.KeyboardAccelerators><KeyboardAccelerator Key="E" Modifiers="Control"/></Button.KeyboardAccelerators>
+                            </Button>
+                        </StackPanel>
+                    </controls:SettingsCard>
+                    <controls:SettingsCard Header="{x:Bind ViewModel.DefaultsTitle, Mode=OneWay}" Description="{x:Bind ViewModel.DefaultsDescription, Mode=OneWay}" Style="{StaticResource PageSettingsCardStyle}">
+                        <controls:SettingsCard.HeaderIcon><fluent:FluentIcon Icon="History" IconVariant="Regular"/></controls:SettingsCard.HeaderIcon>
+                        <Button Content="{x:Bind ViewModel.DefaultsLabel, Mode=OneWay}" Command="{x:Bind ViewModel.RestoreDefaultsCommand}"/>
+                    </controls:SettingsCard>
+                </StackPanel>
+
+                <StackPanel Spacing="{StaticResource PageCardSpacing}">
+                    <TextBlock Text="{x:Bind ViewModel.SystemProtectionLabel, Mode=OneWay}" Style="{StaticResource BodyStrongTextBlockStyle}" TextWrapping="Wrap" AutomationProperties.HeadingLevel="Level2"/>
+                    <controls:SettingsCard Header="{x:Bind ViewModel.RestorePointHeader, Mode=OneWay}" Description="{x:Bind ViewModel.RestorePointDescription, Mode=OneWay}" Style="{StaticResource PageSettingsCardStyle}">
+                        <controls:SettingsCard.HeaderIcon><fluent:FluentIcon Icon="ShieldTask" IconVariant="Regular"/></controls:SettingsCard.HeaderIcon>
+                        <Button Content="{x:Bind ViewModel.CreateLabel, Mode=OneWay}" Command="{x:Bind ViewModel.CreateRestorePointCommand}"/>
+                    </controls:SettingsCard>
+                </StackPanel>
+
+                <StackPanel Spacing="{StaticResource PageCardSpacing}">
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <StackPanel Spacing="4" VerticalAlignment="Center">
+                            <TextBlock Text="{x:Bind ViewModel.PointsLabel, Mode=OneWay}" FontSize="17" FontWeight="SemiBold" TextWrapping="Wrap" AutomationProperties.HeadingLevel="Level2"/>
+                            <TextBlock Text="{x:Bind ViewModel.PointCount, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </StackPanel>
+                        <ProgressRing Grid.Column="1" IsActive="{x:Bind ViewModel.IsLoadingPoints, Mode=OneWay}" Width="22" Height="22" Visibility="{x:Bind ViewModel.IsLoadingPoints, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                        <Button Grid.Column="2" Content="{x:Bind ViewModel.RefreshLabel, Mode=OneWay}" Command="{x:Bind ViewModel.RefreshRestorePointsCommand}" VerticalAlignment="Center"/>
+                    </Grid>
+                    <TextBlock Text="{x:Bind ViewModel.Status, Mode=OneWay}" TextWrapping="Wrap" IsTextSelectionEnabled="True" AutomationProperties.LiveSetting="Polite" Visibility="{x:Bind ViewModel.HasStatus, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                    <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="12">
+                        <Grid MinHeight="112">
+                            <!-- The list owns its scroll area and keeps each restore point in one row. -->
+                            <ListView Padding="{StaticResource ScrollContentPadding}" ItemsSource="{x:Bind ViewModel.RestorePoints}" SelectionMode="None" IsItemClickEnabled="False" MaxHeight="360" HorizontalContentAlignment="Stretch" ScrollViewer.VerticalScrollBarVisibility="Auto" AutomationProperties.Name="{x:Bind ViewModel.PointsLabel, Mode=OneWay}">
+                                <ListView.ItemContainerStyle><Style TargetType="ListViewItem"><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Padding" Value="0"/></Style></ListView.ItemContainerStyle>
+                                <ListView.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1" Padding="16,12">
+                                            <Grid ColumnSpacing="16">
+                                                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                                <StackPanel Spacing="5" VerticalAlignment="Center">
+                                                    <TextBlock Text="{Binding Description}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                                    <TextBlock Text="{Binding Details}" TextWrapping="Wrap" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                                </StackPanel>
+                                                <Button Grid.Column="1" Command="{Binding DeleteCommand}" CommandParameter="{Binding}" VerticalAlignment="Center" Width="38" Height="38" Padding="0" HorizontalContentAlignment="Center" VerticalContentAlignment="Center" ToolTipService.ToolTip="{Binding DeleteLabel}" AutomationProperties.Name="{Binding DeleteLabel}">
+                                                    <fluent:FluentIcon Icon="Delete" IconVariant="Regular" FontSize="20"/>
+                                                </Button>
+                                            </Grid>
+                                        </Border>
+                                    </DataTemplate>
+                                </ListView.ItemTemplate>
+                            </ListView>
+                            <TextBlock Text="{x:Bind ViewModel.EmptyLabel, Mode=OneWay}" Padding="24" TextWrapping="Wrap" TextAlignment="Center" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Visibility="{x:Bind ViewModel.HasNoPoints, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                        </Grid>
+                    </Border>
+                </StackPanel>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</Page>

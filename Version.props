@@ -1,0 +1,21 @@
+<Project>
+  <!-- One date-based version for local builds, Visual Studio and installer packaging. -->
+  <PropertyGroup>
+    <WinOptimizerVersion Condition="'$(WinOptimizerVersion)' == ''">$([System.DateTime]::Now.ToString('yy.MM.dd', $([System.Globalization.CultureInfo]::new(''))))</WinOptimizerVersion>
+    <Version>$(WinOptimizerVersion)</Version>
+    <FileVersion>$(WinOptimizerVersion)</FileVersion>
+    <AssemblyVersion>$(WinOptimizerVersion)</AssemblyVersion>
+    <InformationalVersion>$(WinOptimizerVersion)</InformationalVersion>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+  </PropertyGroup>
+
+  <!-- Validate before compilation and when packaging resolves the version directly. -->
+  <Target Name="ValidateWinOptimizerVersion" BeforeTargets="PrepareForBuild">
+    <Error Condition="!$([System.Text.RegularExpressions.Regex]::IsMatch('$(WinOptimizerVersion)', '^[0-9]{2}\.[0-9]{2}\.[0-9]{2}$'))"
+           Text="Application version must be a date in YY.MM.DD format: $(WinOptimizerVersion)" />
+    <PropertyGroup>
+      <!-- Use a four-digit year so dates in 2000-2099 have no two-digit-year cutoff. -->
+      <_WinOptimizerVersionDate>$([System.DateTime]::ParseExact('20$(WinOptimizerVersion)', 'yyyy.MM.dd', $([System.Globalization.CultureInfo]::new(''))))</_WinOptimizerVersionDate>
+    </PropertyGroup>
+  </Target>
+</Project>

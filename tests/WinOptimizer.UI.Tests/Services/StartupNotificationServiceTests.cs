@@ -1,0 +1,245 @@
+using FluentAssertions;
+using Moq;
+using WinOptimizer.Core.Features.Common.Constants;
+using WinOptimizer.Core.Features.Common.Enums;
+using WinOptimizer.Core.Features.Common.Interfaces;
+using WinOptimizer.Core.Features.Common.Models;
+using WinOptimizer.UI.Features.Common.Services;
+using Xunit;
+
+namespace WinOptimizer.UI.Tests.Services;
+
+public class StartupNotificationServiceTests
+{
+    private readonly Mock<IDialogService> _mockDialogService = new();
+    private readonly Mock<IUserPreferencesService> _mockPrefsService = new();
+    private readonly Mock<ISystemBackupService> _mockBackupService = new();
+    private readonly Mock<ITaskProgressService> _mockTaskProgressService = new();
+    private readonly Mock<ILogService> _mockLogService = new();
+    private readonly Mock<ILocalizationService> _mockLocalizationService = new();
+
+    public StartupNotificationServiceTests()
+    {
+        _mockTaskProgressService
+            .Setup(t => t.StartTask(It.IsAny<string>(), It.IsAny<bool>()))
+            .Returns(new CancellationTokenSource());
+        _mockTaskProgressService
+            .Setup(t => t.CreateDetailedProgress())
+            .Returns(new Progress<TaskProgressDetail>());
+    }
+
+    private StartupNotificationService CreateService()
+    {
+        return new StartupNotificationService(
+            _mockDialogService.Object,
+            _mockPrefsService.Object,
+            _mockBackupService.Object,
+            _mockTaskProgressService.Object,
+            _mockLogService.Object,
+            _mockLocalizationService.Object);
+    }
+
+    private void SetupLocalizationDefaults()
+    {
+        _mockLocalizationService
+            .Setup(l => l.GetString(It.IsAny<string>()))
+            .Returns("Localized text");
+    }
+
+    [Fact]
+    public async Task ShowFirstLaunchRestoreOfferAsync_WhenAlreadyOffered_ReturnsImmediately()
+    {
+        _mockPrefsService.Setup(p => p.GetPreference(
+            UserPreferenceKeys.InitialRestorePointOffered, false))
+            .Returns(true);
+
+        var service = CreateService();
+
+        await service.ShowFirstLaunchRestoreOfferAsync();
+
+        _mockDialogService.Verify(
+            d => d.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task ShowFirstLaunchRestoreOfferAsync_WhenFirstLaunch_ShowsConfirmationDialog()
+    {
+        SetupLocalizationDefaults();
+        _mockPrefsService.Setup(p => p.GetPreference(
+            UserPreferenceKeys.InitialRestorePointOffered, false))
+            .Returns(false);
+
+        _mockDialogService
+            .Setup(d => d.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>()))
+            .ReturnsAsync(new ConfirmationResponse { Confirmed = false });
+
+        var service = CreateService();
+
+        await service.ShowFirstLaunchRestoreOfferAsync();
+
+        _mockDialogService.Verify(
+            d => d.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task ShowFirstLaunchRestoreOfferAsync_SetsInitialRestorePointOfferedBeforeDialog()
+    {
+        SetupLocalizationDefaults();
+        _mockPrefsService.Setup(p => p.GetPreference(
+            UserPreferenceKeys.InitialRestorePointOffered, false))
+            .Returns(false);
+
+        _mockDialogService
+            .Setup(d => d.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>()))
+            .ReturnsAsync(new ConfirmationResponse { Confirmed = false });
+
+        var service = CreateService();
+
+        await service.ShowFirstLaunchRestoreOfferAsync();
+
+        _mockPrefsService.Verify(
+            p => p.SetPreferenceAsync(UserPreferenceKeys.InitialRestorePointOffered, true),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task ShowFirstLaunchRestoreOfferAsync_WhenUserClicksCreate_CallsCreateRestorePointAsync()
+    {
+        SetupLocalizationDefaults();
+        _mockPrefsService.Setup(p => p.GetPreference(
+            UserPreferenceKeys.InitialRestorePointOffered, false))
+            .Returns(false);
+
+        _mockDialogService
+            .Setup(d => d.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>()))
+            .ReturnsAsync(new ConfirmationResponse { Confirmed = true });
+
+        _mockBackupService
+            .Setup(b => b.CreateRestorePointAsync(
+                It.IsAny<string?>(),
+                It.IsAny<IProgress<TaskProgressDetail>?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(BackupResult.CreateSuccess(restorePointCreated: true));
+
+        var service = CreateService();
+
+        await service.ShowFirstLaunchRestoreOfferAsync();
+
+        _mockBackupService.Verify(
+            b => b.CreateRestorePointAsync(
+                It.IsAny<string?>(),
+                It.IsAny<IProgress<TaskProgressDetail>?>(),
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task ShowFirstLaunchRestoreOfferAsync_WhenRestorePointSucceeds_ShowsInformationDialog()
+    {
+        SetupLocalizationDefaults();
+        _mockPrefsService.Setup(p => p.GetPreference(
+            UserPreferenceKeys.InitialRestorePointOffered, false))
+            .Returns(false);
+
+        _mockDialogService
+            .Setup(d => d.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>()))
+            .ReturnsAsync(new ConfirmationResponse { Confirmed = true });
+
+        _mockBackupService
+            .Setup(b => b.CreateRestorePointAsync(
+                It.IsAny<string?>(),
+                It.IsAny<IProgress<TaskProgressDetail>?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(BackupResult.CreateSuccess(restorePointCreated: true));
+
+        var service = CreateService();
+
+        await service.ShowFirstLaunchRestoreOfferAsync();
+
+        _mockDialogService.Verify(
+            d => d.ShowInformationAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task ShowFirstLaunchRestoreOfferAsync_WhenRestorePointFails_ShowsWarningDialog()
+    {
+        SetupLocalizationDefaults();
+        _mockPrefsService.Setup(p => p.GetPreference(
+            UserPreferenceKeys.InitialRestorePointOffered, false))
+            .Returns(false);
+
+        _mockDialogService
+            .Setup(d => d.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>()))
+            .ReturnsAsync(new ConfirmationResponse { Confirmed = true });
+
+        _mockBackupService
+            .Setup(b => b.CreateRestorePointAsync(
+                It.IsAny<string?>(),
+                It.IsAny<IProgress<TaskProgressDetail>?>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(BackupResult.CreateFailure("Something went wrong"));
+
+        var service = CreateService();
+
+        await service.ShowFirstLaunchRestoreOfferAsync();
+
+        _mockDialogService.Verify(
+            d => d.ShowWarningAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>()),
+            Times.Once);
+    }
+
+    [Fact]
+    public async Task ShowFirstLaunchRestoreOfferAsync_WhenUserClicksSkip_DoesNotCallBackupService()
+    {
+        SetupLocalizationDefaults();
+        _mockPrefsService.Setup(p => p.GetPreference(
+            UserPreferenceKeys.InitialRestorePointOffered, false))
+            .Returns(false);
+
+        _mockDialogService
+            .Setup(d => d.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>()))
+            .ReturnsAsync(new ConfirmationResponse { Confirmed = false });
+
+        var service = CreateService();
+
+        await service.ShowFirstLaunchRestoreOfferAsync();
+
+        _mockBackupService.Verify(
+            b => b.CreateRestorePointAsync(
+                It.IsAny<string?>(),
+                It.IsAny<IProgress<TaskProgressDetail>?>(),
+                It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Fact]
+    public async Task ShowFirstLaunchRestoreOfferAsync_WhenDialogThrows_LogsErrorAndDoesNotRethrow()
+    {
+        SetupLocalizationDefaults();
+        _mockPrefsService.Setup(p => p.GetPreference(
+            UserPreferenceKeys.InitialRestorePointOffered, false))
+            .Returns(false);
+
+        _mockDialogService
+            .Setup(d => d.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>()))
+            .ThrowsAsync(new Exception("Dialog failed"));
+
+        var service = CreateService();
+
+        // Should not throw
+        await service.ShowFirstLaunchRestoreOfferAsync();
+
+        _mockLogService.Verify(
+            l => l.Log(LogLevel.Error, It.Is<string>(s => s.Contains("Error showing first launch restore offer"))),
+            Times.Once);
+    }
+}

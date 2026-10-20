@@ -1,0 +1,8 @@
+<ui:App x:Class="WinOptimizer.StartupTests.StartupTestApplication"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:ui="using:WinOptimizer.UI">
+    <Application.Resources><ResourceDictionary><ResourceDictionary.MergedDictionaries>
+        <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls"/>
+    </ResourceDictionary.MergedDictionaries></ResourceDictionary></Application.Resources>
+</ui:App>

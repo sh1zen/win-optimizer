@@ -1,0 +1,12 @@
+<Application x:Class="WinOptimizer.SecurityTests.SecurityTestApplication"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:resources="using:WinOptimizer.UI.Features.Common.Resources" xmlns:converters="using:WinOptimizer.UI.Features.Common.Converters">
+    <Application.Resources><ResourceDictionary>
+        <ResourceDictionary.MergedDictionaries>
+            <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls"/>
+            <resources:AppColorResources/>
+            <ResourceDictionary Source="ms-appx:///Features/Common/Resources/PageStyles.xaml"/>
+        </ResourceDictionary.MergedDictionaries>
+        <converters:BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
+    </ResourceDictionary></Application.Resources>
+</Application>

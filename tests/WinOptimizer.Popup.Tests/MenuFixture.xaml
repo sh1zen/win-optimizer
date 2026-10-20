@@ -1,0 +1,10 @@
+<UserControl x:Class="WinOptimizer.PopupTests.MenuFixture"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <DropDownButton x:Name="Anchor" Content="Menu" HorizontalAlignment="Left" VerticalAlignment="Top">
+        <DropDownButton.Resources>
+            <RadioMenuFlyoutItem x:Key="Action" x:Name="Action" Text="{x:Bind Label, Mode=OneWay}"
+                IsChecked="{x:Bind Selected, Mode=OneWay}" Click="Action_Click"/>
+        </DropDownButton.Resources>
+    </DropDownButton>
+</UserControl>

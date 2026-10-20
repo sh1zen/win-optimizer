@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:controls="using:CommunityToolkit.WinUI.Controls" xmlns:vm="using:WinOptimizer.UI.Features.Utilities.ViewModels" xmlns:common="using:WinOptimizer.UI.Features.Common.Controls" x:Class="WinOptimizer.UI.Features.Utilities.HostsEditorPage">
+    <Grid Style="{StaticResource PageGridStyle}">
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+        <StackPanel Spacing="8">
+            <TextBlock Text="{x:Bind ViewModel.SectionTitle, Mode=OneWay}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+            <common:PageHeader Title="{x:Bind ViewModel.Title, Mode=OneWay}" Description="{x:Bind ViewModel.Description, Mode=OneWay}" Icon="DocumentEdit"/>
+            <TextBlock Text="{x:Bind ViewModel.FilePath, Mode=OneWay}" IsTextSelectionEnabled="True" TextWrapping="Wrap" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+        </StackPanel>
+        <controls:WrapPanel Grid.Row="1" HorizontalSpacing="10" VerticalSpacing="8">
+            <Button x:Name="NewEntryButton" Click="NewEntry_Click" IsEnabled="{x:Bind ViewModel.CanEditEntries, Mode=OneWay}">
+                <StackPanel Orientation="Horizontal" Spacing="8"><SymbolIcon Symbol="Add"/><TextBlock Text="{x:Bind ViewModel.NewEntryLabel, Mode=OneWay}"/></StackPanel>
+            </Button>
+            <Button Content="{x:Bind ViewModel.SaveLabel, Mode=OneWay}" Command="{x:Bind ViewModel.SaveCommand}" Style="{StaticResource AccentButtonStyle}"/>
+            <Button Content="{x:Bind ViewModel.RefreshLabel, Mode=OneWay}" Command="{x:Bind ViewModel.RefreshCommand}"/>
+            <Button Content="{x:Bind ViewModel.UndoLabel, Mode=OneWay}" Command="{x:Bind ViewModel.UndoCommand}"/>
+            <ToggleSwitch x:Name="TextModeSwitch" IsOn="{x:Bind ViewModel.EditAsText, Mode=TwoWay}" OnContent="{x:Bind ViewModel.RawTextLabel, Mode=OneWay}" OffContent="{x:Bind ViewModel.RawTextLabel, Mode=OneWay}" AutomationProperties.Name="{x:Bind ViewModel.RawTextLabel, Mode=OneWay}" IsEnabled="{x:Bind ViewModel.IsIdle, Mode=OneWay}"/>
+            <ProgressRing Width="24" Height="24" IsActive="{x:Bind ViewModel.IsBusy, Mode=OneWay}"/>
+        </controls:WrapPanel>
+        <StackPanel Grid.Row="2" Spacing="8">
+            <InfoBar IsOpen="{x:Bind ViewModel.ShowModeNotice, Mode=OneWay}" Message="{x:Bind ViewModel.ModeNotice, Mode=OneWay}" IsClosable="False"/>
+            <InfoBar IsOpen="{x:Bind ViewModel.HasStatus, Mode=OneWay}" Message="{x:Bind ViewModel.Status, Mode=OneWay}" Severity="{x:Bind ViewModel.StatusSeverity, Mode=OneWay}" IsClosable="False"/>
+            <InfoBar IsOpen="{x:Bind ViewModel.HasInvalidLines, Mode=OneWay}" Message="{x:Bind ViewModel.InvalidLinesLabel, Mode=OneWay}" Severity="Warning" IsClosable="False"/>
+        </StackPanel>
+        <Grid Grid.Row="3" RowSpacing="10" Visibility="{x:Bind ViewModel.ShowEntries, Mode=OneWay}">
+            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+            <TextBlock Text="{x:Bind ViewModel.EntryCountLabel, Mode=OneWay}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" FontSize="12"/>
+            <Grid Grid.Row="1" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" CornerRadius="10">
+                <ListView x:Name="HostsEntriesList" ItemsSource="{x:Bind ViewModel.Entries}" SelectionMode="None" HorizontalContentAlignment="Stretch" IsEnabled="{x:Bind ViewModel.IsIdle, Mode=OneWay}" AutomationProperties.Name="{x:Bind ViewModel.Title, Mode=OneWay}" Padding="4,4,16,4">
+                    <ListView.ItemTemplate><DataTemplate x:DataType="vm:HostsEntryViewModel">
+                        <Grid ColumnSpacing="16" Padding="8,10" MinHeight="52">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="2*"/><ColumnDefinition Width="3*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                            <TextBlock Text="{x:Bind Address, Mode=OneWay}" FontFamily="Consolas" TextWrapping="Wrap" IsTextSelectionEnabled="True" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="1" Text="{x:Bind Description, Mode=OneWay}" TextWrapping="Wrap" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                                <Button Click="EditEntry_Click" IsEnabled="{x:Bind CanEdit, Mode=OneWay}" ToolTipService.ToolTip="{x:Bind EditLabel, Mode=OneWay}" AutomationProperties.Name="{x:Bind EditLabel, Mode=OneWay}">
+                                    <FontIcon Glyph="" FontSize="14"/>
+                                </Button>
+                                <Button Click="RemoveEntry_Click" IsEnabled="{x:Bind CanEdit, Mode=OneWay}" ToolTipService.ToolTip="{x:Bind RemoveLabel, Mode=OneWay}" AutomationProperties.Name="{x:Bind RemoveLabel, Mode=OneWay}">
+                                    <FontIcon Glyph="" FontSize="14"/>
+                                </Button>
+                                <ToggleSwitch IsOn="{x:Bind IsEnabled, Mode=TwoWay}" IsEnabled="{x:Bind CanEdit, Mode=OneWay}" OnContent="" OffContent="" MinWidth="44" Margin="8,0,0,0" AutomationProperties.Name="{x:Bind HostNames, Mode=OneWay}"/>
+                            </StackPanel>
+                        </Grid>
+                    </DataTemplate></ListView.ItemTemplate>
+                </ListView>
+                <TextBlock Text="{x:Bind ViewModel.EmptyLabel, Mode=OneWay}" Visibility="{x:Bind ViewModel.IsEmpty, Mode=OneWay}" TextWrapping="Wrap" Padding="24" VerticalAlignment="Center" HorizontalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}" IsHitTestVisible="False"/>
+            </Grid>
+        </Grid>
+        <TextBox x:Name="HostsContent" Grid.Row="3" Text="{x:Bind ViewModel.Content, Mode=OneWay}" TextChanged="HostsContent_TextChanged" Visibility="{x:Bind ViewModel.EditAsText, Mode=OneWay}" AcceptsReturn="True" TextWrapping="NoWrap" FontFamily="Consolas" FontSize="14" Padding="16" IsSpellCheckEnabled="False" IsReadOnly="{x:Bind ViewModel.ShowModeNotice, Mode=OneWay}" IsEnabled="{x:Bind ViewModel.IsIdle, Mode=OneWay}" ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Auto" AutomationProperties.Name="{x:Bind ViewModel.Title, Mode=OneWay}"/>
+        <StackPanel Grid.Row="4" Spacing="6">
+            <TextBlock Text="{x:Bind ViewModel.UnsavedLabel, Mode=OneWay}" Visibility="{x:Bind ViewModel.HasChanges, Mode=OneWay}" FontWeight="SemiBold"/>
+            <TextBlock Text="{x:Bind ViewModel.Hint, Mode=OneWay}" TextWrapping="Wrap" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+        </StackPanel>
+    </Grid>
+</Page>

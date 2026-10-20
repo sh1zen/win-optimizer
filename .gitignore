@@ -1,0 +1,47 @@
+# Project output and local .NET CLI state
+build/
+.config/
+[Bb]in/
+[Oo]bj/
+
+# Local agent configuration and working notes
+.claude/
+GEMINI.md
+.gemini/
+.plans/
+docs/
+.superpowers/
+.prompts/
+.agent/
+.agent-plans/
+GH_ISSUES.md
+
+# IDE user settings
+.vs/
+.idea/
+*.rsuser
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Test results and coverage
+[Tt]est[Rr]esults/
+*.trx
+*.coverage
+*.coveragexml
+coverage.cobertura.xml
+coverage.opencover.xml
+
+# Logs, temporary files and crash dumps
+*.log
+*.binlog
+*.tmp
+*.dmp
+*.mdmp
+
+# Windows metadata
+Thumbs.db
+ehthumbs.db
+ehthumbs_vista.db
+Desktop.ini

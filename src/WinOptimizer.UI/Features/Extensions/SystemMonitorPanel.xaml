@@ -1,0 +1,259 @@
+<?xml version="1.0" encoding="utf-8"?>
+<UserControl
+    x:Class="WinOptimizer.UI.Features.Extensions.SystemMonitorPanel"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:popups="using:WinOptimizer.UI.Features.Common.Helpers"
+    xmlns:vm="using:WinOptimizer.UI.Features.Extensions.ViewModels"
+    xmlns:extensions="using:WinOptimizer.UI.Features.Extensions"
+    xmlns:controls="using:WinOptimizer.UI.Features.Common.Controls">
+    <UserControl.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Light">
+                    <LinearGradientBrush x:Key="MonitorSurface" StartPoint="0,0" EndPoint="1,1">
+                        <GradientStop Color="#E6C9D0" Offset="0"/><GradientStop Color="#D9D9E9" Offset="0.55"/><GradientStop Color="#BBDDE7" Offset="1"/>
+                    </LinearGradientBrush>
+                    <SolidColorBrush x:Key="MonitorCard" Color="#2F5D394B"/>
+                    <SolidColorBrush x:Key="MonitorTile" Color="#175D394B"/>
+                    <SolidColorBrush x:Key="MonitorInk" Color="#2E5861"/>
+                    <SolidColorBrush x:Key="MonitorMuted" Color="#5B8088"/>
+                    <SolidColorBrush x:Key="MonitorAccent" Color="#239FC3"/>
+                    <SolidColorBrush x:Key="MonitorChart" Color="#2487AC"/>
+                    <SolidColorBrush x:Key="MonitorUpload" Color="#A56448"/>
+                    <SolidColorBrush x:Key="MonitorTrack" Color="#75A0C5CE"/>
+                    <SolidColorBrush x:Key="MonitorBarInk" Color="#24515E"/>
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Default">
+                    <LinearGradientBrush x:Key="MonitorSurface" StartPoint="0,0" EndPoint="1,1">
+                        <GradientStop Color="#72434C" Offset="0"/><GradientStop Color="#4C4058" Offset="0.52"/><GradientStop Color="#284A66" Offset="1"/>
+                    </LinearGradientBrush>
+                    <SolidColorBrush x:Key="MonitorCard" Color="#60251F2D"/>
+                    <SolidColorBrush x:Key="MonitorTile" Color="#40251F2D"/>
+                    <SolidColorBrush x:Key="MonitorInk" Color="#E6F7F5"/>
+                    <SolidColorBrush x:Key="MonitorMuted" Color="#B0CCCE"/>
+                    <SolidColorBrush x:Key="MonitorAccent" Color="#6DDED9"/>
+                    <SolidColorBrush x:Key="MonitorChart" Color="#6CBCE6"/>
+                    <SolidColorBrush x:Key="MonitorUpload" Color="#EEAD91"/>
+                    <SolidColorBrush x:Key="MonitorTrack" Color="#725C7D85"/>
+                    <SolidColorBrush x:Key="MonitorBarInk" Color="#24515E"/>
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+            <Style x:Key="MonitorLabel" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="9"/><Setter Property="Foreground" Value="{ThemeResource MonitorMuted}"/>
+            </Style>
+            <Style x:Key="CompactLabel" TargetType="TextBlock" BasedOn="{StaticResource MonitorLabel}">
+                <Setter Property="FontSize" Value="11"/>
+            </Style>
+            <Style x:Key="CompactRate" TargetType="TextBlock">
+                <Setter Property="FontSize" Value="14"/><Setter Property="FontWeight" Value="SemiBold"/>
+                <Setter Property="Foreground" Value="{ThemeResource MonitorInk}"/>
+                <Setter Property="VerticalAlignment" Value="Center"/>
+            </Style>
+            <Style x:Key="MonitorPanel" TargetType="Border">
+                <Setter Property="Background" Value="{ThemeResource MonitorCard}"/><Setter Property="CornerRadius" Value="6"/>
+                <Setter Property="Padding" Value="10,9"/><Setter Property="BorderThickness" Value="0"/>
+            </Style>
+            <Style x:Key="MonitorIconButton" TargetType="Button">
+                <Setter Property="Background" Value="Transparent"/><Setter Property="BorderThickness" Value="0"/>
+                <Setter Property="MinWidth" Value="24"/><Setter Property="MinHeight" Value="22"/>
+                <Setter Property="Padding" Value="4"/><Setter Property="CornerRadius" Value="5"/>
+                <Setter Property="Foreground" Value="{ThemeResource MonitorInk}"/>
+            </Style>
+        </ResourceDictionary>
+    </UserControl.Resources>
+    <Grid x:Name="LayoutRoot">
+        <Border x:Name="WidgetBackdrop" Background="{ThemeResource MonitorSurface}"/>
+        <Border x:Name="PanelFrame" BorderThickness="0">
+            <Grid x:Name="InstrumentLayout" RowSpacing="6" Padding="8,4,8,5">
+                <Grid.RowDefinitions><RowDefinition Height="19"/><RowDefinition Height="Auto"/><RowDefinition Height="24"/></Grid.RowDefinitions>
+                <Grid x:Name="DragHeader" Background="Transparent" Margin="4,0">
+                    <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                        <Ellipse x:Name="AccentDot" Width="4" Height="4" Fill="{ThemeResource MonitorChart}"/>
+                        <TextBlock Text="SysMonitor" FontSize="11" FontWeight="SemiBold" Foreground="{ThemeResource MonitorInk}"/>
+                    </StackPanel>
+                </Grid>
+                <ScrollViewer Padding="{StaticResource ScrollContentPadding}" x:Name="ReadingsViewport" Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel x:Name="ReadingsSurface" Spacing="6" Tapped="ReadingsSurface_Tapped" SizeChanged="ReadingsSurface_SizeChanged">
+                        <StackPanel x:Name="CompactLayout" Spacing="10" Margin="4,0,4,2"
+                                    Visibility="{x:Bind ViewModel.IsCompact, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <Border Background="{ThemeResource MonitorCard}" CornerRadius="7" Padding="9,8">
+                                <StackPanel Spacing="7">
+                                    <Grid ColumnSpacing="5">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                        <Viewbox Width="13" Height="13" VerticalAlignment="Center"><Canvas Width="16" Height="16">
+                                            <Path Data="M4,3H12V13H4Z M1,5H4 M1,8H4 M1,11H4 M12,5H15 M12,8H15 M12,11H15 M6,1V3 M10,1V3 M6,13V15 M10,13V15"
+                                                  Stroke="{ThemeResource MonitorInk}" StrokeThickness="1"/>
+                                        </Canvas></Viewbox>
+                                        <TextBlock Grid.Column="1" Text="{x:Bind ViewModel.CpuHeadline, Mode=OneWay}" FontSize="12" FontWeight="SemiBold" Foreground="{ThemeResource MonitorInk}"/>
+                                        <TextBlock Grid.Column="2" Text="{x:Bind ViewModel.CpuTemperature, Mode=OneWay}" FontSize="12" FontWeight="SemiBold"
+                                                   Foreground="{ThemeResource MonitorChart}" ToolTipService.ToolTip="{x:Bind ViewModel.CpuTemperatureName, Mode=OneWay}"/>
+                                    </Grid>
+                                    <Grid ColumnSpacing="6">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                        <TextBlock Text="{x:Bind ViewModel.CpuHistoryLabel, Mode=OneWay}" Style="{StaticResource CompactLabel}" FontSize="10" TextTrimming="CharacterEllipsis"/>
+                                        <TextBlock Grid.Column="1" Text="{x:Bind ViewModel.PrimaryFanValue, Mode=OneWay}" Style="{StaticResource CompactLabel}" FontSize="10"/>
+                                    </Grid>
+                                    <Canvas x:Name="CompactCpuChart" Height="32" SizeChanged="CpuChart_SizeChanged"/>
+                                </StackPanel>
+                            </Border>
+                            <Grid ColumnSpacing="7" RowSpacing="6" Margin="4,0">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                                <TextBlock Text="↓" FontSize="13" Foreground="{ThemeResource MonitorAccent}" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="1" Text="{x:Bind ViewModel.DownloadLabel, Mode=OneWay}" Style="{StaticResource CompactLabel}" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Column="2" Text="{x:Bind ViewModel.DownloadValue, Mode=OneWay}" Style="{StaticResource CompactRate}"/>
+                                <TextBlock Grid.Row="1" Text="↑" FontSize="13" Foreground="{ThemeResource MonitorUpload}" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Row="1" Grid.Column="1" Text="{x:Bind ViewModel.UploadLabel, Mode=OneWay}" Style="{StaticResource CompactLabel}" VerticalAlignment="Center"/>
+                                <TextBlock Grid.Row="1" Grid.Column="2" Text="{x:Bind ViewModel.UploadValue, Mode=OneWay}" Style="{StaticResource CompactRate}"/>
+                            </Grid>
+                            <StackPanel Spacing="5" Margin="4,0">
+                                <Grid ColumnSpacing="6">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                    <FontIcon Glyph="&#xE950;" FontFamily="Segoe MDL2 Assets" FontSize="11" Foreground="{ThemeResource MonitorInk}"/>
+                                    <TextBlock Grid.Column="1" Text="{x:Bind ViewModel.MemoryLabel, Mode=OneWay}" Style="{StaticResource CompactLabel}"/>
+                                    <TextBlock Grid.Column="2" Text="{x:Bind ViewModel.MemoryUsageValue, Mode=OneWay}" FontSize="11" FontWeight="SemiBold" Foreground="{ThemeResource MonitorInk}"/>
+                                </Grid>
+                                <ProgressBar Value="{x:Bind ViewModel.MemoryPercent, Mode=OneWay}" Height="4" Maximum="100" CornerRadius="2"
+                                             Foreground="{ThemeResource MonitorAccent}" Background="{ThemeResource MonitorTrack}"/>
+                            </StackPanel>
+                        </StackPanel>
+                        <StackPanel x:Name="ExpandedLayout" Spacing="6"
+                                    Visibility="{x:Bind ViewModel.IsExpanded, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <Border x:Name="TemperaturesCard" Style="{StaticResource MonitorPanel}"
+                                    Visibility="{x:Bind ViewModel.ShowTemperatures, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                <StackPanel Spacing="8">
+                                    <Grid><TextBlock Text="{x:Bind ViewModel.TemperaturesLabel, Mode=OneWay}" Style="{StaticResource MonitorLabel}"/>
+                                        <TextBlock Text="°C" Style="{StaticResource MonitorLabel}" HorizontalAlignment="Right"/></Grid>
+                                    <ScrollViewer Padding="{StaticResource ScrollContentPadding}" MaxHeight="116" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                        <ItemsControl x:Name="TemperatureTiles" ItemsSource="{x:Bind ViewModel.Temperatures}" HorizontalContentAlignment="Stretch">
+                                            <ItemsControl.ItemsPanel><ItemsPanelTemplate><controls:UniformWrapPanel ItemWidth="54" ItemHeight="44" ColumnSpacing="5" RowSpacing="5" StretchItems="True" MaxColumns="3"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate><DataTemplate x:DataType="vm:MonitorSensorItem">
+                                                <Border Background="{ThemeResource MonitorTile}" CornerRadius="4" Padding="4,7">
+                                                    <StackPanel Spacing="2"><TextBlock Text="{x:Bind Value}" FontSize="16" HorizontalAlignment="Center" Foreground="{ThemeResource MonitorInk}"/>
+                                                        <TextBlock Text="{x:Bind Name}" FontSize="8" TextTrimming="CharacterEllipsis" MaxLines="1" HorizontalAlignment="Center"
+                                                                   Foreground="{ThemeResource MonitorMuted}" ToolTipService.ToolTip="{x:Bind Name}"/></StackPanel>
+                                                </Border>
+                                            </DataTemplate></ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </ScrollViewer>
+                                    <TextBlock Text="{x:Bind ViewModel.UnavailableLabel, Mode=OneWay}" Style="{StaticResource MonitorLabel}" Margin="0,9"
+                                               Visibility="{x:Bind ViewModel.NoTemperatures, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                                </StackPanel>
+                            </Border>
+                            <Border x:Name="FansCard" Style="{StaticResource MonitorPanel}"
+                                    Visibility="{x:Bind ViewModel.ShowFans, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                <StackPanel Spacing="8">
+                                    <Grid><TextBlock Text="{x:Bind ViewModel.FansLabel, Mode=OneWay}" Style="{StaticResource MonitorLabel}"/>
+                                        <TextBlock Text="rpm" Style="{StaticResource MonitorLabel}" HorizontalAlignment="Right"/></Grid>
+                                    <ScrollViewer Padding="{StaticResource ScrollContentPadding}" MaxHeight="85" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                        <ItemsControl x:Name="FanDials" ItemsSource="{x:Bind ViewModel.Fans}" HorizontalContentAlignment="Stretch">
+                                            <ItemsControl.ItemsPanel><ItemsPanelTemplate><controls:UniformWrapPanel ItemWidth="80" ColumnSpacing="6" RowSpacing="7" StretchItems="True" MaxColumns="2"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                                            <ItemsControl.ItemTemplate><DataTemplate x:DataType="vm:MonitorSensorItem">
+                                                <StackPanel Spacing="5" Padding="0,2">
+                                                    <Grid Width="48" Height="48" HorizontalAlignment="Center">
+                                                        <Ellipse Margin="2" Stroke="{ThemeResource MonitorTrack}" StrokeThickness="4"/>
+                                                        <Path Data="M9,38 A21,21 0 1 1 39,9" Stroke="{ThemeResource MonitorAccent}" StrokeThickness="4" StrokeStartLineCap="Round" StrokeEndLineCap="Round"/>
+                                                        <TextBlock Text="{x:Bind Value}" FontSize="10" VerticalAlignment="Center" HorizontalAlignment="Center" Foreground="{ThemeResource MonitorInk}"/>
+                                                    </Grid>
+                                                    <TextBlock Text="{x:Bind Name}" FontSize="8" TextTrimming="CharacterEllipsis" MaxLines="1" HorizontalAlignment="Center"
+                                                               Foreground="{ThemeResource MonitorMuted}" ToolTipService.ToolTip="{x:Bind Name}"/>
+                                                </StackPanel>
+                                            </DataTemplate></ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </ScrollViewer>
+                                    <TextBlock Text="{x:Bind ViewModel.UnavailableLabel, Mode=OneWay}" Style="{StaticResource MonitorLabel}" Margin="0,6"
+                                               Visibility="{x:Bind ViewModel.NoFans, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                                </StackPanel>
+                            </Border>
+                            <Border x:Name="MemoryCard" Style="{StaticResource MonitorPanel}"
+                                    Visibility="{x:Bind ViewModel.ShowMemory, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                <StackPanel Spacing="8">
+                                    <Grid><TextBlock Text="{x:Bind ViewModel.MemoryLabel, Mode=OneWay}" Style="{StaticResource MonitorLabel}"/>
+                                        <TextBlock Text="{x:Bind ViewModel.TotalMemory, Mode=OneWay}" Style="{StaticResource MonitorLabel}" HorizontalAlignment="Right"/></Grid>
+                                    <Border Height="14" Background="{ThemeResource MonitorTrack}" CornerRadius="3"
+                                            AutomationProperties.Name="{x:Bind ViewModel.MemoryLabel, Mode=OneWay}" AutomationProperties.HelpText="{x:Bind ViewModel.MemoryValue, Mode=OneWay}">
+                                        <Grid x:Name="MemoryBar"><Grid.ColumnDefinitions><ColumnDefinition x:Name="UsedMemoryColumn"/><ColumnDefinition x:Name="FreeMemoryColumn"/></Grid.ColumnDefinitions>
+                                            <Border x:Name="MemoryFill" Background="{ThemeResource MonitorAccent}" CornerRadius="3"/>
+                                            <TextBlock Text="{x:Bind ViewModel.UsedMemoryNumber, Mode=OneWay}" FontSize="8" TextAlignment="Center" TextTrimming="Clip" VerticalAlignment="Center" Foreground="{ThemeResource MonitorBarInk}"/>
+                                            <TextBlock Grid.Column="1" Text="{x:Bind ViewModel.FreeMemoryNumber, Mode=OneWay}" FontSize="8" TextAlignment="Center" TextTrimming="Clip" VerticalAlignment="Center" Foreground="{ThemeResource MonitorInk}"/>
+                                        </Grid>
+                                    </Border>
+                                    <Grid ColumnSpacing="5">
+                                        <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions>
+                                        <Border Background="{ThemeResource MonitorTile}" CornerRadius="4" Padding="4,7"><StackPanel Spacing="3">
+                                            <TextBlock Text="{x:Bind ViewModel.UsedMemoryNumber, Mode=OneWay}" FontSize="13" HorizontalAlignment="Center" Foreground="{ThemeResource MonitorInk}"/>
+                                            <TextBlock Text="{x:Bind ViewModel.UsedLabel, Mode=OneWay}" Style="{StaticResource MonitorLabel}" FontSize="8" HorizontalAlignment="Center"/>
+                                        </StackPanel></Border>
+                                        <Border Grid.Column="1" Background="{ThemeResource MonitorTile}" CornerRadius="4" Padding="4,7"><StackPanel Spacing="3">
+                                            <TextBlock Text="{x:Bind ViewModel.FreeMemoryNumber, Mode=OneWay}" FontSize="13" HorizontalAlignment="Center" Foreground="{ThemeResource MonitorInk}"/>
+                                            <TextBlock Text="{x:Bind ViewModel.FreeLabel, Mode=OneWay}" Style="{StaticResource MonitorLabel}" FontSize="8" HorizontalAlignment="Center"/>
+                                        </StackPanel></Border>
+                                        <Border Grid.Column="2" Background="{ThemeResource MonitorTile}" CornerRadius="4" Padding="4,7"><StackPanel Spacing="3">
+                                            <TextBlock Text="{x:Bind ViewModel.MemoryUsageValue, Mode=OneWay}" FontSize="13" HorizontalAlignment="Center" Foreground="{ThemeResource MonitorInk}"/>
+                                            <TextBlock Text="{x:Bind ViewModel.MemoryLabel, Mode=OneWay}" Style="{StaticResource MonitorLabel}" FontSize="8" HorizontalAlignment="Center"/>
+                                        </StackPanel></Border>
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+                            <ItemsControl x:Name="HardwareMetricCards" ItemsSource="{x:Bind ViewModel.MetricSections}" HorizontalContentAlignment="Stretch"
+                                          Visibility="{x:Bind ViewModel.HasVisibleMetrics, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate x:DataType="vm:MonitorMetricSection">
+                                        <Border Style="{StaticResource MonitorPanel}" Margin="0,0,0,6"
+                                                Visibility="{x:Bind IsVisible, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                            <StackPanel Spacing="8">
+                                                <TextBlock Text="{x:Bind Label, Mode=OneWay}" Style="{StaticResource MonitorLabel}"/>
+                                                <extensions:SystemMonitorMetricChart Section="{x:Bind}" Foreground="{ThemeResource MonitorInk}"/>
+                                                <TextBlock Text="{x:Bind UnavailableLabel, Mode=OneWay}" Style="{StaticResource MonitorLabel}"
+                                                           Visibility="{x:Bind IsEmpty, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                            <Grid x:Name="CpuReadings" Margin="6,1" ColumnSpacing="8"
+                                  Visibility="{x:Bind ViewModel.ShowCpu, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <TextBlock Text="{x:Bind ViewModel.CpuHeadline, Mode=OneWay}" FontSize="9" VerticalAlignment="Center" Foreground="{ThemeResource MonitorInk}"/>
+                                <Canvas x:Name="ExpandedCpuChart" Grid.Column="1" Height="22" SizeChanged="CpuChart_SizeChanged" ToolTipService.ToolTip="{x:Bind ViewModel.CpuHistoryLabel, Mode=OneWay}"/>
+                            </Grid>
+                            <Grid x:Name="NetworkReadings" Margin="6,1"
+                                  Visibility="{x:Bind ViewModel.ShowNetwork, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                <Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions>
+                                <StackPanel Orientation="Horizontal" Spacing="4"><TextBlock Text="↓" FontSize="11" Foreground="{ThemeResource MonitorAccent}"/><TextBlock Text="{x:Bind ViewModel.DownloadValue, Mode=OneWay}" FontSize="10" Foreground="{ThemeResource MonitorInk}"/></StackPanel>
+                                <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="4" HorizontalAlignment="Right"><TextBlock Text="↑" FontSize="11" Foreground="{ThemeResource MonitorUpload}"/><TextBlock Text="{x:Bind ViewModel.UploadValue, Mode=OneWay}" FontSize="10" Foreground="{ThemeResource MonitorInk}"/></StackPanel>
+                            </Grid>
+                        </StackPanel>
+                        <TextBlock x:Name="ErrorText" Text="{x:Bind ViewModel.Error, Mode=OneWay}" FontSize="9" TextWrapping="Wrap" Foreground="{ThemeResource MonitorInk}"
+                                   Visibility="{x:Bind ViewModel.HasError, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}" AutomationProperties.LiveSetting="Polite"/>
+                    </StackPanel>
+                </ScrollViewer>
+                <Grid x:Name="Footer" Grid.Row="2" ColumnSpacing="6">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <Button x:Name="SettingsButton" Style="{StaticResource MonitorIconButton}" Click="Settings_Click"
+                            ToolTipService.ToolTip="{x:Bind ViewModel.SettingsLabel, Mode=OneWay}" AutomationProperties.Name="{x:Bind ViewModel.SettingsLabel, Mode=OneWay}">
+                        <FontIcon FontFamily="Segoe MDL2 Assets" Glyph="&#xE713;" FontSize="11"/>
+                    </Button>
+                    <Button x:Name="SizeButton" Grid.Column="1" HorizontalAlignment="Center" Style="{StaticResource MonitorIconButton}" Click="Size_Click"
+                            ToolTipService.ToolTip="{x:Bind ViewModel.ExpandLabel, Mode=OneWay}" AutomationProperties.Name="{x:Bind ViewModel.ExpandLabel, Mode=OneWay}">
+                        <Path Width="12" Height="12" Data="M0,4V0H4 M8,0H12V4 M12,8V12H8 M4,12H0V8" Stroke="{ThemeResource MonitorInk}" StrokeThickness="1"/>
+                    </Button>
+                    <Button Grid.Column="1" HorizontalAlignment="Right" Style="{StaticResource MonitorIconButton}"
+                            Visibility="{x:Bind ViewModel.HasNotices, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
+                            ToolTipService.ToolTip="{x:Bind ViewModel.DiagnosticsLabel, Mode=OneWay}" AutomationProperties.Name="{x:Bind ViewModel.DiagnosticsLabel, Mode=OneWay}">
+                        <FontIcon FontFamily="Segoe MDL2 Assets" Glyph="&#xE946;" FontSize="11"/>
+                        <popups:PopupHandler.Content><StackPanel MaxWidth="280" Spacing="8">
+                            <TextBlock Text="{x:Bind ViewModel.SensorHint, Mode=OneWay}" TextWrapping="Wrap"/>
+                            <TextBlock Text="{x:Bind ViewModel.Notices, Mode=OneWay}" TextWrapping="Wrap"/>
+                        </StackPanel></popups:PopupHandler.Content>
+                    </Button>
+                    <Button x:Name="DisableButton" Grid.Column="2" Style="{StaticResource MonitorIconButton}" Click="Disable_Click"
+                            ToolTipService.ToolTip="{x:Bind ViewModel.DisableLabel, Mode=OneWay}" AutomationProperties.Name="{x:Bind ViewModel.DisableLabel, Mode=OneWay}">
+                        <FontIcon FontFamily="Segoe MDL2 Assets" Glyph="&#xE7E8;" FontSize="11"/>
+                    </Button>
+                </Grid>
+            </Grid>
+        </Border>
+    </Grid>
+</UserControl>

@@ -1,0 +1,43 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <PropertyGroup>
+        <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+        <Nullable>enable</Nullable>
+        <ImplicitUsings>enable</ImplicitUsings>
+        <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    </PropertyGroup>
+
+    <ItemGroup>
+        <InternalsVisibleTo Include="WinOptimizer.Infrastructure.Tests" />
+    </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.7" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\WinOptimizer.Core\WinOptimizer.Core.csproj" />
+    <ProjectReference Include="..\WindowsPackageManager.Interop\WindowsPackageManager.Interop.csproj" />
+  </ItemGroup>
+
+    <ItemGroup>
+        <PackageReference Include="System.Management" Version="10.0.2" />
+        <!-- Typed Windows ETW network events, including payload process IDs and IPv6. -->
+        <PackageReference Include="Microsoft.Diagnostics.Tracing.TraceEvent" Version="3.2.4" />
+        <PackageReference Include="LibreHardwareMonitorLib" Version="0.9.6" />
+        <PackageReference Include="System.Diagnostics.EventLog" Version="10.0.7" />
+        <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
+        <PackageReference Include="System.ServiceProcess.ServiceController" Version="8.0.1" />
+    </ItemGroup>
+
+  <ItemGroup>
+    <None Include="Features\SoftwareApps\Services\WinGet\winget-cli\**">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>winget-cli\%(RecursiveDir)%(Filename)%(Extension)</Link>
+    </None>
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Features\Security\Scripts\*.ps1" LogicalName="WinOptimizer.Security.%(Filename)%(Extension)" />
+    <EmbeddedResource Include="Features\Drivers\Scripts\*.ps1" LogicalName="WinOptimizer.Drivers.%(Filename)%(Extension)" />
+    <EmbeddedResource Include="Features\Management\Scripts\*.ps1" LogicalName="WinOptimizer.Autoruns.%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>

@@ -1,0 +1,24 @@
+<UserControl x:Class="WinOptimizer.UI.Features.SoftwareApps.UninstallBackupsControl"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:WinOptimizer.UI.Features.SoftwareApps.ViewModels">
+    <StackPanel Spacing="12" MaxWidth="860">
+        <TextBlock Text="{x:Bind ViewModel.Description}" TextWrapping="Wrap"/>
+        <ListView Padding="{StaticResource ScrollContentPadding}" ItemsSource="{x:Bind ViewModel.Items, Mode=OneWay}" SelectedItem="{x:Bind ViewModel.SelectedItem, Mode=TwoWay}"
+                  MaxHeight="320" MinHeight="100" IsEnabled="{x:Bind ViewModel.CanClose, Mode=OneWay}">
+            <ListView.ItemTemplate><DataTemplate x:DataType="vm:UninstallBackupItem">
+                <TextBlock Text="{x:Bind Title}" TextWrapping="Wrap"/>
+            </DataTemplate></ListView.ItemTemplate>
+        </ListView>
+        <Button Content="{x:Bind ViewModel.RestoreLabel}" Command="{x:Bind ViewModel.RequestRestoreCommand}"/>
+        <StackPanel Spacing="8" Visibility="{x:Bind ViewModel.IsConfirming, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <TextBlock Text="{x:Bind ViewModel.Confirmation}" TextWrapping="Wrap"/>
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Content="{x:Bind ViewModel.ConfirmLabel}" Command="{x:Bind ViewModel.ConfirmCommand}"/>
+                <Button Content="{x:Bind ViewModel.CancelLabel}" Command="{x:Bind ViewModel.CancelCommand}"/>
+            </StackPanel>
+        </StackPanel>
+        <ScrollViewer Padding="{StaticResource ScrollContentPadding}" MaxHeight="120" HorizontalScrollBarVisibility="Disabled">
+            <TextBlock Text="{x:Bind ViewModel.Status, Mode=OneWay}" TextWrapping="Wrap" IsTextSelectionEnabled="True" AutomationProperties.LiveSetting="Polite"/>
+        </ScrollViewer>
+    </StackPanel>
+</UserControl>

@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\WinOptimizer.Core\WinOptimizer.Core.csproj" />
+    <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.7" />
+    <InternalsVisibleTo Include="WinOptimizer.Application.Tests" />
+  </ItemGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="Configuration\Resources\*.win-optimizer"
+                      LogicalName="WinOptimizer.Application.Configuration.Resources.%(Filename)%(Extension)" />
+  </ItemGroup>
+</Project>

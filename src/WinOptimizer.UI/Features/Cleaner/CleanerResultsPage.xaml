@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:fluent="using:FluentIcons.WinUI" xmlns:common="using:WinOptimizer.UI.Features.Common.Controls" xmlns:toolkit="using:CommunityToolkit.WinUI.Controls" x:Class="WinOptimizer.UI.Features.Cleaner.CleanerResultsPage">
+    <!-- Keep review scrolling separate from the persistent cleanup actions. -->
+    <Grid x:Name="LayoutRoot" SizeChanged="LayoutRoot_SizeChanged" Visibility="{x:Bind ViewModel.HasScanned, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}" Style="{StaticResource PageGridStyle}">
+        <VisualStateManager.VisualStateGroups>
+            <VisualStateGroup>
+                <VisualState x:Name="WideLayout">
+                    <VisualState.StateTriggers><StateTrigger x:Name="WideLayoutTrigger"/></VisualState.StateTriggers>
+                    <VisualState.Setters>
+                        <Setter Target="SelectionActions.(Grid.ColumnSpan)" Value="1"/>
+                        <Setter Target="ApplyAction.(Grid.Row)" Value="0"/>
+                        <Setter Target="ApplyAction.(Grid.Column)" Value="1"/>
+                        <Setter Target="ApplyAction.(Grid.ColumnSpan)" Value="1"/>
+                        <Setter Target="ApplyAction.HorizontalAlignment" Value="Right"/>
+                        <Setter Target="ActionLayout.RowSpacing" Value="0"/>
+                    </VisualState.Setters>
+                </VisualState>
+                <VisualState x:Name="CompactLayout">
+                    <VisualState.StateTriggers><StateTrigger x:Name="CompactLayoutTrigger" IsActive="True"/></VisualState.StateTriggers>
+                </VisualState>
+            </VisualStateGroup>
+        </VisualStateManager.VisualStateGroups>
+        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+
+        <ScrollViewer Padding="{StaticResource ScrollContentPadding}" x:Name="HeaderViewport" MaxHeight="360" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+            <StackPanel Spacing="16">
+                <common:PageHeader Title="{x:Bind ViewModel.ResultsLabel, Mode=OneWay}" Description="{x:Bind ViewModel.ReviewDescription, Mode=OneWay}" Icon="Broom"/>
+
+                <!-- One neutral surface gives all summary metrics equal visual weight. -->
+                <Border x:Name="SummaryPanel" Padding="20,16" Style="{StaticResource PageCardStyle}">
+                    <Grid ColumnSpacing="20" RowSpacing="4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                        <TextBlock Text="{x:Bind ViewModel.FoundLabel, Mode=OneWay}" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        <TextBlock Grid.Row="1" Text="{x:Bind ViewModel.ResultCount, Mode=OneWay}" FontSize="26" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                        <Border Grid.Column="1" Grid.RowSpan="2" Width="1" Background="{ThemeResource CardStrokeColorDefaultBrush}"/>
+                        <TextBlock Grid.Column="2" Text="{x:Bind ViewModel.SelectedLabel, Mode=OneWay}" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        <TextBlock Grid.Column="2" Grid.Row="1" Text="{x:Bind ViewModel.SelectedCount, Mode=OneWay}" FontSize="26" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                        <Border Grid.Column="3" Grid.RowSpan="2" Width="1" Background="{ThemeResource CardStrokeColorDefaultBrush}"/>
+                        <TextBlock Grid.Column="4" Text="{x:Bind ViewModel.SpaceLabel, Mode=OneWay}" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        <TextBlock Grid.Column="4" Grid.Row="1" Text="{x:Bind ViewModel.SelectedSize, Mode=OneWay}" FontSize="26" FontWeight="SemiBold" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" TextWrapping="Wrap"/>
+                    </Grid>
+                </Border>
+
+            </StackPanel>
+        </ScrollViewer>
+
+        <Grid x:Name="ResultsRegion" Grid.Row="1">
+            <common:GroupedResultsList ItemsSource="{x:Bind ViewModel.ResultGroups}" IsEnabled="{x:Bind ViewModel.IsIdle, Mode=OneWay}" Visibility="{x:Bind ViewModel.HasResults, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+            <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="8" Visibility="{x:Bind ViewModel.HasResults, Mode=OneWay, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
+                <ScrollViewer Padding="{StaticResource ScrollContentPadding}" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel Spacing="12" Padding="24,32" HorizontalAlignment="Center" VerticalAlignment="Center" MaxWidth="520">
+                        <fluent:FluentIcon Icon="CheckmarkCircle" IconVariant="Regular" FontSize="36" HorizontalAlignment="Center" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
+                        <TextBlock Text="{x:Bind ViewModel.EmptyTitle, Mode=OneWay}" FontSize="20" FontWeight="SemiBold" TextAlignment="Center" TextWrapping="Wrap"/>
+                        <TextBlock Text="{x:Bind ViewModel.EmptyDescription, Mode=OneWay}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextAlignment="Center" TextWrapping="Wrap"/>
+                    </StackPanel>
+                </ScrollViewer>
+            </Border>
+        </Grid>
+
+        <Border x:Name="ActionBar" Grid.Row="2" Padding="16,12" Visibility="{x:Bind ViewModel.HasResults, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}" Style="{StaticResource PageCardStyle}">
+            <Grid x:Name="ActionLayout" ColumnSpacing="16" RowSpacing="12">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                <toolkit:WrapPanel x:Name="SelectionActions" Grid.ColumnSpan="2" Orientation="Horizontal" HorizontalSpacing="8" VerticalSpacing="8" VerticalAlignment="Center">
+                    <Button Command="{x:Bind ViewModel.SelectAllCommand}" IsEnabled="{x:Bind ViewModel.IsIdle, Mode=OneWay}">
+                        <TextBlock Text="{x:Bind ViewModel.SelectAllLabel, Mode=OneWay}" TextWrapping="Wrap"/>
+                    </Button>
+                    <Button Command="{x:Bind ViewModel.ClearSelectionCommand}" IsEnabled="{x:Bind ViewModel.IsIdle, Mode=OneWay}">
+                        <TextBlock Text="{x:Bind ViewModel.ClearLabel, Mode=OneWay}" TextWrapping="Wrap"/>
+                    </Button>
+                </toolkit:WrapPanel>
+                <Button x:Name="ApplyAction" Grid.Row="1" Grid.ColumnSpan="2" Command="{x:Bind ViewModel.ApplyCommand}" Style="{StaticResource AccentButtonStyle}" Padding="20,10" HorizontalAlignment="Stretch" AutomationProperties.Name="{x:Bind ViewModel.ApplyLabel, Mode=OneWay}">
+                    <Grid ColumnSpacing="8">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                        <fluent:FluentIcon Icon="Broom" IconVariant="Regular" FontSize="18" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="1" Text="{x:Bind ViewModel.ApplyLabel, Mode=OneWay}" FontWeight="SemiBold" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                    </Grid>
+                </Button>
+            </Grid>
+        </Border>
+    </Grid>
+</Page>

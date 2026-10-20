@@ -1,0 +1,9 @@
+<Project>
+  <ItemGroup>
+    <EmbeddedResource Include="$(MSBuildThisFileDirectory)..\..\src\WinOptimizer.UI\Features\Optimize\Pages\FeaturesOptimizePage.xaml" LogicalName="FeaturesOptimizePage.xaml"/>
+    <EmbeddedResource Include="$(MSBuildThisFileDirectory)..\..\src\WinOptimizer.UI\Features\Optimize\Pages\NetworkOptimizePage.xaml" LogicalName="NetworkOptimizePage.xaml"/>
+    <EmbeddedResource Include="$(MSBuildThisFileDirectory)..\..\src\WinOptimizer.UI\MainWindow.xaml" LogicalName="MainWindow.xaml"/>
+    <EmbeddedResource Include="$(MSBuildThisFileDirectory)..\..\src\WinOptimizer.UI\Features\SoftwareApps\SoftwareAppsPage.xaml" LogicalName="SoftwareAppsPage.xaml"/>
+    <EmbeddedResource Include="$(MSBuildThisFileDirectory)..\..\src\WinOptimizer.UI\Features\Settings\SettingsPage.xaml" LogicalName="SettingsPage.xaml"/>
+  </ItemGroup>
+</Project>

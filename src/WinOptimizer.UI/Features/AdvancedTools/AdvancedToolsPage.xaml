@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:common="using:WinOptimizer.UI.Features.Common.Controls" x:Class="WinOptimizer.UI.Features.AdvancedTools.AdvancedToolsPage" x:DefaultBindMode="OneWay" NavigationCacheMode="Enabled">
+
+    <Grid Style="{StaticResource PageGridStyle}" RowSpacing="0">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>  <!-- Header -->
+            <RowDefinition Height="*"/>     <!-- Content -->
+        </Grid.RowDefinitions>
+
+        <!-- Row 0: Page Header with Icon -->
+        <common:PageHeader Title="{x:Bind ViewModel.PageTitle}" Description="{x:Bind ViewModel.PageDescription}" Icon="WrenchScrewdriver" Grid.Row="0" Margin="0,0,0,24"/>
+
+        <!-- Content follows the page heading. -->
+        <Border Grid.Row="1" CornerRadius="8">
+            <Grid>
+                <!-- Overview Content (visible when not on detail page) -->
+                <Grid x:Name="OverviewContent">
+                    <ScrollView Padding="{StaticResource ScrollContentPadding}" x:Name="OverviewScrollView">
+                        <!-- Wrap StackPanel in Grid to avoid visual glitches with MaxWidth -->
+                        <Grid>
+                        <StackPanel Spacing="{StaticResource PageCardSpacing}">
+
+                            <!-- WIM Utility Card -->
+                            <common:NavigationCard Title="{x:Bind ViewModel.WimUtilDisplayName}" Description="{x:Bind ViewModel.WimUtilDescription}" Click="WimUtilCard_Click"><common:NavigationCard.Icon><PathIcon Data="{StaticResource WimUtilIconPath}"/>
+                                </common:NavigationCard.Icon></common:NavigationCard>
+
+                            <!-- Autounattend XML Generator Card -->
+                            <common:NavigationCard Title="{x:Bind ViewModel.AutounattendXmlDisplayName}" Description="{x:Bind ViewModel.AutounattendXmlDescription}" Click="AutounattendXmlCard_Click"><common:NavigationCard.Icon><PathIcon Data="{StaticResource AutounattendXmlIconPath}"/>
+                                </common:NavigationCard.Icon></common:NavigationCard>
+
+                            <common:NavigationCard Title="{x:Bind ViewModel.RestoreDisplayName}" Description="{x:Bind ViewModel.RestoreDescription}" Click="RestoreCard_Click">
+                                <common:NavigationCard.Icon><PathIcon Data="{StaticResource NavRestoreIcon}"/></common:NavigationCard.Icon>
+                            </common:NavigationCard>
+
+                            <common:NavigationCard Title="{x:Bind ViewModel.SystemInformationDisplayName}" Description="{x:Bind ViewModel.SystemInformationDescription}" Click="SystemInformationCard_Click">
+                                <common:NavigationCard.Icon><PathIcon Data="{StaticResource NavSystemInformationIcon}"/></common:NavigationCard.Icon>
+                            </common:NavigationCard>
+
+                        </StackPanel>
+                        </Grid>
+                    </ScrollView>
+                </Grid>
+
+                <!-- Detail Page Frame (visible when on detail page) -->
+                <Frame x:Name="InnerContentFrame" Visibility="Collapsed" IsNavigationStackEnabled="False" Navigated="InnerContentFrame_Navigated"/>
+            </Grid>
+        </Border>
+    </Grid>
+</Page>

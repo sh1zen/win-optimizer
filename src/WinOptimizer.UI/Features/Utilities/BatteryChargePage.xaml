@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Page xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation" xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml" xmlns:controls="using:CommunityToolkit.WinUI.Controls" xmlns:fluent="using:FluentIcons.WinUI" xmlns:vm="using:WinOptimizer.UI.Features.Utilities.ViewModels" xmlns:common="using:WinOptimizer.UI.Features.Common.Controls" x:Class="WinOptimizer.UI.Features.Utilities.BatteryChargePage">
+    <Page.Resources>
+        <DataTemplate x:Key="BatteryReadingTemplate" x:DataType="vm:BatteryReading">
+            <Grid ColumnSpacing="16" Padding="0,6">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                <TextBlock Text="{x:Bind Label}" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                <TextBlock Grid.Column="1" Text="{x:Bind Value}" TextWrapping="Wrap" FontWeight="SemiBold" IsTextSelectionEnabled="True"/>
+            </Grid>
+        </DataTemplate>
+    </Page.Resources>
+    <ScrollViewer Style="{StaticResource PageScrollViewerStyle}">
+        <StackPanel Style="{StaticResource PageStackStyle}">
+            <StackPanel x:Name="BatteryHeader" Spacing="8">
+                <TextBlock Text="{x:Bind ViewModel.SectionTitle, Mode=OneWay}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                <common:PageHeader Title="{x:Bind ViewModel.Title, Mode=OneWay}" Description="{x:Bind ViewModel.Description, Mode=OneWay}" Icon="BatteryCharge"/>
+                </StackPanel>
+            <ProgressRing x:Name="BusyIndicator" Width="24" Height="24" HorizontalAlignment="Left" IsActive="{x:Bind ViewModel.IsBusy, Mode=OneWay}" Visibility="{x:Bind ViewModel.IsBusy, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+            <InfoBar x:Name="ModeNotice" IsOpen="{x:Bind ViewModel.ShowModeNotice, Mode=OneWay}" Message="{x:Bind ViewModel.ModeNotice, Mode=OneWay}" IsClosable="False" Visibility="{x:Bind ViewModel.ShowModeNotice, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+            <InfoBar x:Name="StatusNotice" IsOpen="{x:Bind ViewModel.HasStatus, Mode=OneWay}" Message="{x:Bind ViewModel.Status, Mode=OneWay}" Severity="{x:Bind ViewModel.StatusSeverity, Mode=OneWay}" IsClosable="False" Visibility="{x:Bind ViewModel.HasStatus, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+            <InfoBar x:Name="SupportHelper" IsOpen="{x:Bind ViewModel.ShowSupportHelper, Mode=OneWay}" Title="{x:Bind ViewModel.SupportHelperTitle, Mode=OneWay}" Message="{x:Bind ViewModel.SupportHelperMessage, Mode=OneWay}" Severity="Informational" IsClosable="False" Visibility="{x:Bind ViewModel.ShowSupportHelper, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <InfoBar.Content>
+                    <StackPanel Spacing="10" HorizontalAlignment="Stretch">
+                        <TextBlock Text="{x:Bind ViewModel.SetupInstructions, Mode=OneWay}" TextWrapping="Wrap" Visibility="{x:Bind ViewModel.ShowSetupAction, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                        <controls:WrapPanel HorizontalSpacing="12" VerticalSpacing="8">
+                            <HyperlinkButton x:Name="SetupButton" Content="{x:Bind ViewModel.SetupActionLabel, Mode=OneWay}" NavigateUri="{x:Bind ViewModel.SetupUri, Mode=OneWay}" IsEnabled="{x:Bind ViewModel.CanOpenSetup, Mode=OneWay}" Visibility="{x:Bind ViewModel.ShowSetupAction, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                            <HyperlinkButton x:Name="OptionalDriversButton" Content="{x:Bind ViewModel.OptionalDriversLabel, Mode=OneWay}" NavigateUri="{x:Bind ViewModel.OptionalDriversUri}" IsEnabled="{x:Bind ViewModel.CanOpenSetup, Mode=OneWay}" Visibility="{x:Bind ViewModel.ShowOptionalDrivers, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                            <Button x:Name="RecheckSupportButton" Content="{x:Bind ViewModel.RecheckSupportLabel, Mode=OneWay}" Command="{x:Bind ViewModel.RefreshCommand}"/>
+                        </controls:WrapPanel>
+                    </StackPanel>
+                </InfoBar.Content>
+            </InfoBar>
+            <StackPanel Spacing="16" Visibility="{x:Bind ViewModel.HasState, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <Border x:Name="BatterySummary" Padding="22" Style="{StaticResource PageCardStyle}">
+                    <StackPanel Spacing="14">
+                        <TextBlock Text="{x:Bind ViewModel.Device, Mode=OneWay}" FontSize="20" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                        <TextBlock Text="{x:Bind ViewModel.SupportStatus, Mode=OneWay}" TextWrapping="Wrap" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
+                        <Grid x:Name="ChargeOverview" ColumnSpacing="28">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <StackPanel Spacing="6"><TextBlock Text="{x:Bind ViewModel.ChargeLabel, Mode=OneWay}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><TextBlock Text="{x:Bind ViewModel.Charge, Mode=OneWay}" FontSize="30" FontWeight="SemiBold"/></StackPanel>
+                            <StackPanel Grid.Column="1" Spacing="6"><TextBlock Text="{x:Bind ViewModel.ActiveLabel, Mode=OneWay}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><TextBlock Text="{x:Bind ViewModel.ActiveLimit, Mode=OneWay}" FontSize="30" FontWeight="SemiBold"/></StackPanel>
+                        </Grid>
+                        <TextBlock Text="{x:Bind ViewModel.Provider, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Visibility="{x:Bind ViewModel.HasProvider, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                        <TextBlock Text="{x:Bind ViewModel.Diagnostic, Mode=OneWay}" TextWrapping="Wrap" FontSize="12" Visibility="{x:Bind ViewModel.HasDiagnostic, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                    </StackPanel>
+                </Border>
+                <controls:SettingsCard Header="{x:Bind ViewModel.LimitLabel, Mode=OneWay}" Description="{x:Bind ViewModel.Hint, Mode=OneWay}" Style="{StaticResource PageSettingsCardStyle}">
+                    <controls:SettingsCard.HeaderIcon><fluent:FluentIcon Icon="BatteryCharge" IconVariant="Regular" IconSize="Size20"/></controls:SettingsCard.HeaderIcon>
+                    <StackPanel Orientation="Horizontal" Spacing="12">
+                        <ComboBox MinWidth="100" ItemsSource="{x:Bind ViewModel.Limits}" SelectedIndex="{x:Bind ViewModel.SelectedIndex, Mode=TwoWay}" DisplayMemberPath="Label" IsEnabled="{x:Bind ViewModel.CanSelectLimit, Mode=OneWay}" AutomationProperties.Name="{x:Bind ViewModel.LimitLabel, Mode=OneWay}"/>
+                        <Button Content="{x:Bind ViewModel.ApplyLabel, Mode=OneWay}" Command="{x:Bind ViewModel.ApplyCommand}" Style="{StaticResource AccentButtonStyle}"/>
+                    </StackPanel>
+                </controls:SettingsCard>
+                <StackPanel Spacing="10" Visibility="{x:Bind ViewModel.ShowTelemetry, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <TextBlock Text="{x:Bind ViewModel.CapturedAt, Mode=OneWay}" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Visibility="{x:Bind ViewModel.HasCapturedAt, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                    <TextBlock Text="{x:Bind ViewModel.TelemetryUnavailable, Mode=OneWay}" TextWrapping="Wrap" Visibility="{x:Bind ViewModel.HasTelemetryUnavailable, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                    <ItemsControl x:Name="BatteryTelemetryCards" ItemsSource="{x:Bind ViewModel.Batteries, Mode=OneWay}">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate x:DataType="vm:BatteryTelemetryCard">
+                                <Border Margin="0,0,0,12" Style="{StaticResource PageCardStyle}">
+                                    <StackPanel Spacing="16">
+                                        <TextBlock Text="{x:Bind Name}" FontSize="20" FontWeight="SemiBold" TextWrapping="Wrap" AutomationProperties.HeadingLevel="Level2"/>
+                                        <Grid SizeChanged="TelemetryPanels_SizeChanged" RowSpacing="20">
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="0"/></Grid.ColumnDefinitions>
+                                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                                            <StackPanel Spacing="8">
+                                                <TextBlock Text="{x:Bind DetailsTitle}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                                <ItemsControl ItemsSource="{x:Bind Details}" ItemTemplate="{StaticResource BatteryReadingTemplate}"/>
+                                            </StackPanel>
+                                            <StackPanel Grid.Row="1" Spacing="8">
+                                                <TextBlock Text="{x:Bind ConsumptionTitle}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                                <ItemsControl ItemsSource="{x:Bind Consumption}" ItemTemplate="{StaticResource BatteryReadingTemplate}"/>
+                                            </StackPanel>
+                                        </Grid>
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <TextBlock Text="{x:Bind ViewModel.TelemetryDiagnostics, Mode=OneWay}" TextWrapping="Wrap" IsTextSelectionEnabled="True" Visibility="{x:Bind ViewModel.HasTelemetryDiagnostics, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                    <TextBlock Text="{x:Bind ViewModel.TelemetryHint, Mode=OneWay}" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </StackPanel>
+                <TextBlock Text="{x:Bind ViewModel.Coverage, Mode=OneWay}" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                <HyperlinkButton Content="{x:Bind ViewModel.HelpLabel, Mode=OneWay}" NavigateUri="{x:Bind ViewModel.HelpUri, Mode=OneWay}" HorizontalAlignment="Left" Padding="0,8"/>
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

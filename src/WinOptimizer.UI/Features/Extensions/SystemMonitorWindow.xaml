@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Window
+    x:Class="WinOptimizer.UI.Features.Extensions.SystemMonitorWindow"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    Title="SysMonitor">
+    <Grid x:Name="Root">
+        <Viewbox x:Name="ScaledContent" Stretch="Uniform" HorizontalAlignment="Left" VerticalAlignment="Top"/>
+    </Grid>
+</Window>

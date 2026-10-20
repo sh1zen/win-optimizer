@@ -1,0 +1,109 @@
+<Page x:Class="WinOptimizer.UI.Features.Customize.Pages.ContextMenuCustomizePage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:WinOptimizer.UI.Features.Customize.ViewModels"
+    xmlns:common="using:WinOptimizer.UI.Features.Common.Controls"
+    x:DefaultBindMode="OneWay">
+    <Page.Resources>
+        <DataTemplate x:Key="ProgramIconTemplate" x:DataType="vm:ContextMenuProgramViewModel">
+            <Border Width="40" Height="40" CornerRadius="10" Background="{ThemeResource ControlAltFillColorTertiaryBrush}">
+                <Grid>
+                    <FontIcon Glyph="&#xE8A5;" FontSize="22" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        Visibility="{x:Bind ShowFallbackIcon, Mode=OneWay}"/>
+                    <Image Source="{x:Bind Icon, Mode=OneWay}" Width="32" Height="32" Stretch="Uniform"
+                        Visibility="{x:Bind HasIcon, Mode=OneWay}" AutomationProperties.AccessibilityView="Raw"/>
+                </Grid>
+            </Border>
+        </DataTemplate>
+    </Page.Resources>
+    <ScrollViewer Style="{StaticResource PageScrollViewerStyle}">
+        <StackPanel Style="{StaticResource PageStackStyle}">
+            <StackPanel Spacing="12">
+                <TextBlock Text="{x:Bind ViewModel.SectionTitle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                <common:PageHeader Title="{x:Bind ViewModel.Title}" Description="{x:Bind ViewModel.Description}" Icon="Apps"/>
+            </StackPanel>
+            <StackPanel Spacing="12">
+                <Grid ColumnSpacing="12">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <Grid>
+                        <TextBox Text="{x:Bind ViewModel.Query, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" Padding="34,7,12,7"
+                            PlaceholderText="{x:Bind ViewModel.SearchLabel}" AutomationProperties.Name="{x:Bind ViewModel.SearchLabel}"/>
+                        <FontIcon Glyph="&#xE721;" FontSize="14" HorizontalAlignment="Left" Margin="12,0,0,0" IsHitTestVisible="False"
+                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    </Grid>
+                    <Button Grid.Column="1" Command="{x:Bind ViewModel.RefreshCommand}">
+                        <StackPanel Orientation="Horizontal" Spacing="8"><FontIcon Glyph="&#xE72C;" FontSize="14"/><TextBlock Text="{x:Bind ViewModel.RefreshLabel}"/></StackPanel>
+                    </Button>
+                    <ProgressRing Grid.Column="2" Width="20" Height="20" IsActive="{x:Bind ViewModel.IsBusy}" Visibility="{x:Bind ViewModel.IsBusy}"/>
+                </Grid>
+                <StackPanel Spacing="4">
+                    <TextBlock Text="{x:Bind ViewModel.ResultSummary}" FontSize="13" FontWeight="SemiBold"/>
+                    <TextBlock Text="{x:Bind ViewModel.ShortHint}" TextWrapping="Wrap" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                        ToolTipService.ToolTip="{x:Bind ViewModel.Hint}"/>
+                </StackPanel>
+                <InfoBar IsOpen="{x:Bind ViewModel.ShowModeNotice}" Visibility="{x:Bind ViewModel.ShowModeNotice}" Message="{x:Bind ViewModel.ModeNotice}" IsClosable="False"/>
+                <InfoBar IsOpen="{x:Bind ViewModel.HasStatus}" Visibility="{x:Bind ViewModel.HasStatus}" Message="{x:Bind ViewModel.Status}" Severity="{x:Bind ViewModel.StatusSeverity}" IsClosable="False"/>
+            </StackPanel>
+            <Border Style="{StaticResource PageCardStyle}" Visibility="{x:Bind ViewModel.ShowEmpty}">
+                <StackPanel Spacing="8" Padding="12">
+                    <FontIcon Glyph="&#xE721;" FontSize="28" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <TextBlock Text="{x:Bind ViewModel.EmptyTitle}" FontWeight="SemiBold" HorizontalAlignment="Center"/>
+                    <TextBlock Text="{x:Bind ViewModel.EmptyLabel}" TextWrapping="Wrap" TextAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </StackPanel>
+            </Border>
+            <ItemsControl ItemsSource="{x:Bind ViewModel.Programs}">
+                <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Spacing="8"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:ContextMenuProgramViewModel">
+                        <Grid>
+                            <Border Style="{StaticResource PageCardStyle}" Padding="16" Visibility="{x:Bind IsSingle, Mode=OneTime}">
+                                <Grid ColumnSpacing="12" MinHeight="40">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                    <ContentControl Content="{x:Bind Mode=OneTime}" ContentTemplate="{StaticResource ProgramIconTemplate}" IsTabStop="False"/>
+                                    <StackPanel Grid.Column="1" Spacing="4" VerticalAlignment="Center">
+                                        <TextBlock Text="{x:Bind Name, Mode=OneTime}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                        <TextBlock Text="{x:Bind First.ContextLabel, Mode=OneTime}" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                    </StackPanel>
+                                    <ToggleSwitch Grid.Column="2" IsOn="{x:Bind First.IsEnabled, Mode=OneWay}" Tag="{x:Bind First, Mode=OneTime}" IsEnabled="{x:Bind First.CanWrite, Mode=OneWay}" MinWidth="0" VerticalAlignment="Center"
+                                        OnContent="" OffContent="" AutomationProperties.Name="{x:Bind Name, Mode=OneTime}"
+                                        ToolTipService.ToolTip="{x:Bind First.Details, Mode=OneTime}" Toggled="Entry_Toggled"/>
+                                </Grid>
+                            </Border>
+                            <Expander HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" CornerRadius="12"
+                                IsExpanded="{x:Bind IsExpanded, Mode=TwoWay}" Visibility="{x:Bind IsMultiple, Mode=OneTime}">
+                                <Expander.Header>
+                                    <Grid ColumnSpacing="12" Margin="0,4" MinHeight="40">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                        <ContentControl Content="{x:Bind Mode=OneTime}" ContentTemplate="{StaticResource ProgramIconTemplate}" IsTabStop="False"/>
+                                        <StackPanel Grid.Column="1" Spacing="4" VerticalAlignment="Center">
+                                            <TextBlock Text="{x:Bind Name, Mode=OneTime}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                            <TextBlock Text="{x:Bind Summary, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                        </StackPanel>
+                                        <ToggleSwitch Grid.Column="2" IsOn="{x:Bind HasEnabledEntries, Mode=OneWay}" Tag="{x:Bind Mode=OneTime}" IsEnabled="{x:Bind CanWrite, Mode=OneWay}" MinWidth="0" VerticalAlignment="Center"
+                                            OnContent="" OffContent="" AutomationProperties.Name="{x:Bind Name, Mode=OneTime}" Toggled="Program_Toggled"/>
+                                    </Grid>
+                                </Expander.Header>
+                                <ItemsControl ItemsSource="{x:Bind Entries, Mode=OneTime}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate x:DataType="vm:ContextMenuEntryViewModel">
+                                            <Grid Padding="0,12" ColumnSpacing="16">
+                                                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                                                <StackPanel Spacing="4">
+                                                    <TextBlock Text="{x:Bind Name}" TextWrapping="Wrap"/>
+                                                    <TextBlock Text="{x:Bind ContextLabel, Mode=OneTime}" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                                        ToolTipService.ToolTip="{x:Bind Location}"/>
+                                                </StackPanel>
+                                                <ToggleSwitch Grid.Column="1" IsOn="{x:Bind IsEnabled, Mode=OneWay}" Tag="{x:Bind}" IsEnabled="{x:Bind CanWrite, Mode=OneWay}" MinWidth="0" VerticalAlignment="Center"
+                                                    OnContent="" OffContent="" AutomationProperties.Name="{x:Bind Name}" Toggled="Entry_Toggled"/>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </Expander>
+                        </Grid>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

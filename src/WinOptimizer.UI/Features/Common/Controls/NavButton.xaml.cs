@@ -1,0 +1,437 @@
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Automation.Peers;
+using Microsoft.UI.Xaml.Automation.Provider;
+using Microsoft.UI.Xaml.Input;
+using Windows.System;
+using System;
+using System.ComponentModel;
+using System.Runtime.CompilerServices;
+using Microsoft.Extensions.DependencyInjection;
+using WinOptimizer.Core.Features.Common.Interfaces;
+
+namespace WinOptimizer.UI.Features.Common.Controls;
+
+/// <summary>
+/// Custom navigation button with icon-over-text layout, selection indicator,
+/// lock overlay, and compact mode support.
+/// </summary>
+public sealed partial class NavButton : UserControl, INotifyPropertyChanged
+{
+    // Expanded dimensions
+    private const double ExpandedWidth = 70;
+    private const double ExpandedHeight = 60;
+
+    // Compact dimensions (matching NavigationView items)
+    private const double CompactWidth = 40;
+    private const double CompactHeight = 40;
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+    public event EventHandler<NavButtonClickedEventArgs>? Clicked;
+
+    #region Dependency Properties
+
+    public static readonly DependencyProperty IconDataProperty =
+        DependencyProperty.Register(
+            nameof(IconData),
+            typeof(string),
+            typeof(NavButton),
+            new PropertyMetadata(null, OnIconPropertyChanged));
+
+    public static readonly DependencyProperty IconMarginProperty =
+        DependencyProperty.Register(
+            nameof(IconMargin),
+            typeof(Thickness),
+            typeof(NavButton),
+            new PropertyMetadata(new Thickness(0)));
+
+    public static readonly DependencyProperty TextProperty =
+        DependencyProperty.Register(
+            nameof(Text),
+            typeof(string),
+            typeof(NavButton),
+            new PropertyMetadata(string.Empty));
+
+    public static readonly DependencyProperty IsSelectedProperty =
+        DependencyProperty.Register(
+            nameof(IsSelected),
+            typeof(bool),
+            typeof(NavButton),
+            new PropertyMetadata(false, OnIsSelectedChanged));
+
+    public static readonly DependencyProperty IsLockedProperty =
+        DependencyProperty.Register(
+            nameof(IsLocked),
+            typeof(bool),
+            typeof(NavButton),
+            new PropertyMetadata(false, OnIsLockedChanged));
+
+    public static readonly DependencyProperty IsCompactProperty =
+        DependencyProperty.Register(
+            nameof(IsCompact),
+            typeof(bool),
+            typeof(NavButton),
+            new PropertyMetadata(false, OnIsCompactChanged));
+
+    public static readonly DependencyProperty NavigationTagProperty =
+        DependencyProperty.Register(
+            nameof(NavigationTag),
+            typeof(object),
+            typeof(NavButton),
+            new PropertyMetadata(null));
+
+    public static readonly DependencyProperty BadgeValueProperty =
+        DependencyProperty.Register(
+            nameof(BadgeValue),
+            typeof(int),
+            typeof(NavButton),
+            new PropertyMetadata(-1, OnBadgePropertyChanged));
+
+    public static readonly DependencyProperty BadgeStatusProperty =
+        DependencyProperty.Register(
+            nameof(BadgeStatus),
+            typeof(string),
+            typeof(NavButton),
+            new PropertyMetadata(string.Empty, OnBadgePropertyChanged));
+
+    #endregion
+
+    #region Properties
+
+    /// <summary>
+    /// The navigation artwork in a 24-by-24 coordinate space.
+    /// Rendered with a rounded stroke and the application accent when selected.
+    /// </summary>
+    public string? IconData
+    {
+        get => (string?)GetValue(IconDataProperty);
+        set => SetValue(IconDataProperty, value);
+    }
+
+    /// <summary>
+    /// Optional margin for fine-tuning icon positioning.
+    /// Use this to adjust icons that appear visually off-center.
+    /// </summary>
+    public Thickness IconMargin
+    {
+        get => (Thickness)GetValue(IconMarginProperty);
+        set => SetValue(IconMarginProperty, value);
+    }
+
+    /// <summary>
+    /// The text label displayed below the icon.
+    /// </summary>
+    public string Text
+    {
+        get => (string)GetValue(TextProperty);
+        set => SetValue(TextProperty, value);
+    }
+
+    /// <summary>
+    /// Whether this button is currently selected.
+    /// </summary>
+    public bool IsSelected
+    {
+        get => (bool)GetValue(IsSelectedProperty);
+        set => SetValue(IsSelectedProperty, value);
+    }
+
+    /// <summary>
+    /// Whether the button is locked (reduced opacity, blocks clicks, shows lock icon).
+    /// Used to disable navigation to certain pages during config review mode.
+    /// </summary>
+    public bool IsLocked
+    {
+        get => (bool)GetValue(IsLockedProperty);
+        set => SetValue(IsLockedProperty, value);
+    }
+
+    /// <summary>
+    /// Whether the button should display in compact mode (icon only).
+    /// </summary>
+    public bool IsCompact
+    {
+        get => (bool)GetValue(IsCompactProperty);
+        set => SetValue(IsCompactProperty, value);
+    }
+
+    /// <summary>
+    /// Navigation identifier for this button.
+    /// </summary>
+    public object? NavigationTag
+    {
+        get => GetValue(NavigationTagProperty);
+        set => SetValue(NavigationTagProperty, value);
+    }
+
+    /// <summary>
+    /// Badge value to display. Set to -1 to hide the badge.
+    /// </summary>
+    public int BadgeValue
+    {
+        get => (int)GetValue(BadgeValueProperty);
+        set => SetValue(BadgeValueProperty, value);
+    }
+
+    /// <summary>
+    /// Badge status: "Attention", "Success", or "" (hidden).
+    /// </summary>
+    public string BadgeStatus
+    {
+        get => (string)GetValue(BadgeStatusProperty);
+        set => SetValue(BadgeStatusProperty, value);
+    }
+
+    // Icon sizes (matching NavigationView)
+    private const double ExpandedIconSize = 20;
+    private const double CompactIconSize = 16;
+
+    // Computed properties for bindings
+    public double ActualButtonWidth => IsCompact ? CompactWidth : ExpandedWidth;
+    public double ActualButtonHeight => IsCompact ? CompactHeight : ExpandedHeight;
+    public double IconSize => IsCompact ? CompactIconSize : ExpandedIconSize;
+    public double IndicatorHeight => IsCompact ? 24 : 40;
+    public Visibility TextVisibility => IsCompact ? Visibility.Collapsed : Visibility.Visible;
+    public Visibility IndicatorVisibility => IsSelected ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility LockedVisibility => IsLocked ? Visibility.Visible : Visibility.Collapsed;
+    public double ContentOpacity => IsLocked ? 0.4 : 1.0;
+
+    public Visibility IconVisibility => !string.IsNullOrEmpty(IconData) ? Visibility.Visible : Visibility.Collapsed;
+
+    // Badge visibility
+    public Visibility BadgeVisibility => BadgeValue >= 0 || BadgeStatus == "SuccessIcon" ? Visibility.Visible : Visibility.Collapsed;
+
+    #endregion
+
+    private bool _isPointerOver;
+    private bool _isFocused;
+    private ILogService? _logService;
+
+    public NavButton()
+    {
+        this.InitializeComponent();
+        UpdateVisualState();
+
+        // Keyboard and focus accessibility
+        KeyDown += NavButton_KeyDown;
+        GotFocus += NavButton_GotFocus;
+        LostFocus += NavButton_LostFocus;
+        Loaded += (_, _) => _logService = App.Services.GetService<ILogService>();
+    }
+
+    private void NavButton_KeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (IsLocked) return;
+
+        if (e.Key == VirtualKey.Enter || e.Key == VirtualKey.Space)
+        {
+            Clicked?.Invoke(this, new NavButtonClickedEventArgs(NavigationTag));
+            e.Handled = true;
+        }
+    }
+
+    protected override AutomationPeer OnCreateAutomationPeer()
+        => new NavButtonAutomationPeer(this);
+
+    // Lets the automation peer route Narrator's Invoke through the same gates as pointer / keyboard.
+    internal void InvokeFromAutomation()
+    {
+        if (IsLocked) return;
+        Clicked?.Invoke(this, new NavButtonClickedEventArgs(NavigationTag));
+    }
+
+    private void NavButton_GotFocus(object sender, RoutedEventArgs e)
+    {
+        _isFocused = true;
+        UpdateVisualState();
+    }
+
+    private void NavButton_LostFocus(object sender, RoutedEventArgs e)
+    {
+        _isFocused = false;
+        UpdateVisualState();
+    }
+
+    #region Property Change Handlers
+
+    private static void OnIsSelectedChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        if (d is NavButton button)
+        {
+            button.NotifyPropertyChanged(nameof(IndicatorVisibility));
+            button.UpdateVisualState();
+        }
+    }
+
+    private static void OnIsLockedChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        if (d is NavButton button)
+        {
+            button.NotifyPropertyChanged(nameof(LockedVisibility));
+            button.NotifyPropertyChanged(nameof(ContentOpacity));
+            button.UpdateVisualState();
+        }
+    }
+
+    private static void OnIsCompactChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        if (d is NavButton button)
+        {
+            button.NotifyPropertyChanged(nameof(ActualButtonWidth));
+            button.NotifyPropertyChanged(nameof(ActualButtonHeight));
+            button.NotifyPropertyChanged(nameof(IconSize));
+            button.NotifyPropertyChanged(nameof(IndicatorHeight));
+            button.NotifyPropertyChanged(nameof(TextVisibility));
+        }
+    }
+
+    private static void OnBadgePropertyChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        if (d is NavButton button)
+        {
+            button.NotifyPropertyChanged(nameof(BadgeVisibility));
+            button.ApplyBadgeStyle();
+        }
+    }
+
+    private void ApplyBadgeStyle()
+    {
+        try
+        {
+            if (Badge == null) return;
+
+            if (string.IsNullOrEmpty(BadgeStatus) || (BadgeValue < 0 && BadgeStatus != "SuccessIcon"))
+            {
+                Badge.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            Badge.Visibility = Visibility.Visible;
+            var styleKey = BadgeStatus switch
+            {
+                "Attention" => "AttentionValueInfoBadgeStyle",
+                "Success" => "InformationalValueInfoBadgeStyle",
+                "SuccessIcon" => "SuccessIconInfoBadgeStyle",
+                _ => "AttentionValueInfoBadgeStyle"
+            };
+
+            if (Microsoft.UI.Xaml.Application.Current.Resources.TryGetValue(styleKey, out var style) && style is Style badgeStyle)
+            {
+                Badge.Style = badgeStyle;
+            }
+        }
+        catch (Exception ex)
+        {
+            _logService?.LogDebug($"Failed to apply badge style: {ex.Message}");
+        }
+    }
+
+    private static void OnIconPropertyChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+    {
+        if (d is NavButton button)
+        {
+            button.NotifyPropertyChanged(nameof(IconVisibility));
+        }
+    }
+
+    #endregion
+
+    #region Pointer Events
+
+    private void RootGrid_PointerEntered(object sender, PointerRoutedEventArgs e)
+    {
+        _isPointerOver = true;
+        UpdateVisualState();
+    }
+
+    private void RootGrid_PointerExited(object sender, PointerRoutedEventArgs e)
+    {
+        _isPointerOver = false;
+        UpdateVisualState();
+    }
+
+    private void RootGrid_PointerPressed(object sender, PointerRoutedEventArgs e)
+    {
+        // Block interaction when locked
+        if (IsLocked) return;
+
+        RootGrid.CapturePointer(e.Pointer);
+    }
+
+    private void RootGrid_PointerReleased(object sender, PointerRoutedEventArgs e)
+    {
+        RootGrid.ReleasePointerCapture(e.Pointer);
+
+        // Block interaction when locked
+        if (IsLocked) return;
+
+        // Only fire click if pointer is still over the button
+        if (_isPointerOver)
+        {
+            Clicked?.Invoke(this, new NavButtonClickedEventArgs(NavigationTag));
+        }
+    }
+
+    #endregion
+
+    #region Visual State Management
+
+    private void UpdateVisualState()
+    {
+        // Theme-resource setters keep selected, hovered and normal controls in sync with live accent changes.
+        var state = IsSelected ? "Selected" : (_isPointerOver || _isFocused) && !IsLocked ? "PointerOver" : "Normal";
+        VisualStateManager.GoToState(this, state, false);
+    }
+
+    #endregion
+
+    private void NotifyPropertyChanged([CallerMemberName] string? propertyName = null)
+    {
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+    }
+}
+
+/// <summary>
+/// Event args for NavButton click events.
+/// </summary>
+public class NavButtonClickedEventArgs : EventArgs
+{
+    public object? NavigationTag { get; }
+
+    public NavButtonClickedEventArgs(object? navigationTag)
+    {
+        NavigationTag = navigationTag;
+    }
+}
+
+/// <summary>
+/// Automation peer that exposes NavButton as a Button to UI Automation clients
+/// (Narrator etc.) and routes the Invoke pattern through NavButton.InvokeFromAutomation.
+/// </summary>
+public sealed partial class NavButtonAutomationPeer : FrameworkElementAutomationPeer, IInvokeProvider
+{
+    public NavButtonAutomationPeer(NavButton owner) : base(owner) { }
+
+    protected override AutomationControlType GetAutomationControlTypeCore()
+        => AutomationControlType.Button;
+
+    protected override string GetClassNameCore() => nameof(NavButton);
+
+    protected override object GetPatternCore(PatternInterface patternInterface)
+    {
+        if (patternInterface == PatternInterface.Invoke)
+        {
+            return this;
+        }
+        return base.GetPatternCore(patternInterface);
+    }
+
+    public void Invoke()
+    {
+        if (Owner is NavButton navButton)
+        {
+            navButton.InvokeFromAutomation();
+        }
+    }
+}
