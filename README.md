@@ -419,17 +419,32 @@ runs checks and produces an installer under
 `build/installers/`. See [PIPELINE.md](PIPELINE.md#build-and-packaging) for ordering.
 Use `-SkipSigning` to create an unsigned package without signing prompts, and
 `-InnoCompiler <path-to-ISCC.exe>` for a portable Inno Setup installation. Packaging
-uses the clean MSBuild payload under `build/publish/`. Requested signing failures
+uses the clean MSBuild payload under `build/publish/`, including the application's
+`win-optimizer.pri` compiled UI resources. Requested signing failures
 stop packaging.
 
 The **Build Windows installer** GitHub Actions workflow runs on pushes/pull requests
 to `main` and through **Actions → Build Windows installer → Run workflow**. Its optional
 version accepts `YY.MM.DD`, defaulting to the build date. It runs the packaging script,
-main suites, installer checks, UI compilation and portable-payload validation.
+main suites, installer checks, UI compilation and portable-payload validation,
+including the required application resource index.
 Installer, published app and installed app must have matching product/file versions,
 including numeric Windows metadata, before upload. Download the unsigned installer
-from **Artifacts → win-optimizer-windows-x64-<run number>-<attempt>** after success.
+from **Artifacts → win-optimizer-windows-x64-vYY.MM.DD** after success.
 Installers are retained for 30 days; test results/build logs for 14 days, including failures.
+Validation artifacts use `win-optimizer-validation-vYY.MM.DD` (or `vunresolved`
+if version resolution fails).
+
+The **Release** workflow runs when a tag matching `vYY.MM.DD` is pushed. It reuses
+the installer workflow, validates the calendar date and builds with that exact version.
+After all checks succeed, it publishes a stable GitHub Release with generated notes
+and the unsigned `win-optimizer.Installer.exe` asset used by installation and in-app updates.
+For example, after committing the desired sources and workflows:
+
+```powershell
+git tag v26.10.21
+git push origin v26.10.21
+```
 
 [ARCHITECTURE.md](ARCHITECTURE.md) describes ownership and storage;
 [PIPELINE.md](PIPELINE.md) describes execution, cancellation and recovery.

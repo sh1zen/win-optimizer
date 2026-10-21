@@ -11,12 +11,17 @@ on:
         description: 'Package version (YY.MM.DD); leave empty to use the build date'
         required: false
         type: string
+  workflow_call:
+    outputs:
+      version:
+        description: 'Validated package version (YY.MM.DD)'
+        value: ${{ jobs.installer.outputs.version }}
 
 permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-installer-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -25,6 +30,8 @@ jobs:
     # This image includes VS 2026/MSBuild 18, desktop workloads and Inno Setup 6.
     runs-on: windows-2025
     timeout-minutes: 60
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     defaults:
       run:
         shell: pwsh
@@ -43,21 +50,40 @@ jobs:
         with:
           global-json-file: global.json
 
+      - name: Resolve package version
+        id: version
+        env:
+          PACKAGE_VERSION: ${{ inputs.version }}
+        run: |
+          # A tag supplies the release date; MSBuild owns date validation and defaults.
+          $version = $env:PACKAGE_VERSION
+          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            if ($env:GITHUB_REF_NAME -cnotmatch '^v[0-9]{2}\.[0-9]{2}\.[0-9]{2}$') {
+              throw 'Release tags must use vYY.MM.DD.'
+            }
+            $version = $env:GITHUB_REF_NAME.Substring(1)
+          }
+          $msbuild = ./extras/Resolve-MSBuild.ps1
+          $arguments = @('Version.props', '-target:ValidateWinOptimizerVersion',
+            '-getProperty:WinOptimizerVersion', '-verbosity:quiet', '-nologo')
+          if ($version) { $arguments += "-property:WinOptimizerVersion=$version" }
+          $resolved = & $msbuild @arguments
+          if ($LASTEXITCODE -ne 0) { throw 'Package version resolution failed.' }
+          "version=$(($resolved -join '').Trim())" >> $env:GITHUB_OUTPUT
+
       - name: Check versioning, packaging and installer behavior
         run: |
           ./tests/versioning.tests.ps1
+          ./tests/workflows.tests.ps1
+          ./tests/test-runner.tests.ps1
           ./tests/packaging.tests.ps1
           ./tests/installer.tests.ps1
 
       - name: Build application, run tests and create installer
         env:
-          PACKAGE_VERSION: ${{ inputs.version }}
+          PACKAGE_VERSION: ${{ steps.version.outputs.version }}
         run: |
-          $packageArguments = @{ SkipSigning = $true }
-          if ($env:PACKAGE_VERSION) {
-            $packageArguments.Version = $env:PACKAGE_VERSION
-          }
-          ./extras/build-and-package.ps1 @packageArguments
+          ./extras/build-and-package.ps1 -SkipSigning -Version $env:PACKAGE_VERSION
           if ($LASTEXITCODE -ne 0) {
             throw "Packaging failed with exit code $LASTEXITCODE."
           }
@@ -68,9 +94,10 @@ jobs:
       - name: Upload installer
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: win-optimizer-windows-x64-${{ github.run_number }}-${{ github.run_attempt }}
+          name: win-optimizer-windows-x64-v${{ steps.version.outputs.version }}
           path: build/installers/win-optimizer.Installer.exe
           if-no-files-found: error
+          overwrite: true
           compression-level: 0
           retention-days: 30
 
@@ -78,9 +105,10 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: win-optimizer-validation-${{ github.run_number }}-${{ github.run_attempt }}
+          name: win-optimizer-validation-v${{ steps.version.outputs.version || 'unresolved' }}
           path: |
             build/test-results/**/*.trx
             build/logs/**
           if-no-files-found: warn
+          overwrite: true
           retention-days: 14

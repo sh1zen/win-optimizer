@@ -12,6 +12,14 @@ if (-not $PublishDirectory) { $PublishDirectory = Join-Path $repoRoot 'build/pub
 $InstallerPath = (Resolve-Path -LiteralPath $InstallerPath).Path
 $PublishDirectory = (Resolve-Path -LiteralPath $PublishDirectory).Path.TrimEnd('\')
 
+# Validate startup prerequisites independently of equality with the publish directory.
+foreach ($required in @('win-optimizer.exe', 'win-optimizer.dll', 'win-optimizer.pri',
+        'coreclr.dll', 'Microsoft.UI.Xaml.dll')) {
+    if (-not (Test-Path -LiteralPath (Join-Path $PublishDirectory $required) -PathType Leaf)) {
+        throw "Required application/runtime file is missing: $required"
+    }
+}
+
 # Check the date text and both Windows numeric version resources on the real files.
 function Assert-ArtifactVersion {
     param([string]$Path, [string]$ExpectedVersion)
@@ -78,9 +86,6 @@ try {
         if ($relative -ne 'portable.marker' -and -not $expected.ContainsKey($relative)) {
             throw "Unexpected file in the installed package: $relative"
         }
-    }
-    foreach ($required in @('win-optimizer.exe', 'win-optimizer.dll', 'coreclr.dll', 'Microsoft.UI.Xaml.dll')) {
-        if (-not $expected.ContainsKey($required)) { throw "Required application/runtime file is missing: $required" }
     }
     foreach ($language in Get-ChildItem -LiteralPath (Join-Path $repoRoot 'src/WinOptimizer.UI/Features/Common/Localization') -Filter '*.json') {
         $installed = Join-Path $destination "Localization/$($language.Name)"

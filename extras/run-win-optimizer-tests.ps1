@@ -55,6 +55,12 @@ function Run-TestProject {
             }
             $passed = [int]$counters.passed
             $failed = [int]$counters.failed
+            # Quiet console output can omit the assertion or timeout that failed CI.
+            foreach ($testResult in $result.TestRun.Results.UnitTestResult | Where-Object outcome -eq 'Failed') {
+                Write-Host "  $($testResult.testName)" -ForegroundColor Red
+                Write-Host $testResult.Output.ErrorInfo.Message -ForegroundColor Red
+                Write-Host $testResult.Output.ErrorInfo.StackTrace -ForegroundColor DarkGray
+            }
             # xUnit can omit skipped tests from the summary counters.
             $skipped = @($result.TestRun.Results.UnitTestResult | Where-Object { $_.outcome -eq 'NotExecuted' }).Count
             if ([int]$counters.total -ne $passed + $failed + $skipped) {

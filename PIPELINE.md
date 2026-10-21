@@ -516,18 +516,32 @@ The script restores temporary PATH/working-directory changes on every exit.
    with the resolved version.
 3. Run the main suites and UI compilation check unless explicitly skipped. Native
    exit codes and complete per-project TRX results must agree; failures stop packaging.
+   Failed test names, error messages and stack traces are printed from TRX in the CI log.
 4. Reject a linked `build/publish/`, recreate it and publish with `NoBuild=true` and
-   the same version. Sign the published app when requested; signing failures stop.
+   the same version. The UI project adds its generated `win-optimizer.pri` to the
+   publish items; a missing index fails publishing. Sign the published app when
+   requested; signing failures stop.
 5. Apply the resolved version to Inno's numeric/text metadata, compile the installer
    under `build/installers/`, verify its existence and sign when requested. Generated
    tests, tools and logs stay outside the payload.
 
-CI first runs native-runner/versioning/packaging/installer checks, then the unsigned packaging
-script. Before upload, it compares product/file text and numeric versions across
+CI resolves the version through `Version.props` before running checks, using the
+date from a `vYY.MM.DD` tag or the manual version/build date for other runs. The
+resolved value is passed to packaging and versioned artifact names. It first runs
+workflow/versioning/packaging/installer checks, then the unsigned packaging script.
+Before upload, it compares product/file text and numeric versions across
 the installer, published EXE/DLL and a temporary portable installation, using the
 published assembly's version rather than a new date calculation. It also verifies
-installed bytes, runtimes and language resources. Installer upload requires success;
+installed bytes, runtimes, the application's compiled UI resource index and language
+resources. Installer upload requires success;
 TRX results and build logs upload even on failure.
+
+Pushing a `vYY.MM.DD` tag starts `release.yml`, which calls the shared installer
+workflow at the tagged commit. Invalid calendar dates fail before packaging.
+Only after the complete build and validation succeed does the publishing job
+download that run's versioned installer artifact and create a stable GitHub Release
+with generated notes and `win-optimizer.Installer.exe`. Download/publication failures
+fail the job; GitHub must already contain the pushed tag.
 
 `win-optimizer.ps1` downloads the latest stable release installer and opens its
 interactive wizard. Setup offers regular or portable installation followed by a

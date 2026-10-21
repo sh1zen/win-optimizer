@@ -34,6 +34,11 @@ and WinGet runtime/metadata copies are incremental.
 Visual Studio discovery. `Version.props` owns version defaults, validation and
 assembly/product metadata. The UI imports it; packaging passes its resolved value
 through build, publish and Inno Setup. MSBuild owns the payload in `build/publish/`.
+The UI project's publish target includes its generated PRI containing compiled
+XAML resources and fails if that required build output is missing.
+`build-installer.yml` owns shared CI validation, packaging and versioned artifacts;
+`release.yml` calls it for date tags and publishes the verified installer with
+release-write permissions confined to the publishing job.
 The [pipeline](PIPELINE.md#build-and-packaging) defines stage ordering;
 the [development guide](README.md#development) contains commands and CI usage.
 

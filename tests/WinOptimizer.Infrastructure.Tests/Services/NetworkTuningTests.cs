@@ -12,6 +12,7 @@ using Xunit;
 namespace WinOptimizer.Infrastructure.Tests.Services;
 
 /// <summary>Exercises the production network catalogue and service without reading or changing the host network.</summary>
+[Collection(nameof(NetworkTuningProcessCollection))]
 public sealed class NetworkTuningTests
 {
     private readonly Mock<IPowerShellRunner> _scripts = new();
@@ -204,15 +205,25 @@ public sealed class NetworkTuningTests
             Assert.NotNull(root);
             var start = new ProcessStartInfo(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "WindowsPowerShell", "v1.0", "powershell.exe"))
             { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
-            foreach (var argument in new[] { "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", Path.Combine(root.FullName, "tests", "network-tuning-scripts.tests.ps1"), "-PayloadPath", payloadPath }) start.ArgumentList.Add(argument);
+            foreach (var argument in new[] { "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", Path.Combine(root.FullName, "tests", "network-tuning-scripts.tests.ps1"), "-PayloadPath", payloadPath }) start.ArgumentList.Add(argument);
             using var process = Process.Start(start)!;
             var output = process.StandardOutput.ReadToEndAsync();
             var error = process.StandardError.ReadToEndAsync();
-            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+            // Cold Windows PowerShell startup can be slow on hosted runners.
+            using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(2));
             try { await process.WaitForExitAsync(timeout.Token); }
-            catch (OperationCanceledException) { process.Kill(entireProcessTree: true); throw; }
+            catch (OperationCanceledException exception) when (timeout.IsCancellationRequested)
+            {
+                if (!process.HasExited) process.Kill(entireProcessTree: true);
+                await process.WaitForExitAsync();
+                throw new TimeoutException($"The PowerShell network fixture exceeded two minutes.\nStandard output:\n{await output}\nStandard error:\n{await error}", exception);
+            }
             Assert.True(process.ExitCode == 0, await output + await error);
         }
         finally { Directory.Delete(folder, recursive: true); }
     }
 }
+
+/// <summary>Runs the PowerShell fixture without competing with other test collections for process startup.</summary>
+[CollectionDefinition(nameof(NetworkTuningProcessCollection), DisableParallelization = true)]
+public sealed class NetworkTuningProcessCollection { }

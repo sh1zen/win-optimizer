@@ -1,0 +1,40 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v[0-9][0-9].[0-9][0-9].[0-9][0-9]'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  installer:
+    uses: ./.github/workflows/build-installer.yml
+
+  release:
+    name: Publish GitHub Release
+    needs: installer
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ github.ref_name }}
+      RUN_ID: ${{ github.run_id }}
+      INSTALLER_ARTIFACT: win-optimizer-windows-x64-v${{ needs.installer.outputs.version }}
+    steps:
+      - name: Download verified installer and publish release
+        shell: pwsh
+        run: |
+          gh run download $env:RUN_ID --repo $env:GH_REPO --name $env:INSTALLER_ARTIFACT --dir build/installers
+          if ($LASTEXITCODE -ne 0) { throw 'Installer artifact download failed.' }
+          gh release create $env:RELEASE_TAG build/installers/win-optimizer.Installer.exe --repo $env:GH_REPO --verify-tag --generate-notes --title "win-optimizer $env:RELEASE_TAG"
+          if ($LASTEXITCODE -ne 0) { throw 'GitHub Release publication failed.' }

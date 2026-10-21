@@ -19,7 +19,12 @@ Infrastructure covers bulk-action requests and recommendation selection.
 The runner executes Core, Application, Infrastructure and integration suites,
 saving TRX results under `build/test-results/<run ID>/`. It separately **builds**
 UI tests under `build/ui-test-build/`; run those tests in Visual Studio Test Explorer.
+Failed test names, messages and stack traces from TRX are printed in the CI log.
 `-SkipUITests` omits that build check; `-IntegrationOnly` runs only integration tests.
+
+The network script fixture runs in a collection that does not overlap other
+Infrastructure tests. Its noninteractive Windows PowerShell worker has a two-minute
+deadline; a timeout terminates its process tree and reports captured output.
 
 Focused native UI runners share `Build-NativeTestHost.ps1` for MSBuild discovery,
 cached NuGet restore and executable validation. Each runner owns its build location
@@ -32,9 +37,11 @@ and fixture disposal on the WinUI dispatcher.
 | Area | Command |
 | --- | --- |
 | Build-date version, release overrides and application metadata | `./tests/versioning.tests.ps1` |
+| Workflow version resolution, release asset commands and publication failures | `./tests/workflows.tests.ps1` |
+| Test runner TRX diagnostics and failure detection | `./tests/test-runner.tests.ps1` |
 | Packaging signing decisions and noninteractive option validation | `./tests/packaging.tests.ps1` |
 | Installer compilation, destination/mode navigation and PowerShell launcher | `./tests/installer.tests.ps1` (Inno Setup 6; optional `-InnoCompiler <path-to-ISCC.exe>`) |
-| Built installer's version, portable payload, bundled runtimes and languages | `./tests/packaged-payload.tests.ps1` (after packaging) |
+| Built installer's version, portable payload, compiled UI resource index, bundled runtimes and languages | `./tests/packaged-payload.tests.ps1` (after packaging) |
 | Configuration and preference queues | `dotnet test ./tests/WinOptimizer.Application.Tests/WinOptimizer.Application.Tests.csproj` |
 | Optimize network/feature orchestration and fake native scripts | `dotnet test ./tests/WinOptimizer.Infrastructure.Tests/WinOptimizer.Infrastructure.Tests.csproj --filter 'FullyQualifiedName~OptimizationToolsServiceTests\|FullyQualifiedName~NetworkTuningTests'` |
 | Network UI | `./tests/run-network-tests.ps1` |

@@ -136,4 +136,16 @@
   </ItemGroup>
 
 
+  <!-- The unpackaged MRT build generates the app PRI but does not add it to publish items. -->
+  <Target Name="PublishApplicationResources" BeforeTargets="ComputeResolvedFilesToPublishList"
+          Condition="'$(CopyBuildOutputToPublishDirectory)' == 'true'">
+    <Error Condition="!Exists('$(ProjectPriFullPath)')"
+           Text="The application resource index is missing: $(ProjectPriFullPath). Build the application before publishing." />
+    <ItemGroup>
+      <ResolvedFileToPublish Include="$(ProjectPriFullPath)">
+        <RelativePath>$(ProjectPriFileName)</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
 </Project>
