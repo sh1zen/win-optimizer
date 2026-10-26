@@ -409,29 +409,21 @@ public partial class SettingItemViewModel : BaseViewModel
 
     // ───────── Toggle quick-set buttons ─────────
     /// <summary>
-    /// True if Recommended maps to the enabled state, false if disabled, null if no
-    /// recommendation is set. Resolution order:
-    ///   1. <see cref="SettingDefinition.RecommendedToggleState"/> (explicit toggle-level flag)
-    ///   2. Per-RegistrySetting RecommendedValue mapped strictly via EnabledValue/DisabledValue
-    ///   3. null (no Recommended badge / button)
-    /// The strict step never derives state from the EnabledValue/DisabledValue null sentinel —
-    /// recommendations against the key-absent state must be expressed via RecommendedToggleState.
+    /// Gets the recommended toggle state using Core's override, registry and scheduled-task rules.
     /// </summary>
+    /// <seealso cref="SettingDefinitionToggleState.GetRecommendedToggleState"/>
     public bool? ToggleRecommendedState =>
         SettingDefinition is { } sd ? SettingDefinitionToggleState.GetRecommendedToggleState(sd) : null;
 
     /// <summary>
-    /// True if Default maps to the enabled state, false if disabled, null if not derivable.
-    /// When DefaultValue is null, the state is derived from which of EnabledValue /
-    /// DisabledValue contains the null sentinel (key-absent convention).
+    /// Gets the default toggle state using Core's rules, including the key-absent convention.
     /// </summary>
+    /// <seealso cref="SettingDefinitionToggleState.GetDefaultToggleState"/>
     public bool? ToggleDefaultState =>
         SettingDefinition is { } sd ? SettingDefinitionToggleState.GetDefaultToggleState(sd) : null;
 
     /// <summary>
-    /// Resolves a target value into the toggle state it represents. Thin delegate to
-    /// <see cref="SettingDefinitionToggleState.ToggleTargetState"/> — kept here because
-    /// other call sites (badge state computation) reference it locally.
+    /// Maps registry targets through Core's toggle-state rules for badge computation.
     /// </summary>
     internal static bool? ToggleTargetState(object? targetValue, object?[]? enabledValue, object?[]? disabledValue) =>
         SettingDefinitionToggleState.ToggleTargetState(targetValue, enabledValue, disabledValue);
@@ -2101,12 +2093,6 @@ public partial class SettingItemViewModel : BaseViewModel
         }
 
         return (matchesRecommended, matchesDefault);
-    }
-
-    private static bool IsValueInArray(object value, object?[]? array)
-    {
-        if (array == null) return false;
-        return array.Any(v => ValuesEqual(value, v));
     }
 
     private static bool ValuesEqual(object? a, object? b)

@@ -3,6 +3,7 @@
 param (
     [switch]$SkipUITests = $false,
     [switch]$IntegrationOnly = $false,
+    [switch]$UseExistingReleaseBuild,
     [string]$MSBuildPath
 )
 
@@ -122,13 +123,26 @@ if (-not $IntegrationOnly) {
             Write-Host "  Building UI Tests with MSBuild..." -ForegroundColor Cyan
             Write-Host ("=" * 60) -ForegroundColor DarkGray
 
-            # Keep this Debug build separate from the application being packaged or run.
+            # Packaging has already built the Release application and its references.
+            # Standalone checks retain their isolated Debug application build.
+            $uiConfiguration = 'Debug'
             $uiBuildRoot = (Join-Path $solutionDir 'build\ui-test-build') + '/'
+            $uiBuildArguments = @()
+            if ($UseExistingReleaseBuild) {
+                $uiConfiguration = 'Release'
+                $uiBuildRoot = (Join-Path $solutionDir 'build') + '/'
+                foreach ($file in @('win-optimizer.exe', 'win-optimizer.dll')) {
+                    if (-not (Test-Path -LiteralPath (Join-Path $uiBuildRoot $file) -PathType Leaf)) {
+                        throw 'Build the Release application before using -UseExistingReleaseBuild.'
+                    }
+                }
+                $uiBuildArguments += '-property:BuildProjectReferences=false'
+            }
             $originalErrorAction = $ErrorActionPreference
             try {
                 $ErrorActionPreference = 'Continue'
-                $buildOutput = & $MSBuildPath $uiProjectPath -property:Configuration=Debug -property:Platform=x64 `
-                    "-property:WinOptimizerBuildRoot=$uiBuildRoot" -verbosity:quiet -restore -maxCpuCount 2>&1 | Out-String
+                $buildOutput = & $MSBuildPath $uiProjectPath "-property:Configuration=$uiConfiguration" -property:Platform=x64 `
+                    "-property:WinOptimizerBuildRoot=$uiBuildRoot" -verbosity:quiet -restore -maxCpuCount @uiBuildArguments 2>&1 | Out-String
                 $buildExitCode = $LASTEXITCODE
             }
             finally { $ErrorActionPreference = $originalErrorAction }

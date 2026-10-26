@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media.Imaging;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.UI.Helpers;
+using WinOptimizer.UI.Features.Common.Helpers;
 
 namespace WinOptimizer.UI.Features.Common.Controls;
 
@@ -12,6 +13,8 @@ public sealed partial class StartupLoadingView : UserControl
     public StartupLoadingView()
     {
         InitializeComponent();
+        // Reserve two scaled text lines so ordinary status changes do not recenter the splash.
+        LoadingStatusText.MinHeight = 40 * TextScaleHelper.Factor;
         LoadingLogo.Source = new BitmapImage
         {
             DecodePixelWidth = 256,
@@ -22,6 +25,7 @@ public sealed partial class StartupLoadingView : UserControl
     }
 
     internal TextBlock StatusText => LoadingStatusText;
+    internal Grid TitleBar => LoadingTitleBar;
 
     /// <summary>Applies the saved language once protected storage and localization are ready.</summary>
     internal void ApplyLocalization(ILocalizationService localization)

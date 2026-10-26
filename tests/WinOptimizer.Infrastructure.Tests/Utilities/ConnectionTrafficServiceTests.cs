@@ -7,6 +7,26 @@ namespace WinOptimizer.Infrastructure.Tests.Utilities;
 public sealed class ConnectionTrafficServiceTests
 {
     [Theory]
+    [InlineData(10, 23)]
+    [InlineData(11, 25)]
+    public async Task HistoryHandlesSkippedAndRepeatedLocalMidnight(int month, int hours)
+    {
+        var rule = TimeZoneInfo.AdjustmentRule.CreateAdjustmentRule(new(2020, 1, 1), new(2030, 12, 31),
+            TimeSpan.FromHours(1), TimeZoneInfo.TransitionTime.CreateFixedDateRule(new(1, 1, 1, 0, 0, 0), 10, 1),
+            TimeZoneInfo.TransitionTime.CreateFixedDateRule(new(1, 1, 1, 1, 0, 0), 11, 1));
+        var zone = TimeZoneInfo.CreateCustomTimeZone("Midnight transition fixture", TimeSpan.Zero, "Fixture", "Standard", "Summer", [rule]);
+        var clock = new TestClock { At = new(2026, month, 20, 12, 0, 0, TimeSpan.Zero), Zone = zone };
+        var source = new HistorySource();
+
+        var result = await new ConnectionTrafficService(new Adapters(), source, clock).ReadHistoryAsync(CancellationToken.None);
+
+        Assert.Equal(30, result.Days.Count);
+        var transition = Assert.Single(source.Days, range => range.Date == new DateOnly(2026, month, 1));
+        Assert.Equal(TimeSpan.FromHours(hours), transition.End - transition.Start);
+        Assert.Equal(month == 10 ? 1 : 0, TimeZoneInfo.ConvertTime(transition.Start, zone).Hour);
+        for (var index = 1; index < source.Days.Count; index++) Assert.Equal(source.Days[index - 1].End, source.Days[index].Start);
+    }
+    [Theory]
     [InlineData(3, 30, 23)]
     [InlineData(10, 30, 25)]
     public async Task HistoryRequestsThirtyLocalCalendarDaysIncludingDaylightSavingAndPartialToday(int month, int day, int transitionHours)

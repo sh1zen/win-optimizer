@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Collections.Concurrent;
 using System.Globalization;
 using System.Security;
 using System.Runtime.InteropServices;
@@ -16,17 +17,23 @@ public sealed class WindowsAppMetadataSource(IInteractiveUserService user, ILogS
     internal sealed record Registration(string Key, string Name, DateTimeOffset? Installed, long? Bytes,
         string? Executable, string? KeyPath = null);
     internal sealed record PackageMetadata(string Name, string Family, DateTimeOffset Installed, long? Bytes);
+    private readonly ConcurrentDictionary<(string FullName, string Path), Lazy<long?>> _packageSizes = new();
 
-    public Task<IReadOnlyDictionary<string, AppMetadata>> ReadAsync(IReadOnlyList<ItemDefinition> definitions) => Task.Run<IReadOnlyDictionary<string, AppMetadata>>(() =>
+    /// <summary>Overlaps independent registry, usage and package reads before matching their snapshots.</summary>
+    public async Task<IReadOnlyDictionary<string, AppMetadata>> ReadAsync(IReadOnlyList<ItemDefinition> definitions)
     {
         if (definitions.Count == 0)
             return new Dictionary<string, AppMetadata>();
-        var registrations = ReadRegistrations();
-        var usage = ReadUsage();
-        var packages = ReadPackages(definitions);
+        var registrationsTask = Task.Run(ReadRegistrations);
+        var usageTask = Task.Run(ReadUsage);
+        var packagesTask = Task.Run(() => ReadPackages(definitions));
+        await Task.WhenAll(registrationsTask, usageTask, packagesTask).ConfigureAwait(false);
+        var registrations = await registrationsTask.ConfigureAwait(false);
+        var usage = await usageTask.ConfigureAwait(false);
+        var packages = await packagesTask.ConfigureAwait(false);
         return definitions.ToDictionary(item => item.Id,
-            item => Match(item, registrations, packages, usage, path => ExpandPath(path, ResolveFolder)), StringComparer.OrdinalIgnoreCase);
-    });
+            item => Match(item, registrations, packages, usage, path => AppPaths.Expand(path, ResolveFolder)), StringComparer.OrdinalIgnoreCase);
+    }
 
     /// <summary>Associates evidence only with explicit fingerprints, exact names, package families or executable paths.</summary>
     internal static AppMetadata Match(ItemDefinition item, IReadOnlyList<Registration> registrations,
@@ -132,7 +139,7 @@ public sealed class WindowsAppMetadataSource(IInteractiveUserService user, ILogS
                 foreach (var encoded in count.GetValueNames())
                 {
                     if (count.GetValue(encoded) is not byte[] bytes || ParseUsageTime(bytes) is not { } time) continue;
-                    var path = ExpandPath(DecodeUsageName(encoded), ResolveFolder);
+                    var path = AppPaths.Expand(DecodeUsageName(encoded), ResolveFolder);
                     if (!result.TryGetValue(path, out var previous) || time > previous) result[path] = time;
                 }
             }
@@ -152,38 +159,6 @@ public sealed class WindowsAppMetadataSource(IInteractiveUserService user, ILogS
     private string ResolveFolder(Environment.SpecialFolder folder) => folder is Environment.SpecialFolder.LocalApplicationData
         or Environment.SpecialFolder.ApplicationData or Environment.SpecialFolder.UserProfile
         ? user.GetInteractiveUserFolderPath(folder) : Environment.GetFolderPath(folder);
-
-    /// <summary>Normalizes documented Known Folder identifiers and user variables before comparing executable evidence.</summary>
-    internal static string ExpandPath(string path, Func<Environment.SpecialFolder, string> resolveFolder)
-    {
-        foreach (var (variable, folder) in new[]
-        {
-            ("%LOCALAPPDATA%", Environment.SpecialFolder.LocalApplicationData),
-            ("%APPDATA%", Environment.SpecialFolder.ApplicationData),
-            ("%USERPROFILE%", Environment.SpecialFolder.UserProfile),
-        })
-        {
-            if (path.Contains(variable, StringComparison.OrdinalIgnoreCase))
-                path = path.Replace(variable, resolveFolder(folder), StringComparison.OrdinalIgnoreCase);
-        }
-        if (path.Length > 38 && path[38] == '\\' && Guid.TryParse(path.AsSpan(0, 38), out var id))
-        {
-            Environment.SpecialFolder? folder = id.ToString("D").ToUpperInvariant() switch
-            {
-                "905E63B6-C1BF-494E-B29C-65B732D3D21A" or "6D809377-6AF0-444B-8957-A3773F02200E" => Environment.SpecialFolder.ProgramFiles,
-                "7C5A40EF-A0FB-4BFC-874A-C0F2E0B9FA8E" => Environment.SpecialFolder.ProgramFilesX86,
-                "F1B32785-6FBA-4FCF-9D55-7B8E7F157091" => Environment.SpecialFolder.LocalApplicationData,
-                "3EB685DB-65F9-4CF6-A03A-E3EF65729F3D" => Environment.SpecialFolder.ApplicationData,
-                "5E6C858F-0E22-4760-9AFE-EA3317B67173" => Environment.SpecialFolder.UserProfile,
-                "F38BF404-1D43-42F2-9305-67DE0B28FC23" => Environment.SpecialFolder.Windows,
-                "1AC14E77-02E7-4E5D-B744-2EB1AE5198B7" => Environment.SpecialFolder.System,
-                _ => null,
-            };
-            if (folder is { } known && resolveFolder(known) is { Length: > 0 } root)
-                path = root.TrimEnd('\\') + path[38..];
-        }
-        return Environment.ExpandEnvironmentVariables(path);
-    }
 
     internal static DateTimeOffset? ParseUsageTime(byte[] bytes)
     {
@@ -207,7 +182,7 @@ public sealed class WindowsAppMetadataSource(IInteractiveUserService user, ILogS
                 try
                 {
                     result.Add(new PackageMetadata(package.Id.Name, package.Id.FamilyName, package.InstalledDate,
-                        ReadPackageSize(package.InstalledLocation.Path)));
+                        GetPackageSize(package.Id.FullName, package.InstalledLocation.Path, package.IsDevelopmentMode)));
                 }
                 catch (Exception ex) when (IsReadFailure(ex)) { log.LogWarning($"App package metadata unavailable: {ex.Message}"); }
             }
@@ -216,6 +191,19 @@ public sealed class WindowsAppMetadataSource(IInteractiveUserService user, ILogS
         return result;
     }
 
+    /// <summary>Reuses immutable installed-package measurements; development files and failures stay fresh.</summary>
+    internal long? GetPackageSize(string fullName, string path, bool isDevelopmentMode)
+    {
+        if (isDevelopmentMode) return ReadPackageSize(path);
+        var key = (FullName: fullName, Path: path);
+        var size = _packageSizes.GetOrAdd(key, entry => new Lazy<long?>(() => ReadPackageSize(entry.Path)));
+        var bytes = size.Value;
+        if (bytes is null)
+            _packageSizes.TryRemove(new KeyValuePair<(string FullName, string Path), Lazy<long?>>(key, size));
+        return bytes;
+    }
+
+    /// <summary>Measures regular package files without following filesystem redirects.</summary>
     private long? ReadPackageSize(string path)
     {
         try

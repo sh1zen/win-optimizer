@@ -13,7 +13,7 @@ using WinOptimizer.UI.Features.Common.Interfaces;
 
 namespace WinOptimizer.UI.Features.SoftwareApps.ViewModels;
 
-/// <summary>Offers only actionable scan-issued leftovers for selection; protected evidence stays visible for review.</summary>
+/// <summary>Presents scan-issued leftover details and prevents selection of protected entries.</summary>
 public partial class LeftoverItemViewModel(LeftoverItem item) : ObservableObject
 {
     public LeftoverItem Item { get; } = item;

@@ -44,8 +44,8 @@ public sealed class CleanerService(ICleanerBackend backend, ICleanerBackupServic
                     // Privacy and stale-reference scans can identify the same history value.
                     if (finding.Target is CleanerRegistryTarget value &&
                         !registryValues.Add($"{value.View32}\0{value.KeyPath}\0{value.ValueName}")) continue;
-                    // Privacy and shortcut repair can identify the same recent-document link.
-                    if (finding.Area is CleanerArea.Privacy or CleanerArea.Shortcuts && finding.Target is CleanerFileTarget file &&
+                    // File categories can share recent links or application-cache directories.
+                    if (finding.Target is CleanerFileTarget file &&
                         !filePaths.Add(file.Path)) continue;
                     findings.Add(finding);
                 }

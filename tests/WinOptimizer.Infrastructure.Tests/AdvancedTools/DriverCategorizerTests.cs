@@ -10,6 +10,40 @@ namespace WinOptimizer.Infrastructure.Tests.AdvancedTools;
 
 public class DriverCategorizerTests
 {
+    [Theory]
+    [InlineData("utf8")]
+    [InlineData("ansi")]
+    [InlineData("utf16-le")]
+    [InlineData("utf16-be")]
+    public void CopiesStoragePackagesWithTheirNestedPayloadForSupportedInfEncodings(string encodingName)
+    {
+        var root = Path.Combine(Path.GetTempPath(), "WinOptimizer-driver-" + Guid.NewGuid().ToString("N"));
+        var package = Path.Combine(root, "Source", "Controller");
+        var winpe = Path.Combine(root, "WinPE");
+        var oem = Path.Combine(root, "OEM");
+        Directory.CreateDirectory(Path.Combine(package, "amd64"));
+        try
+        {
+            Encoding encoding = encodingName switch
+            {
+                "utf16-le" => Encoding.Unicode,
+                "utf16-be" => Encoding.BigEndianUnicode,
+                "ansi" => Encoding.Latin1,
+                _ => new UTF8Encoding(false)
+            };
+            File.WriteAllText(Path.Combine(package, "controller.inf"), "; Contrôleur\r\n[Version]\r\nClass = SCSIAdapter\r\n", encoding);
+            File.WriteAllBytes(Path.Combine(package, "amd64", "controller.sys"), [1, 2, 3, 4]);
+            var categorizer = new WinOptimizer.Infrastructure.Features.AdvancedTools.Helpers.DriverCategorizer(
+                Mock.Of<ILogService>(), new WinOptimizer.Infrastructure.Features.Common.Services.FileSystemService());
+
+            Assert.Equal(1, categorizer.CategorizeAndCopyDrivers(Path.Combine(root, "Source"), winpe, oem));
+
+            Assert.True(File.Exists(Path.Combine(winpe, "Controller", "controller.inf")));
+            Assert.Equal(new byte[] { 1, 2, 3, 4 }, File.ReadAllBytes(Path.Combine(winpe, "Controller", "amd64", "controller.sys")));
+            Assert.False(Directory.Exists(oem));
+        }
+        finally { Directory.Delete(root, recursive: true); }
+    }
     private readonly Mock<ILogService> _logService = new();
     private readonly Mock<IFileSystemService> _fileSystemService = new();
     private readonly DriverCategorizer _sut;
@@ -47,7 +81,7 @@ public class DriverCategorizerTests
     {
         var infPath = "C:\\Drivers\\network.inf";
         _fileSystemService.Setup(f => f.GetFileName(infPath)).Returns("network.inf");
-        _fileSystemService.Setup(f => f.ReadAllText(infPath, Encoding.Unicode))
+        _fileSystemService.Setup(f => f.ReadAllText(infPath, Encoding.UTF8))
             .Returns("[Version]\nClass=Net\nClassGuid={something}");
 
         var result = _sut.IsStorageDriver(infPath);
@@ -67,7 +101,7 @@ public class DriverCategorizerTests
     {
         var infPath = "C:\\Drivers\\storage.inf";
         _fileSystemService.Setup(f => f.GetFileName(infPath)).Returns("storage.inf");
-        _fileSystemService.Setup(f => f.ReadAllText(infPath, Encoding.Unicode))
+        _fileSystemService.Setup(f => f.ReadAllText(infPath, Encoding.UTF8))
             .Returns($"[Version]\nClass = {className}\nClassGuid={{something}}");
 
         var result = _sut.IsStorageDriver(infPath);
@@ -80,7 +114,7 @@ public class DriverCategorizerTests
     {
         var infPath = "C:\\Drivers\\display.inf";
         _fileSystemService.Setup(f => f.GetFileName(infPath)).Returns("display.inf");
-        _fileSystemService.Setup(f => f.ReadAllText(infPath, Encoding.Unicode))
+        _fileSystemService.Setup(f => f.ReadAllText(infPath, Encoding.UTF8))
             .Returns("[Version]\nClass=Display\nClassGuid={something}");
 
         var result = _sut.IsStorageDriver(infPath);
@@ -89,16 +123,14 @@ public class DriverCategorizerTests
     }
 
     // ---------------------------------------------------------------
-    // IsStorageDriver - Fallback encoding
+    // IsStorageDriver - UTF-8 input
     // ---------------------------------------------------------------
 
     [Fact]
-    public void IsStorageDriver_UnicodeReadFails_FallsBackToUtf8()
+    public void IsStorageDriver_Utf8Read_RecognizesStorageClass()
     {
         var infPath = "C:\\Drivers\\storage.inf";
         _fileSystemService.Setup(f => f.GetFileName(infPath)).Returns("storage.inf");
-        _fileSystemService.Setup(f => f.ReadAllText(infPath, Encoding.Unicode))
-            .Throws(new IOException("Cannot read"));
         _fileSystemService.Setup(f => f.ReadAllText(infPath, Encoding.UTF8))
             .Returns("[Version]\nClass=SCSIAdapter\nClassGuid={something}");
 
@@ -116,8 +148,6 @@ public class DriverCategorizerTests
     {
         var infPath = "C:\\Drivers\\bad.inf";
         _fileSystemService.Setup(f => f.GetFileName(infPath)).Returns("bad.inf");
-        _fileSystemService.Setup(f => f.ReadAllText(infPath, Encoding.Unicode))
-            .Throws(new IOException("Disk error"));
         _fileSystemService.Setup(f => f.ReadAllText(infPath, Encoding.UTF8))
             .Throws(new IOException("Disk error"));
 
@@ -158,7 +188,7 @@ public class DriverCategorizerTests
         _fileSystemService.Setup(f => f.GetFileName("C:\\Source\\DriverFolder")).Returns("DriverFolder");
         _fileSystemService.Setup(f => f.CombinePath("C:\\WinPE", "DriverFolder")).Returns("C:\\WinPE\\DriverFolder");
         _fileSystemService.Setup(f => f.DirectoryExists("C:\\WinPE\\DriverFolder")).Returns(false);
-        _fileSystemService.Setup(f => f.GetFiles("C:\\Source\\DriverFolder"))
+        _fileSystemService.Setup(f => f.GetFiles("C:\\Source\\DriverFolder", "*", SearchOption.AllDirectories))
             .Returns(new[] { infPath, "C:\\Source\\DriverFolder\\iastor.sys" });
         _fileSystemService.Setup(f => f.GetFileName("C:\\Source\\DriverFolder\\iastor.sys")).Returns("iastor.sys");
         _fileSystemService.Setup(f => f.CombinePath("C:\\WinPE\\DriverFolder", "iastor.inf")).Returns("C:\\WinPE\\DriverFolder\\iastor.inf");
@@ -182,13 +212,13 @@ public class DriverCategorizerTests
         _fileSystemService.Setup(f => f.GetFiles("C:\\Source", "*.inf", SearchOption.AllDirectories))
             .Returns(new[] { infPath });
         _fileSystemService.Setup(f => f.GetFileName(infPath)).Returns("network.inf");
-        _fileSystemService.Setup(f => f.ReadAllText(infPath, Encoding.Unicode))
+        _fileSystemService.Setup(f => f.ReadAllText(infPath, Encoding.UTF8))
             .Returns("[Version]\nClass=Net");
         _fileSystemService.Setup(f => f.GetDirectoryName(infPath)).Returns("C:\\Source\\NetDriver");
         _fileSystemService.Setup(f => f.GetFileName("C:\\Source\\NetDriver")).Returns("NetDriver");
         _fileSystemService.Setup(f => f.CombinePath("C:\\OEM", "NetDriver")).Returns("C:\\OEM\\NetDriver");
         _fileSystemService.Setup(f => f.DirectoryExists("C:\\OEM\\NetDriver")).Returns(false);
-        _fileSystemService.Setup(f => f.GetFiles("C:\\Source\\NetDriver"))
+        _fileSystemService.Setup(f => f.GetFiles("C:\\Source\\NetDriver", "*", SearchOption.AllDirectories))
             .Returns(new[] { infPath });
         _fileSystemService.Setup(f => f.CombinePath("C:\\OEM\\NetDriver", "network.inf")).Returns("C:\\OEM\\NetDriver\\network.inf");
 
@@ -211,13 +241,13 @@ public class DriverCategorizerTests
         _fileSystemService.Setup(f => f.GetFiles("C:\\Source", "*.inf", SearchOption.AllDirectories))
             .Returns(new[] { excludedInf, validInf });
         _fileSystemService.Setup(f => f.GetFileName(validInf)).Returns("network.inf");
-        _fileSystemService.Setup(f => f.ReadAllText(validInf, Encoding.Unicode))
+        _fileSystemService.Setup(f => f.ReadAllText(validInf, Encoding.UTF8))
             .Returns("[Version]\nClass=Net");
         _fileSystemService.Setup(f => f.GetDirectoryName(validInf)).Returns("C:\\Source\\OtherDriver");
         _fileSystemService.Setup(f => f.GetFileName("C:\\Source\\OtherDriver")).Returns("OtherDriver");
         _fileSystemService.Setup(f => f.CombinePath("C:\\OEM", "OtherDriver")).Returns("C:\\OEM\\OtherDriver");
         _fileSystemService.Setup(f => f.DirectoryExists("C:\\OEM\\OtherDriver")).Returns(false);
-        _fileSystemService.Setup(f => f.GetFiles("C:\\Source\\OtherDriver"))
+        _fileSystemService.Setup(f => f.GetFiles("C:\\Source\\OtherDriver", "*", SearchOption.AllDirectories))
             .Returns(new[] { validInf });
         _fileSystemService.Setup(f => f.CombinePath("C:\\OEM\\OtherDriver", "network.inf")).Returns("C:\\OEM\\OtherDriver\\network.inf");
 
@@ -238,7 +268,7 @@ public class DriverCategorizerTests
         _fileSystemService.Setup(f => f.GetFiles("C:\\Source", "*.inf", SearchOption.AllDirectories))
             .Returns(new[] { infPath });
         _fileSystemService.Setup(f => f.GetFileName(infPath)).Returns("network.inf");
-        _fileSystemService.Setup(f => f.ReadAllText(infPath, Encoding.Unicode))
+        _fileSystemService.Setup(f => f.ReadAllText(infPath, Encoding.UTF8))
             .Returns("[Version]\nClass=Net");
         _fileSystemService.Setup(f => f.GetDirectoryName(infPath)).Returns("C:\\Source\\DriverFolder");
         _fileSystemService.Setup(f => f.GetFileName("C:\\Source\\DriverFolder")).Returns("DriverFolder");
@@ -246,7 +276,7 @@ public class DriverCategorizerTests
         _fileSystemService.Setup(f => f.CombinePath("C:\\OEM", "DriverFolder_1")).Returns("C:\\OEM\\DriverFolder_1");
         _fileSystemService.Setup(f => f.DirectoryExists("C:\\OEM\\DriverFolder")).Returns(true);
         _fileSystemService.Setup(f => f.DirectoryExists("C:\\OEM\\DriverFolder_1")).Returns(false);
-        _fileSystemService.Setup(f => f.GetFiles("C:\\Source\\DriverFolder"))
+        _fileSystemService.Setup(f => f.GetFiles("C:\\Source\\DriverFolder", "*", SearchOption.AllDirectories))
             .Returns(new[] { infPath });
         _fileSystemService.Setup(f => f.CombinePath("C:\\OEM\\DriverFolder_1", "network.inf")).Returns("C:\\OEM\\DriverFolder_1\\network.inf");
 
@@ -270,14 +300,14 @@ public class DriverCategorizerTests
             .Returns(new[] { inf1, inf2 });
         _fileSystemService.Setup(f => f.GetFileName(inf1)).Returns("driver1.inf");
         _fileSystemService.Setup(f => f.GetFileName(inf2)).Returns("driver2.inf");
-        _fileSystemService.Setup(f => f.ReadAllText(inf1, Encoding.Unicode))
+        _fileSystemService.Setup(f => f.ReadAllText(inf1, Encoding.UTF8))
             .Returns("[Version]\nClass=Net");
         _fileSystemService.Setup(f => f.GetDirectoryName(inf1)).Returns("C:\\Source\\DriverFolder");
         _fileSystemService.Setup(f => f.GetDirectoryName(inf2)).Returns("C:\\Source\\DriverFolder");
         _fileSystemService.Setup(f => f.GetFileName("C:\\Source\\DriverFolder")).Returns("DriverFolder");
         _fileSystemService.Setup(f => f.CombinePath("C:\\OEM", "DriverFolder")).Returns("C:\\OEM\\DriverFolder");
         _fileSystemService.Setup(f => f.DirectoryExists("C:\\OEM\\DriverFolder")).Returns(false);
-        _fileSystemService.Setup(f => f.GetFiles("C:\\Source\\DriverFolder"))
+        _fileSystemService.Setup(f => f.GetFiles("C:\\Source\\DriverFolder", "*", SearchOption.AllDirectories))
             .Returns(new[] { inf1, inf2 });
         _fileSystemService.Setup(f => f.CombinePath("C:\\OEM\\DriverFolder", "driver1.inf")).Returns("C:\\OEM\\DriverFolder\\driver1.inf");
         _fileSystemService.Setup(f => f.CombinePath("C:\\OEM\\DriverFolder", "driver2.inf")).Returns("C:\\OEM\\DriverFolder\\driver2.inf");
@@ -301,7 +331,7 @@ public class DriverCategorizerTests
             .Returns(new[] { infPath });
         _fileSystemService.Setup(f => f.GetFileName(infPath)).Returns("network.inf");
         _fileSystemService.Setup(f => f.GetDirectoryName(infPath)).Returns("C:\\Source\\DriverFolder");
-        _fileSystemService.Setup(f => f.ReadAllText(infPath, Encoding.Unicode))
+        _fileSystemService.Setup(f => f.ReadAllText(infPath, Encoding.UTF8))
             .Returns("[Version]\nClass=Net");
         _fileSystemService.Setup(f => f.GetFileName("C:\\Source\\DriverFolder")).Returns("DriverFolder");
         _fileSystemService.Setup(f => f.CombinePath("C:\\OEM", "DriverFolder")).Returns("C:\\OEM\\DriverFolder");

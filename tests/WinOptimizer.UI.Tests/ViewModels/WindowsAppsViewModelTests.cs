@@ -59,6 +59,108 @@ public class WindowsAppsViewModelTests
     };
 
     [Fact]
+    public async Task RemovalUpdatesCachedRowsBeforeReviewWithoutDiscovery()
+    {
+        var app = CreateTestItem("chosen", isInstalled: true);
+        var installed = true;
+        _windowsAppsService.Setup(service => service.GetAppsAsync()).ReturnsAsync([app]);
+        _windowsAppsService.Setup(service => service.CheckBatchInstalledAsync(It.IsAny<IEnumerable<ItemDefinition>>()))
+            .ReturnsAsync(() => new Dictionary<string, bool> { [app.Id] = installed });
+        using var sut = CreateSut();
+        await sut.LoadAppsAndCheckInstallationStatusAsync();
+        sut.Items[0].IsSelected = true;
+        _uninstallWorkflow.Setup(workflow => workflow.UninstallAsync(It.IsAny<IReadOnlyList<ItemDefinition>>(), AppUninstallKind.Windows, true,
+            It.IsAny<CancellationToken>(), It.IsAny<Func<AppUninstallResult, Task>>()))
+            .Returns(async (IReadOnlyList<ItemDefinition> apps, AppUninstallKind kind, bool scripts, CancellationToken ct, Func<AppUninstallResult, Task>? refresh) =>
+            {
+                installed = false;
+                var result = new AppUninstallResult([new(app.Id, app.Name, UninstallVerificationState.Removed, "Verified")], []);
+                await refresh!(result);
+                Assert.False(sut.Items[0].IsInstalled);
+                Assert.Empty(sut.ItemsView);
+                Assert.True(sut.IsTaskRunning);
+                return result;
+            });
+
+        await sut.RemoveApps(skipConfirmation: true);
+
+        Assert.Empty(sut.ItemsView);
+        Assert.False(sut.IsTaskRunning);
+        _windowsAppsService.Verify(service => service.InvalidateStatusCache(), Times.Once);
+        _windowsAppsService.Verify(service => service.CheckBatchInstalledAsync(It.IsAny<IEnumerable<ItemDefinition>>()), Times.Once);
+        _windowsAppsService.Verify(service => service.GetDevicePackageNamesAsync(), Times.Never);
+        _iconResolver.Verify(service => service.ResolveBatchAsync(It.IsAny<IEnumerable<ItemDefinition>>(), true, It.IsAny<CancellationToken>()), Times.Once);
+
+        await sut.RefreshInstallationStatusAsync();
+        Assert.False(sut.Items[0].IsInstalled);
+        _windowsAppsService.Verify(service => service.CheckBatchInstalledAsync(It.IsAny<IEnumerable<ItemDefinition>>()), Times.Exactly(2));
+    }
+
+    [Theory]
+    [InlineData(UninstallVerificationState.Removed)]
+    [InlineData(UninstallVerificationState.StillInstalled)]
+    [InlineData(UninstallVerificationState.Unknown)]
+    [InlineData(UninstallVerificationState.Deferred)]
+    public async Task CachedRemovalPreservesUnverifiedAndDeviceRetainedState(UninstallVerificationState state)
+    {
+        var chosen = CreateTestItem("chosen", isInstalled: true);
+        var other = CreateTestItem("other", isInstalled: true);
+        _windowsAppsService.Setup(service => service.GetAppsAsync()).ReturnsAsync([chosen, other]);
+        _windowsAppsService.Setup(service => service.CheckBatchInstalledAsync(It.IsAny<IEnumerable<ItemDefinition>>()))
+            .ReturnsAsync(new Dictionary<string, bool> { [chosen.Id] = true, [other.Id] = true });
+        using var sut = CreateSut();
+        await sut.LoadAppsAndCheckInstallationStatusAsync();
+        var original = sut.Items[0];
+        original.IsSelected = true;
+        original.IsRetainedOnDevice = true;
+        var metadata = new AppMetadata(null, 123, null);
+        chosen.Metadata = metadata;
+        other.Metadata = metadata;
+        _uninstallWorkflow.Setup(workflow => workflow.UninstallAsync(It.IsAny<IReadOnlyList<ItemDefinition>>(), AppUninstallKind.Windows, true,
+            It.IsAny<CancellationToken>(), It.IsAny<Func<AppUninstallResult, Task>>()))
+            .Returns(async (IReadOnlyList<ItemDefinition> apps, AppUninstallKind kind, bool scripts, CancellationToken ct, Func<AppUninstallResult, Task>? refresh) =>
+            {
+                var result = new AppUninstallResult([new(chosen.Id, chosen.Name, state, "Verified")], []);
+                await refresh!(result);
+                return result;
+            });
+
+        await sut.RemoveApps(skipConfirmation: true);
+
+        Assert.Same(original, sut.Items[0]);
+        Assert.Equal(state != UninstallVerificationState.Removed, original.IsInstalled);
+        Assert.True(original.IsRetainedOnDevice);
+        Assert.Same(state == UninstallVerificationState.Removed ? null : metadata, chosen.Metadata);
+        Assert.True(sut.Items[1].IsInstalled);
+        Assert.Same(metadata, other.Metadata);
+        Assert.All(sut.Items, item => Assert.False(item.IsSelected));
+        _windowsAppsService.Verify(service => service.CheckBatchInstalledAsync(It.IsAny<IEnumerable<ItemDefinition>>()), Times.Once);
+        _windowsAppsService.Verify(service => service.GetDevicePackageNamesAsync(), Times.Never);
+    }
+
+    [Fact]
+    public async Task StatusBatchUpdatesCardsOnceAndClearsUnavailableSelections()
+    {
+        var apps = Enumerable.Range(0, 100).Select(index => CreateTestItem($"app{index}")).ToArray();
+        var installed = true;
+        _windowsAppsService.Setup(service => service.GetAppsAsync()).ReturnsAsync(apps);
+        _windowsAppsService.Setup(service => service.CheckBatchInstalledAsync(It.IsAny<IEnumerable<ItemDefinition>>()))
+            .ReturnsAsync(() => apps.ToDictionary(app => app.Id, _ => installed));
+        using var sut = CreateSut();
+        await sut.LoadAppsAndCheckInstallationStatusAsync();
+        foreach (var item in sut.Items) item.IsSelected = true;
+        var changes = 0;
+        sut.PropertyChanged += (_, args) => { if (args.PropertyName == nameof(sut.WindowsAppsFiltered)) changes++; };
+        installed = false;
+
+        await sut.CheckInstallationStatusAsync();
+
+        Assert.Equal(1, changes);
+        Assert.All(sut.Items, item => { Assert.False(item.IsInstalled); Assert.False(item.IsSelected); });
+        Assert.Empty(sut.ItemsView);
+    }
+
+    [Fact]
     public void InactiveStatusTracksInstallationAndDeviceRetentionChanges()
     {
         using var item = new AppItemViewModel(CreateTestItem("status"),

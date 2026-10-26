@@ -2,7 +2,7 @@
 .SYNOPSIS
 Refreshes bundled x64 WinGet CLI and desktop VC++ runtime binaries.
 .DESCRIPTION
-Build prerequisites and packaging are documented in README.md and PIPELINE.md.
+Build prerequisites and packaging commands: README.md#development.
 .PARAMETER Version
 WinGet release tag; defaults to latest.
 .PARAMETER Force
@@ -55,8 +55,7 @@ function Get-ReleaseInfo {
         $url = "https://api.github.com/repos/microsoft/winget-cli/releases/tags/$Version"
     }
     Write-Host "Fetching release info from $url ..."
-    $response = Invoke-RestMethod -Uri $url -Headers @{ 'User-Agent' = 'win-optimizer-Build' }
-    return $response
+    return Invoke-RestMethod -Uri $url -Headers @{ 'User-Agent' = 'win-optimizer-Build' }
 }
 
 try {

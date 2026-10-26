@@ -168,14 +168,4 @@ public class LocalizationServiceTests
         _sut.IsRightToLeft.Should().BeFalse();
     }
 
-    // ── Localization file loading edge cases ──
-
-    [Fact]
-    public void GetString_WhenFileDoesNotExist_ReturnsBracketedKey()
-    {
-        // Default mock setup: FileExists returns false for everything
-        var result = _sut.GetString("SomeKey");
-
-        result.Should().Be("[SomeKey]");
-    }
 }

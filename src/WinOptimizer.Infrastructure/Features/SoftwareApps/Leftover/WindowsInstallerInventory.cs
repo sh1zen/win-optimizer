@@ -1,5 +1,4 @@
 using System.ComponentModel;
-using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text;
 using WinOptimizer.Infrastructure.Features.Cleaner;
@@ -72,10 +71,29 @@ internal sealed class WindowsInstallerInventory : IInstallerInventory
         }
         catch (Exception ex) when (Uninstall.UninstallResources.IsResourceError(ex))
         { notices.Add($"Installer reference inventory is incomplete: {ex.Message}"); }
-        var processes = Process.GetProcessesByName("msiexec");
-        var busy = processes.Length > 0;
-        foreach (var process in processes) process.Dispose();
+        var busy = true;
+        try { busy = IsInstallerExecuting(); }
+        catch (Exception ex) when (Uninstall.UninstallResources.IsResourceError(ex))
+        { notices.Add($"Windows Installer activity could not be verified: {ex.Message}"); }
         return new(products, files, directories, notices.Count == 0, busy, notices);
+    }
+
+    /// <summary>Checks MSI's execution lock without waiting; idle installer processes do not establish activity.</summary>
+    internal static bool IsInstallerExecuting(string mutexName = @"Global\_MSIExecute")
+    {
+        Mutex execution;
+        try { execution = Mutex.OpenExisting(mutexName); }
+        catch (WaitHandleCannotBeOpenedException) { return false; }
+        using (execution)
+        {
+            try
+            {
+                if (!execution.WaitOne(0)) return true;
+            }
+            catch (AbandonedMutexException) { /* Ownership transfers to this thread after the owner exits. */ }
+            execution.ReleaseMutex();
+            return false;
+        }
     }
 
     /// <summary>Advertised products retain source references but have no installed cache or patches to query.</summary>

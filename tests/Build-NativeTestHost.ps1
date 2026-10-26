@@ -5,7 +5,8 @@ param(
     [Parameter(Mandatory)][string]$BuildRoot,
     [string]$MSBuildPath,
     [ValidateSet('Debug', 'Release')][string]$Configuration = 'Release',
-    [switch]$DisableSharedCompilation
+    [switch]$DisableSharedCompilation,
+    [switch]$SelfContained
 )
 
 $ErrorActionPreference = 'Stop'
@@ -24,6 +25,7 @@ $buildArguments = @($projectPath, '-restore', '-maxCpuCount:1', '-nodeReuse:fals
     "-p:Configuration=$Configuration", '-p:Platform=x64', "-p:WinOptimizerBuildRoot=$buildDirectory",
     '-p:NuGetAudit=false', "-p:RestoreSources=$packageCache", '-verbosity:minimal', '-nologo')
 if ($DisableSharedCompilation) { $buildArguments += '-p:UseSharedCompilation=false' }
+if ($SelfContained) { $buildArguments += '-p:SelfContained=true' }
 & $MSBuildPath @buildArguments | ForEach-Object { Write-Host $_ }
 if ($LASTEXITCODE -ne 0) { throw "$ProjectName build failed: $LASTEXITCODE" }
 

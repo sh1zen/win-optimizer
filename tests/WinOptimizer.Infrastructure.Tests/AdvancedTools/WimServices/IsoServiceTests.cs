@@ -43,6 +43,36 @@ public class IsoServiceTests
     #region ValidateIsoFileAsync
 
     [Fact]
+    public async Task ExtractionQuotesApostrophesAndUsesLiteralWorkingPaths()
+    {
+        var commands = new List<string>();
+        _mockFileSystem.Setup(fs => fs.FileExists(It.IsAny<string>())).Returns(true);
+        _mockFileSystem.Setup(fs => fs.GetExtension(It.IsAny<string>())).Returns(".iso");
+        _mockFileSystem.Setup(fs => fs.GetFileSize(It.IsAny<string>())).Returns(5_000_000);
+        _mockFileSystem.SetupSequence(fs => fs.DirectoryExists(@"C:\User's [media]\work")).Returns(true).Returns(false);
+        _mockFileSystem.Setup(fs => fs.GetFiles(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<SearchOption>())).Returns([]);
+        _mockFileSystem.Setup(fs => fs.GetDirectories(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<SearchOption>())).Returns([]);
+        _mockProcessExecutor.Setup(process => process.ExecuteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Callback<string, string, CancellationToken>((_, arguments, _) => commands.Add(arguments))
+            .ReturnsAsync(new ProcessExecutionResult { StandardOutput = "X" });
+
+        Assert.False(await _service.ExtractIsoAsync(@"C:\User's [media]\setup.iso", @"C:\User's [media]\work"));
+
+        Assert.Equal(3, commands.Count);
+        Assert.Contains("-LiteralPath 'C:\\User''s [media]\\work'", commands[0]);
+        Assert.Contains("-ImagePath 'C:\\User''s [media]\\setup.iso'", commands[1]);
+        Assert.Contains("-ImagePath 'C:\\User''s [media]\\setup.iso'", commands[2]);
+        var runner = new WinOptimizer.Infrastructure.Features.Common.Utilities.PowerShellRunner(Mock.Of<IFileSystemService>());
+        foreach (var command in commands)
+        {
+            var script = command[(command.IndexOf("-Command \"", StringComparison.Ordinal) + 10)..^1];
+            var encoded = Convert.ToBase64String(System.Text.Encoding.Unicode.GetBytes(script));
+            var count = await runner.RunScriptInMemoryAsync($"$errors=$null; [void][System.Management.Automation.Language.Parser]::ParseInput([Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('{encoded}')), [ref]$null, [ref]$errors); $errors.Count");
+            Assert.Equal("0", count.Trim());
+        }
+    }
+
+    [Fact]
     public async Task ValidateIsoFileAsync_FileDoesNotExist_ReturnsFalse()
     {
         // Arrange

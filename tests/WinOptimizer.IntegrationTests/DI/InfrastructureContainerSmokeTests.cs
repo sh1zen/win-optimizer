@@ -10,6 +10,26 @@ namespace WinOptimizer.IntegrationTests.DI;
 [Trait("Category", "Integration")]
 public class InfrastructureContainerSmokeTests
 {
+    [Fact]
+    public void AppDiscoveryAndRemovalResolveThroughTheAccountBoundaries()
+    {
+        var services = new ServiceCollection();
+        services.AddInfrastructureServices();
+        services.AddSingleton(Moq.Mock.Of<IInteractiveUserService>());
+        services.AddSingleton(Moq.Mock.Of<IProcessExecutor>());
+        services.AddSingleton(Moq.Mock.Of<WinOptimizer.Core.Features.SoftwareApps.Interfaces.IUninstallResidueReview>());
+        using var provider = services.BuildServiceProvider();
+
+        Assert.IsType<WinOptimizer.Infrastructure.Features.SoftwareApps.Services.WindowsAppxDeployment>(
+            provider.GetRequiredService<WinOptimizer.Infrastructure.Features.SoftwareApps.Services.IAppxDeployment>());
+        Assert.IsType<WinOptimizer.Infrastructure.Features.SoftwareApps.Services.AppxPackageSource>(
+            provider.GetRequiredService<WinOptimizer.Core.Features.SoftwareApps.Interfaces.IAppxPackageSource>());
+        Assert.IsType<WinOptimizer.Infrastructure.Features.SoftwareApps.Services.ExternalAppUninstallService>(
+            provider.GetRequiredService<WinOptimizer.Core.Features.SoftwareApps.Interfaces.IExternalAppUninstallService>());
+        Assert.IsType<WinOptimizer.Infrastructure.Features.SoftwareApps.Services.AppStatusDiscoveryService>(
+            provider.GetRequiredService<WinOptimizer.Core.Features.SoftwareApps.Interfaces.IAppStatusDiscoveryService>());
+    }
+
     private static ServiceProvider BuildProvider()
     {
         var services = new ServiceCollection();
@@ -117,19 +137,4 @@ public class InfrastructureContainerSmokeTests
         registry1.Should().BeSameAs(registry2, "singleton IWindowsRegistryService should return same instance");
     }
 
-    [Fact]
-    public void Container_BuildsSuccessfully()
-    {
-        // Arrange
-        var services = new ServiceCollection();
-        services.AddInfrastructureServices();
-
-        // Build without instantiating Windows resources; individual resolution is checked separately.
-        var action = () => services.BuildServiceProvider(new ServiceProviderOptions
-        {
-            ValidateScopes = true,
-        });
-
-        action.Should().NotThrow("the DI container should build successfully");
-    }
 }

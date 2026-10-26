@@ -13,7 +13,7 @@ public sealed class AppUninstallWorkflow(IUninstallResidueService residues, IUni
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     public async Task<AppUninstallResult> UninstallAsync(IReadOnlyList<ItemDefinition> applications,
-        AppUninstallKind kind, bool saveRemovalScripts = true, CancellationToken ct = default)
+        AppUninstallKind kind, bool saveRemovalScripts = true, CancellationToken ct = default, Func<AppUninstallResult, Task>? refreshInventory = null)
     {
         if (applications.Count == 0) return new([], []);
         if (applications.Any(app => string.IsNullOrWhiteSpace(app.Id)) ||
@@ -71,8 +71,11 @@ public sealed class AppUninstallWorkflow(IUninstallResidueService residues, IUni
 
             var scan = await RunStageAsync("UninstallResidue_Verifying", token =>
                 session.InspectAsync(outcomes, CreateProgress(), token), ct).ConfigureAwait(false);
+            var verifiedResult = new AppUninstallResult(scan.Applications, scan.Notices);
+            // Reuse the verification evidence for the list before opening a long-lived review.
+            if (refreshInventory != null) await refreshInventory(verifiedResult).ConfigureAwait(false);
             deferred = await review.ShowAsync(session, scan, ct).ConfigureAwait(false) == UninstallReviewDisposition.Deferred;
-            return new(scan.Applications, scan.Notices);
+            return verifiedResult;
         }
         finally
         {

@@ -1,4 +1,3 @@
-using WinOptimizer.Core.Features.Common.Constants;
 using System;
 using System.Collections.Generic;
 using System.Text.Json;
@@ -16,10 +15,6 @@ public class UserPreferencesServiceTests
     private readonly Mock<IInteractiveUserService> _mockInteractiveUserService = new();
     private readonly Mock<IFileSystemService> _mockFileSystemService = new();
     private readonly UserPreferencesService _service;
-
-    // Stable paths used across tests
-    private static readonly string ConfigDir = Path.Combine(AppDataPaths.User("S-1-5-21-111-222-333-1001"), "Config");
-    private static readonly string PrefsFilePath = Path.Combine(ConfigDir, "UserPreferences.json");
 
     public UserPreferencesServiceTests()
     {
@@ -47,6 +42,42 @@ public class UserPreferencesServiceTests
     }
 
     #region GetPreferenceAsync
+
+    [Fact]
+    public async Task PlacementPatchAndConcurrentPreferenceWritePreserveUnrelatedValues()
+    {
+        var json = "{\"Theme\":\"Dark\",\"WindowWidth\":1000}";
+        var firstWrite = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseWrite = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var writes = 0;
+        _mockFileSystemService.Setup(fs => fs.FileExists(It.IsAny<string>())).Returns(true);
+        _mockFileSystemService.Setup(fs => fs.ReadAllTextAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Returns(() => Task.FromResult(json));
+        _mockFileSystemService.Setup(fs => fs.WriteAllTextAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Returns(async (string _, string content, CancellationToken _) =>
+            {
+                if (++writes == 1)
+                {
+                    firstWrite.SetResult();
+                    await releaseWrite.Task;
+                }
+                json = content;
+            });
+
+        var language = _service.SetPreferenceAsync("Language", "it");
+        await firstWrite.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var placement = _service.UpdatePreferencesAsync(new Dictionary<string, object> { ["WindowWidth"] = 1400, ["WindowHeight"] = 900 });
+        Assert.False(placement.IsCompleted);
+        releaseWrite.SetResult();
+        var results = await Task.WhenAll(language, placement);
+
+        Assert.All(results, result => Assert.True(result.Success, result.ErrorMessage));
+        using var document = JsonDocument.Parse(json);
+        Assert.Equal("Dark", document.RootElement.GetProperty("Theme").GetString());
+        Assert.Equal("it", document.RootElement.GetProperty("Language").GetString());
+        Assert.Equal(1400, document.RootElement.GetProperty("WindowWidth").GetInt32());
+        Assert.Equal(900, document.RootElement.GetProperty("WindowHeight").GetInt32());
+    }
 
     [Fact]
     public async Task GetPreferenceAsync_KeyMissing_ReturnsDefaultValue()

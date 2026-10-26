@@ -181,6 +181,15 @@ public class UserPreferencesService : IUserPreferencesService
 
     public async Task<OperationResult> SetPreferenceAsync<T>(string key, T value)
     {
+        var result = await UpdatePreferencesAsync(new Dictionary<string, object> { [key] = value! }).ConfigureAwait(false);
+        _logService.Log(result.Success ? LogLevel.Info : LogLevel.Error,
+            result.Success ? $"Successfully saved preference '{key}'" : $"Failed to save preference '{key}': {result.ErrorMessage}");
+        return result;
+    }
+
+    /// <summary>Owns the complete read/merge/write transaction for one preference change set.</summary>
+    public async Task<OperationResult> UpdatePreferencesAsync(IReadOnlyDictionary<string, object> changes)
+    {
         // Hold the file lock across the whole read-modify-write so concurrent
         // SetPreferenceAsync calls don't clobber each other's writes.
         await _fileLock.WaitAsync().ConfigureAwait(false);
@@ -188,24 +197,12 @@ public class UserPreferencesService : IUserPreferencesService
         {
             var preferences = await GetPreferencesUnsafeAsync().ConfigureAwait(false);
 
-            preferences[key] = value!;
-
-            var result = await SavePreferencesUnsafeAsync(preferences).ConfigureAwait(false);
-
-            if (result.Success)
-            {
-                _logService.Log(LogLevel.Info, $"Successfully saved preference '{key}'");
-            }
-            else
-            {
-                _logService.Log(LogLevel.Error, $"Failed to save preference '{key}'");
-            }
-
-            return result;
+            foreach (var (key, value) in changes) preferences[key] = value;
+            return await SavePreferencesUnsafeAsync(preferences).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
-            _logService.Log(LogLevel.Error, $"Error setting preference '{key}': {ex.Message}");
+            _logService.Log(LogLevel.Error, $"Error updating preferences: {ex.Message}");
             return OperationResult.Failed(ex.Message, ex);
         }
         finally

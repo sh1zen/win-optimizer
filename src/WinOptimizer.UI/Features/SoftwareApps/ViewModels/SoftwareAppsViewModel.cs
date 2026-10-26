@@ -464,11 +464,10 @@ public partial class SoftwareAppsViewModel : BaseViewModel
     }
 
     /// <summary>
-    /// One-time event subscription / preference load. Idempotent — guarded by
-    /// <see cref="_isSubscribed"/>. Called from each Initialize* entry point so
-    /// any of them can be the first call without ordering assumptions.
+    /// Restores presentation preferences and subscribes once without starting inventory discovery.
+    /// Navigation calls this before the first frame so the page uses the saved layout.
     /// </summary>
-    private void EnsureSubscriptions()
+    internal void InitializePresentation()
     {
         if (_isSubscribed) return;
         _isSubscribed = true;
@@ -507,7 +506,7 @@ public partial class SoftwareAppsViewModel : BaseViewModel
     /// </summary>
     public async Task InitializeWindowsAppsAsync()
     {
-        EnsureSubscriptions();
+        InitializePresentation();
         if (!WindowsAppsViewModel.IsInitialized)
         {
             _logService.LogInformation("[SoftwareAppsViewModel] Loading WindowsAppsViewModel");
@@ -523,7 +522,7 @@ public partial class SoftwareAppsViewModel : BaseViewModel
     /// </summary>
     public async Task InitializeExternalAppsAsync()
     {
-        EnsureSubscriptions();
+        InitializePresentation();
         if (!ExternalAppsViewModel.IsInitialized)
         {
             _logService.LogInformation("[SoftwareAppsViewModel] Loading ExternalAppsViewModel");
@@ -616,7 +615,7 @@ public partial class SoftwareAppsViewModel : BaseViewModel
     public async Task SelectLeftoverTabAsync()
     {
         if (!IsLeftoverTabEnabled) return;
-        EnsureSubscriptions();
+        InitializePresentation();
         IsLeftoverTabSelected = true;
         if (!LeftoverAppsViewModel.HasScanned) await LeftoverAppsViewModel.ScanAsync();
     }

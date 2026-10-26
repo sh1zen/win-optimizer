@@ -223,6 +223,30 @@ public class SoftwareAppsViewModelTests
         sut.CanRemoveItems.Should().BeFalse();
     }
 
+    /// <summary>Restores the first frame's layout without starting discovery or repeating preference reads.</summary>
+    [Theory]
+    [InlineData("Card", SoftwareAppsViewMode.Card)]
+    [InlineData("Table", SoftwareAppsViewMode.Table)]
+    [InlineData("Compact", SoftwareAppsViewMode.Compact)]
+    public void InitializePresentationRestoresLayoutWithoutLoadingInventory(string saved, SoftwareAppsViewMode expected)
+    {
+        _userPreferencesService.Setup(service => service.GetPreference("SoftwareAppsViewMode", "Card")).Returns(saved);
+        _userPreferencesService.Setup(service => service.GetPreference("SoftwareAppsSortMode", "GroupAsc")).Returns("NameAsc");
+        using var sut = CreateSut();
+
+        sut.InitializePresentation();
+        sut.InitializePresentation();
+
+        sut.ViewMode.Should().Be(expected);
+        sut.SortMode.Should().Be(AppSortMode.NameAsc);
+        sut.WindowsAppsViewModel.SortMode.Should().Be(AppSortMode.NameAsc);
+        sut.ExternalAppsViewModel.SortMode.Should().Be(AppSortMode.NameAsc);
+        _userPreferencesService.Verify(service => service.GetPreference("SoftwareAppsViewMode", "Card"), Times.Once);
+        _userPreferencesService.Verify(service => service.GetPreference("SoftwareAppsSortMode", "GroupAsc"), Times.Once);
+        _windowsAppsService.Verify(service => service.GetAppsAsync(), Times.Never);
+        _externalAppsService.Verify(service => service.GetAppsAsync(), Times.Never);
+    }
+
     [Fact]
     public async Task InitializeAsync_SubscribesOnlyOnce()
     {

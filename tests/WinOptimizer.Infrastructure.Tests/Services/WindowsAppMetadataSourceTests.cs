@@ -1,11 +1,59 @@
 using WinOptimizer.Core.Features.SoftwareApps.Models;
 using WinOptimizer.Infrastructure.Features.SoftwareApps.Services;
+using Moq;
+using WinOptimizer.Core.Features.Common.Interfaces;
 using Xunit;
 
 namespace WinOptimizer.Infrastructure.Tests.Services;
 
 public class WindowsAppMetadataSourceTests
 {
+    /// <summary>Exercises real package-size reads in an isolated directory, without package APIs.</summary>
+    private static void WithPackageDirectory(Action<WindowsAppMetadataSource, string> check)
+    {
+        var path = Path.Combine(Path.GetTempPath(), "WinOptimizerMetadataTests-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(path);
+        try { check(new WindowsAppMetadataSource(Mock.Of<IInteractiveUserService>(), Mock.Of<ILogService>()), path); }
+        finally { Directory.Delete(path, recursive: true); }
+    }
+
+    [Fact]
+    public void PackageSizesAreReusedOnlyForTheSameInstalledVersionAndLocation()
+    {
+        WithPackageDirectory((source, path) =>
+        {
+            var file = Path.Combine(path, "payload.bin");
+            File.WriteAllBytes(file, new byte[42]);
+            Assert.Equal(42, source.GetPackageSize("Vendor.Tool_1", path, false));
+            // Deployed package contents are immutable; another version must measure its own payload.
+            File.WriteAllBytes(file, new byte[84]);
+            Assert.Equal(42, source.GetPackageSize("Vendor.Tool_1", path, false));
+            Assert.Equal(84, source.GetPackageSize("Vendor.Tool_2", path, false));
+            var moved = Path.Combine(path, "moved");
+            Directory.CreateDirectory(moved);
+            File.WriteAllBytes(Path.Combine(moved, "payload.bin"), new byte[21]);
+            Assert.Equal(21, source.GetPackageSize("Vendor.Tool_1", moved, false));
+        });
+    }
+
+    [Fact]
+    public void DevelopmentPackagesAndFailedMeasurementsAreReadAgain()
+    {
+        WithPackageDirectory((source, path) =>
+        {
+            var payload = Path.Combine(path, "payload.bin");
+            File.WriteAllBytes(payload, new byte[42]);
+            Assert.Equal(42, source.GetPackageSize("Development.Tool_1", path, true));
+            File.WriteAllBytes(payload, new byte[84]);
+            Assert.Equal(84, source.GetPackageSize("Development.Tool_1", path, true));
+            var unavailable = Path.Combine(path, "unavailable");
+            Assert.Null(source.GetPackageSize("Vendor.Tool_1", unavailable, false));
+            Directory.CreateDirectory(unavailable);
+            File.WriteAllBytes(Path.Combine(unavailable, "payload.bin"), new byte[21]);
+            Assert.Equal(21, source.GetPackageSize("Vendor.Tool_1", unavailable, false));
+        });
+    }
+
     [Fact]
     public void DiscoveredProgramMetadataUsesTheExactRegistrationScope()
     {
@@ -86,11 +134,11 @@ public class WindowsAppMetadataSourceTests
             Environment.SpecialFolder.LocalApplicationData => @"C:\Users\Interactive\AppData\Local",
             _ => "",
         };
-        Assert.Equal(@"D:\Applications\Vendor\app.exe", WindowsAppMetadataSource.ExpandPath(
+        Assert.Equal(@"D:\Applications\Vendor\app.exe", AppPaths.Expand(
             @"{6D809377-6AF0-444B-8957-A3773F02200E}\Vendor\app.exe", Resolve));
-        Assert.Equal(@"C:\Users\Interactive\AppData\Local\Vendor\app.exe", WindowsAppMetadataSource.ExpandPath(
+        Assert.Equal(@"C:\Users\Interactive\AppData\Local\Vendor\app.exe", AppPaths.Expand(
             @"{f1b32785-6fba-4fcf-9d55-7b8e7f157091}\Vendor\app.exe", Resolve));
-        Assert.Equal(@"C:\Users\Interactive\AppData\Local\Vendor\app.exe", WindowsAppMetadataSource.ExpandPath(
+        Assert.Equal(@"C:\Users\Interactive\AppData\Local\Vendor\app.exe", AppPaths.Expand(
             @"%localappdata%\Vendor\app.exe", Resolve));
     }
 }

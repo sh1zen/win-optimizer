@@ -50,6 +50,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="WinOptimizer.UI.Tests" />
     <InternalsVisibleTo Include="WinOptimizer.Startup.Tests" />
+    <InternalsVisibleTo Include="WinOptimizer.SoftwareApps.Tests" />
   </ItemGroup>
 
   <ItemGroup>

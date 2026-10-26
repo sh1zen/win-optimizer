@@ -370,7 +370,6 @@ $Shortcut.Save()
             if (result.Success)
             {
                 changeHistory.LogAppChange(item.Name, AppChangeKind.Removed);
-                RemoveStartMenuShortcutIfExists(item.Name);
             }
 
             return result;
@@ -384,26 +383,6 @@ $Shortcut.Save()
         {
             logService.LogError($"Failed to uninstall {item.Name}: {ex.Message}");
             return OperationResult<bool>.Failed(ex.Message);
-        }
-    }
-
-    private void RemoveStartMenuShortcutIfExists(string appName)
-    {
-        try
-        {
-            var startMenuFolder = fileSystemService.CombinePath(
-                interactiveUserService.GetInteractiveUserFolderPath(Environment.SpecialFolder.Programs),
-                appName);
-
-            if (fileSystemService.DirectoryExists(startMenuFolder))
-            {
-                fileSystemService.DeleteDirectory(startMenuFolder, true);
-                logService.LogInformation($"Removed Start Menu folder for {appName}");
-            }
-        }
-        catch (Exception ex)
-        {
-            logService.LogWarning($"Could not remove Start Menu folder for {appName}: {ex.Message}");
         }
     }
 

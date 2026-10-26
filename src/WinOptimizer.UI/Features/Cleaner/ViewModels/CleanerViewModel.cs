@@ -353,7 +353,7 @@ public partial class CleanerViewModel : ObservableObject, IDisposable
     private IProgress<CleanerProgress> CreateProgress()
     {
         var owner = _operationCts;
-        return new Progress<CleanerProgress>(value =>
+        return new CleanerProgressReporter(value =>
         {
             // Ignore callbacks queued by an operation that has already stopped or been cancelled.
             if (!IsBusy || !ReferenceEquals(owner, _operationCts) || owner?.IsCancellationRequested != false) return;

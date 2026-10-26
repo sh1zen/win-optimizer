@@ -38,7 +38,7 @@ public class WindowsInstalledProgramSourceTests
         registry.SetupSequence(source => source.GetValue(path, "UninstallString"))
             .Returns("original.exe").Returns("updated.exe").Returns(() => null);
         var source = new WindowsInstalledProgramSource(registry.Object);
-        var commands = new WindowsUninstallCommandSource(Mock.Of<IInteractiveUserService>(), Mock.Of<ILogService>(), source);
+        var commands = new WindowsUninstallCommandSource(Mock.Of<ILogService>(), source);
         var item = new InstalledProgram(path, "Poedit", "unused-old-command.exe").ToDefinition();
         Assert.Equal((true, "original.exe"), await commands.GetAsync(item));
         Assert.Equal((true, "updated.exe"), await commands.GetAsync(item));

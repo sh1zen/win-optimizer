@@ -16,10 +16,23 @@ embed the ICO.
 ## Interface artwork
 
 Navigation and the Custom icon pack use original 24-unit drawings authored for
-win-optimizer. `FeatureIcons.xaml` owns the navigation paths; the Custom paths
-and their semantic name lookup are generated from `extras/generate-icons.py`.
-Filled outlines inherit the host's foreground color, including theme and
-high-contrast changes. The project's license applies to these drawings.
+win-optimizer. Navigation paths are authored in
+`Features/Common/Resources/FeatureIcons.xaml`; the Custom drawing definitions and
+semantic aliases are authored in `extras/generate-icons.py`. The generator preserves
+navigation/symbol paths and writes Custom paths into the same resource dictionary,
+with name lookup in `CustomIconCatalog.cs`.
+
+Run from the repository root with Python's standard library:
+
+```powershell
+python extras/generate-icons.py
+python extras/generate-icons.py --check
+```
+
+The first command updates the generated resources; `--check` verifies them without
+writing. Navigation strokes and Custom filled outlines inherit the host's foreground
+color, including theme and high-contrast changes. Explicit Fluent symbols use the
+declared icon library. The project's license applies to the original drawings.
 
 Licenses and attributions for Fluent symbols and installed-program logos are in
 [THIRD-PARTY-NOTICES.txt](../../../THIRD-PARTY-NOTICES.txt).

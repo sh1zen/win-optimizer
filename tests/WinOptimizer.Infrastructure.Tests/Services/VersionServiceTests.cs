@@ -32,18 +32,6 @@ public class VersionServiceTests
     #region GetCurrentVersion
 
     [Fact]
-    public void GetCurrentVersion_ReturnsNonNullVersionInfo()
-    {
-        // Act
-        var result = _service.GetCurrentVersion();
-
-        // Assert — the method always returns a non-null VersionInfo, even in a test runner
-        // context where the assembly version may not be a valid date-based tag.
-        // In such cases VersionInfo.FromTag may return a default record with Version = "".
-        result.Should().NotBeNull();
-    }
-
-    [Fact]
     public void GetCurrentVersion_CalledTwice_ReturnsSameResult()
     {
         // Act — calling multiple times should be deterministic

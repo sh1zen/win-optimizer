@@ -2,6 +2,7 @@ using WinOptimizer.Core.Features.Common.Models;
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Globalization;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -21,13 +22,23 @@ public class AppStatusDiscoveryService(
     IInstalledProgramSource installedPrograms,
     IAppxPackageSource appxPackageSource,
     IWindowsComponentStatusSource componentStatusSource,
-    IAppMetadataSource metadataSource) : IAppStatusDiscoveryService
+    IAppMetadataSource metadataSource,
+    IInteractiveUserService user) : IAppStatusDiscoveryService
 {
-    private HashSet<string>? _cachedWinGetPackageIds;
+    private readonly object _inventoryGate = new();
+    private Task<HashSet<string>?>? _winGetPackageIds;
+    private Task<HashSet<string>>? _appxPackageNames;
+    private static readonly object PatternGate = new();
+    private static readonly Dictionary<(string Pattern, string Culture), Regex> Patterns = new();
+    private const int PatternCacheCapacity = 256;
 
     public void InvalidateCache()
     {
-        _cachedWinGetPackageIds = null;
+        lock (_inventoryGate)
+        {
+            _winGetPackageIds = null;
+            _appxPackageNames = null;
+        }
     }
 
     public async Task<Dictionary<string, bool>> GetInstallationStatusBatchAsync(IEnumerable<ItemDefinition> definitions)
@@ -53,7 +64,7 @@ public class AppStatusDiscoveryService(
                 : Task.FromResult(new WindowsComponentStatus(
                     new Dictionary<string, bool>(), new Dictionary<string, bool>()));
             var packagesTask = apps.Count > 0
-                ? appxPackageSource.GetInstalledPackageNamesAsync()
+                ? GetOrFetchAppxPackageNamesAsync()
                 : Task.FromResult(new HashSet<string>(StringComparer.OrdinalIgnoreCase));
             // Ordinary AppX identities do not depend on servicing results. Start
             // their conditional WinGet fallback as soon as package enumeration
@@ -180,11 +191,34 @@ public class AppStatusDiscoveryService(
             ? await GetOrFetchWinGetPackageIdsAsync().ConfigureAwait(false) : null;
     }
 
-    private async Task<HashSet<string>?> GetOrFetchWinGetPackageIdsAsync()
+    /// <summary>Shares pending discovery across inventories; invalidation starts a fresh generation.</summary>
+    private Task<HashSet<string>?> GetOrFetchWinGetPackageIdsAsync()
     {
-        if (_cachedWinGetPackageIds != null)
-            return _cachedWinGetPackageIds;
+        lock (_inventoryGate)
+        {
+            // Failed readiness checks remain retryable. Completed successful inventories
+            // stay cached until Refresh or an install/remove operation invalidates them.
+            if (_winGetPackageIds is null ||
+                (_winGetPackageIds.IsCompletedSuccessfully && _winGetPackageIds.Result is null))
+                _winGetPackageIds = FetchWinGetPackageIdsAsync();
+            return _winGetPackageIds;
+        }
+    }
 
+    /// <summary>Shares account package evidence until explicit refresh; failed reads remain retryable.</summary>
+    private Task<HashSet<string>> GetOrFetchAppxPackageNamesAsync()
+    {
+        lock (_inventoryGate)
+        {
+            if (_appxPackageNames is null || _appxPackageNames.IsFaulted || _appxPackageNames.IsCanceled)
+                _appxPackageNames = appxPackageSource.GetInstalledPackageNamesAsync();
+            return _appxPackageNames;
+        }
+    }
+
+    /// <summary>Fetches one inventory without publishing into a potentially invalidated cache.</summary>
+    private async Task<HashSet<string>?> FetchWinGetPackageIdsAsync()
+    {
         try
         {
             bool winGetReady = await winGetBootstrapper.EnsureWinGetReadyAsync().ConfigureAwait(false);
@@ -194,9 +228,9 @@ public class AppStatusDiscoveryService(
                 return null;
             }
 
-            _cachedWinGetPackageIds = await winGetDetectionService.GetInstalledPackageIdsAsync().ConfigureAwait(false);
-            logService.LogInformation($"WinGet: Fetched {_cachedWinGetPackageIds.Count} installed package IDs");
-            return _cachedWinGetPackageIds;
+            var packageIds = await winGetDetectionService.GetInstalledPackageIdsAsync().ConfigureAwait(false);
+            logService.LogInformation($"WinGet: Fetched {packageIds.Count} installed package IDs");
+            return packageIds;
         }
         catch (Exception ex)
         {
@@ -221,11 +255,25 @@ public class AppStatusDiscoveryService(
         if (string.IsNullOrEmpty(input))
             return false;
 
-        var regexPattern = Regex.Escape(pattern)
-            .Replace(@"\{version}", ".+?")
-            .Replace(@"\{arch}", ".+?")
-            .Replace(@"\{locale}", ".+?");
-        return Regex.IsMatch(input, $"^{regexPattern}$", RegexOptions.IgnoreCase);
+        // Catalogue matching visits the same fingerprints for many registrations.
+        // Keep parsed expressions bounded and preserve Regex's current-culture casing.
+        Regex expression;
+        lock (PatternGate)
+        {
+            var key = (pattern, CultureInfo.CurrentCulture.Name);
+            if (!Patterns.TryGetValue(key, out var cached))
+            {
+                var regexPattern = Regex.Escape(pattern)
+                    .Replace(@"\{version}", ".+?")
+                    .Replace(@"\{arch}", ".+?")
+                    .Replace(@"\{locale}", ".+?");
+                expression = new Regex($"^{regexPattern}$", RegexOptions.IgnoreCase);
+                if (Patterns.Count == PatternCacheCapacity) Patterns.Remove(Patterns.Keys.First());
+                Patterns.Add(key, expression);
+            }
+            else expression = cached;
+        }
+        return expression.IsMatch(input);
     }
 
     #region External Apps Detection
@@ -243,32 +291,35 @@ public class AppStatusDiscoveryService(
         {
             int wingetCount = 0, chocoCount = 0, appxCount = 0, registryCount = 0, fileSystemCount = 0;
 
-            // Fetched lazily below and reused in Phase 4 to avoid a second registry scan.
+            // Reused in Phase 4 so registry disambiguation never scans twice.
             RegistryUninstallInfo? sharedRegInfo = null;
 
             // Phase 1: WinGet detection for apps with WinGetPackageId or MsStoreId
             var appsWithWinGetId = definitionList
                 .Where(d => (d.WinGetPackageId != null && d.WinGetPackageId.Any()) || !string.IsNullOrEmpty(d.MsStoreId))
                 .ToList();
+            Task<RegistryUninstallInfo>? registryTask = null;
 
             if (appsWithWinGetId.Any())
             {
-                var winGetIds = await GetOrFetchWinGetPackageIdsAsync().ConfigureAwait(false);
+                var winGetTask = GetOrFetchWinGetPackageIdsAsync();
+                // Discovered registry-only entries always need a fresh registration
+                // inventory. Overlap that required read with WinGet enumeration.
+                if (definitionList.Any(d => d.RegistryUninstallKeyPath is not null &&
+                    d.WinGetPackageId is not { Length: > 0 } && string.IsNullOrEmpty(d.MsStoreId) &&
+                    string.IsNullOrEmpty(d.ChocoPackageId) && d.AppxPackageName is not { Length: > 0 }))
+                    registryTask = GetRegistryUninstallInfoAsync();
+                await Task.WhenAll(winGetTask, registryTask is null ? Task.CompletedTask : registryTask).ConfigureAwait(false);
+                var winGetIds = await winGetTask.ConfigureAwait(false);
 
                 if (winGetIds != null)
                 {
-                    // If any Phase 1 app also carries a registry disambiguator, pull the registry
-                    // uninstall info up front so we can require winget+registry agreement below.
                     // WinGet's installed-package list can false-positive when a sibling build
                     // (e.g. AutoHotkey v1 installed via direct URL) shares the vendor's uninstall
                     // entry that winget uses to fingerprint "AutoHotkey.AutoHotkey" (v2).
-                    bool needRegistryDisambiguation = appsWithWinGetId.Any(d =>
-                        !string.IsNullOrEmpty(d.RegistryDisplayName) || !string.IsNullOrEmpty(d.RegistrySubKeyName));
-                    if (needRegistryDisambiguation)
-                    {
-                        sharedRegInfo = await GetRegistryUninstallInfoAsync().ConfigureAwait(false);
-                    }
-
+                    if (appsWithWinGetId.Any(d => !string.IsNullOrEmpty(d.RegistryDisplayName) ||
+                        !string.IsNullOrEmpty(d.RegistrySubKeyName)))
+                        sharedRegInfo = await (registryTask ??= GetRegistryUninstallInfoAsync()).ConfigureAwait(false);
                     foreach (var def in appsWithWinGetId)
                     {
                         var matchedById = def.WinGetPackageId?.Any(pkgId => winGetIds.Contains(pkgId)) == true;
@@ -322,6 +373,12 @@ public class AppStatusDiscoveryService(
                     && (!result.ContainsKey(d.Id) || !result[d.Id]))
                 .ToList();
 
+            // These AppX candidates must be checked regardless of Chocolatey results.
+            // Start only required work, then apply the existing provider precedence.
+            var appxTask = definitionList.Any(d => d.AppxPackageName?.Length > 0 &&
+                string.IsNullOrEmpty(d.ChocoPackageId) && !result.GetValueOrDefault(d.Id))
+                ? GetOrFetchAppxPackageNamesAsync() : null;
+
             if (appsForChocoCheck.Any())
             {
                 try
@@ -362,7 +419,7 @@ public class AppStatusDiscoveryService(
 
             if (appsWithAppxName.Any())
             {
-                var installedPackageNames = await appxPackageSource.GetInstalledPackageNamesAsync().ConfigureAwait(false);
+                var installedPackageNames = await (appxTask ?? GetOrFetchAppxPackageNamesAsync()).ConfigureAwait(false);
                 foreach (var def in appsWithAppxName)
                 {
                     if (def.AppxPackageName!.Any(name => installedPackageNames.Contains(name)))
@@ -382,7 +439,7 @@ public class AppStatusDiscoveryService(
 
             if (appsForRegistryCheck.Any())
             {
-                var regInfo = sharedRegInfo ?? await GetRegistryUninstallInfoAsync().ConfigureAwait(false);
+                var regInfo = sharedRegInfo ?? await (registryTask ??= GetRegistryUninstallInfoAsync()).ConfigureAwait(false);
 
                 // Discovered entries require their exact registration, even when another installation has the same name.
                 foreach (var def in appsForRegistryCheck.Where(d => d.RegistryUninstallKeyPath != null))
@@ -469,7 +526,7 @@ public class AppStatusDiscoveryService(
                 {
                     foreach (var rawPath in def.DetectionPaths!)
                     {
-                        var expandedPath = Environment.ExpandEnvironmentVariables(rawPath);
+                        var expandedPath = AppPaths.ResolveDetectionPath(rawPath, user);
                         if (Directory.Exists(expandedPath) || File.Exists(expandedPath))
                         {
                             result[def.Id] = true;

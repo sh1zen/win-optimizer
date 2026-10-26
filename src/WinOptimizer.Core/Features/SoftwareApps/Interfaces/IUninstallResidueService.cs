@@ -25,6 +25,8 @@ public interface IUninstallResidueSession : IAsyncDisposable
 /// <summary>Desktop interaction boundary for reviewing individually selectable uninstall leftovers.</summary>
 public interface IUninstallResidueReview
 {
+    /// <summary>Asks before automatic removal when the application has no registered native uninstaller.</summary>
+    Task<bool> ConfirmAutomaticUninstallAsync(ItemDefinition application, CancellationToken ct);
     /// <summary>A deferred review takes ownership of the session until its deferral scope is disposed.</summary>
     Task<UninstallReviewDisposition> ShowAsync(IUninstallResidueSession session, UninstallResidueScan scan, CancellationToken ct);
     /// <summary>Queues residue dialogs until the enclosing configuration flow has closed its overlay.</summary>
@@ -35,6 +37,7 @@ public interface IUninstallResidueReview
 /// <summary>Runs native removal between identity capture and verified, user-reviewed residue cleanup.</summary>
 public interface IAppUninstallWorkflow
 {
+    /// <summary>Publishes verified outcomes to the caller's cached inventory before opening residue review.</summary>
     Task<AppUninstallResult> UninstallAsync(IReadOnlyList<ItemDefinition> applications, AppUninstallKind kind,
-        bool saveRemovalScripts = true, CancellationToken ct = default);
+        bool saveRemovalScripts = true, CancellationToken ct = default, Func<AppUninstallResult, Task>? refreshInventory = null);
 }

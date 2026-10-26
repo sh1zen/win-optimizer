@@ -62,7 +62,7 @@ public sealed partial class SortingTestApplication(string resultPath) : WinUIApp
     {
         try
         {
-            var count = await NativeTestCases.RunAsync(typeof(AppSortingTests), typeof(WindowsAppsViewModelTests), typeof(ExternalAppsViewModelTests), typeof(LeftoverAppsViewModelTests), typeof(SoftwareAppsViewModelTests), typeof(SelectedAppsProviderTests), typeof(ConfigExportServiceTests));
+            var count = await NativeTestCases.RunAsync(typeof(AppSortingTests), typeof(WindowsAppsViewModelTests), typeof(ExternalAppsViewModelTests), typeof(LeftoverAppsViewModelTests), typeof(UninstallResidueViewModelTests), typeof(UninstallResidueReviewTests), typeof(SoftwareAppsViewModelTests), typeof(SelectedAppsProviderTests), typeof(ConfigExportServiceTests));
             await CaptureLeftoverPreviewsAsync();
             Finish($"PASS: {count} Software & Apps cases on the WinUI dispatcher; English/Italian Leftover previews at two widths.", true);
         }

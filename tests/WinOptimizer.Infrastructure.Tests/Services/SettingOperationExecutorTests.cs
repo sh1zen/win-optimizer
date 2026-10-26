@@ -1111,6 +1111,30 @@ public class SettingOperationExecutorTests
     // RegContents operations
     // ---------------------------------------------------------------
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FailedRegistryImportPropagatesForBothAccountModes(bool ots)
+    {
+        _mockInteractiveUser.Setup(user => user.IsOtsElevation).Returns(ots);
+        _mockInteractiveUser.Setup(user => user.HasInteractiveUserToken).Returns(ots);
+        _mockInteractiveUser.Setup(user => user.GetInteractiveUserFolderPath(Environment.SpecialFolder.LocalApplicationData)).Returns(@"C:\Fixture");
+        _mockInteractiveUser.Setup(user => user.RunProcessAsInteractiveUserAsync(It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<Action<string>?>(), It.IsAny<Action<string>?>(), It.IsAny<CancellationToken>(), It.IsAny<int>(), It.IsAny<Action<string>?>()))
+            .ReturnsAsync(new InteractiveProcessResult(5, "", "Access denied"));
+        _mockProcessExecutor.Setup(process => process.ExecuteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ProcessExecutionResult { ExitCode = 5, StandardError = "Access denied" });
+        var setting = CreateSetting("reg-failure") with
+        {
+            RegContents = [new RegContentSetting { EnabledContent = "Windows Registry Editor Version 5.00", DisabledContent = "" }]
+        };
+
+        var error = await Assert.ThrowsAsync<IOException>(() => _executor.ApplySettingOperationsAsync(setting, true, null));
+
+        Assert.Contains("5", error.Message);
+        Assert.Contains("Access denied", error.Message);
+    }
+
     [Fact]
     public async Task ApplySettingOperationsAsync_RegContentEnabled_WritesAndImportsEnabledContent()
     {

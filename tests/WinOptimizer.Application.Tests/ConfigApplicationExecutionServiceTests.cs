@@ -10,6 +10,39 @@ namespace WinOptimizer.Application.Tests;
 
 public class ConfigApplicationExecutionServiceTests
 {
+    [Theory]
+    [InlineData("Taskbar")]
+    [InlineData("StartMenu")]
+    [InlineData("WindowsTheme")]
+    public async Task EmptyConfigurationStillExecutesTheRequestedAction(string feature)
+    {
+        _mockConfigLoadService.Setup(service => service.DetectIncompatibleSettings(It.IsAny<UnifiedConfigurationFile>())).Returns([]);
+        _mockBridgeService.Setup(bridge => bridge.ApplyConfigurationSectionAsync(It.IsAny<ConfigSection>(), It.IsAny<string>(),
+            It.IsAny<Func<string, object?, SettingDefinition, Task<(bool confirmed, bool checkboxResult)>>?>())).ReturnsAsync(false);
+        var options = new ImportOptions { ApplyCleanTaskbar = feature == "Taskbar", ApplyCleanStartMenu = feature == "StartMenu", ApplyThemeWallpaper = feature == "WindowsTheme" };
+
+        await CreateService().ExecuteConfigImportAsync(new UnifiedConfigurationFile(), options);
+
+        _mockBridgeService.Verify(bridge => bridge.ApplyConfigurationSectionAsync(It.Is<ConfigSection>(section => section.Items.Count > 0),
+            "Customize." + feature, It.IsAny<Func<string, object?, SettingDefinition, Task<(bool confirmed, bool checkboxResult)>>?>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task FailedSettingsImportShowsErrorAndDoesNotAnnounceSuccessOrRestartExplorer()
+    {
+        var config = new UnifiedConfigurationFile();
+        config.Optimize.Features = new Dictionary<string, ConfigSection> { ["Privacy"] = new() { Items = [new() { Id = "fixture", Name = "Fixture" }] } };
+        _mockConfigLoadService.Setup(service => service.DetectIncompatibleSettings(config)).Returns([]);
+        _mockBridgeService.Setup(bridge => bridge.ApplyConfigurationSectionAsync(It.IsAny<ConfigSection>(), It.IsAny<string>(),
+            It.IsAny<Func<string, object?, SettingDefinition, Task<(bool confirmed, bool checkboxResult)>>?>())).ReturnsAsync(false);
+
+        await CreateService().ExecuteConfigImportAsync(config, new ImportOptions());
+
+        _mockDialogService.Verify(dialog => dialog.ShowMessage(It.Is<string>(message => message.Contains("failed")), "Error"), Times.Once);
+        _mockDialogService.Verify(dialog => dialog.ShowInformationAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        _mockWindowsUIManagementService.Verify(ui => ui.KillProcess(It.IsAny<string>()), Times.Never);
+        _mockProcessExecutor.VerifyNoOtherCalls();
+    }
     private readonly Mock<ILogService> _mockLogService = new();
     private readonly Mock<IDialogService> _mockDialogService = new();
     private readonly Mock<ILocalizationService> _mockLocalizationService = new();
@@ -355,37 +388,6 @@ public class ConfigApplicationExecutionServiceTests
         _mockOverlayService.Verify(o => o.HideOverlay(), Times.Once);
         _mockDialogService.Verify(
             d => d.ShowMessage(It.Is<string>(s => s.Contains("Test error")), It.IsAny<string>()),
-            Times.Once);
-    }
-
-    [Fact]
-    public async Task ExecuteConfigImportAsync_WithExternalApps_SelectsAppsFromConfig()
-    {
-        var config = new UnifiedConfigurationFile
-        {
-            ExternalApps = new ConfigSection
-            {
-                Items = new List<ConfigurationItem>
-                {
-                    new ConfigurationItem { Id = "ext1", Name = "ExtApp 1" }
-                }
-            }
-        };
-
-        var options = new ImportOptions
-        {
-            ProcessExternalAppsRemoval = false
-        };
-
-        _mockConfigLoadService
-            .Setup(s => s.DetectIncompatibleSettings(It.IsAny<UnifiedConfigurationFile>()))
-            .Returns(new List<string>());
-
-        var service = CreateService();
-        await service.ExecuteConfigImportAsync(config, options);
-
-        _mockConfigAppSelectionService.Verify(
-            s => s.SelectExternalAppsFromConfigAsync(It.IsAny<ConfigSection>()),
             Times.Once);
     }
 

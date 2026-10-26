@@ -104,17 +104,6 @@ public class LogServiceTests : IDisposable
     }
 
     [Fact]
-    public void SetSystemInfoProvider_DoesNotThrow()
-    {
-        using var service = CreateService();
-        var mockProvider = new Mock<ISystemInfoProvider>();
-
-        var action = () => service.SetSystemInfoProvider(mockProvider.Object);
-
-        action.Should().NotThrow();
-    }
-
-    [Fact]
     public void StartLog_WithSystemInfoProvider_WritesAllDiagnosticFields()
     {
         var service = CreateService();

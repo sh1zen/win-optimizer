@@ -241,7 +241,7 @@ public class SettingOperationExecutor(
 
                             if (result.ExitCode != 0)
                             {
-                                logService.Log(LogLevel.Warning, $"[SettingOperationExecutor] reg import as interactive user failed (exit {result.ExitCode}): {result.StandardError}");
+                                throw new IOException($"Registry import for '{setting.Id}' failed (exit {result.ExitCode}): {result.StandardError}");
                             }
                         }
                         else
@@ -313,18 +313,8 @@ public class SettingOperationExecutor(
 
     private async Task RunCommandAsync(string command)
     {
-        try
-        {
-            var result = await processExecutor.ExecuteAsync("cmd.exe", $"/c {command}").ConfigureAwait(false);
-
-            if (result.ExitCode != 0)
-            {
-                logService.Log(LogLevel.Warning, $"[SettingOperationExecutor] Command failed: {command} - {result.StandardError}");
-            }
-        }
-        catch (Exception ex)
-        {
-            logService.Log(LogLevel.Error, $"[SettingOperationExecutor] Command execution failed: {command} - {ex.Message}");
-        }
+        var result = await processExecutor.ExecuteAsync("cmd.exe", $"/c {command}").ConfigureAwait(false);
+        if (result.ExitCode != 0)
+            throw new IOException($"Registry import failed (exit {result.ExitCode}): {result.StandardError} {result.StandardOutput}".Trim());
     }
 }

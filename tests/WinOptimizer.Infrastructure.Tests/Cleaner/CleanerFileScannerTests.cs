@@ -1,6 +1,8 @@
 using FluentAssertions;
 using Moq;
 using WinOptimizer.Core.Features.Cleaner.Models;
+using WinOptimizer.Core.Features.Cleaner.Interfaces;
+using WinOptimizer.Core.Features.Cleaner.Services;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.SoftwareApps.Interfaces;
 using WinOptimizer.Infrastructure.Features.Cleaner;
@@ -34,6 +36,39 @@ public sealed class CleanerFileScannerTests : IDisposable
         File.WriteAllText(path, "test evidence");
         if (old) { File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddDays(-30)); File.SetLastAccessTimeUtc(path, DateTime.UtcNow.AddDays(-30)); }
         return path;
+    }
+
+    /// <summary>Store caches selected in both areas have one verified backup, deletion and recoverable payload.</summary>
+    [Theory]
+    [InlineData("Microsoft.WindowsStore_8wekyb3d8bbwe", "Microsoft.WindowsStore")]
+    [InlineData("Microsoft.ZuneVideo_8wekyb3d8bbwe", "Microsoft.ZuneVideo")]
+    public async Task OverlappingApplicationCaches_AreBackedUpCleanedAndRestoredOnce(string family, string name)
+    {
+        var path = WriteAgedFile(Path.Combine("Packages", family, "LocalCache", "old.tmp"));
+        _packages.Setup(source => source.GetInstalledPackageNamesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new HashSet<string>(StringComparer.OrdinalIgnoreCase) { name });
+        var backend = new Mock<ICleanerBackend>();
+        backend.Setup(source => source.ScanAsync(It.IsAny<CleanerArea>(), It.IsAny<CleanerOptions>(), It.IsAny<IProgress<CleanerProgress>>(), It.IsAny<CancellationToken>()))
+            .Returns((CleanerArea area, CleanerOptions options, IProgress<CleanerProgress>? progress, CancellationToken ct) => _scanner.ScanAsync(area, options, ct, progress));
+        backend.Setup(source => source.CleanAsync(It.IsAny<CleanerFinding>(), It.IsAny<CleanerOptions>(), It.IsAny<CancellationToken>()))
+            .Returns((CleanerFinding finding, CleanerOptions _, CancellationToken _) => { _scanner.Clean((CleanerFileTarget)finding.Target); return Task.CompletedTask; });
+        var backups = new CleanerBackupService(new TestCleanerBackupVault(Path.Combine(_root, "vault")), _scanner, Mock.Of<ICleanerRegistryRecovery>());
+        var service = new CleanerService(backend.Object, backups);
+
+        var scan = await service.ScanAsync(new() { ApplicationCaches = [family] }, [CleanerArea.JunkFiles, CleanerArea.Privacy], null, default);
+        var finding = scan.Findings.Should().ContainSingle().Subject;
+        finding.Detail.Should().Be(path);
+        finding.Area.Should().Be(CleanerArea.Privacy);
+        var applied = await service.ApplyAsync([finding.Id], null, default);
+        applied.Completed.Should().Be(1);
+        applied.Errors.Should().BeEmpty();
+        File.Exists(path).Should().BeFalse();
+        var backup = (await backups.ListAsync(default)).Should().ContainSingle().Subject;
+        backup.FileCount.Should().Be(1);
+        var restored = await backups.RestoreAsync(backup.Id, default);
+        restored.Restored.Should().Be(1);
+        restored.Errors.Should().BeEmpty();
+        File.ReadAllText(path).Should().Be("test evidence");
     }
     [Fact]
     public async Task JunkScan_InventoriesTempFiles_AndOnlySelectedInstalledAppCaches()
@@ -123,6 +158,66 @@ public sealed class CleanerFileScannerTests : IDisposable
         result.CheckedItems.Should().Be(3);
         reports[^1].Total.Should().Be(3);
         reports[^1].Completed.Should().Be(3);
+    }
+
+    [Fact]
+    public async Task BatchedInspectionRetainsDiscoveryAndNoticeOrderWithLockedFiles()
+    {
+        for (int index = 0; index < 150; index++) WriteAgedFile($@"Temp\{index}.tmp");
+        var expected = CleanerPaths.EnumerateFiles(Path.Combine(_root, "Temp"), [], default).ToArray();
+        var lockedPaths = new[] { expected[2], expected[66], expected[130] };
+        var held = lockedPaths.Select(path => new FileStream(path, FileMode.Open, FileAccess.ReadWrite, FileShare.None)).ToArray();
+        try
+        {
+            var scan = await _scanner.ScanAsync(CleanerArea.JunkFiles, new(), default);
+            Assert.Equal(expected, scan.Findings.Select(finding => finding.Detail));
+            Assert.Equal(150, scan.CheckedItems);
+            Assert.Equal(3, scan.Notices.Count);
+            for (int index = 0; index < lockedPaths.Length; index++)
+                Assert.StartsWith(lockedPaths[index] + ":", scan.Notices[index]);
+            Assert.Equal(lockedPaths, scan.Findings.Where(finding => !finding.CanClean).Select(finding => finding.Detail));
+        }
+        finally { foreach (var stream in held) stream.Dispose(); }
+    }
+
+    [Fact]
+    public async Task CancellationAfterAnInspectionBatchStopsBeforeTheNextBatch()
+    {
+        for (int index = 0; index < 150; index++) WriteAgedFile($@"Temp\{index}.tmp");
+        using var cancellation = new CancellationTokenSource();
+        List<CleanerProgress> reports = [];
+        var progress = new Mock<IProgress<CleanerProgress>>();
+        progress.Setup(value => value.Report(It.IsAny<CleanerProgress>())).Callback<CleanerProgress>(value =>
+        {
+            reports.Add(value);
+            if (value.Total == 150 && value.Completed == 64) cancellation.Cancel();
+        });
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => _scanner.ScanAsync(CleanerArea.JunkFiles, new(), cancellation.Token, progress.Object));
+        Assert.Equal(64, reports[^1].Completed);
+        Assert.Equal(150, Directory.GetFiles(Path.Combine(_root, "Temp")).Length);
+    }
+
+    [Fact]
+    public async Task InspectionUsesCurrentFileMetadataAfterDirectoryEnumeration()
+    {
+        var path = WriteAgedFile(@"Temp\changed.tmp");
+        var modified = false;
+        var progress = new Mock<IProgress<CleanerProgress>>();
+        progress.Setup(value => value.Report(It.IsAny<CleanerProgress>())).Callback<CleanerProgress>(value =>
+        {
+            if (value.Total == 0 || modified) return;
+            modified = true;
+            File.WriteAllBytes(path, new byte[73]);
+            File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddDays(-30));
+            File.SetLastAccessTimeUtc(path, DateTime.UtcNow.AddDays(-30));
+        });
+        var result = await _scanner.ScanAsync(CleanerArea.JunkFiles, new(), default, progress.Object);
+        var finding = Assert.Single(result.Findings);
+        Assert.True(modified);
+        Assert.Equal(73, finding.Bytes);
+        Assert.True(finding.CanClean);
+        _scanner.Clean((CleanerFileTarget)finding.Target);
+        Assert.False(File.Exists(path));
     }
 
     [Fact]

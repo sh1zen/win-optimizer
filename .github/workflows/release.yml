@@ -31,10 +31,28 @@ jobs:
       RUN_ID: ${{ github.run_id }}
       INSTALLER_ARTIFACT: win-optimizer-windows-x64-v${{ needs.installer.outputs.version }}
     steps:
+      - name: Check out sources
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
       - name: Download verified installer and publish release
         shell: pwsh
         run: |
+          # Select the exact tag, allowing the changelog's optional ISO release date.
+          $changelog = Get-Content -LiteralPath CHANGELOG.md -Raw -ErrorAction Stop
+          $pattern = '(?ms)^## \[' + [regex]::Escape($env:RELEASE_TAG) + '\](?: - [0-9]{4}-[0-9]{2}-[0-9]{2})?[ \t]*\r?\n(?<notes>.*?)(?=^## |\z)'
+          $sections = [regex]::Matches($changelog, $pattern)
+          if ($sections.Count -ne 1) { throw "CHANGELOG.md must contain exactly one section for $env:RELEASE_TAG." }
+          $notes = $sections[0].Groups['notes'].Value.Trim()
+          if (-not $notes) { throw "CHANGELOG.md has no release notes for $env:RELEASE_TAG." }
           gh run download $env:RUN_ID --repo $env:GH_REPO --name $env:INSTALLER_ARTIFACT --dir build/installers
           if ($LASTEXITCODE -ne 0) { throw 'Installer artifact download failed.' }
-          gh release create $env:RELEASE_TAG build/installers/win-optimizer.Installer.exe --repo $env:GH_REPO --verify-tag --generate-notes --title "win-optimizer $env:RELEASE_TAG"
-          if ($LASTEXITCODE -ne 0) { throw 'GitHub Release publication failed.' }
+          $notesFile = Join-Path ([IO.Path]::GetTempPath()) ('win-optimizer-release-notes-' + [guid]::NewGuid().ToString('N') + '.md')
+          try {
+            [IO.File]::WriteAllText($notesFile, $notes, [Text.UTF8Encoding]::new($false))
+            gh release create $env:RELEASE_TAG build/installers/win-optimizer.Installer.exe --repo $env:GH_REPO --verify-tag --notes-file $notesFile --title "win-optimizer $env:RELEASE_TAG"
+            if ($LASTEXITCODE -ne 0) { throw 'GitHub Release publication failed.' }
+          } finally {
+            if (Test-Path -LiteralPath $notesFile) { Remove-Item -LiteralPath $notesFile }
+          }

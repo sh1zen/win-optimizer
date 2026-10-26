@@ -4,28 +4,31 @@ namespace WinOptimizer.Infrastructure.Features.SoftwareApps.Services.WinGet.Util
 
 /// <summary>
 /// Maps WinGet CLI HRESULT exit codes to <see cref="InstallFailureReason"/>.
-/// Reference: https://github.com/microsoft/winget-cli/blob/master/doc/windows/package-manager/winget/returnCodes.md
+/// Reference: https://github.com/microsoft/winget-cli/blob/v1.29.380/doc/windows/package-manager/winget/returnCodes.md
 /// </summary>
 public static class WinGetExitCodes
 {
     // Success codes
     public const int Ok = 0;
-    public const int RestartRequired = unchecked((int)0x8A150019);
+    public const int RestartRequired = unchecked((int)0x8A150109);
 
     // Error codes (HRESULT values cast to int for exit code comparison)
     public const int PackageNotFound = unchecked((int)0x8A150014);
-    public const int InstallerHashMismatch = unchecked((int)0x8A150005);
-    public const int DownloadError = unchecked((int)0x8A150007);
-    public const int BlockedByPolicy = unchecked((int)0x8A150016);
-    public const int NoApplicableInstallers = unchecked((int)0x8A15001B);
-    public const int PackageAgreementsNotAccepted = unchecked((int)0x8A15000E);
-    public const int NetworkError = unchecked((int)0x8A150006);
-    public const int AlreadyInstalled = unchecked((int)0x8A150015);
-    public const int UpdateNotApplicable = unchecked((int)0x8A15002A);
-    public const int PackageNotInstalled = unchecked((int)0x8A150013);
+    public const int InstallerHashMismatch = unchecked((int)0x8A150011);
+    public const int DownloadError = unchecked((int)0x8A150008);
+    public const int BlockedByPolicy = unchecked((int)0x8A15003A);
+    public const int NoApplicableInstallers = unchecked((int)0x8A150010);
+    public const int PackageAgreementsNotAccepted = unchecked((int)0x8A150041);
+    public const int NetworkError = unchecked((int)0x8A150107);
+    public const int AlreadyInstalled = unchecked((int)0x8A150061);
+    public const int UpdateNotApplicable = unchecked((int)0x8A15002B);
+    public const int PackageNotInstalled = PackageNotFound;
     public const int FailedToOpenAllSources = unchecked((int)0x8A15004B);
-    public const int ManifestError = unchecked((int)0x8A15000B);
-    public const int OperationCancelled = unchecked((int)0x8A15002B);
+    public const int ManifestError = unchecked((int)0x8A15002A);
+    public const int OperationCancelled = unchecked((int)0x8A150005);
+    public const int InstallerCancelled = unchecked((int)0x8A15010C);
+    public const int CommandRequiresAdministrator = unchecked((int)0x8A150019);
+    public const int NoSourcesDefined = unchecked((int)0x8A150015);
 
     // Uninstall-specific error codes
     // The underlying uninstaller returned a non-zero exit code (e.g. Chromium-based
@@ -52,8 +55,8 @@ public static class WinGetExitCodes
         Ok => InstallFailureReason.None,
         RestartRequired => InstallFailureReason.None,
         AlreadyInstalled => InstallFailureReason.None,
+        UpdateNotApplicable => InstallFailureReason.None,
         PackageNotFound => InstallFailureReason.PackageNotFound,
-        PackageNotInstalled => InstallFailureReason.PackageNotFound,
         InstallerHashMismatch => InstallFailureReason.HashMismatchOrInstallError,
         DownloadError => InstallFailureReason.DownloadError,
         NetworkError => InstallFailureReason.NetworkError,
@@ -61,7 +64,7 @@ public static class WinGetExitCodes
         NoApplicableInstallers => InstallFailureReason.NoApplicableInstallers,
         PackageAgreementsNotAccepted => InstallFailureReason.AgreementsNotAccepted,
         ManifestError => InstallFailureReason.Other,
-        OperationCancelled => InstallFailureReason.UserCancelled,
+        OperationCancelled or InstallerCancelled => InstallFailureReason.UserCancelled,
         _ => InstallFailureReason.Other
     };
 }

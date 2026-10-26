@@ -225,12 +225,17 @@ public sealed class WindowsCleanerRegistrySessions(IInteractiveUserService user,
             Editor = new WindowsCleanerRegistryEditor(OpenKey);
         }
 
-        /// <summary>Resolves the selected account's redirected AppData folders without using another account's environment.</summary>
+        /// <summary>Resolves each folder once per account session; reopening a session reads current folder bindings.</summary>
         public string GetFolderPath(Environment.SpecialFolder folder)
         {
-            if (_profile is null) return _user.GetInteractiveUserFolderPath(folder);
-            if (folder == Environment.SpecialFolder.UserProfile) return _profile.Directory;
             if (_folders.TryGetValue(folder, out var cached)) return cached;
+            if (_profile is null)
+            {
+                var interactivePath = _user.GetInteractiveUserFolderPath(folder);
+                _folders.Add(folder, interactivePath);
+                return interactivePath;
+            }
+            if (folder == Environment.SpecialFolder.UserProfile) return _profile.Directory;
             var name = folder switch
             {
                 Environment.SpecialFolder.LocalApplicationData => "Local AppData",

@@ -18,6 +18,8 @@
     <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\WindowsAppsViewModelTests.cs" Link="WindowsAppsViewModelTests.cs"/>
     <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\ExternalAppsViewModelTests.cs" Link="ExternalAppsViewModelTests.cs"/>
     <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\LeftoverAppsViewModelTests.cs" Link="LeftoverAppsViewModelTests.cs"/>
+    <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\UninstallResidueViewModelTests.cs" Link="UninstallResidueViewModelTests.cs"/>
+    <Compile Include="..\WinOptimizer.UI.Tests\Services\UninstallResidueReviewTests.cs" Link="UninstallResidueReviewTests.cs"/>
     <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\SoftwareAppsViewModelTests.cs" Link="SoftwareAppsViewModelTests.cs"/>
     <Compile Include="..\WinOptimizer.UI.Tests\Services\SelectedAppsProviderTests.cs" Link="SelectedAppsProviderTests.cs"/>
     <Compile Include="..\WinOptimizer.UI.Tests\Services\ConfigExportServiceTests.cs" Link="ConfigExportServiceTests.cs"/>

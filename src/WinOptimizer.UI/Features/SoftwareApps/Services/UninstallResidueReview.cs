@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml;
 using WinOptimizer.Core.Features.Common.Interfaces;
+using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.Core.Features.SoftwareApps.Interfaces;
 using WinOptimizer.Core.Features.SoftwareApps.Models;
 using WinOptimizer.UI.Features.Common.Interfaces;
@@ -16,6 +17,25 @@ public sealed class UninstallResidueReview(IUninstallResidueService service, IDi
     private readonly Queue<PendingReview> _pending = new();
     private int _deferrals;
     private sealed record PendingReview(IUninstallResidueSession Session, UninstallResidueScan Scan, CancellationToken Cancellation, IDisposable Reservation);
+
+    /// <summary>Shows fallback consent on the UI dispatcher even when native discovery completes on a worker.</summary>
+    public async Task<bool> ConfirmAutomaticUninstallAsync(ItemDefinition application, CancellationToken ct)
+    {
+        var confirmed = false;
+        await dispatcher.RunOnUIThreadWithContextAsync(async () =>
+        {
+            ct.ThrowIfCancellationRequested();
+            confirmed = (await dialogs.ShowConfirmationAsync(new ConfirmationRequest
+            {
+                Title = text.GetString("Uninstall_AutomaticTitle"),
+                Message = text.GetString("Uninstall_AutomaticPrompt", application.Name),
+                ConfirmButtonText = text.GetString("Uninstall_AutomaticProceed"),
+                CancelButtonText = text.GetString("Button_Cancel")
+            })).Confirmed;
+        });
+        ct.ThrowIfCancellationRequested();
+        return confirmed;
+    }
 
     public async Task<UninstallReviewDisposition> ShowAsync(IUninstallResidueSession session, UninstallResidueScan scan, CancellationToken ct)
     {

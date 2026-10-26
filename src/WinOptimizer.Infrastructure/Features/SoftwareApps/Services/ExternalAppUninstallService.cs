@@ -18,27 +18,51 @@ public class ExternalAppUninstallService(
     ILogService logService,
     IUninstallCommandSource uninstallCommands,
     ITaskProgressService taskProgressService,
-    IProcessExecutor processExecutor) : IExternalAppUninstallService
+    IProcessExecutor processExecutor,
+    IUninstallResidueReview review,
+    IAppxDeployment deployment,
+    IInteractiveUserService user) : IExternalAppUninstallService
 {
+    /// <summary>Runs the registered interactive uninstaller, or asks before using automatic removal.</summary>
     public async Task<OperationResult<bool>> UninstallAsync(
         ItemDefinition item,
         IProgress<TaskProgressDetail>? progress = null,
         CancellationToken cancellationToken = default)
     {
-        var method = await DetermineUninstallMethodAsync(item).ConfigureAwait(false);
-
-        return method switch
+        try
         {
-            UninstallMethod.WinGet => await UninstallViaWinGetAsync(item, cancellationToken).ConfigureAwait(false),
-            UninstallMethod.Chocolatey => await UninstallViaChocolateyAsync(item, cancellationToken).ConfigureAwait(false),
-            UninstallMethod.AppX => await UninstallViaAppxAsync(item, cancellationToken).ConfigureAwait(false),
-            UninstallMethod.Registry => await UninstallViaRegistryAsync(item, cancellationToken).ConfigureAwait(false),
-            UninstallMethod.FileSystem => await UninstallViaFileSystemAsync(item, cancellationToken).ConfigureAwait(false),
-            _ => OperationResult<bool>.Failed($"No uninstall method available for {item.Name}")
-        };
+            cancellationToken.ThrowIfCancellationRequested();
+            var (found, command) = await uninstallCommands.GetAsync(item).ConfigureAwait(false);
+            if (found && !string.IsNullOrWhiteSpace(command))
+                return await UninstallViaRegistryAsync(item, command, cancellationToken).ConfigureAwait(false);
+
+            var method = await DetermineAutomaticMethodAsync(item).ConfigureAwait(false);
+            if (method == UninstallMethod.None)
+                return OperationResult<bool>.Failed($"No uninstall method available for {item.Name}");
+
+            cancellationToken.ThrowIfCancellationRequested();
+            var consent = await review.ConfirmAutomaticUninstallAsync(item, cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!consent)
+                return OperationResult<bool>.Cancelled("Automatic uninstall declined by user");
+
+            return method switch
+            {
+                UninstallMethod.WinGet => await UninstallViaWinGetAsync(item, cancellationToken).ConfigureAwait(false),
+                UninstallMethod.Chocolatey => await UninstallViaChocolateyAsync(item, cancellationToken).ConfigureAwait(false),
+                UninstallMethod.AppX => await UninstallViaAppxAsync(item, cancellationToken).ConfigureAwait(false),
+                UninstallMethod.FileSystem => await UninstallViaFileSystemAsync(item, cancellationToken).ConfigureAwait(false),
+                _ => OperationResult<bool>.Failed($"No uninstall method available for {item.Name}")
+            };
+        }
+        catch (OperationCanceledException)
+        {
+            return OperationResult<bool>.Cancelled("Uninstall cancelled");
+        }
     }
 
-    private async Task<UninstallMethod> DetermineUninstallMethodAsync(ItemDefinition item)
+    /// <summary>Chooses an automatic provider only after native command discovery found none.</summary>
+    private async Task<UninstallMethod> DetermineAutomaticMethodAsync(ItemDefinition item)
     {
         // Use the detection source to pick the most appropriate uninstall method.
         // Each source owns the path that knows how to undo what it detected — WinGet
@@ -53,17 +77,11 @@ public class ExternalAppUninstallService(
             case DetectionSource.AppX when item.AppxPackageName?.Length > 0:
                 return UninstallMethod.AppX;
 
-            case DetectionSource.Registry:
-                var (regFound, _) = await uninstallCommands.GetAsync(item).ConfigureAwait(false);
-                if (regFound)
-                    return UninstallMethod.Registry;
-                break;
-
             case DetectionSource.FileSystem when item.DetectionPaths?.Length > 0:
                 return UninstallMethod.FileSystem;
         }
 
-        // Default: prefer WinGet if available, then Registry
+        // Catalogue identifiers supply automatic providers for other detection sources.
         if (!string.IsNullOrEmpty(item.MsStoreId) || (item.WinGetPackageId != null && item.WinGetPackageId.Any()))
             return UninstallMethod.WinGet;
 
@@ -73,10 +91,6 @@ public class ExternalAppUninstallService(
             if (chocoIds.Contains(item.ChocoPackageId))
                 return UninstallMethod.Chocolatey;
         }
-
-        var (found, _2) = await uninstallCommands.GetAsync(item).ConfigureAwait(false);
-        if (found)
-            return UninstallMethod.Registry;
 
         return UninstallMethod.None;
     }
@@ -106,16 +120,14 @@ public class ExternalAppUninstallService(
 
             if (string.IsNullOrEmpty(packageId))
             {
-                logService.LogWarning($"No WinGet package ID for {item.Name}, falling back to registry");
-                taskProgressService.UpdateProgress(0, $"No WinGet package ID for {item.Name}, trying registry fallback...");
-                return await UninstallViaRegistryAsync(item, cancellationToken).ConfigureAwait(false);
+                return OperationResult<bool>.Failed($"No WinGet package ID for {item.Name}");
             }
 
             var success = await winGetPackageInstaller.UninstallPackageAsync(packageId, source, item.Name, cancellationToken).ConfigureAwait(false);
 
             if (!success)
             {
-                // Fallback: try Chocolatey if available, then AppX, then registry.
+                // Try the remaining automatic providers covered by the user's consent.
                 // AppX defends against detection mis-classification: if the item carries
                 // an AppxPackageName but DetectedVia routed to WinGet (e.g. a Store-UI
                 // install that winget surfaces as MSIX\... and fails to uninstall by ID),
@@ -138,9 +150,7 @@ public class ExternalAppUninstallService(
                         return appxResult;
                 }
 
-                logService.LogWarning($"Uninstall failed for {item.Name}, attempting registry fallback");
-                taskProgressService.UpdateProgress(0, $"Trying registry fallback for {item.Name}...");
-                return await UninstallViaRegistryAsync(item, cancellationToken).ConfigureAwait(false);
+                return OperationResult<bool>.Failed($"Automatic uninstall failed for {item.Name}");
             }
 
             await CleanupStaleChocoRecordAsync(item, cancellationToken).ConfigureAwait(false);
@@ -153,7 +163,7 @@ public class ExternalAppUninstallService(
         catch (Exception ex)
         {
             logService.LogError($"WinGet uninstall error for {item.Name}: {ex.Message}", ex);
-            return await UninstallViaRegistryAsync(item, cancellationToken).ConfigureAwait(false);
+            return OperationResult<bool>.Failed($"Automatic uninstall failed: {ex.Message}");
         }
     }
 
@@ -174,9 +184,7 @@ public class ExternalAppUninstallService(
 
             if (!success)
             {
-                logService.LogWarning($"Chocolatey uninstall failed for {item.Name}, attempting registry fallback");
-                taskProgressService.UpdateProgress(0, $"Chocolatey uninstall failed for {item.Name}, trying registry fallback...");
-                return await UninstallViaRegistryAsync(item, cancellationToken).ConfigureAwait(false);
+                return OperationResult<bool>.Failed($"Chocolatey uninstall failed for {item.Name}");
             }
 
             return OperationResult<bool>.Succeeded(true);
@@ -188,27 +196,23 @@ public class ExternalAppUninstallService(
         catch (Exception ex)
         {
             logService.LogError($"Chocolatey uninstall error for {item.Name}: {ex.Message}", ex);
-            return await UninstallViaRegistryAsync(item, cancellationToken).ConfigureAwait(false);
+            return OperationResult<bool>.Failed($"Chocolatey uninstall failed: {ex.Message}");
         }
     }
 
-    private async Task<OperationResult<bool>> UninstallViaRegistryAsync(ItemDefinition item, CancellationToken cancellationToken)
+    /// <summary>Waits for the native UI to exit before reporting its actual outcome.</summary>
+    private async Task<OperationResult<bool>> UninstallViaRegistryAsync(ItemDefinition item, string uninstallString, CancellationToken cancellationToken)
     {
         try
         {
-            var (found, uninstallString) = await uninstallCommands.GetAsync(item).ConfigureAwait(false);
-
-            if (!found || string.IsNullOrWhiteSpace(uninstallString))
-            {
-                logService.LogError($"No uninstall string found for {item.Name}");
-                return OperationResult<bool>.Failed($"Cannot uninstall {item.Name}: No uninstall method found");
-            }
-
             logService.LogInformation($"Uninstalling {item.Name} via registry: {uninstallString}");
 
             var (fileName, arguments) = ParseUninstallString(uninstallString);
 
-            var exitCode = await processExecutor.ShellExecuteAsync(fileName, arguments, waitForExit: true, cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            // Cancellation stops the queue after this UI exits; it must not release cleanup while the uninstaller runs.
+            var exitCode = await processExecutor.ShellExecuteAsync(fileName, arguments, waitForExit: true, CancellationToken.None).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
             if (exitCode is 3010 or 1641)
                 return OperationResult<bool>.DeferredSuccess(true, "The uninstaller requires a restart; inspect leftovers after restarting Windows.");
             if (exitCode != 0)
@@ -255,17 +259,7 @@ public class ExternalAppUninstallService(
         }
     }
 
-    // AppX uninstall for External Apps. Uses the WinRT PackageManager API directly
-    // (in-process, not via a saved PowerShell script). Persistent-removal scripts
-    // are intentionally a Windows-Apps-only concern (see IBloatRemovalService); for
-    // External Apps the user runs an uninstall once and sees terminal progress,
-    // matching the WinGet/Chocolatey/Registry paths above.
-    //
-    // Scope is per-user (FindPackagesForUser("")) — we never call RemovePackageAsync
-    // with the AllUsers option for External Apps. Provisioned-package deprovisioning
-    // (which bloatware needs to stop re-install on new user creation) is also
-    // intentionally absent here; Store-installed external apps don't carry that
-    // re-provisioning concern.
+    /// <summary>Removes matching packages only from the same interactive account used for discovery.</summary>
     private async Task<OperationResult<bool>> UninstallViaAppxAsync(ItemDefinition item, CancellationToken cancellationToken)
     {
         try
@@ -275,10 +269,10 @@ public class ExternalAppUninstallService(
 
             cancellationToken.ThrowIfCancellationRequested();
 
-            var packageManager = new Windows.Management.Deployment.PackageManager();
-            var packages = packageManager.FindPackagesForUser("")
+            var accountSid = deployment.InteractiveAccountSid;
+            var packages = (await deployment.GetPackagesAsync(accountSid, cancellationToken).ConfigureAwait(false))
                 .Where(p => item.AppxPackageName!.Any(name =>
-                    string.Equals(p.Id.Name, name, StringComparison.OrdinalIgnoreCase)))
+                    string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase)))
                 .ToList();
 
             if (packages.Count == 0)
@@ -294,11 +288,10 @@ public class ExternalAppUninstallService(
             foreach (var package in packages)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var fullName = package.Id.FullName;
+                var fullName = package.FullName;
                 logService.LogInformation($"AppX: removing {fullName}");
 
-                var op = packageManager.RemovePackageAsync(fullName);
-                op.Progress = (info, progress) =>
+                await deployment.RemovePackageAsync(fullName, accountSid, progress =>
                 {
                     // DeploymentProgress.percentage is 0–100 but the registry/winget
                     // paths reserve 100% for the completion log line, so cap reports
@@ -306,21 +299,10 @@ public class ExternalAppUninstallService(
                     // skip the WinRT API's initial 0% callback — we already reported
                     // 10% before calling RemovePackageAsync, and the bar mustn't go
                     // backwards.
-                    var pct = Math.Min(95, (int)progress.percentage);
+                    var pct = Math.Min(95, progress);
                     if (pct <= 10) return;
                     taskProgressService.UpdateProgress(pct, $"Removing {item.Name}... {pct}%");
-                };
-                using var ctReg = cancellationToken.Register(() => op.Cancel());
-                var result = await op.AsTask().ConfigureAwait(false);
-
-                if (result.ExtendedErrorCode != null)
-                {
-                    var errMsg = !string.IsNullOrEmpty(result.ErrorText)
-                        ? result.ErrorText
-                        : result.ExtendedErrorCode.Message;
-                    logService.LogError($"AppX removal of {fullName} failed: {errMsg}");
-                    return OperationResult<bool>.Failed($"AppX uninstall failed: {errMsg}");
-                }
+                }, cancellationToken).ConfigureAwait(false);
                 removed++;
             }
 
@@ -351,10 +333,10 @@ public class ExternalAppUninstallService(
                 return Task.FromResult(OperationResult<bool>.Failed($"No detection paths configured for {item.Name}"));
 
             int deletedCount = 0;
-            foreach (var rawPath in item.DetectionPaths)
+            // Resolve every account-bound path before the first deletion.
+            var paths = item.DetectionPaths.Select(path => AppPaths.ResolveDetectionPath(path, user)).ToArray();
+            foreach (var expandedPath in paths)
             {
-                var expandedPath = Environment.ExpandEnvironmentVariables(rawPath);
-
                 if (Directory.Exists(expandedPath))
                 {
                     logService.LogInformation($"Deleting directory for {item.Name}: {expandedPath}");
@@ -390,8 +372,10 @@ public class ExternalAppUninstallService(
         }
     }
 
-    private static readonly Regex MsiInstallToUninstallRegex = new(@"/I(\{[A-F0-9-]+\})", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex MsiInstallToUninstallRegex = new(@"(?<!\S)/I(?=\s*\{)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+    private static readonly Regex SilentFlagsRegex = new(@"""[^""]*""|(?<!\S)(?:/S|/SILENT|/VERYSILENT|/quiet|/passive|/q[nbrf]?[+!\-]*|--silent|--quiet)(?=\s|$)", RegexOptions.IgnoreCase | RegexOptions.Compiled);
 
+    /// <summary>Preserves native command arguments while enabling its UI and turning MSI maintenance into removal.</summary>
     private (string FileName, string Arguments) ParseUninstallString(string uninstallString)
     {
         if (string.IsNullOrWhiteSpace(uninstallString))
@@ -409,46 +393,33 @@ public class ExternalAppUninstallService(
                     ? uninstallString.Substring(endQuoteIndex + 1).Trim()
                     : string.Empty;
 
-                arguments = AppendSilentFlags(fileName, arguments);
+                arguments = InteractiveArguments(fileName, arguments);
                 logService.LogInformation($"Parsed command - FileName: {fileName}, Arguments: {arguments}");
                 return (fileName, arguments);
             }
         }
 
-        var spaceIndex = uninstallString.IndexOf(' ');
+        // Registered executable paths may contain spaces even when their publisher omitted quotes.
+        var executable = Regex.Match(uninstallString, @"^(.+?\.exe)(?=\s|$)", RegexOptions.IgnoreCase);
+        var spaceIndex = executable.Success ? executable.Length : uninstallString.IndexOf(' ');
         if (spaceIndex > 0)
         {
             var fileName = uninstallString.Substring(0, spaceIndex);
-            var arguments = uninstallString.Substring(spaceIndex + 1).Trim();
-            arguments = AppendSilentFlags(fileName, arguments);
+            var arguments = uninstallString.Substring(spaceIndex).Trim();
+            arguments = InteractiveArguments(fileName, arguments);
             logService.LogInformation($"Parsed command - FileName: {fileName}, Arguments: {arguments}");
             return (fileName, arguments);
         }
 
-        var finalArgs = AppendSilentFlags(uninstallString, string.Empty);
+        var finalArgs = InteractiveArguments(uninstallString, string.Empty);
         logService.LogInformation($"Parsed command - FileName: {uninstallString}, Arguments: {finalArgs}");
         return (uninstallString, finalArgs);
     }
 
-    private string AppendSilentFlags(string fileName, string existingArgs)
+    private static string InteractiveArguments(string fileName, string existingArgs)
     {
-        var lower = fileName.ToLowerInvariant();
-
-        if (lower.Contains("msiexec"))
-        {
-            existingArgs = MsiInstallToUninstallRegex.Replace(existingArgs, "/X$1");
-
-            if (!existingArgs.Contains("/quiet") && !existingArgs.Contains("/qn"))
-                return $"{existingArgs} /quiet /norestart".Trim();
-
-            return existingArgs;
-        }
-        else if (lower.Contains("unins") || lower.Contains("setup"))
-        {
-            if (!existingArgs.Contains("/SILENT") && !existingArgs.Contains("/VERYSILENT"))
-                return $"{existingArgs} /VERYSILENT /NORESTART".Trim();
-        }
-
-        return existingArgs;
+        var arguments = SilentFlagsRegex.Replace(existingArgs, match => match.Value.StartsWith('"') ? match.Value : string.Empty).Trim();
+        return Path.GetFileNameWithoutExtension(fileName).Equals("msiexec", StringComparison.OrdinalIgnoreCase)
+            ? MsiInstallToUninstallRegex.Replace(arguments, "/X") : arguments;
     }
 }

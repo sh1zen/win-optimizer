@@ -1,0 +1,30 @@
+<Project>
+  <!-- Keep Release symbols once, in compiler intermediates, rather than in every
+       referencing project's deployment folder. Debug/test builds retain SDK defaults. -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Release' and
+      (('$(MSBuildProjectName)' != '' and $(MSBuildProjectName.StartsWith('WinOptimizer.')) and !$(MSBuildProjectName.EndsWith('Tests'))) or
+       '$(MSBuildProjectName)' == 'WindowsPackageManager.Interop')">
+    <WinOptimizerSeparateReleaseSymbols>true</WinOptimizerSeparateReleaseSymbols>
+    <Optimize>true</Optimize>
+    <DebugType>portable</DebugType>
+    <CopyOutputSymbolsToOutputDirectory>false</CopyOutputSymbolsToOutputDirectory>
+    <CopyOutputSymbolsToPublishDirectory>false</CopyOutputSymbolsToPublishDirectory>
+    <CopyDebugSymbolFilesFromPackages>false</CopyDebugSymbolFilesFromPackages>
+    <!-- Preserve resource indexes, documentation and configuration sidecars. -->
+    <AllowedReferenceRelatedFileExtensions>.xml;.pri;.dll.config;.exe.config</AllowedReferenceRelatedFileExtensions>
+  </PropertyGroup>
+
+  <!-- Query the same compiler outputs tracked by MSBuild's incremental build/clean.
+       This target does not compile or copy binaries and also supports NoBuild publish. -->
+  <Target Name="CollectReleaseDebugSymbols" DependsOnTargets="DebugSymbolsProjectOutputGroup"
+          Returns="@(WinOptimizerDebugSymbol)" Condition="'$(WinOptimizerSeparateReleaseSymbols)' == 'true'">
+    <MSBuild Projects="@(ProjectReference)" Targets="CollectReleaseDebugSymbols">
+      <Output TaskParameter="TargetOutputs" ItemName="_ReferencedReleaseDebugSymbols" />
+    </MSBuild>
+    <RemoveDuplicates Inputs="@(DebugSymbolsProjectOutputGroupOutput);@(_ReferencedReleaseDebugSymbols)">
+      <Output TaskParameter="Filtered" ItemName="WinOptimizerDebugSymbol" />
+    </RemoveDuplicates>
+    <Error Condition="!Exists('%(WinOptimizerDebugSymbol.FullPath)')"
+           Text="Release debug symbols are missing: %(WinOptimizerDebugSymbol.FullPath). Build Release before exporting symbols." />
+  </Target>
+</Project>

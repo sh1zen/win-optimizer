@@ -1,6 +1,6 @@
 # Builds, tests and packages win-optimizer, with optional certificate-store signing.
 # Toolchain, options and examples: README.md#development.
-# Stage ordering and failure handling: PIPELINE.md#build-and-packaging.
+# Build ownership and ordering: ARCHITECTURE.md#build-configuration.
 [CmdletBinding()]
 param (
     [ValidatePattern('^[0-9]{2}\.[0-9]{2}\.[0-9]{2}$')]
@@ -159,11 +159,8 @@ function Set-FileSignature {
     Write-Host ("Signing {0}..." -f $FilePath) -ForegroundColor Cyan
     $thumbprint = $Certificate.Thumbprint
     
-    # Sign the file using the certificate from the store
-    $signCommand = "& '$signtoolPath' sign /tr '$TimestampServer' /td sha256 /fd sha256 /sha1 $thumbprint '$FilePath'"
-    
     try {
-        $result = Invoke-Expression $signCommand
+        $result = & $signtoolPath sign /tr $TimestampServer /td sha256 /fd sha256 /sha1 $thumbprint $FilePath
         if ($LASTEXITCODE -eq 0) {
             Write-Host ("Successfully signed {0}" -f $FilePath) -ForegroundColor Green
             return $true
@@ -183,7 +180,6 @@ function Set-FileSignature {
 # MSBuild owns the publish payload; test outputs and local tools stay outside it.
 $publishOutputPath = [IO.Path]::GetFullPath((Join-Path $solutionDir 'build\publish'))
 $innoSetupScript = "$scriptRoot\win-optimizer.Installer.iss"
-$tempInnoScript = "$env:TEMP\win-optimizer.Installer.temp.iss"
 
 # Declare certificate variable at script scope so it's accessible throughout
 $certificate = $null
@@ -216,48 +212,6 @@ else {
     Write-Host "Skipping signing for this build..." -ForegroundColor Yellow
 }
 
-# Check for newer .NET SDK and Windows App SDK versions
-Write-Host "Checking for dependency updates..." -ForegroundColor Green
-try {
-    # Check installed .NET SDK version
-    $dotnetVersion = (& dotnet --version 2>$null)
-    if ($dotnetVersion) {
-        Write-Host "  Installed .NET SDK: $dotnetVersion" -ForegroundColor DarkGray
-        $releaseInfo = Invoke-RestMethod -Uri "https://api.github.com/repos/dotnet/sdk/releases" -Headers @{ 'User-Agent' = 'win-optimizer-Build' } -ErrorAction Stop |
-            Where-Object { -not $_.prerelease -and $_.tag_name -match '^v10\.' } | Select-Object -First 1
-        if ($releaseInfo) {
-            $latestSdkTag = $releaseInfo.tag_name.TrimStart('v')
-            if ([version]$latestSdkTag -gt [version]$dotnetVersion) {
-                Write-Host "  WARNING: Newer .NET SDK available: $latestSdkTag (installed: $dotnetVersion)" -ForegroundColor Yellow
-                Write-Host "  Download from: https://dotnet.microsoft.com/download/dotnet/10.0" -ForegroundColor Yellow
-            } else {
-                Write-Host "  .NET SDK is up to date." -ForegroundColor DarkGray
-            }
-        }
-    }
-} catch {
-    Write-Host "  Could not check for .NET SDK updates: $($_.Exception.Message)" -ForegroundColor DarkGray
-}
-try {
-    # Check Windows App SDK version from csproj
-    $csprojXml = [xml](Get-Content -Path "$solutionDir\src\WinOptimizer.UI\WinOptimizer.UI.csproj")
-    $wasdk = $csprojXml.Project.ItemGroup.PackageReference | Where-Object { $_.Include -eq 'Microsoft.WindowsAppSDK' }
-    if ($wasdk) {
-        $currentWasdkVersion = $wasdk.Version
-        Write-Host "  Installed Windows App SDK: $currentWasdkVersion" -ForegroundColor DarkGray
-        $nugetInfo = Invoke-RestMethod -Uri "https://api.nuget.org/v3-flatcontainer/microsoft.windowsappsdk/index.json" -ErrorAction Stop
-        $stableVersions = $nugetInfo.versions | Where-Object { $_ -notmatch '-' } | Select-Object -Last 1
-        if ($stableVersions -and [version]$stableVersions -gt [version]$currentWasdkVersion) {
-            Write-Host "  WARNING: Newer Windows App SDK available: $stableVersions (installed: $currentWasdkVersion)" -ForegroundColor Yellow
-            Write-Host "  Update the PackageReference in WinOptimizer.UI.csproj" -ForegroundColor Yellow
-        } else {
-            Write-Host "  Windows App SDK is up to date." -ForegroundColor DarkGray
-        }
-    }
-} catch {
-    Write-Host "  Could not check for Windows App SDK updates: $($_.Exception.Message)" -ForegroundColor DarkGray
-}
-
 Write-Host "Building win-optimizer v$Version..." -ForegroundColor Cyan
 
 # Step 0: Update bundled WinGet CLI and VC++ Runtime DLLs
@@ -275,7 +229,7 @@ Write-Host "Building solution..." -ForegroundColor Green
 # Step 3: Run tests
 if (-not $SkipTests) {
     Write-Host "Running tests..." -ForegroundColor Green
-    & "$scriptRoot\run-win-optimizer-tests.ps1"
+    & "$scriptRoot\run-win-optimizer-tests.ps1" -UseExistingReleaseBuild -MSBuildPath $MSBuildPath
     if ($LASTEXITCODE -ne 0) {
         Write-Host "Tests failed. Fix the failing tests before building the installer." -ForegroundColor Red
         exit 1
@@ -300,6 +254,9 @@ if (Test-Path -LiteralPath $publishOutputPath) {
     "-property:WinOptimizerVersion=$Version" `
     -verbosity:minimal -nologo
 if ($LASTEXITCODE -ne 0) { throw "Application publishing failed with exit code $LASTEXITCODE." }
+
+# Preserve the exact build's symbols outside the payload, before any signing.
+& (Join-Path $scriptRoot 'export-debug-symbols.ps1') -MSBuildPath $MSBuildPath -Version $Version
 
 # Step 4: Sign the application executable using the cert resolved at script start
 $mainExecutable = "$publishOutputPath\win-optimizer.exe"
@@ -343,43 +300,50 @@ if ($shouldSign -and $certificate) {
     $innoContent = $innoContent -replace '(SolidCompression=yes)', "`$1`r`nSignTool=mysigntool`r`nSignedUninstaller=yes"
 }
 
-# Write the updated script to a temporary file
-Set-Content -Path $tempInnoScript -Value $innoContent
-
-# Step 6: Run the InnoSetup compiler
-Write-Host "Creating installer..." -ForegroundColor Green
-if ($shouldSign -and $certificate) {
-    # Create a temporary batch file for the sign tool command
-    # This avoids quoting issues when passing the signtool path (which contains spaces) to ISCC
-    $signBatPath = "$env:TEMP\win-optimizer-sign.bat"
-    $signtoolExe = "C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\signtool.exe"
-    if (-not (Test-Path $signtoolExe)) {
-        $possiblePaths = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" -ErrorAction SilentlyContinue
-        if ($possiblePaths.Count -gt 0) {
-            $signtoolExe = $possiblePaths[0].FullName
-        }
+# Each compilation owns its temporary inputs, including when the compiler fails.
+$temporaryDirectory = Join-Path $solutionDir 'build\temp'
+foreach ($directory in @((Join-Path $solutionDir 'build'), $temporaryDirectory)) {
+    if ((Test-Path -LiteralPath $directory) -and
+        ((Get-Item -LiteralPath $directory).Attributes -band [IO.FileAttributes]::ReparsePoint)) {
+        throw 'The packaging temporary directory must not be a filesystem link.'
     }
-    Set-Content -Path $signBatPath -Value "@`"$signtoolExe`" sign /tr http://timestamp.digicert.com /td sha256 /fd sha256 /sha1 $($certificate.Thumbprint) %1"
-
-    Write-Host "Creating installer with signed uninstaller..." -ForegroundColor Green
-    & $innoCompiler "/Smysigntool=$signBatPath `$f" $tempInnoScript
-} else {
-    & $innoCompiler $tempInnoScript
 }
-if ($LASTEXITCODE -ne 0) {
-    Write-Host "Failed to create installer" -ForegroundColor Red
-    exit 1
-}
+$null = New-Item -ItemType Directory -Path $temporaryDirectory -Force
+$temporaryName = 'installer-' + [guid]::NewGuid().ToString('N')
+$tempInnoScript = Join-Path $temporaryDirectory "$temporaryName.iss"
+$signBatPath = Join-Path $temporaryDirectory "$temporaryName.bat"
+try {
+    Set-Content -LiteralPath $tempInnoScript -Value $innoContent
 
-# Clean up
-Remove-Item $tempInnoScript -Force
-if ($signBatPath -and (Test-Path $signBatPath)) {
-    Remove-Item $signBatPath -Force
+    # Step 6: Run the InnoSetup compiler.
+    Write-Host "Creating installer..." -ForegroundColor Green
+    if ($shouldSign -and $certificate) {
+        # Inno invokes this command with its generated uninstaller path.
+        $signtoolExe = "C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\signtool.exe"
+        if (-not (Test-Path $signtoolExe)) {
+            $possiblePaths = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" -ErrorAction SilentlyContinue
+            if ($possiblePaths.Count -gt 0) {
+                $signtoolExe = $possiblePaths[0].FullName
+            }
+        }
+        Set-Content -LiteralPath $signBatPath -Value "@`"$signtoolExe`" sign /tr http://timestamp.digicert.com /td sha256 /fd sha256 /sha1 $($certificate.Thumbprint) %1"
+
+        Write-Host "Creating installer with signed uninstaller..." -ForegroundColor Green
+        & $innoCompiler "/Smysigntool=$signBatPath `$f" $tempInnoScript
+    } else {
+        & $innoCompiler $tempInnoScript
+    }
+    if ($LASTEXITCODE -ne 0) {
+        throw "Installer compilation failed with exit code $LASTEXITCODE."
+    }
+} finally {
+    foreach ($temporaryFile in @($tempInnoScript, $signBatPath)) {
+        if (Test-Path -LiteralPath $temporaryFile) { Remove-Item -LiteralPath $temporaryFile -Force }
+    }
 }
 
 # Sign the installer if the executable was signed
-$installerFilename = "win-optimizer.Installer.exe"
-$installerPath = "$OutputDir\$installerFilename"
+$installerPath = Join-Path $OutputDir 'win-optimizer.Installer.exe'
 if (-not (Test-Path -LiteralPath $installerPath -PathType Leaf)) {
     throw "Installer compiler completed without producing the expected file: $installerPath"
 }

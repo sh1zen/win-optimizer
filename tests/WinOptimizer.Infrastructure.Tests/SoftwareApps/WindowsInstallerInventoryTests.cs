@@ -1,6 +1,8 @@
 using System.ComponentModel;
+using System.Runtime.InteropServices;
 using System.Text;
 using Microsoft.Win32;
+using Microsoft.Win32.SafeHandles;
 using WinOptimizer.Infrastructure.Features.SoftwareApps.Leftover;
 using Xunit;
 
@@ -10,6 +12,77 @@ namespace WinOptimizer.Infrastructure.Tests.SoftwareApps;
 public sealed class WindowsInstallerInventoryTests
 {
     private const string Product = "{12345678-1234-1234-1234-123456789012}";
+
+    [Fact]
+    public void MissingOrIdleInstallerExecutionLockDoesNotReportInstallationActivity()
+    {
+        var name = "WinOptimizer-InstallerTest-" + Guid.NewGuid().ToString("N");
+        Assert.False(WindowsInstallerInventory.IsInstallerExecuting(name));
+        using var execution = new Mutex(false, name);
+        Assert.False(WindowsInstallerInventory.IsInstallerExecuting(name));
+        Assert.True(execution.WaitOne(0));
+        execution.ReleaseMutex();
+    }
+
+    [Fact]
+    public void ActiveInstallerExecutionLockProtectsCleanupUntilTheOwnerReleasesIt()
+    {
+        var name = "WinOptimizer-InstallerTest-" + Guid.NewGuid().ToString("N");
+        using var execution = new Mutex(false, name);
+        using var acquired = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var owner = new Thread(() =>
+        {
+            execution.WaitOne();
+            try { acquired.Set(); release.Wait(); }
+            finally { execution.ReleaseMutex(); }
+        }) { IsBackground = true };
+        owner.Start();
+        try
+        {
+            Assert.True(acquired.Wait(TimeSpan.FromSeconds(5)));
+            Assert.True(WindowsInstallerInventory.IsInstallerExecuting(name));
+        }
+        finally { release.Set(); Assert.True(owner.Join(TimeSpan.FromSeconds(5))); }
+        Assert.False(WindowsInstallerInventory.IsInstallerExecuting(name));
+    }
+
+    [Fact]
+    public void AbandonedInstallerExecutionLockIsReleasedWithoutReportingActiveInstallation()
+    {
+        var name = "WinOptimizer-InstallerTest-" + Guid.NewGuid().ToString("N");
+        using var execution = new Mutex(false, name);
+        NativeThreadExit? nativeExit = null;
+        var owner = new Thread(() =>
+        {
+            nativeExit = new NativeThreadExit();
+            execution.WaitOne();
+        }) { IsBackground = true };
+        owner.Start();
+        Assert.True(owner.Join(TimeSpan.FromSeconds(5)));
+        // Managed completion precedes native thread teardown and mutex abandonment.
+        using var exited = Assert.IsType<NativeThreadExit>(nativeExit);
+        Assert.True(exited.WaitOne(TimeSpan.FromSeconds(5)));
+        Assert.False(WindowsInstallerInventory.IsInstallerExecuting(name));
+        Assert.True(execution.WaitOne(0));
+        execution.ReleaseMutex();
+    }
+
+    /// <summary>Waits for Windows to finish terminating the owning thread and abandon its mutexes.</summary>
+    private sealed class NativeThreadExit : WaitHandle
+    {
+        public NativeThreadExit()
+        {
+            SafeWaitHandle = OpenThread(0x00100000, false, GetCurrentThreadId()); // SYNCHRONIZE
+            if (SafeWaitHandle.IsInvalid) throw new Win32Exception(Marshal.GetLastWin32Error());
+        }
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern SafeWaitHandle OpenThread(uint access, [MarshalAs(UnmanagedType.Bool)] bool inherit, uint threadId);
+
+        [DllImport("kernel32.dll")]
+        private static extern uint GetCurrentThreadId();
+    }
 
     [Fact]
     public void AdvertisedProductWithoutSourceListDoesNotStopTheInventory()

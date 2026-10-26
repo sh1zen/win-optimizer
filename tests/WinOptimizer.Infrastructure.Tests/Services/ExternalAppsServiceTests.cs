@@ -770,8 +770,24 @@ public class ExternalAppsServiceTests
 
     // --- UninstallAppAsync ---
 
+    [Theory]
+    [InlineData("..\\Sibling")]
+    [InlineData("Shared Vendor")]
+    public async Task SuccessfulUninstallNeverDeletesAStartMenuDirectoryFromTheDisplayName(string name)
+    {
+        var item = new ItemDefinition { Id = "fixture", Name = name, Description = "Fixture" };
+        _externalAppUninstallService.Setup(service => service.UninstallAsync(item,
+            It.IsAny<IProgress<TaskProgressDetail>?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(OperationResult<bool>.Succeeded(true));
+        _fileSystemService.Setup(fs => fs.DirectoryExists(It.IsAny<string>())).Returns(true);
+
+        Assert.True((await CreateSut().UninstallAppAsync(item)).Success);
+
+        _fileSystemService.Verify(fs => fs.DeleteDirectory(It.IsAny<string>(), It.IsAny<bool>()), Times.Never);
+    }
+
     [Fact]
-    public async Task UninstallAppAsync_Success_ReturnsSuccess()
+    public async Task UninstallAppAsync_Success_ReturnsSuccessAndLogsRemoval()
     {
         var sut = CreateSut();
         var item = new ItemDefinition
@@ -784,17 +800,6 @@ public class ExternalAppsServiceTests
         _externalAppUninstallService
             .Setup(x => x.UninstallAsync(item, It.IsAny<IProgress<TaskProgressDetail>?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(OperationResult<bool>.Succeeded(true));
-
-        // Mock the file system for shortcut cleanup
-        _interactiveUserService
-            .Setup(x => x.GetInteractiveUserFolderPath(Environment.SpecialFolder.Programs))
-            .Returns(@"C:\Users\Test\AppData\Roaming\Microsoft\Windows\Start Menu\Programs");
-        _fileSystemService
-            .Setup(x => x.CombinePath(It.IsAny<string[]>()))
-            .Returns(@"C:\Users\Test\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\External App");
-        _fileSystemService
-            .Setup(x => x.DirectoryExists(It.IsAny<string>()))
-            .Returns(true);
 
         var result = await sut.UninstallAppAsync(item);
 
@@ -802,35 +807,6 @@ public class ExternalAppsServiceTests
         _externalAppUninstallService.Verify(
             x => x.UninstallAsync(item, It.IsAny<IProgress<TaskProgressDetail>?>(), It.IsAny<CancellationToken>()),
             Times.Once);
-    }
-
-    [Fact]
-    public async Task UninstallAppAsync_Success_LogsAppRemoved()
-    {
-        var sut = CreateSut();
-        var item = new ItemDefinition
-        {
-            Id = "ext-app",
-            Name = "External App",
-            Description = "An external app"
-        };
-
-        _externalAppUninstallService
-            .Setup(x => x.UninstallAsync(item, It.IsAny<IProgress<TaskProgressDetail>?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(OperationResult<bool>.Succeeded(true));
-
-        _interactiveUserService
-            .Setup(x => x.GetInteractiveUserFolderPath(Environment.SpecialFolder.Programs))
-            .Returns(@"C:\Users\Test\AppData\Roaming\Microsoft\Windows\Start Menu\Programs");
-        _fileSystemService
-            .Setup(x => x.CombinePath(It.IsAny<string[]>()))
-            .Returns(@"C:\Users\Test\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\External App");
-        _fileSystemService
-            .Setup(x => x.DirectoryExists(It.IsAny<string>()))
-            .Returns(false);
-
-        await sut.UninstallAppAsync(item);
-
         _changeHistoryService.Verify(
             x => x.LogAppChange(It.IsAny<string>(), AppChangeKind.Removed), Times.Once);
     }

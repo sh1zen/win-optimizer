@@ -145,7 +145,6 @@ public class ConfigRoundTripTests
 
         // Assert — null properties should not appear in JSON at all
         json.Should().NotContain("\"AppxPackageName\"");
-        // SubPackages property was removed
         json.Should().NotContain("\"WinGetPackageId\"");
         json.Should().NotContain("\"CapabilityName\"");
         json.Should().NotContain("\"SelectedIndex\"");

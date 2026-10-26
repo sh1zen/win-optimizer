@@ -2,7 +2,7 @@
 
 ## Purpose
 
-Read `README.md` for setup, `ARCHITECTURE.md` before structural changes, and `PIPELINE.md` before changing processing stages, data flow, or orchestration.
+Read `README.md` for setup and `ARCHITECTURE.md` before structural changes.
 
 ## Task Execution
 
@@ -65,7 +65,8 @@ Read `README.md` for setup, `ARCHITECTURE.md` before structural changes, and `PI
 - Reuse the standard `build/` output and incremental intermediates for application builds. Do not create dated, versioned, or task-specific build copies for routine validation.
 - Remove obsolete generated builds after validation. When an isolated build is necessary, use a stable reusable location and clean it up when finished; preserve the current runnable build, useful incremental caches, and unrelated user files.
 - Prefer incremental builds and focused checks. Use a full clean/rebuild only when required by the change or to diagnose stale output, keeping build time and disk usage bounded.
-- Add or update tests for every behavior change and regression fix, avoid redundant or overlapping coverage.
+- Add or update tests for behavior changes and regression fixes in supported code; avoid redundant or overlapping coverage.
+- Keep permanent tests focused on current code and supported behavior. Remove obsolete tests, fixtures, and helpers with the code they cover; do not create or retain tests that only assert that removed functionality, symbols, files, or previous implementations are absent. Use temporary checks for removal verification and clean them up after validation.
 - Use /tests as the main test folder.
 - Test the normal execution path, not a test-only workaround.
 - Use small fakes at external boundaries; tests must be deterministic and isolated and must not require live provider APIs, credentials, network access, model downloads, or machine-local model files.
@@ -79,8 +80,10 @@ Read `README.md` for setup, `ARCHITECTURE.md` before structural changes, and `PI
 
 - Update `README.md` for changes to setup, commands, configuration, or public usage.
 - Update `ARCHITECTURE.md` for changes to components, ownership, boundaries, dependencies, or storage design.
-- Update `PIPELINE.md` for changes to stage ordering, input/output contracts, data transformations, state transitions, retries, recovery, or execution behavior.
 - Update affected documentation and executable examples in the same code change.
+- Structure `CHANGELOG.md` with `# Changelog`, then `## [Unreleased]`, followed by release sections newest first using `## [<version or tag>] - YYYY-MM-DD` and the project's versioning scheme.
+- Write compact bullet entries as short, focused phrases: one user-facing change per bullet, related changes combined, no implementation detail, repetition, or filler. Use `### Added`, `### Changed`, `### Fixed`, `### Removed`, or `### Security` only when grouping improves readability; omit empty categories.
+- Preserve released entries. When preparing each release, move pending notes into the matching release section and keep `Unreleased` at the top for future changes.
 - Keep the documentation clean, concise, and well-organized, avoiding unnecessary bloat.
 - Use package documentation for local details and cross-link shared concepts rather than duplicating them. Keep implementation details out of this file.
 

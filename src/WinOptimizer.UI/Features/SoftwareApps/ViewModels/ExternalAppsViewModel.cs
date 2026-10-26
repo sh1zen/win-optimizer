@@ -293,20 +293,41 @@ public partial class ExternalAppsViewModel : BaseViewModel, IExternalAppsItemsPr
         }
     }
 
+    private bool _updatingInventory;
+
     private void Item_PropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(AppItemViewModel.IsSelected))
         {
-            NotifySelectionStateChanged();
+            if (!_updatingInventory) NotifySelectionStateChanged();
         }
         else if (e.PropertyName == nameof(AppItemViewModel.IsInstalled))
         {
             if (sender is AppItemViewModel { IsInstalled: false } app)
                 app.IsSelected = false;
+            if (_updatingInventory) return;
             ItemsView.RefreshFilter();
             RebuildCategories();
             NotifySelectionStateChanged();
         }
+    }
+
+    /// <summary>Publishes one grouped/filter/sort update for a batch of installation changes.</summary>
+    private void UpdateInventoryRows(Action update)
+    {
+        _updatingInventory = true;
+        try
+        {
+            using (ItemsView.DeferRefresh())
+            {
+                update();
+                ItemsView.RefreshFilter();
+                ItemsView.RefreshSorting();
+            }
+        }
+        finally { _updatingInventory = false; }
+        RebuildCategories();
+        NotifySelectionStateChanged();
     }
 
     /// <summary>
@@ -331,10 +352,8 @@ public partial class ExternalAppsViewModel : BaseViewModel, IExternalAppsItemsPr
     }
 
     // Serializes the install-status re-check. It runs from the Refresh button,
-    // the WinGetReady event (OnWinGetInstalled) and post-install/remove
-    // (RefreshAfterOperationAsync — including config-apply); none are mutually
-    // exclusive. Overlapping callers queue here instead of interleaving access
-    // to the shared Items collection and the detection cache.
+    // the WinGetReady event and cached uninstall reconciliation. Overlapping
+    // callers queue here so older scans cannot overwrite verified removals.
     private readonly SemaphoreSlim _statusCheckGate = new(1, 1);
 
     [RelayCommand]
@@ -370,7 +389,7 @@ public partial class ExternalAppsViewModel : BaseViewModel, IExternalAppsItemsPr
 
             await _dispatcherService.RunOnUIThreadAsync(() =>
             {
-                using (ItemsView.DeferRefresh())
+                UpdateInventoryRows(() =>
                 {
                     foreach (var item in Items)
                     {
@@ -380,10 +399,7 @@ public partial class ExternalAppsViewModel : BaseViewModel, IExternalAppsItemsPr
                         }
                         item.NotifyMetadataChanged();
                     }
-                    ItemsView.RefreshSorting();
-                }
-                RebuildCategories();
-                NotifySelectionStateChanged();
+                });
                 return Task.CompletedTask;
             });
         }
@@ -473,10 +489,10 @@ public partial class ExternalAppsViewModel : BaseViewModel, IExternalAppsItemsPr
 
         try
         {
-            var result = await _uninstallWorkflow.UninstallAsync(selectedItems.Select(item => item.Definition).ToArray(), AppUninstallKind.External);
+            var result = await _uninstallWorkflow.UninstallAsync(selectedItems.Select(item => item.Definition).ToArray(), AppUninstallKind.External,
+                refreshInventory: result => _dispatcherService.RunOnUIThreadWithContextAsync(() => ApplyUninstallResultAsync(result)));
             var removed = result.Applications.Where(app => app.State == UninstallVerificationState.Removed)
                 .Select(app => app.AppId).ToHashSet(StringComparer.Ordinal);
-            foreach (var item in selectedItems.Where(item => removed.Contains(item.Id))) item.IsInstalled = false;
             StatusText = _localizationService.GetString("UninstallResidue_Outcome", removed.Count, selectedItems.Count);
         }
         catch (OperationCanceledException)
@@ -490,17 +506,37 @@ public partial class ExternalAppsViewModel : BaseViewModel, IExternalAppsItemsPr
         }
         finally
         {
+            _externalAppsService.InvalidateStatusCache();
+            ClearSelections();
             IsTaskRunning = false;
         }
-
-        await RefreshAfterOperationAsync();
     }
 
-    private async Task RefreshAfterOperationAsync()
+    /// <summary>Reconciles verified removals with the in-memory rows without querying providers or icons.</summary>
+    private async Task ApplyUninstallResultAsync(AppUninstallResult result)
     {
-        _externalAppsService.InvalidateStatusCache();
-        await CheckInstallationStatusAsync();
-        ClearSelections();
+        await _statusCheckGate.WaitAsync();
+        try
+        {
+            var removed = result.Applications.Where(app => app.State == UninstallVerificationState.Removed)
+                .Select(app => app.AppId).ToHashSet(StringComparer.Ordinal);
+            UpdateInventoryRows(() =>
+            {
+                foreach (var item in Items.Where(item => removed.Contains(item.Id)).ToList())
+                {
+                    item.IsInstalled = false;
+                    item.Definition.Metadata = null;
+                    item.NotifyMetadataChanged();
+                    if (item.Definition.RegistryUninstallKeyPath is not null)
+                    {
+                        item.PropertyChanged -= Item_PropertyChanged;
+                        Items.Remove(item);
+                        item.Dispose();
+                    }
+                }
+            });
+        }
+        finally { _statusCheckGate.Release(); }
     }
 
     [RelayCommand]

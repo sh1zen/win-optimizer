@@ -30,24 +30,6 @@ public class WindowsVersionServiceTests
     // ── GetWindowsBuildNumber ──
 
     [Fact]
-    public void GetWindowsBuildNumber_ReturnsPositiveValue()
-    {
-        // On any real Windows machine, the build number should be positive
-        var buildNumber = _sut.GetWindowsBuildNumber();
-
-        buildNumber.Should().BeGreaterThan(0);
-    }
-
-    [Fact]
-    public void GetWindowsBuildNumber_ReturnsConsistentValue()
-    {
-        var first = _sut.GetWindowsBuildNumber();
-        var second = _sut.GetWindowsBuildNumber();
-
-        first.Should().Be(second);
-    }
-
-    [Fact]
     public void GetWindowsBuildNumber_MatchesEnvironmentOSVersion()
     {
         var expected = Environment.OSVersion.Version.Build;
@@ -76,23 +58,6 @@ public class WindowsVersionServiceTests
         }
     }
 
-    [Fact]
-    public void IsWindows11_ReturnsConsistentValue()
-    {
-        var first = _sut.IsWindows11();
-        var second = _sut.IsWindows11();
-
-        first.Should().Be(second);
-    }
-
-    [Fact]
-    public void IsWindows11_DoesNotThrow()
-    {
-        var act = () => _sut.IsWindows11();
-
-        act.Should().NotThrow();
-    }
-
     // ── IsWindowsServer ──
 
     [Fact]
@@ -104,22 +69,4 @@ public class WindowsVersionServiceTests
         first.Should().Be(second);
     }
 
-    [Fact]
-    public void IsWindowsServer_DoesNotThrow()
-    {
-        var act = () => _sut.IsWindowsServer();
-
-        act.Should().NotThrow();
-    }
-
-    [Fact]
-    public void IsWindowsServer_ReturnsBool()
-    {
-        // On a desktop Windows machine this should be false;
-        // on a Server SKU it should be true.
-        // Either way it must return without error.
-        var result = _sut.IsWindowsServer();
-
-        result.Should().Be(result); // valid bool
-    }
 }

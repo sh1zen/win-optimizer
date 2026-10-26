@@ -492,13 +492,15 @@ public class DirectDownloadService : IDirectDownloadService
 
             foreach (var args in silentArgs)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 try
                 {
                     _logService?.LogInformation($"Trying silent install with args: {args}");
 
                     var result = await _processExecutor.ExecuteAsync(exePath, args, cancellationToken).ConfigureAwait(false);
 
-                    if (result.ExitCode == 0)
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (result.ExitCode is 0 or 3010 or 1641)
                     {
                         progress?.Report(new TaskProgressDetail
                         {
@@ -510,6 +512,7 @@ public class DirectDownloadService : IDirectDownloadService
                         return true;
                     }
                 }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
                 catch (Exception ex)
                 {
                     _logService?.LogWarning($"Silent install attempt with '{args}' failed: {ex.Message}");
@@ -527,9 +530,11 @@ public class DirectDownloadService : IDirectDownloadService
                 IsActive = true
             });
 
-            await _processExecutor.ShellExecuteAsync(exePath).ConfigureAwait(false);
-
-            return true;
+            cancellationToken.ThrowIfCancellationRequested();
+            // A native installer finishes before cancellation releases the operation or starts the next item.
+            var exitCode = await _processExecutor.ShellExecuteAsync(exePath, waitForExit: true, ct: CancellationToken.None).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            return exitCode is 0 or 3010 or 1641;
         }
         catch (OperationCanceledException)
         {

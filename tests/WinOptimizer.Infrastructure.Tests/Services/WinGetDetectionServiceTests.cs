@@ -8,19 +8,7 @@ using Xunit;
 namespace WinOptimizer.Infrastructure.Tests.Services;
 
 /// <summary>
-/// Tests for <see cref="WinGetDetectionService"/>.
-///
-/// WinGetComSession is a concrete class that tries to initialize COM via
-/// WindowsPackageManagerStandardFactory. In a test environment, COM init
-/// will fail, which means methods that call _comSession.EnsureComInitialized()
-/// will take the CLI fallback path. The CLI fallback calls static methods on
-/// WinGetCliRunner which invoke actual processes.
-///
-/// Tests here focus on:
-/// - Verifying the service can be constructed and called without throwing
-/// - Null/empty input handling
-/// - Verifying logging behavior
-/// - Verifying the empty-result fallback when COM and CLI are both unavailable
+/// Checks installer-type input guards, case-insensitive inventory and logged COM/CLI failures.
 /// </summary>
 public class WinGetDetectionServiceTests
 {
@@ -39,33 +27,6 @@ public class WinGetDetectionServiceTests
             _mockLogService.Object,
             _mockInteractiveUserService.Object,
             _mockFileSystemService.Object);
-    }
-
-    [Fact]
-    public async Task GetInstalledPackageIdsAsync_ReturnsHashSet()
-    {
-        // Arrange: COM init will fail in test env, CLI fallback will also
-        // likely fail since bundled winget isn't available. The service
-        // should return an empty HashSet rather than null or throw.
-        _mockInteractiveUserService.Setup(s => s.IsOtsElevation).Returns(false);
-        _mockInteractiveUserService
-            .Setup(s => s.GetInteractiveUserFolderPath(It.IsAny<Environment.SpecialFolder>()))
-            .Returns(@"C:\Users\TestUser\AppData\Local");
-        _mockFileSystemService
-            .Setup(f => f.CombinePath(It.IsAny<string[]>()))
-            .Returns((string[] paths) => string.Join(@"\", paths));
-        _mockFileSystemService
-            .Setup(f => f.CreateDirectory(It.IsAny<string>()));
-        _mockFileSystemService
-            .Setup(f => f.FileExists(It.IsAny<string>()))
-            .Returns(false);
-
-        // Act
-        var result = await _sut.GetInstalledPackageIdsAsync();
-
-        // Assert
-        result.Should().NotBeNull();
-        result.Should().BeOfType<HashSet<string>>();
     }
 
     [Fact]
@@ -96,39 +57,6 @@ public class WinGetDetectionServiceTests
         result.Contains("TEST.PACKAGE").Should().BeTrue();
     }
 
-    [Fact]
-    public async Task GetInstalledPackageIdsAsync_WhenCancelled_ThrowsOperationCancelled()
-    {
-        // Arrange
-        using var cts = new CancellationTokenSource();
-        cts.Cancel();
-        _mockInteractiveUserService.Setup(s => s.IsOtsElevation).Returns(false);
-        _mockInteractiveUserService
-            .Setup(s => s.GetInteractiveUserFolderPath(It.IsAny<Environment.SpecialFolder>()))
-            .Returns(@"C:\Users\TestUser\AppData\Local");
-        _mockFileSystemService
-            .Setup(f => f.CombinePath(It.IsAny<string[]>()))
-            .Returns((string[] paths) => string.Join(@"\", paths));
-        _mockFileSystemService
-            .Setup(f => f.CreateDirectory(It.IsAny<string>()));
-        _mockFileSystemService
-            .Setup(f => f.FileExists(It.IsAny<string>()))
-            .Returns(false);
-
-        // Act & Assert: should either throw OperationCanceledException or return empty
-        // (depends on where cancellation is checked in the flow)
-        try
-        {
-            var result = await _sut.GetInstalledPackageIdsAsync(cts.Token);
-            // If it doesn't throw, it should return an empty set
-            result.Should().NotBeNull();
-        }
-        catch (OperationCanceledException)
-        {
-            // This is acceptable behavior
-        }
-    }
-
     [Theory]
     [InlineData(null)]
     [InlineData("")]
@@ -140,35 +68,6 @@ public class WinGetDetectionServiceTests
 
         // Assert
         result.Should().BeNull();
-    }
-
-    [Fact]
-    public async Task GetInstallerTypeAsync_WithValidPackageId_DoesNotThrow()
-    {
-        // Arrange: COM init will fail, CLI fallback will run "winget show"
-        // which may or may not succeed depending on environment
-        _mockInteractiveUserService.Setup(s => s.IsOtsElevation).Returns(false);
-
-        // Act & Assert: just verify it doesn't throw
-        var result = await _sut.GetInstallerTypeAsync("Some.NonExistent.Package");
-
-        // Result could be null (package not found) or a string (if somehow found)
-        // Just verify the method completes without throwing
-    }
-
-    [Fact]
-    public async Task GetInstallerTypeAsync_WhenExceptionOccurs_ReturnsNull()
-    {
-        // Arrange: force COM session to mark itself as timed out
-        _comSession.ComInitTimedOut = true;
-        _mockInteractiveUserService.Setup(s => s.IsOtsElevation).Returns(false);
-
-        // Act: with COM timed out, it should try CLI fallback.
-        // If CLI also fails, should return null gracefully.
-        var result = await _sut.GetInstallerTypeAsync("Test.Package");
-
-        // Assert: should return null, not throw
-        // (the actual result depends on whether winget.exe is on the system)
     }
 
     [Fact]

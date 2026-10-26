@@ -56,7 +56,7 @@ public sealed class DesktopAppIconSource(IInteractiveUserService user) : IDeskto
         }
         int index = 0;
         if (suffix.Length > 0 && (suffix[0] != ',' || !int.TryParse(suffix.AsSpan(1), NumberStyles.Integer, CultureInfo.InvariantCulture, out index))) return null;
-        path = WindowsAppMetadataSource.ExpandPath(path, folder);
+        path = AppPaths.Expand(path, folder);
         if (!Cleaner.CleanerPaths.IsLocalPath(path) || path.StartsWith(@"\\", StringComparison.Ordinal) ||
             path.Contains('%') || path[3..].Contains(':') || path.IndexOfAny(['*', '?', '"', '\0', '\r', '\n']) >= 0 ||
             !new[] { ".exe", ".dll", ".ico", ".icl", ".cpl", ".ocx" }.Contains(System.IO.Path.GetExtension(path), StringComparer.OrdinalIgnoreCase)) return null;

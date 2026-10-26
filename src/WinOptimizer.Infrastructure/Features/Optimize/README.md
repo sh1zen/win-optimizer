@@ -1,7 +1,7 @@
 # Network controls
 
 Optimize → Network exposes 25 individually confirmed controls. Core's
-`NetworkTuningCatalog` is the allowlist; `OptimizationToolsService.Network` owns
+`NetworkTuningCatalog` is the allowlist; `OptimizationToolsService` owns
 batched discovery, baseline comparisons, writes and readback. The existing quick
 enhancement applies normal TCP auto-tuning and enabled RSS only.
 
@@ -21,7 +21,7 @@ limits accept positive UInt32 values. The getter properties `InitialRto`,
 
 The four legacy priorities are DWORD overrides under
 `HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\ServiceProvider`. Lower numbers have
-higher priority. The example values 4/5/6/7 are available as explicit numeric edits;
+higher priority; edits accept 0–65535. The example values 4/5/6/7 are available as explicit numeric edits;
 they are not applied automatically. Missing values show **No override**;
 **Clear override** deletes only the selected value. Restart Windows after changes.
 Registry readback confirms the stored value, not that a modern resolver uses it.
@@ -35,7 +35,8 @@ adapter-specific settings retain their existing owners.
 
 ## Validation
 
-Commands are in the [test guide](../../../../tests/README.md#focused-checks).
+The test guide lists [Infrastructure filters](../../../../tests/README.md#domain-filters)
+and [native UI commands](../../../../tests/README.md#focused-checks).
 
 Infrastructure tests execute generated production scripts with fake native cmdlets
 and registry handles. The native host runs the main UI view-model tests, exercises

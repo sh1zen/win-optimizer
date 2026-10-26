@@ -14,6 +14,7 @@ public interface IProcessExecutor
     /// <summary>
     /// Executes a process with redirected stdout/stderr and captures all output.
     /// Uses CreateNoWindow=true, UseShellExecute=false, UTF-8 encoding.
+    /// Cancellation kills the owned process tree and waits for exit and output draining.
     /// </summary>
     Task<ProcessExecutionResult> ExecuteAsync(
         string fileName,

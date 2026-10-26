@@ -129,51 +129,6 @@ public class ThemeServiceTests
     }
 
     [Fact]
-    public void OnSettingApplied_WhenNotThemeMode_DoesNothing()
-    {
-        _mockInteractiveUserService.Setup(s => s.IsOtsElevation).Returns(true);
-
-        Action<SettingAppliedEvent>? capturedHandler = null;
-        _mockEventBus
-            .Setup(e => e.Subscribe(It.IsAny<Action<SettingAppliedEvent>>()))
-            .Callback<Action<SettingAppliedEvent>>(handler => capturedHandler = handler)
-            .Returns(Mock.Of<ISubscriptionToken>());
-
-        var service = CreateService();
-        capturedHandler.Should().NotBeNull();
-
-        // Publish an unrelated setting event; no crash expected
-        var unrelatedEvent = new SettingAppliedEvent("some-other-setting", true);
-        capturedHandler!.Invoke(unrelatedEvent);
-
-        // Verify no dispatch happened (MainWindow is null, so DispatcherQueue call would be skipped)
-        _mockMainWindowProvider.Verify(p => p.MainWindow, Times.AtMostOnce());
-    }
-
-    [Fact]
-    public void OnSettingApplied_WhenThemeModeButNotSystemTheme_DoesNothing()
-    {
-        _mockInteractiveUserService.Setup(s => s.IsOtsElevation).Returns(true);
-
-        Action<SettingAppliedEvent>? capturedHandler = null;
-        _mockEventBus
-            .Setup(e => e.Subscribe(It.IsAny<Action<SettingAppliedEvent>>()))
-            .Callback<Action<SettingAppliedEvent>>(handler => capturedHandler = handler)
-            .Returns(Mock.Of<ISubscriptionToken>());
-
-        var service = CreateService();
-
-        // Set theme to DarkNative (not System), so the handler should bail early
-        service.SetTheme(WinOptimizerTheme.DarkNative);
-
-        var themeEvent = new SettingAppliedEvent("theme-mode-windows", true);
-        capturedHandler!.Invoke(themeEvent);
-
-        // With DarkNative active, the handler should not try to apply System theme
-        // Just verify no exception is thrown
-    }
-
-    [Fact]
     public void SetTheme_MultipleTimes_FiresEventEachTime()
     {
         var service = CreateService();

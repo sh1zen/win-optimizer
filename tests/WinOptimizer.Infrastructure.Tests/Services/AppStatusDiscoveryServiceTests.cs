@@ -39,7 +39,191 @@ public class AppStatusDiscoveryServiceTests
             _installedPrograms.Object,
             _mockAppxPackageSource.Object,
             _mockComponents.Object,
-            _mockMetadata.Object);
+            _mockMetadata.Object,
+            Mock.Of<IInteractiveUserService>());
+    }
+
+    [Fact]
+    public async Task ConcurrentWindowsAndExternalInventoriesSharePendingWinGetEnumeration()
+    {
+        var inventory = new TaskCompletionSource<HashSet<string>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _mockWinGetBootstrapper.Setup(service => service.EnsureWinGetReadyAsync()).ReturnsAsync(true);
+        _mockWinGetDetection.Setup(service => service.GetInstalledPackageIdsAsync(It.IsAny<CancellationToken>()))
+            .Returns(inventory.Task);
+        var windowsApp = CreateAppxDefinition("windows", "Absent.App") with { WinGetPackageId = ["Shared.App"] };
+        var externalApp = CreateExternalAppDefinition("external", "External", winGetPackageIds: ["Shared.App"]);
+        var windows = _service.GetInstallationStatusBatchAsync([windowsApp]);
+        var external = _service.GetExternalAppsInstallationStatusAsync([externalApp]);
+        try
+        {
+            Assert.False(windows.IsCompleted);
+            Assert.False(external.IsCompleted);
+            _mockWinGetBootstrapper.Verify(service => service.EnsureWinGetReadyAsync(), Times.Once);
+            _mockWinGetDetection.Verify(service => service.GetInstalledPackageIdsAsync(It.IsAny<CancellationToken>()), Times.Once);
+        }
+        finally { inventory.TrySetResult(new HashSet<string> { "Shared.App" }); }
+        Assert.True((await windows)[windowsApp.Id]);
+        Assert.True((await external)[externalApp.Id]);
+    }
+
+    [Fact]
+    public async Task WindowsAndExternalInventoriesReuseAppxEvidenceUntilInvalidation()
+    {
+        var inventory = new TaskCompletionSource<HashSet<string>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _mockAppxPackageSource.Setup(source => source.GetInstalledPackageNamesAsync(It.IsAny<CancellationToken>()))
+            .Returns(inventory.Task);
+        var app = CreateAppxDefinition("shared", "Shared.App");
+        var windows = _service.GetInstallationStatusBatchAsync([app]);
+        var external = _service.GetExternalAppsInstallationStatusAsync([app]);
+        try
+        {
+            Assert.False(windows.IsCompleted);
+            Assert.False(external.IsCompleted);
+            _mockAppxPackageSource.Verify(source => source.GetInstalledPackageNamesAsync(It.IsAny<CancellationToken>()), Times.Once);
+        }
+        finally { inventory.TrySetResult(new HashSet<string> { "Shared.App" }); }
+        Assert.True((await windows)[app.Id]);
+        Assert.True((await external)[app.Id]);
+        Assert.True((await _service.GetInstallationStatusBatchAsync([app]))[app.Id]);
+        _mockAppxPackageSource.Verify(source => source.GetInstalledPackageNamesAsync(It.IsAny<CancellationToken>()), Times.Once);
+
+        _mockAppxPackageSource.Setup(source => source.GetInstalledPackageNamesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new HashSet<string>());
+        _service.InvalidateCache();
+        Assert.False((await _service.GetInstallationStatusBatchAsync([app]))[app.Id]);
+        _mockAppxPackageSource.Verify(source => source.GetInstalledPackageNamesAsync(It.IsAny<CancellationToken>()), Times.Exactly(2));
+    }
+
+    [Fact]
+    public async Task InvalidatingPendingAppxReadDoesNotPublishOldEvidenceIntoNewGeneration()
+    {
+        var old = new TaskCompletionSource<HashSet<string>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _mockAppxPackageSource.SetupSequence(source => source.GetInstalledPackageNamesAsync(It.IsAny<CancellationToken>()))
+            .Returns(old.Task).ReturnsAsync(new HashSet<string>());
+        var app = CreateAppxDefinition("shared", "Shared.App");
+        var pending = _service.GetInstallationStatusBatchAsync([app]);
+        _service.InvalidateCache();
+        try { Assert.False((await _service.GetInstallationStatusBatchAsync([app]))[app.Id]); }
+        finally { old.TrySetResult(new HashSet<string> { "Shared.App" }); }
+        Assert.True((await pending)[app.Id]);
+        Assert.False((await _service.GetInstallationStatusBatchAsync([app]))[app.Id]);
+        _mockAppxPackageSource.Verify(source => source.GetInstalledPackageNamesAsync(It.IsAny<CancellationToken>()), Times.Exactly(2));
+    }
+
+    [Fact]
+    public async Task FailedAppxReadIsRetryableWithoutExplicitInvalidation()
+    {
+        _mockAppxPackageSource.SetupSequence(source => source.GetInstalledPackageNamesAsync(It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new IOException("Unavailable"))
+            .ReturnsAsync(new HashSet<string> { "Shared.App" });
+        var app = CreateAppxDefinition("shared", "Shared.App");
+        Assert.False((await _service.GetInstallationStatusBatchAsync([app]))[app.Id]);
+        Assert.True((await _service.GetInstallationStatusBatchAsync([app]))[app.Id]);
+    }
+
+    [Fact]
+    public async Task RequiredAppxReadOverlapsChocolateyAndPreservesDetectionPrecedence()
+    {
+        var choco = new TaskCompletionSource<HashSet<string>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _mockChocolatey.Setup(source => source.GetInstalledPackageIdsAsync(It.IsAny<CancellationToken>())).Returns(choco.Task);
+        _mockAppxPackageSource.Setup(source => source.GetInstalledPackageNamesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new HashSet<string> { "Shared.App" });
+        var app = CreateAppxDefinition("appx", "Shared.App");
+        var both = CreateAppxDefinition("both", "Shared.App") with { ChocoPackageId = "tool" };
+        var pending = _service.GetExternalAppsInstallationStatusAsync([app, both]);
+        try
+        {
+            Assert.False(pending.IsCompleted);
+            _mockAppxPackageSource.Verify(source => source.GetInstalledPackageNamesAsync(It.IsAny<CancellationToken>()), Times.Once);
+        }
+        finally { choco.TrySetResult(new HashSet<string> { "tool" }); }
+        var status = await pending;
+        Assert.All(status.Values, Assert.True);
+        Assert.Equal(Core.Features.SoftwareApps.Enums.DetectionSource.AppX, app.DetectedVia);
+        Assert.Equal(Core.Features.SoftwareApps.Enums.DetectionSource.Chocolatey, both.DetectedVia);
+    }
+
+    [Fact]
+    public void CachedRegistryPatternsPreserveCultureCasingAndRegexAnchors()
+    {
+        var original = System.Globalization.CultureInfo.CurrentCulture;
+        try
+        {
+            System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo("en-US");
+            Assert.True(AppStatusDiscoveryService.MatchesPattern("FILE", "file"));
+            System.Globalization.CultureInfo.CurrentCulture = new System.Globalization.CultureInfo("tr-TR");
+            Assert.False(AppStatusDiscoveryService.MatchesPattern("FILE", "file"));
+            Assert.True(AppStatusDiscoveryService.MatchesPattern("tool 1\n", "tool {version}"));
+            for (var index = 0; index < 300; index++)
+                Assert.True(AppStatusDiscoveryService.MatchesPattern($"tool {index}", $"tool {index}"));
+            Assert.True(AppStatusDiscoveryService.MatchesPattern("tool 2", "tool {version}"));
+        }
+        finally { System.Globalization.CultureInfo.CurrentCulture = original; }
+    }
+
+    [Fact]
+    public async Task InvalidatingPendingWinGetInventoryPreventsOldResultsFromReplacingFreshEvidence()
+    {
+        var oldInventory = new TaskCompletionSource<HashSet<string>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var freshInventory = new TaskCompletionSource<HashSet<string>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _mockWinGetBootstrapper.Setup(service => service.EnsureWinGetReadyAsync()).ReturnsAsync(true);
+        _mockWinGetDetection.SetupSequence(service => service.GetInstalledPackageIdsAsync(It.IsAny<CancellationToken>()))
+            .Returns(oldInventory.Task).Returns(freshInventory.Task);
+        var oldApp = CreateExternalAppDefinition("old", "Old", winGetPackageIds: ["Old.App"]);
+        var freshApp = CreateExternalAppDefinition("fresh", "Fresh", winGetPackageIds: ["Fresh.App"]);
+        var oldScan = _service.GetExternalAppsInstallationStatusAsync([oldApp]);
+        _service.InvalidateCache();
+        var freshScan = _service.GetExternalAppsInstallationStatusAsync([freshApp]);
+        freshInventory.SetResult(new HashSet<string> { "Fresh.App" });
+        Assert.True((await freshScan)[freshApp.Id]);
+        oldInventory.SetResult(new HashSet<string> { "Old.App" });
+        Assert.True((await oldScan)[oldApp.Id]);
+        Assert.True((await _service.GetExternalAppsInstallationStatusAsync([freshApp]))[freshApp.Id]);
+        _mockWinGetDetection.Verify(service => service.GetInstalledPackageIdsAsync(It.IsAny<CancellationToken>()), Times.Exactly(2));
+    }
+
+    [Fact]
+    public async Task UnavailableWinGetInventoryCanBeRetriedWithoutInvalidation()
+    {
+        _mockWinGetBootstrapper.SetupSequence(service => service.EnsureWinGetReadyAsync()).ReturnsAsync(false).ReturnsAsync(true);
+        _mockWinGetDetection.Setup(service => service.GetInstalledPackageIdsAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new HashSet<string> { "Retry.App" });
+        var app = CreateExternalAppDefinition("retry", "Retry", winGetPackageIds: ["Retry.App"]);
+        Assert.False((await _service.GetExternalAppsInstallationStatusAsync([app]))[app.Id]);
+        Assert.True((await _service.GetExternalAppsInstallationStatusAsync([app]))[app.Id]);
+    }
+
+    [Fact]
+    public async Task RegistryOnlyInventoryStartsWhileWinGetIsPending()
+    {
+        var inventory = new TaskCompletionSource<HashSet<string>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _mockWinGetBootstrapper.Setup(service => service.EnsureWinGetReadyAsync()).ReturnsAsync(true);
+        _mockWinGetDetection.Setup(service => service.GetInstalledPackageIdsAsync(It.IsAny<CancellationToken>()))
+            .Returns(inventory.Task);
+        var program = new InstalledProgram(WindowsInstalledProgramSource.Roots[0] + @"\Tool", "Tool", null);
+        _installedPrograms.Setup(source => source.ReadAsync()).ReturnsAsync(new[] { program });
+        var app = CreateExternalAppDefinition("tool", "Tool", winGetPackageIds: ["Vendor.Tool"]) with { RegistryDisplayName = "Tool" };
+        var scan = _service.GetExternalAppsInstallationStatusAsync([app, program.ToDefinition()]);
+        try
+        {
+            Assert.False(scan.IsCompleted);
+            _installedPrograms.Verify(source => source.ReadAsync(), Times.Once);
+        }
+        finally { inventory.TrySetResult(new HashSet<string> { "Vendor.Tool" }); }
+        Assert.True((await scan)[app.Id]);
+        Assert.Equal(Core.Features.SoftwareApps.Enums.DetectionSource.WinGet, app.DetectedVia);
+        _installedPrograms.Verify(source => source.ReadAsync(), Times.Once);
+    }
+
+    [Fact]
+    public async Task ProviderMatchedAppsDoNotRequireAnUnusedRegistryInventory()
+    {
+        _mockWinGetBootstrapper.Setup(service => service.EnsureWinGetReadyAsync()).ReturnsAsync(false);
+        _mockAppxPackageSource.Setup(source => source.GetInstalledPackageNamesAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new HashSet<string> { "Vendor.Tool" });
+        var app = CreateAppxDefinition("tool", "Vendor.Tool") with { WinGetPackageId = ["Vendor.Tool"], RegistryDisplayName = "Tool" };
+        Assert.True((await _service.GetExternalAppsInstallationStatusAsync([app]))[app.Id]);
+        _installedPrograms.Verify(source => source.ReadAsync(), Times.Never);
     }
 
     [Fact]
@@ -110,6 +294,7 @@ public class AppStatusDiscoveryServiceTests
         Assert.Same(metadata, item.Metadata);
         _mockAppxPackageSource.Setup(source => source.GetInstalledPackageNamesAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(new HashSet<string>());
+        _service.InvalidateCache();
         Assert.False((await _service.GetInstallationStatusBatchAsync([item]))[item.Id]);
         Assert.Null(item.Metadata);
     }
@@ -351,18 +536,6 @@ public class AppStatusDiscoveryServiceTests
         var result = await pending.WaitAsync(TimeSpan.FromSeconds(5));
         result["shared"].Should().BeTrue();
         _mockWinGetDetection.Verify(s => s.GetInstalledPackageIdsAsync(It.IsAny<CancellationToken>()), Times.Once);
-    }
-
-    [Fact]
-    public void InvalidateCache_ClearsWinGetPackageIdCache()
-    {
-        // InvalidateCache should complete without throwing
-        _service.InvalidateCache();
-
-        // After invalidation, next call to GetOrFetchWinGetPackageIdsAsync will re-fetch.
-        // We verify this indirectly: calling invalidate then checking external apps
-        // should trigger a fresh WinGet fetch.
-        _service.InvalidateCache(); // Should be idempotent
     }
 
     [Fact]

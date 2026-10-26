@@ -15,6 +15,8 @@ to build/logs/build.log. Version.props supplies the YY.MM.DD build-date version;
 .EXAMPLE
 .\build.ps1 -Configuration Debug -Clean
 .EXAMPLE
+.\build.ps1 -NoRestore
+.EXAMPLE
 .\build.ps1 -MSBuildPath 'C:\tools\MSBuild.exe'
 .EXAMPLE
 .\build.ps1 -BuildRoot .\build\isolated
@@ -24,6 +26,7 @@ param(
     [ValidateSet('Debug', 'Release')]
     [string]$Configuration = 'Release',
     [switch]$Clean,
+    [switch]$NoRestore,
     [string]$MSBuildPath,
     [string]$BuildRoot,
     [ValidatePattern('^[0-9]{2}\.[0-9]{2}\.[0-9]{2}$')]
@@ -51,8 +54,8 @@ $null = New-Item -ItemType Directory -Path (Split-Path -Parent $buildLog) -Force
 $target = if ($Clean) { 'Rebuild' } else { 'Build' }
 $buildArguments = @(
     $projectPath
-    '-restore'
     '-maxCpuCount'
+    '-graphBuild'
     "-target:$target"
     "-property:Configuration=$Configuration"
     '-property:Platform=x64'
@@ -62,6 +65,7 @@ $buildArguments = @(
     '-fileLogger'
     "-fileLoggerParameters:LogFile=$buildLog;Verbosity=normal;Encoding=UTF-8"
 )
+if (-not $NoRestore) { $buildArguments += @('-restore', '-property:RestoreUseStaticGraphEvaluation=true') }
 if ($Version) { $buildArguments += "-property:WinOptimizerVersion=$Version" }
 
 Write-Host "Building win-optimizer ($Configuration/x64) using $MSBuildPath" -ForegroundColor Cyan

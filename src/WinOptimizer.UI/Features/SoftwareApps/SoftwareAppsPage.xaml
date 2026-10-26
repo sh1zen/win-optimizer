@@ -71,12 +71,8 @@
         <x:Double x:Key="CompactAppsIconSize">22</x:Double>
         <x:Double x:Key="DataGridAppsIconSize">22</x:Double>
 
-        <!-- Card-view cell width (fixed). UniformWrapPanel renders every cell
-             at exactly this width and wraps when the next cell would overflow,
-             so cards never grow as you widen the window — leftover row space
-             is just empty padding on the right. Column count:
-                 cols = floor((panel_width + ColumnSpacing) / (CardItemWidth + ColumnSpacing))
-             Bigger value → fewer columns. -->
+        <!-- Card-view column breakpoint. A single column fills the viewport;
+             wider grids use this cell width and symmetric outer margins. -->
         <x:Double x:Key="CardItemWidth">420</x:Double>
         <!-- Compact-view cell width (fixed). Like CardItemWidth, the compact
              ItemsControl + UniformWrapPanel renders every row at exactly this
@@ -715,14 +711,19 @@
             Description="{x:Bind ViewModel.PageDescription}"
             Icon="Apps"/>
 
-        <!-- Keep toolbar height stable when the installed-app filter is collapsed. -->
+        <!-- Narrow layouts place actions below the filter so they can use the full width. -->
         <Grid x:Name="SoftwareAppsActionBar" Grid.Row="1" Margin="0,24,0,16"
-              HorizontalAlignment="Stretch" ColumnSpacing="16" MinHeight="40">
+              HorizontalAlignment="Stretch" ColumnSpacing="16" MinHeight="40"
+              SizeChanged="SoftwareAppsActionBar_SizeChanged">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
+            </Grid.RowDefinitions>
             <Grid.ColumnDefinitions>
                 <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
             </Grid.ColumnDefinitions>
-            <Grid VerticalAlignment="Center" HorizontalAlignment="Left" ColumnSpacing="8"
+            <Grid x:Name="InstalledAppsFilter" VerticalAlignment="Center" HorizontalAlignment="Left" ColumnSpacing="8"
                   Visibility="{x:Bind ViewModel.IsWindowsAppsTabSelected, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
                   ToolTipService.ToolTip="{x:Bind ViewModel.WindowsAppsViewModel.ShowHiddenInstalledAppsTooltip, Mode=OneWay}">
                 <Grid.ColumnDefinitions>
@@ -736,7 +737,7 @@
                 <TextBlock Grid.Column="1" VerticalAlignment="Center" TextWrapping="Wrap"
                            Text="{x:Bind ViewModel.WindowsAppsViewModel.ShowHiddenInstalledAppsLabel, Mode=OneWay}"/>
             </Grid>
-            <toolkit:WrapPanel Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Center"
+            <toolkit:WrapPanel x:Name="SoftwareAppsActions" Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Center"
                                HorizontalSpacing="8" VerticalSpacing="8">
                 <AutoSuggestBox x:Name="AppSearchBox"
                     Width="260" VerticalAlignment="Center"
@@ -1136,11 +1137,8 @@
                             </controls:DataGrid.Columns>
                         </controls:DataGrid>
 
-                        <!-- Card View for Windows Apps. The inner StackPanel is centred
-                             horizontally with a MaxWidth set in code-behind to exactly
-                             cols × CardItemWidth + (cols-1) × ColumnSpacing, so the
-                             section headers, Select-all checkboxes, and the card grid
-                             all share the same horizontal extents. -->
+                        <!-- Card View for Windows Apps. Headers, selection controls and cards
+                             share a full-width single column or a centred grid. -->
                         <ScrollViewer x:Name="WindowsAppsCardScrollViewer"
                                       Visibility="{x:Bind ViewModel.IsCardView, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
                                       VerticalScrollBarVisibility="Auto"
@@ -1150,7 +1148,7 @@
                             <StackPanel x:Name="WindowsAppsCardContentStack"
                                         Spacing="20"
                                         Padding="0,8,0,8"
-                                        HorizontalAlignment="Center">
+                                        HorizontalAlignment="Stretch">
                                 <!-- Selection Checkboxes -->
                                 <StackPanel Orientation="Horizontal" Spacing="12">
                                     <CheckBox Content="{x:Bind ViewModel.WindowsAppsViewModel.SelectAllLabel, Mode=OneWay}" MinWidth="0"
@@ -1166,8 +1164,7 @@
                                     <!-- Non-virtualising ItemsControl + custom UniformWrapPanel.
                                          ItemsRepeater + UniformGridLayout produced a measure cycle
                                          that snapped the outer ScrollViewer to the top. UniformWrapPanel
-                                         renders every cell at exactly CardItemWidth, wrapping when
-                                         the next would overflow — predictable, no cycle. -->
+                                         fills the content width using the card column breakpoints. -->
                                     <ItemsControl ItemsSource="{x:Bind ViewModel.WindowsAppsViewModel.WindowsAppsFiltered, Mode=OneWay}"
                                                   ItemTemplate="{StaticResource AppCardTemplate}">
                                         <ItemsControl.ItemsPanel>
@@ -1175,6 +1172,7 @@
                                                 <winOptimizerControls:UniformWrapPanel
                                                     ItemWidth="{StaticResource CardItemWidth}"
                                                     ItemHeight="{StaticResource CardCellHeight}"
+                                                    StretchItems="True"
                                                     ColumnSpacing="16"
                                                     RowSpacing="16"/>
                                             </ItemsPanelTemplate>
@@ -1194,6 +1192,7 @@
                                                 <winOptimizerControls:UniformWrapPanel
                                                     ItemWidth="{StaticResource CardItemWidth}"
                                                     ItemHeight="{StaticResource CardCellHeight}"
+                                                    StretchItems="True"
                                                     ColumnSpacing="16"
                                                     RowSpacing="16"/>
                                             </ItemsPanelTemplate>
@@ -1213,6 +1212,7 @@
                                                 <winOptimizerControls:UniformWrapPanel
                                                     ItemWidth="{StaticResource CardItemWidth}"
                                                     ItemHeight="{StaticResource CardCellHeight}"
+                                                    StretchItems="True"
                                                     ColumnSpacing="16"
                                                     RowSpacing="16"/>
                                             </ItemsPanelTemplate>
@@ -1700,7 +1700,7 @@
                             <StackPanel x:Name="ExternalAppsCardContentStack"
                                         Spacing="20"
                                         Padding="0,8,0,8"
-                                        HorizontalAlignment="Center">
+                                        HorizontalAlignment="Stretch">
                                 <!-- Selection Checkboxes -->
                                 <StackPanel Orientation="Horizontal" Spacing="12">
                                     <CheckBox Content="{x:Bind ViewModel.ExternalAppsViewModel.SelectAllLabel, Mode=OneWay}" MinWidth="0"
@@ -1725,6 +1725,7 @@
                                                             <winOptimizerControls:UniformWrapPanel
                                                                 ItemWidth="{StaticResource CardItemWidth}"
                                                                 ItemHeight="{StaticResource CardCellHeight}"
+                                                                StretchItems="True"
                                                                 ColumnSpacing="16"
                                                                 RowSpacing="16"/>
                                                         </ItemsPanelTemplate>

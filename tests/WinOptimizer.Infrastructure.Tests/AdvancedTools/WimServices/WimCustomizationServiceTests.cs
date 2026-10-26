@@ -111,6 +111,42 @@ public class WimCustomizationServiceTests
 
     #region AddDriversAsync
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DriverSetupPreservesExistingCommandsAndAddsOneReturningHook(bool utf8Bom)
+    {
+        var original = System.Text.Encoding.UTF8.GetBytes("@echo OEM setup\r\nexit /b 0\r\n");
+        byte[] setup = utf8Bom ? [0xef, 0xbb, 0xbf, .. original] : original;
+        _mockFileSystem.Setup(fs => fs.DirectoryExists(It.IsAny<string>())).Returns(true);
+        _mockFileSystem.Setup(fs => fs.FileExists(It.IsAny<string>())).Returns(true);
+        _mockFileSystem.Setup(fs => fs.ReadAllBytesAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).Returns(() => Task.FromResult(setup));
+        _mockFileSystem.Setup(fs => fs.WriteAllBytesAsync(It.IsAny<string>(), It.IsAny<byte[]>(), It.IsAny<CancellationToken>()))
+            .Callback<string, byte[], CancellationToken>((_, bytes, _) => setup = bytes).Returns(Task.CompletedTask);
+        _mockDriverCategorizer.Setup(dc => dc.CategorizeAndCopyDrivers(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>())).Returns(1);
+
+        Assert.True(await _service.AddDriversAsync(@"C:\work", @"C:\drivers"));
+        Assert.True(await _service.AddDriversAsync(@"C:\work", @"C:\drivers"));
+
+        var hook = System.Text.Encoding.ASCII.GetBytes("@call \"%~dp0WinOptimizer-Drivers.cmd\"\r\n");
+        Assert.Equal(hook.Concat(original), setup);
+        _mockFileSystem.Verify(fs => fs.WriteAllBytesAsync(It.IsAny<string>(), It.IsAny<byte[]>(), It.IsAny<CancellationToken>()), Times.Once);
+        _mockFileSystem.Verify(fs => fs.WriteAllTextAsync(It.Is<string>(p => p.EndsWith("WinOptimizer-Drivers.cmd")),
+            It.Is<string>(script => script.Contains("exit /b %DriverExit%") && script.Contains("%SystemRoot%")), It.IsAny<CancellationToken>()), Times.Exactly(2));
+    }
+
+    [Fact]
+    public async Task DriverSetupWriteFailureIsReportedAsFailure()
+    {
+        _mockFileSystem.Setup(fs => fs.DirectoryExists(It.IsAny<string>())).Returns(true);
+        _mockDriverCategorizer.Setup(dc => dc.CategorizeAndCopyDrivers(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>())).Returns(1);
+        _mockFileSystem.Setup(fs => fs.WriteAllBytesAsync(It.IsAny<string>(), It.IsAny<byte[]>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new IOException("Setup script is read-only"));
+
+        Assert.False(await _service.AddDriversAsync(@"C:\work", @"C:\drivers"));
+        _mockLogService.Verify(log => log.LogError(It.Is<string>(message => message.Contains("Setup script is read-only")), It.IsAny<Exception>()), Times.Once);
+    }
+
     [Fact]
     public async Task AddDriversAsync_DriverSourcePathDoesNotExist_ReturnsFalse()
     {

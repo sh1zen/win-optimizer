@@ -20,16 +20,37 @@ internal sealed class ConnectionTrafficService(IConnectionAdapterSource adapters
     {
         var at = clock.GetUtcNow();
         var today = TimeZoneInfo.ConvertTime(at, clock.LocalTimeZone).Date;
+        var boundaries = Enumerable.Range(0, 30).Select(index => StartOfDay(today.AddDays(index - 29), clock.LocalTimeZone)).ToArray();
         var days = Enumerable.Range(0, 30).Select(index =>
         {
             var date = today.AddDays(index - 29);
-            DateTimeOffset Midnight(DateTime value) => new(TimeZoneInfo.ConvertTimeToUtc(
-                DateTime.SpecifyKind(value, DateTimeKind.Unspecified), clock.LocalTimeZone));
-            var start = Midnight(date);
-            var end = index == 29 ? at : Midnight(date.AddDays(1));
+            var start = boundaries[index];
+            var end = index == 29 ? at : boundaries[index + 1];
             return new ConnectionDayRange(DateOnly.FromDateTime(date), start, end);
         }).ToArray();
         return history.ReadAsync(at, days, cancellationToken);
+    }
+
+    /// <summary>Uses the first real instant of a local date, including skipped and repeated midnights.</summary>
+    private static DateTimeOffset StartOfDay(DateTime date, TimeZoneInfo zone)
+    {
+        var local = DateTime.SpecifyKind(date, DateTimeKind.Unspecified);
+        if (zone.IsInvalidTime(local))
+        {
+            var invalid = local;
+            var valid = local.AddDays(1);
+            while (zone.IsInvalidTime(valid)) valid = valid.AddDays(1);
+            while (valid.Ticks - invalid.Ticks > 1)
+            {
+                var middle = invalid.AddTicks((valid.Ticks - invalid.Ticks) / 2);
+                if (zone.IsInvalidTime(middle)) invalid = middle;
+                else valid = middle;
+            }
+            local = valid;
+        }
+        return zone.IsAmbiguousTime(local)
+            ? new DateTimeOffset(local, zone.GetAmbiguousTimeOffsets(local).Max()).ToUniversalTime()
+            : new DateTimeOffset(TimeZoneInfo.ConvertTimeToUtc(local, zone));
     }
 
     public async Task<ConnectionLiveTraffic> SampleAsync(CancellationToken cancellationToken)

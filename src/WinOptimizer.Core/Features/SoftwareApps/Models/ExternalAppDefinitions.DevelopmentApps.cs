@@ -20,7 +20,7 @@ public static partial class ExternalAppDefinitions
                         Id = "external-app-python313",
                         Name = "Python 3.13",
                         Description = "Python programming language",
-                        RegistryDisplayName = "Python {version} ({arch})",
+                        RegistryDisplayName = "Python 3.13.{version} ({arch})",
                         GroupName = "Development Apps",
                         AppxPackageName = ["PythonSoftwareFoundation.Python.3.13"],
                         WinGetPackageId = ["Python.Python.3.13"],

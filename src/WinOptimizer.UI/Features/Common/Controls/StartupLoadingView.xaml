@@ -15,7 +15,7 @@
                       Padding="24">
             <StackPanel x:Name="LoadingContent"
                         MaxWidth="420"
-                        HorizontalAlignment="Center"
+                        HorizontalAlignment="Stretch"
                         VerticalAlignment="Center">
                 <Image x:Name="LoadingLogo"
                        Width="80" Height="80"
@@ -36,9 +36,9 @@
                            TextWrapping="Wrap"/>
 
                 <!-- Keep real startup activity together in a small, naturally sized status surface. -->
-                <Border MaxWidth="380"
+                <Border x:Name="LoadingStatusCard" MaxWidth="380"
                         Margin="0,32,0,0"
-                        HorizontalAlignment="Center"
+                        HorizontalAlignment="Stretch"
                         Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
                         BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
                         BorderThickness="1"
@@ -68,5 +68,6 @@
                 </Border>
             </StackPanel>
         </ScrollViewer>
+        <Grid x:Name="LoadingTitleBar" Height="48" VerticalAlignment="Top"/>
     </Grid>
 </UserControl>

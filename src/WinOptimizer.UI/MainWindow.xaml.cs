@@ -34,6 +34,7 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
 {
     private MainWindowViewModel? _viewModel;
     private WindowSizeManager? _windowSizeManager;
+    private Task? _windowPlacementInitialization;
     private UiZoomManager? _uiZoomManager;
     private IConfigReviewService? _configReviewService;
     private INavBadgeService? _navBadgeService;
@@ -86,7 +87,12 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
         Title = "win-optimizer";
         _loadingView = new StartupLoadingView();
         Content = _loadingView;
-        AppWindow.Resize(new Windows.Graphics.SizeInt32(1280, 800));
+        // Use the final client-area geometry from the loader's first frame.
+        ExtendsContentIntoTitleBar = true;
+        AppWindow.TitleBar.PreferredHeightOption = Microsoft.UI.Windowing.TitleBarHeightOption.Tall;
+        SetTitleBar(_loadingView.TitleBar);
+        _loadingView.ActualThemeChanged += (_, _) => _titleBarManager?.ApplyThemeToCaptionButtons(_loadingView.ActualTheme);
+        _loadingView.Loaded += (_, _) => _titleBarManager?.ApplyThemeToCaptionButtons(_loadingView.ActualTheme);
         AppWindow.SetIcon(System.IO.Path.Combine(AppContext.BaseDirectory, AppBranding.IconRelativePath));
         Closed += (_, _) => { IsClosed = true; ViewModel?.UpdateCheck.Dispose(); };
     }
@@ -95,27 +101,22 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
     internal void InitializeShell()
     {
         if (_shellInitialized || IsClosed) return;
-        _loadingView.ApplyLocalization(App.Services.GetRequiredService<ILocalizationService>());
+        var requestedTheme = _loadingView.RequestedTheme;
         Content = null;
         this.InitializeComponent();
+        RootGrid.RequestedTheme = requestedTheme;
+        _loadingView.RequestedTheme = ElementTheme.Default;
         LoadingOverlay.Children.Add(_loadingView);
         _shellInitialized = true;
         StartupLogger.Log("MainWindow", "InitializeComponent completed");
 
-        // Extend content into title bar for custom title bar experience
-        ExtendsContentIntoTitleBar = true;
         SetTitleBar(AppTitleBar);
 
-        // Set tall title bar mode so caption buttons fill the full height
-        this.AppWindow.TitleBar.PreferredHeightOption = Microsoft.UI.Windowing.TitleBarHeightOption.Tall;
+        RootGrid.ActualThemeChanged += (_, _) => _titleBarManager?.ApplyThemeToCaptionButtons(RootGrid.ActualTheme);
+        RootGrid.Loaded += (_, _) => _titleBarManager?.ApplyThemeToCaptionButtons(RootGrid.ActualTheme);
 
-        // Create TitleBarManager and apply theme-aware caption button colors
-        _titleBarManager = new TitleBarManager(this.AppWindow, _logService);
-        RootGrid.ActualThemeChanged += (_, _) => _titleBarManager.ApplyThemeToCaptionButtons(RootGrid.ActualTheme);
-        RootGrid.Loaded += (_, _) => _titleBarManager.ApplyThemeToCaptionButtons(RootGrid.ActualTheme);
-
-        // Initialize window size manager for position/size persistence
-        InitializeWindowSizeManager();
+        // Wire closing after placement has been restored before activation.
+        InitializeWindowLifetime();
 
         // Initialize app-local UI zoom (Ctrl +/-/0, Ctrl+MouseWheel)
         InitializeUiZoom();
@@ -138,9 +139,21 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
         NavSidebar.Loaded += NavSidebar_Loaded;
     }
 
-    /// <summary>Waits for the actual loading frame before starting synchronous host construction.</summary>
+    /// <summary>Waits for the actual loading frame before constructing the full shell.</summary>
     internal Task WaitForLoadingFrameAsync() =>
         StartupUiCoordinator.RunAfterFirstRenderAsync(_loadingView, () => Task.CompletedTask);
+
+    /// <summary>Populates the loader before activation so localization cannot move its visible content.</summary>
+    internal void InitializeLoadingPresentation(ILocalizationService localization) => _loadingView.ApplyLocalization(localization);
+
+    /// <summary>Restores placement once, before the loader's first visible frame.</summary>
+    internal Task InitializeWindowPlacementAsync(IUserPreferencesService preferences, ILogService logService)
+    {
+        _logService = logService;
+        _titleBarManager ??= new TitleBarManager(AppWindow, logService);
+        _windowSizeManager ??= new WindowSizeManager(AppWindow, preferences, logService);
+        return _windowPlacementInitialization ??= _windowSizeManager.InitializeAsync();
+    }
 
     #region Startup & Initialization
 
@@ -208,6 +221,7 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
     public void RestoreFromBackground()
     {
         IsManualActivationRequested = true;
+        if (_windowPlacementInitialization?.IsCompletedSuccessfully != true) return;
         if (!_shellInitialized) { AppWindow.Show(); Activate(); return; }
         StartStartupOperations();
         if (_extensionLifetime is { } lifetime) lifetime.ShowMainWindow();
@@ -215,17 +229,13 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
     }
 
     /// <summary>
-    /// Initializes the WindowSizeManager for window position/size persistence
-    /// and wires up ApplicationCloseService to save placement and drain pending work.
+    /// Wires up ApplicationCloseService to save placement and drain pending work.
     /// </summary>
-    private void InitializeWindowSizeManager()
+    private void InitializeWindowLifetime()
     {
         try
         {
-            var userPreferencesService = App.Services.GetRequiredService<IUserPreferencesService>();
-            _logService = App.Services.GetRequiredService<ILogService>();
-            _windowSizeManager = new WindowSizeManager(this.AppWindow, userPreferencesService, _logService);
-            _windowSizeManager.InitializeAsync().FireAndForget(_logService!);
+            _logService ??= App.Services.GetRequiredService<ILogService>();
 
             var applicationCloseService = App.Services.GetRequiredService<IApplicationCloseService>();
             if (applicationCloseService is ApplicationCloseService closeService)
@@ -271,8 +281,7 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
         }
         catch (Exception ex)
         {
-            this.AppWindow.Resize(new Windows.Graphics.SizeInt32(1280, 800));
-            _logService?.LogDebug($"Failed to initialize WindowSizeManager: {ex.Message}");
+            _logService?.LogDebug($"Failed to initialize window lifetime: {ex.Message}");
         }
     }
 
@@ -471,9 +480,6 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
 
                 // Deferred initialization: subscribes to events and sets initial state
                 ViewModel.Initialize();
-                ViewModel.SidebarPreferences.LoadAsync().FireAndForget(_logService!);
-                App.Services.GetRequiredService<WinOptimizer.UI.Features.Settings.ViewModels.AppColorPreferencesViewModel>()
-                    .LoadAsync().FireAndForget(_logService!);
 
                 // Pass ViewModel to NavSidebar for localized nav button text
                 NavSidebar.ViewModel = ViewModel;

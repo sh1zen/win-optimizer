@@ -21,6 +21,21 @@ public class PowerShellRunnerInMemoryTests
     }
 
     [Fact]
+    public async Task NonzeroExitWithOnlyStandardOutputIsFailure()
+    {
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            NewRunner().RunScriptInMemoryAsync("[Console]::Out.WriteLine('validation failed'); exit 7"));
+        Assert.Contains("validation failed", error.Message);
+    }
+
+    [Fact]
+    public async Task UsesTheConfiguredWindowsSystemDirectory()
+    {
+        var executable = await NewRunner().RunScriptInMemoryAsync("[Diagnostics.Process]::GetCurrentProcess().MainModule.FileName");
+        Assert.Equal(Path.Combine(Environment.SystemDirectory, @"WindowsPowerShell\v1.0\powershell.exe"), executable.Trim(), ignoreCase: true);
+    }
+
+    [Fact]
     public async Task RunScriptInMemoryAsync_EmptyScript_Throws()
     {
         var runner = NewRunner();

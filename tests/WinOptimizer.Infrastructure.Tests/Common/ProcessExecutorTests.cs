@@ -19,6 +19,51 @@ public sealed class ProcessExecutorTests
         cancellation.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => new ProcessExecutor()
             .ExecuteWithStreamingAsync("nonexistent-test-worker.exe", "", ct: cancellation.Token));
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => new ProcessExecutor()
+            .ExecuteAsync("nonexistent-test-worker.exe", "", cancellation.Token));
+    }
+
+    [Fact]
+    public async Task BufferedExecutionPreservesUnterminatedOutputAndStopsItsWorkerOnCancellation()
+    {
+        var executor = new ProcessExecutor();
+        var result = await executor.ExecuteAsync(PowerShell, Arguments("[Console]::Out.Write('output'); [Console]::Error.Write('error'); exit 7"));
+        Assert.Equal("output", result.StandardOutput);
+        Assert.Equal("error", result.StandardError);
+        Assert.Equal(7, result.ExitCode);
+
+        var root = Path.Combine(Path.GetTempPath(), "WinOptimizer-process-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(root);
+        var marker = Path.Combine(root, "pid.txt");
+        using var cancellation = new CancellationTokenSource();
+        // Publish readiness only after the PID writer has closed the file.
+        var pending = executor.ExecuteAsync(PowerShell, Arguments(
+            $"$marker = '{marker.Replace("'", "''")}'; [IO.File]::WriteAllText($marker + '.tmp', [string]$PID); " +
+            "[IO.File]::Move($marker + '.tmp', $marker); while ($true) { Start-Sleep -Seconds 60 }"), cancellation.Token);
+        Process? worker = null;
+        try
+        {
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+            while (!File.Exists(marker)) await Task.Delay(25, timeout.Token);
+            worker = Process.GetProcessById(int.Parse(await File.ReadAllTextAsync(marker), CultureInfo.InvariantCulture));
+            _ = worker.Handle;
+            cancellation.Cancel();
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pending.WaitAsync(TimeSpan.FromSeconds(5)));
+            Assert.True(worker.HasExited);
+        }
+        finally
+        {
+            cancellation.Cancel();
+            if (worker is not null)
+            {
+                if (!worker.HasExited) worker.Kill(entireProcessTree: true);
+                await worker.WaitForExitAsync();
+                worker.Dispose();
+            }
+            try { await pending.WaitAsync(TimeSpan.FromSeconds(5)); }
+            catch (OperationCanceledException) when (cancellation.IsCancellationRequested) { }
+            Directory.Delete(root, recursive: true);
+        }
     }
 
     [Fact]

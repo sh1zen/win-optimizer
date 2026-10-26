@@ -63,12 +63,11 @@ new events after identity loss; the last validated snapshot remains available.
 
 Open-file queries require administrator rights and explicit acceptance of the
 [Sysinternals license](https://learn.microsoft.com/en-us/sysinternals/license-terms)
-and download. The shared authenticated Management script runner acquires Handle
-from Microsoft's `https://download.sysinternals.com/files/Handle.zip` on demand,
-extracts only `handle64.exe`, validates a valid Microsoft Corporation Authenticode
-signature and retains a read lock while executing it. Its cache is
-`%ProgramData%/win-optimizer/Tools/handle`; no executable is bundled. Reparse paths
-and unexpected cache locations are rejected. The command requests CSV for one PID
+and download. The shared
+[script runner and verified tool cache](../../../../ARCHITECTURE.md#extension-and-control)
+acquires Microsoft's `https://download.sysinternals.com/files/Handle.zip` on demand
+and extracts only `handle64.exe` into `%ProgramData%/win-optimizer/Tools/handle`;
+no executable is bundled. The command requests CSV for one PID
 (`-accepteula -nobanner -v -p PID`); no handle-close option is exposed.
 Downloaded versions follow Microsoft's current distribution and are not pinned.
 

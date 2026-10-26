@@ -79,6 +79,8 @@ public class IsoService : IIsoService
         CancellationToken cancellationToken = default)
     {
         var isoMounted = false;
+        var isoLiteral = isoPath.Replace("'", "''");
+        var workingLiteral = workingDirectory.Replace("'", "''");
 
         try
         {
@@ -99,8 +101,8 @@ public class IsoService : IIsoService
                 try
                 {
                     var script = $@"
-                        Get-ChildItem -Path '{workingDirectory}' -Recurse -Force | ForEach-Object {{ $_.Attributes = 'Normal' }}
-                        Remove-Item -Path '{workingDirectory}' -Recurse -Force -ErrorAction Stop
+                        Get-ChildItem -LiteralPath '{workingLiteral}' -Recurse -Force | ForEach-Object {{ $_.Attributes = 'Normal' }}
+                        Remove-Item -LiteralPath '{workingLiteral}' -Recurse -Force -ErrorAction Stop
                     ";
 
                     var removeResult = await _processExecutor.ExecuteAsync(
@@ -148,7 +150,7 @@ public class IsoService : IIsoService
 
             var mountResult = await _processExecutor.ExecuteAsync(
                 "powershell.exe",
-                $"-NoProfile -Command \"(Mount-DiskImage -ImagePath '{isoPath}' -PassThru | Get-Volume).DriveLetter\"",
+                $"-NoProfile -Command \"(Mount-DiskImage -ImagePath '{isoLiteral}' -PassThru | Get-Volume).DriveLetter\"",
                 cancellationToken).ConfigureAwait(false);
             var rawOutput = mountResult.StandardOutput;
 
@@ -183,7 +185,7 @@ public class IsoService : IIsoService
 
             await _processExecutor.ExecuteAsync(
                 "powershell.exe",
-                $"-NoProfile -Command \"Dismount-DiskImage -ImagePath '{isoPath}'\"",
+                $"-NoProfile -Command \"Dismount-DiskImage -ImagePath '{isoLiteral}'\"",
                 cancellationToken).ConfigureAwait(false);
             isoMounted = false;
 
@@ -223,7 +225,7 @@ public class IsoService : IIsoService
                     _logService.LogInformation("Dismounting ISO due to cancellation");
                     await _processExecutor.ExecuteAsync(
                         "powershell.exe",
-                        $"-NoProfile -Command \"Dismount-DiskImage -ImagePath '{isoPath}'\"").ConfigureAwait(false);
+                        $"-NoProfile -Command \"Dismount-DiskImage -ImagePath '{isoLiteral}'\"").ConfigureAwait(false);
                     _logService.LogInformation("ISO dismounted successfully");
                 }
                 catch (Exception dismountEx)
@@ -249,7 +251,7 @@ public class IsoService : IIsoService
                     _logService.LogInformation("Dismounting ISO due to error");
                     await _processExecutor.ExecuteAsync(
                         "powershell.exe",
-                        $"-NoProfile -Command \"Dismount-DiskImage -ImagePath '{isoPath}'\"").ConfigureAwait(false);
+                        $"-NoProfile -Command \"Dismount-DiskImage -ImagePath '{isoLiteral}'\"").ConfigureAwait(false);
                 }
                 catch (Exception dismountEx)
                 {

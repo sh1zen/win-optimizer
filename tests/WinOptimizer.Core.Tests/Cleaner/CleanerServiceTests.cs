@@ -16,8 +16,13 @@ public class CleanerServiceTests
         _backups.Setup(x => x.CreateAsync(It.IsAny<IReadOnlyList<CleanerFinding>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new CleanerBackupInfo(Guid.NewGuid(), DateTime.UtcNow, 0, 0));
     }
-    private static CleanerFinding Finding(bool actionable = true) => new(Guid.NewGuid(), CleanerArea.JunkFiles,
-        "Cleaner_JunkFiles", "temporary file", 10, actionable, new CleanerFileTarget(@"C:\Temp", @"C:\Temp\test", 10, DateTime.UnixEpoch, DateTime.UtcNow));
+    /// <summary>Creates distinct resources unless a regression explicitly supplies overlapping evidence.</summary>
+    private static CleanerFinding Finding(bool actionable = true)
+    {
+        var id = Guid.NewGuid();
+        return new(id, CleanerArea.JunkFiles, "Cleaner_JunkFiles", "temporary file", 10, actionable,
+            new CleanerFileTarget(@"C:\Temp", $@"C:\Temp\{id:N}.tmp", 10, DateTime.UnixEpoch, DateTime.UtcNow));
+    }
 
     private CleanerService SetupScan(params CleanerFinding[] findings)
     {
@@ -80,20 +85,23 @@ public class CleanerServiceTests
         (await service.ApplyAsync([privacy.Id], null, default)).Completed.Should().Be(1);
         _backups.Verify(x => x.CreateAsync(It.Is<IReadOnlyList<CleanerFinding>>(items => items.Count == 1 && items[0] == privacy), It.IsAny<CancellationToken>()), Times.Once);
     }
-    /// <summary>One recent-document link is backed up and removed once when both scan areas detect it.</summary>
-    [Fact]
-    public async Task OverlappingPrivacyAndShortcutResults_PublishAndApplyTheFileOnlyOnce()
+    /// <summary>Overlapping file categories retain one finding, backup and cleanup in stage order.</summary>
+    [Theory]
+    [InlineData(CleanerArea.Privacy, CleanerArea.Shortcuts)]
+    [InlineData(CleanerArea.Privacy, CleanerArea.JunkFiles)]
+    [InlineData(CleanerArea.JunkFiles, CleanerArea.Shortcuts)]
+    public async Task OverlappingFileResults_PublishAndApplyTheFileOnlyOnce(CleanerArea first, CleanerArea second)
     {
         var target = new CleanerFileTarget(@"C:\Profile\Recent", @"C:\Profile\Recent\document.lnk", 10, DateTime.UnixEpoch, DateTime.UtcNow);
-        var privacy = new CleanerFinding(Guid.NewGuid(), CleanerArea.Privacy, "Cleaner_RecentFiles", target.Path, target.Length, true, target);
-        var shortcut = privacy with { Id = Guid.NewGuid(), Area = CleanerArea.Shortcuts,
+        var privacy = new CleanerFinding(Guid.NewGuid(), first, "Cleaner_RecentFiles", target.Path, target.Length, true, target);
+        var shortcut = privacy with { Id = Guid.NewGuid(), Area = second,
             Target = target with { Path = target.Path.ToUpperInvariant(), ShortcutTarget = @"C:\missing.txt" } };
-        _backend.Setup(value => value.ScanAsync(CleanerArea.Privacy, It.IsAny<CleanerOptions>(), It.IsAny<IProgress<CleanerProgress>>(), It.IsAny<CancellationToken>()))
+        _backend.Setup(value => value.ScanAsync(first, It.IsAny<CleanerOptions>(), It.IsAny<IProgress<CleanerProgress>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new CleanerScanResult([privacy], []));
-        _backend.Setup(value => value.ScanAsync(CleanerArea.Shortcuts, It.IsAny<CleanerOptions>(), It.IsAny<IProgress<CleanerProgress>>(), It.IsAny<CancellationToken>()))
+        _backend.Setup(value => value.ScanAsync(second, It.IsAny<CleanerOptions>(), It.IsAny<IProgress<CleanerProgress>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new CleanerScanResult([shortcut], []));
         var service = new CleanerService(_backend.Object, _backups.Object);
-        var scan = await service.ScanAsync(new(), [CleanerArea.Shortcuts, CleanerArea.Privacy], null, default);
+        var scan = await service.ScanAsync(new(), [second, first], null, default);
         scan.Findings.Should().ContainSingle().Which.Should().Be(privacy);
         (await service.ApplyAsync([privacy.Id], null, default)).Completed.Should().Be(1);
         _backups.Verify(value => value.CreateAsync(It.Is<IReadOnlyList<CleanerFinding>>(items => items.Count == 1 && items[0] == privacy), It.IsAny<CancellationToken>()), Times.Once);

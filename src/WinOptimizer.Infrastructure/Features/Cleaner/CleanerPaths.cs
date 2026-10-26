@@ -7,11 +7,17 @@ internal static class CleanerPaths
 {
     public static bool IsLocalPath(string path) => path.Length >= 3 && char.IsAsciiLetter(path[0]) && path[1..3] == ":\\";
 
-    public static void ValidateDescendant(string root, string path)
+    public static void ValidateDescendant(string root, string path) => ValidatePath(root, path, allowRoot: false);
+
+    /// <summary>Validates an actual directory and its ancestors without probing a nonexistent child.</summary>
+    public static void ValidateDirectory(string root, string directory) => ValidatePath(root, directory, allowRoot: true);
+
+    private static void ValidatePath(string root, string path, bool allowRoot)
     {
         var fullRoot = Path.GetFullPath(root).TrimEnd('\\') + "\\";
         var fullPath = Path.GetFullPath(path);
-        if (!IsLocalPath(fullRoot) || !fullPath.StartsWith(fullRoot, StringComparison.OrdinalIgnoreCase))
+        if (!IsLocalPath(fullRoot) || !(fullPath.StartsWith(fullRoot, StringComparison.OrdinalIgnoreCase) ||
+            allowRoot && string.Equals(fullPath.TrimEnd('\\') + "\\", fullRoot, StringComparison.OrdinalIgnoreCase)))
             throw new IOException("The cleanup path is outside its allowed directory.");
         for (string? part = fullPath; part is not null; part = Path.GetDirectoryName(part))
         {
@@ -40,6 +46,7 @@ internal static class CleanerPaths
         // Access denied is not evidence of a missing file.
     }
 
+    /// <summary>Uses directory-entry attributes while retaining fresh ancestor checks before traversing each directory.</summary>
     public static IEnumerable<string> EnumerateFiles(string root, List<string> notices, CancellationToken ct, bool recursive = true)
     {
         if (!Directory.Exists(root)) yield break;
@@ -49,11 +56,11 @@ internal static class CleanerPaths
         {
             ct.ThrowIfCancellationRequested();
             var directory = pending.Pop();
-            string[] entries;
+            FileSystemInfo[] entries;
             try
             {
-                ValidateDescendant(root, Path.Combine(directory, ".cleaner-boundary"));
-                entries = Directory.GetFileSystemEntries(directory);
+                ValidateDirectory(root, directory);
+                entries = new DirectoryInfo(directory).GetFileSystemInfos();
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or SecurityException)
             {
@@ -64,15 +71,15 @@ internal static class CleanerPaths
             {
                 ct.ThrowIfCancellationRequested();
                 FileAttributes attributes;
-                try { attributes = File.GetAttributes(entry); }
+                try { attributes = entry.Attributes; }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
                 {
-                    notices.Add($"{entry}: {ex.Message}");
+                    notices.Add($"{entry.FullName}: {ex.Message}");
                     continue;
                 }
                 if ((attributes & FileAttributes.ReparsePoint) != 0) continue;
-                if ((attributes & FileAttributes.Directory) != 0) { if (recursive) pending.Push(entry); }
-                else yield return entry;
+                if ((attributes & FileAttributes.Directory) != 0) { if (recursive) pending.Push(entry.FullName); }
+                else yield return entry.FullName;
             }
         }
     }

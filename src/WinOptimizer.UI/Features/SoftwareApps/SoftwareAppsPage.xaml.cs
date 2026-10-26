@@ -75,14 +75,10 @@ public sealed partial class SoftwareAppsPage : Page
     /// also reads <c>CompactItemWidth</c> from Resources at SizeChanged time,
     /// so it picks up the scaled value automatically.
     ///
-    /// Card-view tile geometry (CardItemWidth / CardCellHeight /
-    /// CardContentHeight) is intentionally NOT scaled here. The card grid
-    /// keeps its default 420×108 cells at every text scale; instead, the
-    /// AppCardTemplate's inner Grid uses MinHeight (so content can push the
-    /// grid taller when needed) and the UniformWrapPanel treats ItemHeight
-    /// as a floor not a cap (so the row grows to fit the tallest card).
-    /// That way the default scale renders identically to before, and the
-    /// column count doesn't drop at higher scale.
+    /// Card-view column breakpoints and minimum heights are not scaled here.
+    /// A single column fills the viewport; wider grids use 420dp cells.
+    /// AppCardTemplate and UniformWrapPanel use minimum heights so larger
+    /// text can grow the row without changing the column count.
     /// </summary>
     private void ApplyTextScaling()
     {
@@ -98,6 +94,19 @@ public sealed partial class SoftwareAppsPage : Page
     {
         if (Resources.TryGetValue(key, out var value) && value is double d)
             Resources[key] = d * factor;
+    }
+
+    /// <summary>Gives wrapped actions the full page width when the toolbar becomes narrow.</summary>
+    private void SoftwareAppsActionBar_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        var stacked = e.NewSize.Width < 1100 * TextScaleHelper.Factor;
+        Grid.SetColumnSpan(InstalledAppsFilter, stacked ? 2 : 1);
+        InstalledAppsFilter.Margin = new Thickness(0, 0, 0, stacked ? 8 : 0);
+        Grid.SetRow(SoftwareAppsActions, stacked ? 1 : 0);
+        Grid.SetColumn(SoftwareAppsActions, stacked ? 0 : 1);
+        Grid.SetColumnSpan(SoftwareAppsActions, stacked ? 2 : 1);
+        SoftwareAppsActions.HorizontalAlignment = stacked ? HorizontalAlignment.Left : HorizontalAlignment.Right;
+        AppSearchBox.Width = Math.Min(260, e.NewSize.Width);
     }
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -161,8 +170,9 @@ public sealed partial class SoftwareAppsPage : Page
     protected override async void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
+        ViewModel.InitializePresentation();
 
-        // During startup, MainWindow handles initialization with the loading overlay visible
+        // Startup restores presentation here and defers inventory until after the page is visible.
         if (e.Parameter as string == "startup")
             return;
 
@@ -266,13 +276,8 @@ public sealed partial class SoftwareAppsPage : Page
     }
 
     /// <summary>
-    /// Centres the card-view content column horizontally by clamping the inner
-    /// StackPanel's MaxWidth to exactly cols × CardItemWidth + (cols-1) × ColumnSpacing.
-    /// Result: the section header, Select-all checkboxes, and the card grid all
-    /// share the same horizontal extents — the leftmost card sits flush with the
-    /// header instead of the cards floating in the middle of a left-aligned panel.
-    /// Same pattern Microsoft Store / Settings use: extra space becomes symmetric
-    /// outer margin, new columns appear at width breakpoints.
+    /// Aligns card grids, section headers and selection controls. A single column
+    /// fills the viewport; wider grids remain centred at whole-card widths.
     /// </summary>
     private void WindowsAppsCardScrollViewer_SizeChanged(object sender, SizeChangedEventArgs e)
         => UpdateCardContentMaxWidth(WindowsAppsCardScrollViewer, WindowsAppsCardContentStack);
@@ -293,7 +298,9 @@ public sealed partial class SoftwareAppsPage : Page
 
         int cols = System.Math.Max(1,
             (int)System.Math.Floor((available + spacing) / (cardWidth + spacing)));
-        double contentWidth = cols * cardWidth + System.Math.Max(0, cols - 1) * spacing;
+        double contentWidth = cols == 1
+            ? available
+            : cols * cardWidth + (cols - 1) * spacing;
         contentStack.MaxWidth = contentWidth;
     }
 

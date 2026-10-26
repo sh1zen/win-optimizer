@@ -41,15 +41,8 @@ public class DriverCategorizer(ILogService logService, IFileSystemService fileSy
                 return true;
             }
 
-            string fileContent;
-            try
-            {
-                fileContent = fileSystemService.ReadAllText(infPath, Encoding.Unicode);
-            }
-            catch
-            {
-                fileContent = fileSystemService.ReadAllText(infPath, Encoding.UTF8);
-            }
+            // StreamReader detects UTF-16 BOMs; ANSI/UTF-8 INF class tokens are ASCII-compatible.
+            var fileContent = fileSystemService.ReadAllText(infPath, Encoding.UTF8);
 
             using var reader = new StringReader(fileContent);
             string? line;
@@ -145,10 +138,18 @@ public class DriverCategorizer(ILogService logService, IFileSystemService fileSy
                 }
 
                 fileSystemService.CreateDirectory(targetDirectory);
+                var createdDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase) { targetDirectory };
 
-                foreach (var file in fileSystemService.GetFiles(sourceDir))
+                // A driver package can reference architecture-specific payload directories.
+                foreach (var file in fileSystemService.GetFiles(sourceDir, "*", SearchOption.AllDirectories))
                 {
-                    var targetFile = fileSystemService.CombinePath(targetDirectory, fileSystemService.GetFileName(file));
+                    var relative = Path.GetRelativePath(sourceDir, file);
+                    if (Path.IsPathRooted(relative) || relative == ".." || relative.StartsWith("..\\", StringComparison.Ordinal))
+                        throw new IOException("A driver payload is outside its package directory.");
+                    var targetFile = fileSystemService.CombinePath(targetDirectory, relative);
+                    var parent = Path.GetDirectoryName(targetFile)!;
+                    if (createdDirectories.Add(parent))
+                        fileSystemService.CreateDirectory(parent);
                     fileSystemService.CopyFile(file, targetFile, overwrite: true);
                 }
 

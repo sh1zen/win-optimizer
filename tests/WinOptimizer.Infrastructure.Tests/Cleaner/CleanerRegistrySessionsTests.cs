@@ -24,6 +24,32 @@ public sealed class CleanerRegistrySessionsTests : IDisposable
     }
 
     [Fact]
+    public void InteractiveFoldersAreResolvedOncePerSessionAndRefreshedWhenReopened()
+    {
+        var folder = Environment.SpecialFolder.LocalApplicationData;
+        _user.SetupSequence(user => user.GetInteractiveUserFolderPath(folder)).Returns(_root).Returns(_root + "-changed");
+        using (var session = _sessions.Open(null))
+        {
+            Assert.Equal(_root, session.GetFolderPath(folder));
+            Assert.Equal(_root, session.GetFolderPath(folder));
+            _user.Verify(user => user.GetInteractiveUserFolderPath(folder), Times.Once);
+        }
+        using var reopened = _sessions.Open(null);
+        Assert.Equal(_root + "-changed", reopened.GetFolderPath(folder));
+        _user.Verify(user => user.GetInteractiveUserFolderPath(folder), Times.Exactly(2));
+    }
+
+    [Fact]
+    public void FailedFolderResolutionCanBeRetriedWithinTheSameSession()
+    {
+        var folder = Environment.SpecialFolder.LocalApplicationData;
+        _user.SetupSequence(user => user.GetInteractiveUserFolderPath(folder)).Throws(new IOException("unavailable")).Returns(_root);
+        using var session = _sessions.Open(null);
+        Assert.Throws<IOException>(() => session.GetFolderPath(folder));
+        Assert.Equal(_root, session.GetFolderPath(folder));
+    }
+
+    [Fact]
     public void OpeningARegisteredAccountDoesNotLoadItsHiveUntilRead()
     {
         using var session = _sessions.Open(Sid);

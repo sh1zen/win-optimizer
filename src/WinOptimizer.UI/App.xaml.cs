@@ -112,20 +112,9 @@ public partial class App : Microsoft.UI.Xaml.Application
         StartupLogger.Log("App", "OnLaunched starting");
         try
         {
-            // Present the real main window before host construction, storage or preferences.
+            // Prepare the loader while the host and saved placement are initialized.
             var window = new MainWindow();
             _mainWindow = window;
-            if (!Program.IsWidgetStartup)
-            {
-                window.Activate();
-                try { await window.WaitForLoadingFrameAsync(); }
-                catch (OperationCanceledException) when (window.IsClosed) { return; }
-                if (window.IsClosed) return;
-                StartupLogger.Log("App", "Initial loading frame presented");
-            }
-
-            // Feature styles and templates can load after the loading frame is visible.
-            InitializeShellResources();
 
             // Build the host with DI container using CompositionRoot
             StartupLogger.Log("App", "Building DI host...");
@@ -147,6 +136,26 @@ public partial class App : Microsoft.UI.Xaml.Application
                 return;
             }
             if (window.IsClosed) { _host.Dispose(); return; }
+
+            // Populate and theme the lightweight loader before its first visible frame.
+            InitializeLocalization();
+            window.InitializeLoadingPresentation(Services.GetRequiredService<ILocalizationService>());
+            InitializeTheme();
+
+            // Await placement before activation so the visible loader retains the last-used size.
+            await window.InitializeWindowPlacementAsync(
+                Services.GetRequiredService<IUserPreferencesService>(), Services.GetRequiredService<ILogService>());
+            if (!Program.IsWidgetStartup || window.IsManualActivationRequested)
+            {
+                window.Activate();
+                try { await window.WaitForLoadingFrameAsync(); }
+                catch (OperationCanceledException) when (window.IsClosed) { _host.Dispose(); return; }
+                if (window.IsClosed) { _host.Dispose(); return; }
+                StartupLogger.Log("App", "Initial loading frame presented");
+            }
+
+            // Feature styles and templates can load after the loading frame is visible.
+            InitializeShellResources();
 
             // Initialize log service for exception handlers and file logging
             try
@@ -179,19 +188,15 @@ public partial class App : Microsoft.UI.Xaml.Application
                 StartupLogger.Log("App", $"LogService unavailable: {ex.Message}");
             }
 
-            // Apply the saved language before constructing the full shell.
-            StartupLogger.Log("App", "Initializing localization...");
-            InitializeLocalization();
-            StartupLogger.Log("App", "Localization initialized");
+            // Restore shell geometry and accent while the loader still covers the window.
+            await Task.WhenAll(
+                Services.GetRequiredService<Features.Settings.ViewModels.SidebarPreferencesViewModel>().LoadAsync(),
+                Services.GetRequiredService<Features.Settings.ViewModels.AppColorPreferencesViewModel>().LoadAsync());
+            if (window.IsClosed) { _host.Dispose(); return; }
 
             // Complete the shell in the window that is already displaying startup progress.
             window.InitializeShell();
             StartupLogger.Log("App", "MainWindow shell initialized");
-
-            // Initialize theme service after window is created
-            StartupLogger.Log("App", "Initializing theme...");
-            InitializeTheme();
-            StartupLogger.Log("App", "Theme initialized");
 
             // Start required settings, app inventory and initial backup work.
             // The loading overlay provides visual feedback while these run

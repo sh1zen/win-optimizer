@@ -22,9 +22,6 @@ public class MainWindowViewModelTests : IDisposable
     private readonly Mock<ITaskProgressService> _mockTaskProgressService = new();
     private readonly Mock<IDispatcherService> _mockDispatcherService = new();
     private readonly Mock<IDialogService> _mockDialogService = new();
-    private readonly Mock<IConfigReviewModeService> _mockConfigReviewModeService = new();
-    private readonly Mock<IConfigReviewDiffService> _mockConfigReviewDiffService = new();
-    private readonly Mock<IConfigReviewBadgeService> _mockConfigReviewBadgeService = new();
     private readonly Mock<IApplicationModeService> _mockApplicationModeService = new();
     private readonly Mock<IConfigExportService> _mockConfigExportService = new();
     private readonly Mock<IConfigApplicationExecutionService> _mockConfigExecutionService = new();

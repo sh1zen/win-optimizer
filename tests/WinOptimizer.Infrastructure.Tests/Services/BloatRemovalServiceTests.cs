@@ -45,22 +45,6 @@ public class BloatRemovalServiceTests
         RemovalScript = removalScript,
     };
 
-    private static ItemDefinition CreateCapabilityApp(string id, string capabilityName) => new()
-    {
-        Id = id,
-        Name = id,
-        Description = $"Description for {id}",
-        CapabilityName = capabilityName,
-    };
-
-    private static ItemDefinition CreateFeatureApp(string id, string featureName) => new()
-    {
-        Id = id,
-        Name = id,
-        Description = $"Description for {id}",
-        OptionalFeatureName = featureName,
-    };
-
     // --- ExecuteDedicatedScriptAsync ---
 
     [Fact]
@@ -108,7 +92,7 @@ public class BloatRemovalServiceTests
     }
 
     [Fact]
-    public async Task ExecuteDedicatedScriptAsync_UnsupportedAppId_ThrowsNotSupportedException()
+    public async Task ExecuteDedicatedScriptAsync_UnsupportedAppId_ReturnsFailed()
     {
         var app = CreateDedicatedScriptApp("windows-app-unknown", "Unknown",
             () => "# script");
@@ -117,7 +101,6 @@ public class BloatRemovalServiceTests
             .Setup(f => f.CombinePath(It.IsAny<string[]>()))
             .Returns((string[] paths) => string.Join("\\", paths));
 
-        // The NotSupportedException from CreateScriptName will be caught by the catch block
         var result = await _service.ExecuteDedicatedScriptAsync(app);
 
         result.Should().Be(RemovalOutcome.Failed);
@@ -368,33 +351,6 @@ $specialApps = @()";
             It.Is<RemovalScript>(rs =>
                 rs.Name == "EdgeRemoval" &&
                 rs.RunOnStartup == true)), Times.Once);
-    }
-
-    [Fact]
-    public async Task PersistRemovalScriptsAsync_EdgeScript_HasRunOnStartupTrue()
-    {
-        var apps = new List<ItemDefinition>
-        {
-            CreateDedicatedScriptApp("windows-app-edge", "Edge", () => "# script"),
-        };
-
-        _mockFileSystem
-            .Setup(f => f.CombinePath(It.IsAny<string[]>()))
-            .Returns((string[] paths) => string.Join("\\", paths));
-        _mockFileSystem
-            .Setup(f => f.FileExists(It.Is<string>(p => p.Contains("EdgeRemoval.ps1"))))
-            .Returns(true);
-        _mockFileSystem
-            .Setup(f => f.ReadAllTextAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync("# content");
-        _mockScheduledTask
-            .Setup(s => s.RegisterScheduledTaskAsync(It.IsAny<RemovalScript>()))
-            .ReturnsAsync(OperationResult.Succeeded());
-
-        await _service.PersistRemovalScriptsAsync(apps);
-
-        _mockScheduledTask.Verify(s => s.RegisterScheduledTaskAsync(
-            It.Is<RemovalScript>(rs => rs.RunOnStartup == true)), Times.Once);
     }
 
     [Fact]

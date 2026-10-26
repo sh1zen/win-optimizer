@@ -111,6 +111,7 @@ public static class SettingServicesExtensions
 
         // AppX package source (PackageManager COM â†’ WMI â†’ PowerShell fallback)
         services.AddSingleton<IAppxPackageSource, AppxPackageSource>();
+        services.AddSingleton<IAppxDeployment, WindowsAppxDeployment>();
         services.AddSingleton<IWindowsComponentStatusSource, WindowsComponentStatusSource>();
 
         // AppX icon source (PackageManager + AppListEntry.DisplayInfo.GetLogo,

@@ -1,6 +1,9 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Moq;
+using WinOptimizer.Core.Features.Common.Constants;
+using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.UI.Features.Common.Controls;
 using WinOptimizer.UI.Helpers;
 using Xunit;
@@ -10,9 +13,11 @@ namespace WinOptimizer.UI.Tests.Services;
 /// <summary>Checks the production startup frame boundary on a native WinUI dispatcher.</summary>
 public sealed class StartupPresentationTests
 {
-    /// <summary>Renders the production main window before any shell services are registered or resolved.</summary>
-    [Fact]
-    public async Task MainWindowPresentsItsLoaderBeforeShellInitialization()
+    /// <summary>Restores placement before rendering the loader and retains it through shell construction.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task MainWindowPresentsItsLoaderBeforeShellInitialization(bool rightToLeft)
     {
         var window = new WinOptimizer.UI.MainWindow();
         try
@@ -20,6 +25,24 @@ public sealed class StartupPresentationTests
             var loader = Assert.IsType<StartupLoadingView>(window.Content);
             Assert.Null(window.ViewModel);
             Assert.False(window.AppWindow.IsVisible);
+            Assert.True(window.ExtendsContentIntoTitleBar);
+            Assert.Equal(Microsoft.UI.Windowing.TitleBarHeightOption.Tall, window.AppWindow.TitleBar.PreferredHeightOption);
+            var localization = new Mock<ILocalizationService>();
+            localization.Setup(service => service.IsRightToLeft).Returns(rightToLeft);
+            localization.Setup(service => service.GetString("App_Title")).Returns("win-optimizer");
+            localization.Setup(service => service.GetString("App_Tagline")).Returns("Windows optimization and maintenance");
+            localization.Setup(service => service.GetString("Loading_PreparingApp")).Returns("Preparing app...");
+            window.InitializeLoadingPresentation(localization.Object);
+            loader.RequestedTheme = ElementTheme.Dark;
+            var preferences = new Mock<IUserPreferencesService>();
+            preferences.Setup(service => service.GetPreferenceAsync<double>(UserPreferenceKeys.WindowWidth, 0)).ReturnsAsync(1050);
+            preferences.Setup(service => service.GetPreferenceAsync<double>(UserPreferenceKeys.WindowHeight, 0)).ReturnsAsync(720);
+            preferences.Setup(service => service.GetPreferenceAsync<double>(UserPreferenceKeys.WindowLeft, double.NaN)).ReturnsAsync(double.NaN);
+            preferences.Setup(service => service.GetPreferenceAsync<double>(UserPreferenceKeys.WindowTop, double.NaN)).ReturnsAsync(double.NaN);
+            await window.InitializeWindowPlacementAsync(preferences.Object, Mock.Of<ILogService>());
+            Assert.False(window.AppWindow.IsVisible);
+            Assert.Equal(1050, window.AppWindow.Size.Width);
+            Assert.Equal(720, window.AppWindow.Size.Height);
             var presented = window.WaitForLoadingFrameAsync();
             Assert.False(presented.IsCompleted);
             window.Activate();
@@ -29,6 +52,21 @@ public sealed class StartupPresentationTests
             Assert.True(Assert.IsType<ProgressRing>(loader.FindName("LoadingProgressRing")).IsActive);
             Assert.Equal("win-optimizer", Assert.IsType<TextBlock>(loader.FindName("LoadingTitleText")).Text);
             Assert.Null(window.ViewModel);
+            Assert.Equal(rightToLeft ? FlowDirection.RightToLeft : FlowDirection.LeftToRight, loader.FlowDirection);
+            var logo = Assert.IsType<Image>(loader.FindName("LoadingLogo"));
+            var card = Assert.IsType<Border>(loader.FindName("LoadingStatusCard"));
+            Windows.Foundation.Rect Bounds(FrameworkElement element) => element.TransformToVisual(null)
+                .TransformBounds(new Windows.Foundation.Rect(0, 0, element.ActualWidth, element.ActualHeight));
+            var logoBounds = Bounds(logo);
+            var cardBounds = Bounds(card);
+            var clientHeight = loader.ActualHeight;
+            var clientWidth = loader.ActualWidth;
+
+            // Progress reports may wrap, but should not resize the card or move the branding.
+            loader.StatusText.Text = "Initializing settings...\nPreparing the interface...";
+            await StartupUiCoordinator.RunAfterFirstRenderAsync(loader, () => Task.CompletedTask);
+            Assert.Equal(logoBounds, Bounds(logo));
+            Assert.Equal(cardBounds, Bounds(card));
 
             // The production handover keeps the same loader and native window alive.
             var id = window.AppWindow.Id;
@@ -38,9 +76,17 @@ public sealed class StartupPresentationTests
             var overlay = Assert.IsType<Grid>(shell.FindName("LoadingOverlay"));
             Assert.Same(loader, Assert.Single(overlay.Children));
             Assert.Equal(id, window.AppWindow.Id);
+            Assert.Equal(1050, window.AppWindow.Size.Width);
+            Assert.Equal(720, window.AppWindow.Size.Height);
             Assert.Equal(Visibility.Visible, overlay.Visibility);
             Assert.True(loader.IsLoaded);
-            Assert.Equal("Loading_PreparingApp", loader.StatusText.Text);
+            Assert.Equal(clientWidth, loader.ActualWidth);
+            Assert.Equal(clientHeight, loader.ActualHeight);
+            Assert.Equal(logoBounds, Bounds(logo));
+            Assert.Equal(cardBounds, Bounds(card));
+            Assert.Equal(ElementTheme.Dark, shell.RequestedTheme);
+            Assert.Equal(ElementTheme.Dark, loader.ActualTheme);
+            Assert.Equal("Initializing settings...\nPreparing the interface...", loader.StatusText.Text);
             Assert.Single(Microsoft.UI.Xaml.Application.Current.Resources.MergedDictionaries
                 .OfType<WinOptimizer.UI.Features.Common.Resources.AppColorResources>());
         }
@@ -48,7 +94,39 @@ public sealed class StartupPresentationTests
         Assert.True(window.IsClosed);
     }
 
-    /// <summary>Allows a redirected manual launch to open the loader while widget startup is preparing services.</summary>
+    /// <summary>Keeps the loader in place until the shell's first measured frame is ready.</summary>
+    [Fact]
+    public async Task ShellRevealWaitsForLayoutBeforeCompletingStartup()
+    {
+        var content = new Grid();
+        var overlay = new Grid();
+        var root = new Grid();
+        root.Children.Add(content);
+        root.Children.Add(overlay);
+        var window = new Window { Content = root };
+        var completed = false;
+        try
+        {
+            var reveal = StartupUiCoordinator.RevealShellAsync(content, overlay, () =>
+            {
+                Assert.True(content.IsLoaded);
+                Assert.True(content.ActualWidth > 0);
+                Assert.True(content.ActualHeight > 0);
+                Assert.Equal(Visibility.Visible, overlay.Visibility);
+                completed = true;
+            });
+            Assert.False(reveal.IsCompleted);
+            Assert.False(completed);
+            Assert.Equal(Visibility.Visible, overlay.Visibility);
+            window.Activate();
+            await reveal.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.True(completed);
+            Assert.Equal(Visibility.Collapsed, overlay.Visibility);
+        }
+        finally { window.Close(); }
+    }
+
+    /// <summary>Defers redirected activation until placement is ready during widget startup.</summary>
     [Fact]
     public async Task ManualActivationDuringEarlyStartupShowsTheSameWindow()
     {
@@ -56,6 +134,10 @@ public sealed class StartupPresentationTests
         try
         {
             var loader = window.Content;
+            window.RestoreFromBackground();
+            Assert.True(window.IsManualActivationRequested);
+            Assert.False(window.AppWindow.IsVisible);
+            await window.InitializeWindowPlacementAsync(Mock.Of<IUserPreferencesService>(), Mock.Of<ILogService>());
             window.RestoreFromBackground();
             await window.WaitForLoadingFrameAsync().WaitAsync(TimeSpan.FromSeconds(5));
             Assert.True(window.IsManualActivationRequested);

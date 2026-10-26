@@ -1,5 +1,6 @@
 using Microsoft.Win32;
 using System.Runtime.InteropServices;
+using System.Runtime.ExceptionServices;
 using WinOptimizer.Core.Features.Cleaner.Models;
 using WinOptimizer.Core.Features.SoftwareApps.Interfaces;
 
@@ -75,7 +76,7 @@ public sealed class CleanerFileScanner(ICleanerRegistrySessions accounts, IAppxP
             await packages.GetInstalledPackageNamesForUserAsync(account.UserPrefix[@"HKEY_USERS\".Length..], ct).ConfigureAwait(false);
         var root = Path.Combine(ProfileFolder(account, Environment.SpecialFolder.LocalApplicationData), "Packages");
         if (!Directory.Exists(root)) return [];
-        CleanerPaths.ValidateDescendant(root, Path.Combine(root, ".boundary"));
+        CleanerPaths.ValidateDirectory(root, root);
         List<CleanerApplication> result = [];
         foreach (var path in Directory.GetDirectories(root))
         {
@@ -160,7 +161,7 @@ public sealed class CleanerFileScanner(ICleanerRegistrySessions accounts, IAppxP
             {
                 var basePath = WindowsCleanerRegistryProfiles.ValidateProfileDirectory(systemFolders.GetFolderPath(folder));
                 var path = Path.Combine(basePath, relative);
-                CleanerPaths.ValidateDescendant(basePath, Path.Combine(path, ".boundary"));
+                CleanerPaths.ValidateDirectory(basePath, path);
                 var source = new Source(path, false, patterns, label, Recursive: recursive);
                 if (label == "Cleaner_WindowsTemp")
                 {
@@ -203,7 +204,7 @@ public sealed class CleanerFileScanner(ICleanerRegistrySessions accounts, IAppxP
             ct.ThrowIfCancellationRequested();
             var basePath = ProfileFolder(account, folder);
             var path = Path.Combine(basePath, relative);
-            CleanerPaths.ValidateDescendant(basePath, Path.Combine(path, ".boundary"));
+            CleanerPaths.ValidateDirectory(basePath, path);
             roots.Add(new(path, links, exact is null ? null : [exact], label, new(sid, folder, relative), unavailableReason));
         }
 
@@ -259,7 +260,7 @@ public sealed class CleanerFileScanner(ICleanerRegistrySessions accounts, IAppxP
                 if (!Directory.Exists(path)) continue;
                 try
                 {
-                    CleanerPaths.ValidateDescendant(path, Path.Combine(path, ".boundary"));
+                    CleanerPaths.ValidateDirectory(path, path);
                     var unavailableReason = PrivacyBlockReason(cache.Process);
                     if (cache.Kind == PrivacyCacheKind.Telegram)
                     {
@@ -289,7 +290,7 @@ public sealed class CleanerFileScanner(ICleanerRegistrySessions accounts, IAppxP
             if (!Directory.Exists(browserRoot)) continue;
             try
             {
-                CleanerPaths.ValidateDescendant(browserRoot, Path.Combine(browserRoot, ".boundary"));
+                CleanerPaths.ValidateDirectory(browserRoot, browserRoot);
                 var unavailableReason = PrivacyBlockReason(browser.Process);
                 var folder = browser.Roaming ? Environment.SpecialFolder.ApplicationData : Environment.SpecialFolder.LocalApplicationData;
                 var profiles = Directory.GetDirectories(browserRoot)
@@ -302,7 +303,7 @@ public sealed class CleanerFileScanner(ICleanerRegistrySessions accounts, IAppxP
                 foreach (var profile in profiles)
                 {
                     ct.ThrowIfCancellationRequested();
-                    CleanerPaths.ValidateDescendant(browserRoot, Path.Combine(profile, ".boundary"));
+                    CleanerPaths.ValidateDirectory(browserRoot, profile);
                     var relative = profile == browserRoot ? browser.RelativePath : Path.Combine(browser.RelativePath, Path.GetFileName(profile));
                     if (options.BrowserCache)
                         foreach (var cache in browser.Process == "firefox" ? new[] { "cache2", "startupCache" } : ChromiumCaches)
@@ -337,7 +338,7 @@ public sealed class CleanerFileScanner(ICleanerRegistrySessions accounts, IAppxP
                 else
                 {
                     if (!Directory.Exists(root.Path)) continue;
-                    CleanerPaths.ValidateDescendant(root.Path, Path.Combine(root.Path, ".boundary"));
+                    CleanerPaths.ValidateDirectory(root.Path, root.Path);
                     files = Directory.EnumerateFiles(root.Path);
                 }
                 if (root.Patterns is { } patterns)
@@ -354,24 +355,57 @@ public sealed class CleanerFileScanner(ICleanerRegistrySessions accounts, IAppxP
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
             { notices.Add($"{root.Path}: {ex.Message}"); }
         }
-        int processed = 0;
         progress?.Report(new($"Cleaner_{area}", 0, candidates.Count));
-        foreach (var candidate in candidates)
+        var inspections = new (CleanerFinding? Finding, string? Notice, ExceptionDispatchInfo? Failure, bool SharingConflict)[candidates.Count];
+        // Bound independent read/lock checks, then publish each batch in discovery order.
+        for (int start = 0; start < candidates.Count; start += 64)
         {
             ct.ThrowIfCancellationRequested();
+            int end = Math.Min(start + 64, candidates.Count);
+            if (area != CleanerArea.Shortcuts)
+                Parallel.For(start, end, new ParallelOptions { MaxDegreeOfParallelism = 4, CancellationToken = ct }, InspectCandidate);
+            for (int index = start; index < end; index++)
+            {
+                if (area == CleanerArea.Shortcuts || inspections[index].SharingConflict)
+                {
+                    // Shortcut checks stay serial; hard-link conflicts are retried
+                    // after all parallel checks have released their exclusive handles.
+                    inspections[index].SharingConflict = false;
+                    inspections[index].Notice = null;
+                    inspections[index].Finding = null;
+                    InspectCandidate(index);
+                }
+                Publish(index);
+            }
+            progress?.Report(new($"Cleaner_{area}", end, candidates.Count));
+        }
+        return new(findings.AsReadOnly(), notices.AsReadOnly()) { CheckedItems = candidates.Count };
+
+        // Only the coordinating worker mutates result lists and posts progress.
+        void Publish(int index)
+        {
+            inspections[index].Failure?.Throw();
+            if (inspections[index].Notice is { } notice) notices.Add(notice);
+            if (inspections[index].Finding is { } finding) findings.Add(finding);
+        }
+
+        void InspectCandidate(int index)
+        {
+            ct.ThrowIfCancellationRequested();
+            var candidate = candidates[index];
             var path = candidate.Path;
             try
             {
                 CleanerPaths.ValidateDescendant(candidate.Source.Path, path);
                 var info = new FileInfo(path);
                 // Junk inventory includes protected recent files; privacy retains its scan-time filter.
-                if (area == CleanerArea.Privacy && (info.LastWriteTimeUtc > cutoff || info.LastAccessTimeUtc > scanTime)) continue;
+                if (area == CleanerArea.Privacy && (info.LastWriteTimeUtc > cutoff || info.LastAccessTimeUtc > scanTime)) return;
                 string? target = null;
                 if (area == CleanerArea.Shortcuts)
                 {
                     using var account = accounts.Open(candidate.Source.Profile?.AccountSid);
                     target = ReadShortcut(path, account);
-                    if (string.IsNullOrEmpty(target) || !CleanerPaths.IsMissingLocalFile(target)) continue;
+                    if (string.IsNullOrEmpty(target) || !CleanerPaths.IsMissingLocalFile(target)) return;
                 }
                 var evidence = new CleanerFileTarget(candidate.Source.Path, path, info.Length, info.LastWriteTimeUtc, scanTime, target)
                     { Profile = candidate.Source.Profile };
@@ -389,21 +423,17 @@ public sealed class CleanerFileScanner(ICleanerRegistrySessions accounts, IAppxP
                     catch (Exception ex) when (area is CleanerArea.Privacy or CleanerArea.JunkFiles && ex is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
                     {
                         unavailableReason = ex.Message;
-                        notices.Add($"{path}: {ex.Message}");
+                        inspections[index].SharingConflict = ex is System.ComponentModel.Win32Exception { NativeErrorCode: 32 };
+                        inspections[index].Notice = $"{path}: {ex.Message}";
                     }
                 }
-                findings.Add(new(Guid.NewGuid(), area, candidate.Source.LabelKey, path, info.Length, unavailableReason is null, evidence)
-                    { UnavailableReason = unavailableReason });
+                inspections[index].Finding = new(Guid.NewGuid(), area, candidate.Source.LabelKey, path, info.Length, unavailableReason is null, evidence)
+                    { UnavailableReason = unavailableReason };
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or COMException or System.ComponentModel.Win32Exception)
-            { notices.Add($"{path}: {ex.Message}"); }
-            finally
-            {
-                processed++;
-                if (processed % 64 == 0 || processed == candidates.Count) progress?.Report(new($"Cleaner_{area}", processed, candidates.Count));
-            }
+            { inspections[index].Notice = $"{path}: {ex.Message}"; }
+            catch (Exception ex) { inspections[index].Failure = ExceptionDispatchInfo.Capture(ex); }
         }
-        return new(findings.AsReadOnly(), notices.AsReadOnly()) { CheckedItems = candidates.Count };
     }
 
     /// <summary>Rechecks the original account, root and evidence before deleting a scanned file.</summary>
@@ -440,7 +470,7 @@ public sealed class CleanerFileScanner(ICleanerRegistrySessions accounts, IAppxP
                 throw new IOException("Invalid account cleanup folder.");
             var basePath = ProfileFolder(account, profile.Folder);
             var resolved = Path.GetFullPath(Path.Combine(basePath, profile.RelativePath));
-            CleanerPaths.ValidateDescendant(basePath, Path.Combine(resolved, ".boundary"));
+            CleanerPaths.ValidateDirectory(basePath, resolved);
             if (!string.Equals(resolved, Path.GetFullPath(file.Root), StringComparison.OrdinalIgnoreCase))
                 throw new IOException("The account cleanup folder changed. Scan again.");
         }

@@ -1,3 +1,5 @@
+using System.Buffers;
+using System.Runtime.ExceptionServices;
 using System.Security.Cryptography;
 using System.Text.Json;
 using WinOptimizer.Core.Features.Cleaner.Interfaces;
@@ -28,23 +30,54 @@ public sealed class CleanerBackupService(ICleanerBackupVault vault, CleanerFileS
                 throw new ArgumentException("A cleanup backup requires actionable file or registry results.");
             vault.EnsureDirectory(directory);
             List<Entry> entries = [];
-            foreach (var finding in findings)
+            for (int index = 0; index < findings.Count;)
             {
                 ct.ThrowIfCancellationRequested();
-                if (finding.Target is CleanerFileTarget file)
+                var finding = findings[index];
+                if (finding.Target is CleanerFileTarget)
                 {
-                    files.ValidateForCleanup(file);
-                    using var source = CleanerFileDeletion.OpenVerified(file, deleting: false);
-                    var payload = Path.Combine(directory, finding.Id.ToString("N") + ".bin");
-                    created.Add(payload);
-                    using var destination = new FileStream(payload, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None);
-                    var hash = await CopyVerifiedAsync(source, destination, ct).ConfigureAwait(false);
-                    entries.Add(new(finding.Id, file, null, hash));
+                    List<Task<Entry>> pending = [];
+                    ExceptionDispatchInfo? preparationFailure = null;
+                    // Account/root validation stays ordered and serial. Only independent,
+                    // exclusively opened payload copies run together, with at most four sources.
+                    try
+                    {
+                        for (; pending.Count < 4 && index < findings.Count && findings[index].Target is CleanerFileTarget file; index++)
+                        {
+                            ct.ThrowIfCancellationRequested();
+                            var item = findings[index];
+                            files.ValidateForCleanup(file);
+                            FileStream source;
+                            try { source = CleanerFileDeletion.OpenVerified(file, deleting: false, asynchronous: true); }
+                            catch (System.ComponentModel.Win32Exception ex) when (ex.NativeErrorCode == 32 && pending.Count > 0)
+                            {
+                                // A repeated path or hard link can refer to a source we
+                                // already hold exclusively. Drain it before retrying this item;
+                                // a lock that remains after draining is still reported as failure.
+                                break;
+                            }
+                            var payload = Path.Combine(directory, item.Id.ToString("N") + ".bin");
+                            created.Add(payload);
+                            pending.Add(CopyFileAsync(item.Id, file, source, payload, ct));
+                        }
+                    }
+                    catch (Exception ex) { preparationFailure = ExceptionDispatchInfo.Capture(ex); }
+                    try { entries.AddRange(await Task.WhenAll(pending).ConfigureAwait(false)); }
+                    catch
+                    {
+                        // All handles have closed before rollback. Report the first failure
+                        // in selection order, independently of which copy completed first.
+                        foreach (var copy in pending)
+                            if (copy.IsFaulted || copy.IsCanceled) copy.GetAwaiter().GetResult();
+                        throw;
+                    }
+                    preparationFailure?.Throw();
                 }
                 else if (finding.Target is CleanerRegistryTarget value)
                 {
                     registry.Verify(value);
                     entries.Add(new(finding.Id, null, value, null));
+                    index++;
                 }
             }
             var manifest = new Manifest(1, id, DateTime.UtcNow, entries.ToArray());
@@ -72,6 +105,20 @@ public sealed class CleanerBackupService(ICleanerBackupVault vault, CleanerFileS
         }
         finally { _gate.Release(); }
     }, ct);
+
+    /// <summary>Owns an already verified source until its durable payload copy and readback finish.</summary>
+    private static Task<Entry> CopyFileAsync(Guid id, CleanerFileTarget file, FileStream source, string payload, CancellationToken ct) => Task.Run(async () =>
+    {
+        // Do not cancel scheduling: the worker must always dispose its transferred handle.
+        using (source)
+        {
+            ct.ThrowIfCancellationRequested();
+            using var destination = new FileStream(payload, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None,
+                4096, FileOptions.Asynchronous | FileOptions.SequentialScan);
+            var hash = await CopyVerifiedAsync(source, destination, ct).ConfigureAwait(false);
+            return new Entry(id, file, null, hash);
+        }
+    });
 
     public Task<IReadOnlyList<CleanerBackupInfo>> ListAsync(CancellationToken ct) => Task.Run<IReadOnlyList<CleanerBackupInfo>>(() =>
     {
@@ -172,23 +219,28 @@ public sealed class CleanerBackupService(ICleanerBackupVault vault, CleanerFileS
         { throw new IOException("The cleanup backup is damaged or belongs to another Windows account.", ex); }
     }
 
-    /// <summary>Copies once, flushes to storage, then checks the persisted bytes against the source hash.</summary>
+    /// <summary>Copies with a reusable buffer, flushes to storage, then verifies the persisted bytes against the source hash.</summary>
     internal static async Task<string> CopyVerifiedAsync(Stream source, FileStream destination, CancellationToken ct)
     {
         using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-        byte[] buffer = new byte[131072];
-        int count;
-        while ((count = await source.ReadAsync(buffer, ct).ConfigureAwait(false)) != 0)
+        const int bufferSize = 131072;
+        var buffer = ArrayPool<byte>.Shared.Rent(bufferSize);
+        try
         {
-            hash.AppendData(buffer, 0, count);
-            await destination.WriteAsync(buffer.AsMemory(0, count), ct).ConfigureAwait(false);
+            int count;
+            while ((count = await source.ReadAsync(buffer.AsMemory(0, bufferSize), ct).ConfigureAwait(false)) != 0)
+            {
+                hash.AppendData(buffer, 0, count);
+                await destination.WriteAsync(buffer.AsMemory(0, count), ct).ConfigureAwait(false);
+            }
+            destination.Flush(true);
+            var expected = hash.GetHashAndReset();
+            destination.Position = 0;
+            var actual = await SHA256.HashDataAsync(destination, ct).ConfigureAwait(false);
+            if (!CryptographicOperations.FixedTimeEquals(expected, actual))
+                throw new IOException("Backup copy verification failed.");
+            return Convert.ToHexString(expected);
         }
-        destination.Flush(true);
-        var expected = hash.GetHashAndReset();
-        destination.Position = 0;
-        var actual = await SHA256.HashDataAsync(destination, ct).ConfigureAwait(false);
-        if (!CryptographicOperations.FixedTimeEquals(expected, actual))
-            throw new IOException("Backup copy verification failed.");
-        return Convert.ToHexString(expected);
+        finally { ArrayPool<byte>.Shared.Return(buffer, clearArray: true); }
     }
 }

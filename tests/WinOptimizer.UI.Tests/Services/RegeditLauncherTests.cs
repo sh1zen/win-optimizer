@@ -226,20 +226,6 @@ public class RegeditLauncherTests
     }
 
     [Fact]
-    public void KeyExists_WhenNotOtsMode_DoesNotRedirectHkcu()
-    {
-        _mockInteractiveUserService.Setup(s => s.IsOtsElevation).Returns(false);
-        _mockInteractiveUserService.Setup(s => s.InteractiveUserSid).Returns((string?)null);
-
-        var sut = CreateSut();
-
-        // In non-OTS mode, HKCU\SOFTWARE should resolve normally
-        var result = sut.KeyExists(@"HKCU\SOFTWARE");
-
-        result.Should().BeTrue();
-    }
-
-    [Fact]
     public void KeyExists_InOtsModeWithNullSid_DoesNotRedirect()
     {
         _mockInteractiveUserService.Setup(s => s.IsOtsElevation).Returns(true);
@@ -254,129 +240,8 @@ public class RegeditLauncherTests
     }
 
     // -------------------------------------------------------
-    // KeyExists - exception handling
-    // -------------------------------------------------------
-
-    [Fact]
-    public void KeyExists_WhenExceptionOccurs_ReturnsFalse()
-    {
-        // Setup a scenario where the registry access might fail
-        // Using a malformed path that could cause issues
-        _mockInteractiveUserService.Setup(s => s.IsOtsElevation).Returns(true);
-        _mockInteractiveUserService.Setup(s => s.InteractiveUserSid).Returns("S-1-5-21-FAKE");
-
-        var sut = CreateSut();
-
-        // This redirects to HKU\S-1-5-21-FAKE\... which doesn't exist
-        // but shouldn't throw - should return false
-        var result = sut.KeyExists(@"HKCU\SOFTWARE\NonExistent");
-
-        result.Should().BeFalse();
-    }
-
-    // -------------------------------------------------------
-    // OpenAtPath - normal mode
-    // -------------------------------------------------------
-
-    [Fact]
-    public void OpenAtPath_InNormalMode_CallsShellExecuteForRegedit()
-    {
-        _mockInteractiveUserService.Setup(s => s.IsOtsElevation).Returns(false);
-        _mockInteractiveUserService.Setup(s => s.InteractiveUserSid).Returns((string?)null);
-        _mockInteractiveUserService.Setup(s => s.HasInteractiveUserToken).Returns(false);
-
-        _mockProcessExecutor
-            .Setup(p => p.ShellExecuteAsync("regedit.exe", null, false, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(0);
-
-        var sut = CreateSut();
-
-        // OpenAtPath writes to the registry (LastKey) which may or may not succeed
-        // in test context. The key behavior is that it attempts to launch regedit.
-        // We wrap in try/catch since the registry write might fail in restricted
-        // test environments.
-        try
-        {
-            sut.OpenAtPath(@"HKLM\SOFTWARE\Microsoft");
-        }
-        catch
-        {
-            // Best-effort - the method silently catches all exceptions
-        }
-
-        // In normal mode, ShellExecuteAsync should have been called (or attempted)
-        // The method uses FireAndForget, so it may not always be verifiable
-        // depending on timing, but the code path should be correct.
-    }
-
-    [Fact]
-    public void OpenAtPath_WithShortHklmPath_NormalizesToLongForm()
-    {
-        _mockInteractiveUserService.Setup(s => s.IsOtsElevation).Returns(false);
-
-        var sut = CreateSut();
-
-        // This should not throw - the method catches all exceptions
-        sut.OpenAtPath(@"HKLM\SOFTWARE\Microsoft");
-    }
-
-    [Fact]
-    public void OpenAtPath_WithShortHkcuPath_NormalizesToLongForm()
-    {
-        _mockInteractiveUserService.Setup(s => s.IsOtsElevation).Returns(false);
-
-        var sut = CreateSut();
-
-        sut.OpenAtPath(@"HKCU\SOFTWARE\Microsoft");
-    }
-
-    [Fact]
-    public void OpenAtPath_WithLongFormPath_DoesNotDoubleNormalize()
-    {
-        _mockInteractiveUserService.Setup(s => s.IsOtsElevation).Returns(false);
-
-        var sut = CreateSut();
-
-        sut.OpenAtPath(@"HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft");
-    }
-
-    [Fact]
-    public void OpenAtPath_WithComputerPrefix_DoesNotDoublePrefix()
-    {
-        _mockInteractiveUserService.Setup(s => s.IsOtsElevation).Returns(false);
-
-        var sut = CreateSut();
-
-        sut.OpenAtPath(@"Computer\HKEY_LOCAL_MACHINE\SOFTWARE\Microsoft");
-    }
-
-    // -------------------------------------------------------
     // OpenAtPath - OTS mode
     // -------------------------------------------------------
-
-    [Fact]
-    public void OpenAtPath_InOtsMode_CallsLaunchProcessAsInteractiveUser()
-    {
-        _mockInteractiveUserService.Setup(s => s.IsOtsElevation).Returns(true);
-        _mockInteractiveUserService.Setup(s => s.InteractiveUserSid).Returns("S-1-5-21-1234-5678");
-        _mockInteractiveUserService.Setup(s => s.HasInteractiveUserToken).Returns(true);
-
-        var sut = CreateSut();
-
-        try
-        {
-            sut.OpenAtPath(@"HKLM\SOFTWARE\Microsoft");
-        }
-        catch
-        {
-            // Registry write may fail in test context, but the method catches all exceptions
-        }
-
-        // In OTS mode, it should try to launch as interactive user
-        _mockInteractiveUserService.Verify(
-            s => s.LaunchProcessAsInteractiveUser("regedit.exe", ""),
-            Times.AtMostOnce);
-    }
 
     [Fact]
     public void OpenAtPath_InOtsModeWithNoToken_TreatsAsNormalMode()

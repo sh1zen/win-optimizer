@@ -15,6 +15,13 @@ $testAppId = [guid]::NewGuid().ToString()
 $testExtension = '.winoptimizer-test-' + $testAppId
 $dataParent = Join-Path $testRoot 'Storage'
 $dataRoot = Join-Path $dataParent 'win-optimizer'
+$traceRegistry = 'Software\WinOptimizerInstallerTests\' + $testAppId
+$prefetchRoot = Join-Path $testRoot 'Prefetch'
+$taskFolderName = 'WinOptimizerInstallerTests-' + $testAppId
+$profileKey = $traceRegistry + '\Profiles'
+$testSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+$scheduler = New-Object -ComObject 'Schedule.Service'
+$scheduler.Connect()
 $savedData = @(
     'Users/S-1-5-21-1001/Config/UserPreferences.json',
     'Users/S-1-5-21-1002/Backups/Configurations/saved.win-optimizer',
@@ -28,6 +35,148 @@ function New-SavedDataFixture {
         $path = Join-Path $dataRoot $relative
         $null = New-Item -ItemType Directory -Path (Split-Path -Parent $path) -Force
         Set-Content -LiteralPath $path -Value 'saved fixture data'
+    }
+}
+
+# Each trace has unrelated neighbours and near matches, all under unique test boundaries.
+function New-TraceFixture {
+    param([string]$Installation, [switch]$EmptyTasks, [switch]$OtherTasks)
+    $executable = Join-Path $Installation 'win-optimizer.exe'
+    $script:traceValues = @()
+    foreach ($view in @([Microsoft.Win32.RegistryView]::Registry64, [Microsoft.Win32.RegistryView]::Registry32)) {
+        $hive = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::CurrentUser, $view)
+        try {
+            foreach ($container in @(
+                'Microsoft\Windows\CurrentVersion\Explorer\FeatureUsage\AppSwitched',
+                'Microsoft\Windows\CurrentVersion\Explorer\FeatureUsage\ShowJumpView',
+                'Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Compatibility Assistant\Store',
+                'Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Compatibility Assistant\Persisted',
+                'Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers'
+            )) {
+                $keyPath = "$traceRegistry\$container"
+                $key = $hive.CreateSubKey($keyPath)
+                try {
+                    foreach ($value in @(
+                        @{ Name = $executable; Remove = $true },
+                        @{ Name = '{6D809377-6AF0-444B-8957-A3773F02200E}' + $executable.Substring($testRoot.Length); Remove = $true },
+                        @{ Name = "$executable.bak"; Remove = $false },
+                        @{ Name = "D:\Other copy\win-optimizer.exe"; Remove = $false },
+                        @{ Name = "D:\source\WinOptimizer.Startup.Tests.exe"; Remove = $false }
+                    )) {
+                        $key.SetValue($value.Name, [byte[]]@(1, 2, 3), [Microsoft.Win32.RegistryValueKind]::Binary)
+                        $script:traceValues += @{ View = $view; Key = $keyPath; Name = $value.Name; Remove = $value.Remove }
+                    }
+                }
+                finally { $key.Dispose() }
+            }
+            $shortcutKeyPath = "$traceRegistry\Microsoft\Windows\CurrentVersion\UFH\SHC"
+            $key = $hive.CreateSubKey($shortcutKeyPath)
+            try {
+                $key.SetValue('0', [string[]]@('C:\Start menu\win-optimizer.lnk', $executable), [Microsoft.Win32.RegistryValueKind]::MultiString)
+                $key.SetValue('1', [string[]]@('C:\Start menu\other.lnk', "$executable.bak"), [Microsoft.Win32.RegistryValueKind]::MultiString)
+                $script:traceValues += @{ View = $view; Key = $shortcutKeyPath; Name = '0'; Remove = $true }
+                $script:traceValues += @{ View = $view; Key = $shortcutKeyPath; Name = '1'; Remove = $false }
+            }
+            finally { $key.Dispose() }
+            $key = $hive.CreateSubKey("$profileKey\$testSid")
+            $key.Dispose()
+            $key = $hive.CreateSubKey("$profileKey\$testSid.bak")
+            $key.SetValue('ProfileImagePath', 'invalid backup registration')
+            $key.Dispose()
+        }
+        finally { $hive.Dispose() }
+    }
+    $null = New-Item -ItemType Directory -Path $prefetchRoot -Force
+    foreach ($name in @('WIN-OPTIMIZER.EXE-0D5A5407.pf', 'win-optimizer.exe-1234abcd.pf',
+        'WIN-OPTIMIZER.EXE-ZZZZZZZZ.pf', 'WIN-OPTIMIZER.EXE-12345678.pf.bak', 'OTHER.EXE-12345678.pf')) {
+        Set-Content -LiteralPath (Join-Path $prefetchRoot $name) -Value 'synthetic prefetch'
+    }
+    $root = $scheduler.GetFolder('\')
+    $folder = $root.CreateFolder($taskFolderName)
+    if (-not $EmptyTasks) {
+        $paths = @{ Owned = $executable }
+        if ($OtherTasks) { $paths.Other = 'D:\Other copy\win-optimizer.exe' }
+        foreach ($entry in $paths.GetEnumerator()) {
+            $definition = $scheduler.NewTask(0)
+            $definition.Settings.Enabled = $false
+            $definition.Settings.Hidden = $true
+            $definition.Principal.LogonType = 3
+            $action = $definition.Actions.Create(0)
+            $action.Path = $entry.Value
+            $null = $folder.RegisterTaskDefinition($entry.Key, $definition, 6, $testSid, $null, 3)
+        }
+        if ($OtherTasks) {
+            $definition = $scheduler.NewTask(0)
+            $definition.Settings.Enabled = $false
+            $definition.Principal.LogonType = 3
+            foreach ($path in @($executable, 'D:\Other copy\other.exe')) {
+                $definition.Actions.Create(0).Path = $path
+            }
+            $null = $folder.RegisterTaskDefinition('Mixed', $definition, 6, $testSid, $null, 3)
+        }
+    }
+}
+
+# Assert the resource-level result, including preserved bytes for all unrelated values.
+function Assert-TraceFixture {
+    param([bool]$Removed, [switch]$OtherTasks, [switch]$EmptyTasks)
+    foreach ($value in $traceValues) {
+        $hive = [Microsoft.Win32.RegistryKey]::OpenBaseKey([Microsoft.Win32.RegistryHive]::CurrentUser, $value.View)
+        try {
+            $key = $hive.OpenSubKey($value.Key)
+            if (-not $key) { throw 'Cleanup removed a shared registry container.' }
+            try {
+                $present = $key.GetValueNames() -contains $value.Name
+                if ($present -eq ($Removed -and $value.Remove)) {
+                    throw "Wrong registry trace result: $($value.Key) / $($value.Name)"
+                }
+                if ($present) {
+                    $expected = if ($value.Name -eq '0') { @('C:\Start menu\win-optimizer.lnk', (Join-Path $installedRoot 'win-optimizer.exe')) }
+                        elseif ($value.Name -eq '1') { @('C:\Start menu\other.lnk', ((Join-Path $installedRoot 'win-optimizer.exe') + '.bak')) }
+                        else { @(1, 2, 3) }
+                    if (Compare-Object @($key.GetValue($value.Name)) $expected -SyncWindow 0) {
+                        throw 'Cleanup changed an unrelated registry value.'
+                    }
+                }
+            }
+            finally { $key.Dispose() }
+        }
+        finally { $hive.Dispose() }
+    }
+    foreach ($name in @('WIN-OPTIMIZER.EXE-0D5A5407.pf', 'win-optimizer.exe-1234abcd.pf')) {
+        if ((Test-Path -LiteralPath (Join-Path $prefetchRoot $name)) -eq $Removed) {
+            throw "Wrong application Prefetch result: $name"
+        }
+    }
+    foreach ($name in @('WIN-OPTIMIZER.EXE-ZZZZZZZZ.pf', 'WIN-OPTIMIZER.EXE-12345678.pf.bak', 'OTHER.EXE-12345678.pf')) {
+        if ((Get-Content -LiteralPath (Join-Path $prefetchRoot $name) -Raw).Trim() -ne 'synthetic prefetch') {
+            throw 'Cleanup changed an unrelated Prefetch file.'
+        }
+    }
+    $folder = @($scheduler.GetFolder('\').GetFolders(0) | Where-Object Name -eq $taskFolderName)
+    if ($Removed -and -not $OtherTasks) {
+        if ($folder.Count) { throw 'Cleanup left an empty Task Scheduler folder.' }
+    }
+    else {
+        if ($folder.Count -ne 1) { throw 'Cleanup removed a retained task folder.' }
+        $names = @($folder[0].GetTasks(1) | ForEach-Object Name)
+        if ((-not $EmptyTasks -and ($names -contains 'Owned') -eq $Removed) -or
+            ($OtherTasks -and ($names -notcontains 'Other' -or $names -notcontains 'Mixed'))) {
+            throw 'Cleanup did not preserve unrelated tasks or remove the application startup task.'
+        }
+    }
+}
+
+# Remove only this run's synthetic scheduler namespace, including after failed assertions.
+function Remove-TaskFixture {
+    if ($taskFolderName -ne ('WinOptimizerInstallerTests-' + $testAppId)) { throw 'Unsafe task cleanup identity.' }
+    $root = $scheduler.GetFolder('\')
+    foreach ($folder in $root.GetFolders(0)) {
+        if ($folder.Name -eq $taskFolderName) {
+            foreach ($task in $folder.GetTasks(1)) { $folder.DeleteTask($task.Name, 0) }
+            $root.DeleteFolder($taskFolderName, 0)
+            break
+        }
     }
 }
 
@@ -69,6 +218,13 @@ try {
     $compileSource = $compileSource.Replace('C:\win-optimizer', $repoRoot)
     # Redirect the data boundary too: no test may address the real ProgramData store.
     $compileSource = $compileSource.Replace('{commonappdata}\win-optimizer', $dataRoot)
+    # Redirect every cleanup boundary; the real Windows traces/profiles remain untouched.
+    $compileSource = $compileSource.Replace('Software\Microsoft\', "$traceRegistry\Microsoft\")
+    $compileSource = $compileSource.Replace('SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList', $profileKey)
+    $compileSource = $compileSource.Replace('HKLM64, ProfilesKey', 'HKCU64, ProfilesKey')
+    $compileSource = $compileSource.Replace("'win-optimizer'", "'$taskFolderName'")
+    $compileSource = $compileSource.Replace('{win}\Prefetch', $prefetchRoot)
+    $compileSource = $compileSource.Replace('{pf64}', $testRoot)
     # Only the fixture's registration identity changes; every install/uninstall entry remains real.
     $compileSource = $compileSource.Replace('51DB5BCA-8548-51D2-AD65-B6527C62A739', $testAppId)
     $compileSource = $compileSource.Replace('#define MyAppAssocExt ".win-optimizer"', "#define MyAppAssocExt `"$testExtension`"")
@@ -153,6 +309,8 @@ try {
         throw 'An in-place mode change must preserve the registered installation and its uninstaller.'
     }
     New-SavedDataFixture
+    $installedRoot = $regularRoot
+    New-TraceFixture -Installation $installedRoot
     $uninstallProcess = Start-Process -FilePath $uninstaller[0].FullName `
         -ArgumentList @('/VERYSILENT', '/SUPPRESSMSGBOXES', '/NORESTART') -WindowStyle Hidden -Wait -PassThru
     if ($uninstallProcess.ExitCode -ne 0 -or
@@ -165,6 +323,8 @@ try {
             throw 'The default silent uninstall must preserve application data for reinstallation.'
         }
     }
+    Assert-TraceFixture -Removed $false
+    Remove-TaskFixture
 
     $outsideRoot = Join-Path $testRoot 'Other application data'
     $null = New-Item -ItemType Directory -Path (Join-Path $outsideRoot 'win-optimizer') -Force
@@ -175,6 +335,14 @@ try {
         @{ Name = 'keep'; Policy = 'keep'; Shape = 'normal'; Error = '' },
         @{ Name = 'remove'; Policy = 'remove'; Shape = 'normal'; Error = '' },
         @{ Name = 'missing'; Policy = 'remove'; Shape = 'missing'; Error = '' },
+        @{ Name = 'empty-tasks'; Policy = 'remove'; Shape = 'normal'; EmptyTasks = $true; Error = '' },
+        @{ Name = 'other-tasks'; Policy = 'remove'; Shape = 'normal'; OtherTasks = $true; Error = '' },
+        @{ Name = 'offline-missing'; Policy = 'remove'; Shape = 'offline-missing'; Error = '' },
+        @{ Name = 'offline-invalid'; Policy = 'remove'; Shape = 'offline-invalid'; Error = 'Cannot load or release a Windows profile hive' },
+        @{ Name = 'offline-linked'; Policy = 'remove'; Shape = 'offline-linked'; Error = 'linked application-data folder' },
+        @{ Name = 'prefetch-linked'; Policy = 'remove'; Shape = 'prefetch-linked'; Error = 'linked application-data folder' },
+        @{ Name = 'prefetch-locked'; Policy = 'remove'; Shape = 'prefetch-locked'; Error = 'Cannot remove application Prefetch file' },
+        @{ Name = 'registry-denied'; Policy = 'remove'; Shape = 'registry-denied'; Error = 'Cannot remove registry value' },
         @{ Name = 'invalid-policy'; Policy = 'invalid'; Shape = 'normal'; Error = 'Invalid uninstall data policy' },
         @{ Name = 'file-root'; Policy = 'remove'; Shape = 'file'; Error = 'not a directory' },
         @{ Name = 'overlap'; Policy = 'remove'; Shape = 'overlap'; Error = 'application is installed inside its data folder' },
@@ -190,7 +358,12 @@ try {
         New-SavedDataFixture
         $installedRoot = if ($scenario.Shape -eq 'overlap') { $dataRoot } else { $regularRoot }
         $uninstallerPath = Install-RegularFixture -Destination $installedRoot
+        New-TraceFixture -Installation $installedRoot -EmptyTasks:([bool]$scenario.EmptyTasks) -OtherTasks:([bool]$scenario.OtherTasks)
         $lockedFile = $null
+        $deniedKey = $null
+        $deniedRule = $null
+        $offlineProfile = Join-Path $testRoot 'Offline profile'
+        $offlineSid = 'S-1-5-21-1000000001-1000000002-1000000003-1001'
         try {
             switch ($scenario.Shape) {
                 'missing' { [IO.Directory]::Delete($dataRoot, $true) }
@@ -213,6 +386,39 @@ try {
                     $lockedFile = [IO.File]::Open((Join-Path $dataRoot $savedData[0]),
                         [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::None)
                 }
+                'prefetch-locked' {
+                    $lockedFile = [IO.File]::Open((Join-Path $prefetchRoot 'WIN-OPTIMIZER.EXE-0D5A5407.pf'),
+                        [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::Read)
+                }
+                'prefetch-linked' {
+                    [IO.Directory]::Delete($prefetchRoot, $true)
+                    $null = New-Item -ItemType Junction -Path $prefetchRoot -Target $outsideRoot
+                }
+                'registry-denied' {
+                    $deniedKey = [Microsoft.Win32.Registry]::CurrentUser.OpenSubKey(
+                        "$traceRegistry\Microsoft\Windows\CurrentVersion\Explorer\FeatureUsage\AppSwitched",
+                        [Microsoft.Win32.RegistryKeyPermissionCheck]::ReadWriteSubTree,
+                        [Security.AccessControl.RegistryRights]::ChangePermissions)
+                    $acl = $deniedKey.GetAccessControl()
+                    $deniedRule = [Security.AccessControl.RegistryAccessRule]::new([Security.Principal.SecurityIdentifier]::new($testSid),
+                        [Security.AccessControl.RegistryRights]::SetValue, [Security.AccessControl.AccessControlType]::Deny)
+                    $acl.AddAccessRule($deniedRule)
+                    $deniedKey.SetAccessControl($acl)
+                }
+            }
+            if ($scenario.Shape -like 'offline-*') {
+                if ($scenario.Shape -eq 'offline-linked') {
+                    $null = New-Item -ItemType Junction -Path $offlineProfile -Target $outsideRoot
+                }
+                else {
+                    $null = New-Item -ItemType Directory -Path $offlineProfile -Force
+                    if ($scenario.Shape -eq 'offline-invalid') {
+                        Set-Content -LiteralPath (Join-Path $offlineProfile 'NTUSER.DAT') -Value 'not a registry hive'
+                    }
+                }
+                $key = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey("$profileKey\$offlineSid")
+                try { $key.SetValue('ProfileImagePath', $offlineProfile) }
+                finally { $key.Dispose() }
             }
             $logPath = Join-Path $testRoot ("uninstall-$($scenario.Name).log")
             $process = Start-Process -FilePath $uninstallerPath `
@@ -247,6 +453,12 @@ try {
                 }
             }
             elseif (Test-Path -LiteralPath $dataRoot) { throw 'Full cleanup left application data behind.' }
+            if (-not $scenario.Error) {
+                Assert-TraceFixture -Removed ($scenario.Policy -eq 'remove') -OtherTasks:([bool]$scenario.OtherTasks) -EmptyTasks:([bool]$scenario.EmptyTasks)
+            }
+            elseif ($scenario.Shape -in @('normal', 'file', 'overlap', 'root-link', 'ancestor-link')) {
+                Assert-TraceFixture -Removed $false
+            }
             if ((Get-Content -LiteralPath $outsideSentinel -Raw).Trim() -ne 'outside storage boundary' -or
                 -not (Test-Path -LiteralPath $regularSentinel)) {
                 throw 'Uninstallation crossed the storage boundary or removed an untracked file.'
@@ -254,7 +466,25 @@ try {
             $uninstallScenariosPassed++
         }
         finally {
+            Remove-TaskFixture
             if ($lockedFile) { $lockedFile.Dispose() }
+            if ($deniedKey) {
+                try {
+                    if ($deniedRule) {
+                        $acl = $deniedKey.GetAccessControl()
+                        $acl.RemoveAccessRuleSpecific($deniedRule)
+                        $deniedKey.SetAccessControl($acl)
+                    }
+                }
+                finally { $deniedKey.Dispose() }
+            }
+            [Microsoft.Win32.Registry]::CurrentUser.DeleteSubKeyTree("$profileKey\$offlineSid", $false)
+            if ($scenario.Shape -eq 'prefetch-linked') { [IO.Directory]::Delete($prefetchRoot) }
+            # Each offline scenario owns its directory, including any failed hive-load files.
+            # Directory.Delete removes a junction itself without traversing its target.
+            if ($scenario.Shape -like 'offline-*' -and (Test-Path -LiteralPath $offlineProfile)) {
+                [IO.Directory]::Delete($offlineProfile, $true)
+            }
             if ($scenario.Shape -eq 'root-link' -and (Test-Path -LiteralPath $dataRoot)) { [IO.Directory]::Delete($dataRoot) }
             if ($scenario.Shape -eq 'ancestor-link' -and (Test-Path -LiteralPath $dataParent)) { [IO.Directory]::Delete($dataParent) }
             if (Test-Path -LiteralPath (Join-Path $installedRoot 'win-optimizer.exe')) {
@@ -418,10 +648,12 @@ $tasks
 finally {
     # These identities are generated for this test run and never address a real application.
     try {
+        Remove-TaskFixture
         foreach ($testRegistryPath in @(
             "HKCU:\Software\Classes\$testExtension",
             "HKCU:\Software\Classes\win-optimizerFile$testExtension",
             "HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\{$testAppId}_is1"
+            "HKCU:\$traceRegistry"
         )) {
             if (Test-Path -LiteralPath $testRegistryPath) { Remove-Item -LiteralPath $testRegistryPath -Recurse -Force }
         }

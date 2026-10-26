@@ -1,5 +1,7 @@
 using FluentAssertions;
 using Moq;
+using Moq.Protected;
+using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.SoftwareApps.Interfaces;
 using WinOptimizer.Infrastructure.Features.AdvancedTools.Services;
@@ -156,6 +158,34 @@ public class OscdimgToolManagerTests
         _mockWinGetInstaller.Verify(
             w => w.IsWinGetInstalledAsync(It.IsAny<CancellationToken>()),
             Times.Never);
+    }
+
+    [Theory]
+    [InlineData(true, true, false)]
+    [InlineData(false, true, false)]
+    [InlineData(true, true, true)]
+    [InlineData(false, false, false)]
+    public async Task EnsureOscdimgAvailableAsync_PreparesWinGetForEachPackageAttempt(bool ready, bool bootstrapSuccess, bool lightweightFails)
+    {
+        var installed = false;
+        _mockFileSystem.Setup(fs => fs.FileExists(It.IsAny<string>())).Returns(() => installed);
+        _mockWinGetInstaller.Setup(w => w.IsWinGetInstalledAsync(It.IsAny<CancellationToken>())).ReturnsAsync(ready);
+        _mockWinGetBootstrapper.Setup(w => w.InstallWinGetAsync(It.IsAny<CancellationToken>())).ReturnsAsync(bootstrapSuccess);
+        _mockHttpHandler.Protected().Setup<Task<HttpResponseMessage>>("SendAsync", ItExpr.IsAny<HttpRequestMessage>(), ItExpr.IsAny<CancellationToken>())
+            .ThrowsAsync(new HttpRequestException("isolated download failure"));
+        _mockDismRunner.Setup(r => r.RunProcessWithProgressAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IProgress<TaskProgressDetail>?>(), It.IsAny<CancellationToken>()))
+            .Returns((string file, string arguments, IProgress<TaskProgressDetail>? progress, CancellationToken ct) =>
+            {
+                installed = !lightweightFails || arguments.Contains("Microsoft.WindowsADK");
+                return Task.FromResult((installed ? 0 : 1, ""));
+            });
+
+        Assert.Equal(ready || bootstrapSuccess, await _service.EnsureOscdimgAvailableAsync());
+        var attempts = lightweightFails || !ready && !bootstrapSuccess ? 2 : 1;
+        _mockWinGetInstaller.Verify(w => w.IsWinGetInstalledAsync(It.IsAny<CancellationToken>()), Times.Exactly(attempts));
+        _mockWinGetBootstrapper.Verify(w => w.InstallWinGetAsync(It.IsAny<CancellationToken>()), Times.Exactly(ready ? 0 : attempts));
+        _mockDismRunner.Verify(r => r.RunProcessWithProgressAsync(It.IsAny<string>(), It.Is<string>(args => args.Contains("Microsoft.WindowsADK")),
+            It.IsAny<IProgress<TaskProgressDetail>?>(), It.IsAny<CancellationToken>()), lightweightFails ? Times.Once() : Times.Never());
     }
 
     #endregion

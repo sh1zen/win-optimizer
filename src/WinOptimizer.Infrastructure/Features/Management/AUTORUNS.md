@@ -83,14 +83,10 @@ can maintain its own local licensing/state information.
 
 Core owns the entries and dated inventory. `AutorunService` serializes scan/write
 snapshots, authorizes known editable entries and reserves application mode for
-writes. `AutorunPowerShellBackend` uses `ManagementPowerShellRunner` to materialize embedded scripts into exclusive
-temporary files. An encoded loader hashes the bytes read from disk before executing
-that same buffer, and request JSON is passed separately as base64 data. Temporary
-scripts are deleted after the complete command. Native units finish before
-cancellation is observed; no UI cancellation or forced termination is offered.
+writes. `AutorunPowerShellBackend` uses the shared
+[authenticated script runner and tool cache](../../../../ARCHITECTURE.md#extension-and-control).
+Native units finish before cancellation is observed; no UI cancellation or forced termination is offered.
 Shutdown drains in-flight startup writes through the existing utility hook.
-`Sysinternals-Cache.ps1` owns the shared allowlisted acquisition, Microsoft signature
-validation and executable locks for Autorunsc and the process monitor's Handle tool.
 
 `AutorunCsvReader` validates the Autorunsc schema and handles quoted multiline CSV.
 Unexpected output fails explicitly. Unknown state stays unknown.

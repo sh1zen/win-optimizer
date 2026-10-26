@@ -125,16 +125,14 @@ public class WimImageService : IWimImageService
         CancellationToken cancellationToken = default)
     {
         string targetFile = string.Empty;
-
-        using var cancellationRegistration = cancellationToken.Register(() =>
-        {
-            _logService.LogInformation("Cancellation requested - killing DISM processes");
-            KillDismProcesses();
-        });
+        bool ownsTarget = false;
+        bool targetVerified = false;
 
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var currentInfo = await DetectImageFormatAsync(workingDirectory).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
             if (currentInfo == null)
             {
                 _logService.LogError("Could not detect current image format");
@@ -152,6 +150,8 @@ public class WimImageService : IWimImageService
             targetFile = targetFormat == ImageFormat.Wim
                 ? _fileSystemService.CombinePath(sourcesPath, "install.wim")
                 : _fileSystemService.CombinePath(sourcesPath, "install.esd");
+            if (_fileSystemService.FileExists(targetFile))
+                throw new IOException("The destination image already exists. Review the existing images before converting.");
 
             var requiredSpace = currentInfo.FileSizeBytes * 2;
             await _dismProcessRunner.CheckDiskSpaceAsync(workingDirectory, requiredSpace, "Image conversion").ConfigureAwait(false);
@@ -166,11 +166,12 @@ public class WimImageService : IWimImageService
 
             var compressionType = targetFormat == ImageFormat.Esd ? "recovery" : "max";
 
-            var imageCount = currentInfo.ImageCount > 0 ? currentInfo.ImageCount : 1;
+            var imageCount = currentInfo.ImageCount;
             _logService.LogInformation($"Converting {imageCount} image(s)");
 
             for (int i = 1; i <= imageCount; i++)
             {
+                cancellationToken.ThrowIfCancellationRequested();
                 progress?.Report(new TaskProgressDetail
                 {
                     StatusText = _localization.GetString("Progress_ConvertingEdition", i.ToString(), imageCount.ToString()),
@@ -183,6 +184,7 @@ public class WimImageService : IWimImageService
 
                 _logService.LogInformation($"Exporting index {i}: dism.exe {arguments}");
 
+                ownsTarget = true;
                 var (exitCode, _) = await _dismProcessRunner.RunProcessWithProgressAsync("dism.exe", arguments, progress, cancellationToken).ConfigureAwait(false);
                 if (exitCode != 0)
                 {
@@ -197,6 +199,12 @@ public class WimImageService : IWimImageService
                 _logService.LogError($"Target file not found: {targetFile}");
                 return false;
             }
+
+            var convertedInfo = await GetImageInfoAsync(targetFile, targetFormat).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (convertedInfo.ImageCount != imageCount)
+                throw new IOException($"Converted image contains {convertedInfo.ImageCount} editions; expected {imageCount}. The source image has been preserved.");
+            targetVerified = true;
 
             progress?.Report(new TaskProgressDetail
             {
@@ -267,21 +275,6 @@ public class WimImageService : IWimImageService
         catch (OperationCanceledException)
         {
             _logService.LogInformation("Image conversion was cancelled");
-
-            if (_fileSystemService.FileExists(targetFile))
-            {
-                try
-                {
-                    _logService.LogInformation($"Cleaning up incomplete target file: {targetFile}");
-                    _fileSystemService.DeleteFile(targetFile);
-                    _logService.LogInformation("Incomplete target file deleted successfully");
-                }
-                catch (Exception cleanupEx)
-                {
-                    _logService.LogWarning($"Could not delete incomplete target file: {cleanupEx.Message}");
-                }
-            }
-
             throw;
         }
         catch (InsufficientDiskSpaceException)
@@ -291,27 +284,21 @@ public class WimImageService : IWimImageService
         catch (Exception ex)
         {
             _logService.LogError($"Error converting image: {ex.Message}", ex);
-
-            if (_fileSystemService.FileExists(targetFile))
-            {
-                try
-                {
-                    _logService.LogInformation($"Cleaning up incomplete target file: {targetFile}");
-                    _fileSystemService.DeleteFile(targetFile);
-                    _logService.LogInformation("Incomplete target file deleted successfully");
-                }
-                catch (Exception cleanupEx)
-                {
-                    _logService.LogWarning($"Could not delete incomplete target file: {cleanupEx.Message}");
-                }
-            }
-
             progress?.Report(new TaskProgressDetail
             {
                 StatusText = _localization.GetString("Progress_ConversionFailed"),
                 TerminalOutput = ex.Message
             });
             return false;
+        }
+        finally
+        {
+            // Only this conversion's unverified output is disposable; a verified image survives later failures.
+            if (ownsTarget && !targetVerified && _fileSystemService.FileExists(targetFile))
+            {
+                try { _fileSystemService.DeleteFile(targetFile); }
+                catch (Exception ex) { _logService.LogWarning($"Could not remove incomplete image '{targetFile}': {ex.Message}"); }
+            }
         }
     }
 
@@ -397,76 +384,35 @@ public class WimImageService : IWimImageService
         }
     }
 
+    /// <summary>Requires complete English DISM inventory before any source image can be replaced.</summary>
     private async Task<ImageFormatInfo> GetImageInfoAsync(string imagePath, ImageFormat format)
     {
-        long fileSizeBytes = _fileSystemService.GetFileSize(imagePath);
-        int imageCount = 1;
-        IReadOnlyList<string> editionNames = new List<string>();
-
-        try
+        var arguments = $"/English /Get-ImageInfo /ImageFile:\"{imagePath}\"";
+        var result = await _processExecutor.ExecuteAsync("dism.exe", arguments).ConfigureAwait(false);
+        if (!result.Succeeded)
+            throw new IOException($"Cannot read image inventory (DISM exit {result.ExitCode}): {result.StandardError}");
+        var indices = new List<int>();
+        var names = new List<string>();
+        foreach (var line in result.StandardOutput.Split('\n'))
         {
-            var arguments = $"/Get-ImageInfo /ImageFile:\"{imagePath}\"";
-            _logService.LogInformation($"Running: dism.exe {arguments}");
-
-            var result = await _processExecutor.ExecuteAsync("dism.exe", arguments).ConfigureAwait(false);
-            var stdout = result.StandardOutput;
-
-            if (result.Succeeded)
+            var text = line.Trim();
+            var separator = text.IndexOf(':');
+            if (separator < 0) continue;
+            var label = text[..separator].Trim();
+            var value = text[(separator + 1)..].Trim();
+            if (label.Equals("Index", StringComparison.OrdinalIgnoreCase))
             {
-                int parsedCount = 0;
-                var parsedNames = new List<string>();
-                foreach (var line in stdout.Split('\n'))
-                {
-                    var trimmed = line.Trim();
-                    if (trimmed.StartsWith("Index :", StringComparison.OrdinalIgnoreCase) ||
-                        trimmed.StartsWith("Index:", StringComparison.OrdinalIgnoreCase))
-                    {
-                        parsedCount++;
-                    }
-                    else if (trimmed.StartsWith("Name :", StringComparison.OrdinalIgnoreCase) ||
-                             trimmed.StartsWith("Name:", StringComparison.OrdinalIgnoreCase))
-                    {
-                        var name = trimmed.Substring(trimmed.IndexOf(':') + 1).Trim();
-                        if (!string.IsNullOrEmpty(name))
-                            parsedNames.Add(name);
-                    }
-                }
-
-                editionNames = parsedNames;
-                imageCount = parsedCount > 0 ? parsedCount : 1;
-                _logService.LogInformation($"Image: {format}, {imageCount} editions, {fileSizeBytes:N0} bytes");
+                if (!int.TryParse(value, out var index)) throw new IOException("DISM returned an invalid image index.");
+                indices.Add(index);
             }
-            else
-            {
-                _logService.LogWarning($"dism.exe /Get-ImageInfo exited with code {result.ExitCode}");
-            }
+            else if (label.Equals("Name", StringComparison.OrdinalIgnoreCase)) names.Add(value);
         }
-        catch (Exception ex)
-        {
-            _logService.LogWarning($"Could not get detailed image info: {ex.Message}");
-        }
-
+        if (indices.Count == 0 || !indices.SequenceEqual(Enumerable.Range(1, indices.Count)) || names.Count != indices.Count)
+            throw new IOException("DISM did not return a complete image inventory. The source image has been preserved.");
         return new ImageFormatInfo
         {
-            Format = format,
-            FilePath = imagePath,
-            FileSizeBytes = fileSizeBytes,
-            ImageCount = imageCount,
-            EditionNames = editionNames
+            Format = format, FilePath = imagePath, FileSizeBytes = _fileSystemService.GetFileSize(imagePath),
+            ImageCount = indices.Count, EditionNames = names
         };
-    }
-
-    private void KillDismProcesses()
-    {
-        try
-        {
-            _logService.LogInformation("Killing all DISM processes");
-            _processExecutor.KillProcessesByName("dism");
-            _logService.LogInformation("DISM process kill completed");
-        }
-        catch (Exception ex)
-        {
-            _logService.LogError($"Error killing DISM processes: {ex.Message}", ex);
-        }
     }
 }

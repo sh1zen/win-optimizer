@@ -70,7 +70,7 @@ public class AppInstallationServiceTests
     // --- InstallAppAsync: routes to ExternalAppsService ---
 
     [Fact]
-    public async Task InstallAppAsync_ExternalApp_RoutesToExternalAppsService()
+    public async Task InstallAppAsync_ExternalApp_RoutesToExternalAppsServiceAndLogsInstallation()
     {
         var sut = CreateSut();
         var item = new ItemDefinition
@@ -96,6 +96,8 @@ public class AppInstallationServiceTests
             x => x.InstallAppAsync(item, It.IsAny<IProgress<TaskProgressDetail>?>()), Times.Once);
         _windowsAppsService.Verify(
             x => x.InstallAppAsync(It.IsAny<ItemDefinition>(), It.IsAny<IProgress<TaskProgressDetail>?>()), Times.Never);
+        _changeHistoryService.Verify(
+            x => x.LogAppChange("Test External App", AppChangeKind.Installed), Times.Once);
     }
 
     // --- InstallAppAsync: routes to capability service ---
@@ -484,34 +486,6 @@ public class AppInstallationServiceTests
         result.Success.Should().BeTrue();
         _externalAppsService.Verify(
             x => x.InstallAppAsync(item, It.IsAny<IProgress<TaskProgressDetail>?>()), Times.Once);
-    }
-
-    // --- InstallAppAsync: change history logging ---
-
-    [Fact]
-    public async Task InstallAppAsync_Success_LogsAppInstalled()
-    {
-        var sut = CreateSut();
-        var item = new ItemDefinition
-        {
-            Id = "ext-app",
-            Name = "Test External App",
-            Description = "An external app",
-            WinGetPackageId = new[] { "Publisher.ExtApp" }
-        };
-
-        _bloatRemovalService
-            .Setup(x => x.RemoveItemsFromScriptAsync(It.IsAny<List<ItemDefinition>>()))
-            .ReturnsAsync(true);
-
-        _externalAppsService
-            .Setup(x => x.InstallAppAsync(item, It.IsAny<IProgress<TaskProgressDetail>?>()))
-            .ReturnsAsync(OperationResult<bool>.Succeeded(true));
-
-        await sut.InstallAppAsync(item);
-
-        _changeHistoryService.Verify(
-            x => x.LogAppChange("Test External App", AppChangeKind.Installed), Times.Once);
     }
 
     [Fact]

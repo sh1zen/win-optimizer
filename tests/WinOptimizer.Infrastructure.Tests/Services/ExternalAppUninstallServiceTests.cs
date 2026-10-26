@@ -18,6 +18,14 @@ public class ExternalAppUninstallServiceTests
     private readonly Mock<IUninstallCommandSource> _uninstallCommands = new();
     private readonly Mock<ITaskProgressService> _taskProgressService = new();
     private readonly Mock<IProcessExecutor> _processExecutor = new();
+    private readonly Mock<IUninstallResidueReview> _review = new();
+    private readonly Mock<IAppxDeployment> _deployment = new(MockBehavior.Strict);
+
+    public ExternalAppUninstallServiceTests()
+    {
+        _review.Setup(review => review.ConfirmAutomaticUninstallAsync(It.IsAny<ItemDefinition>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+    }
 
     private ExternalAppUninstallService CreateSut() => new(
         _winGetPackageInstaller.Object,
@@ -25,7 +33,48 @@ public class ExternalAppUninstallServiceTests
         _logService.Object,
         _uninstallCommands.Object,
         _taskProgressService.Object,
-        _processExecutor.Object);
+        _processExecutor.Object,
+        _review.Object,
+        _deployment.Object,
+        Mock.Of<IInteractiveUserService>());
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("S-1-5-21-1-2-3-1001")]
+    public async Task AppxRemovalKeepsTheAccountAndFiltersPackageIdentities(string sid)
+    {
+        var item = new ItemDefinition { Id = "appx", Name = "App", Description = "Test", DetectedVia = DetectionSource.AppX, AppxPackageName = ["Wanted.App"] };
+        _deployment.SetupGet(source => source.InteractiveAccountSid).Returns(sid);
+        _deployment.Setup(source => source.GetPackagesAsync(sid, It.IsAny<CancellationToken>())).ReturnsAsync([
+            new AppxPackageIdentity("Wanted.App", "Wanted.App_1_x64__publisher"),
+            new AppxPackageIdentity("Other.App", "Other.App_1_x64__publisher")]);
+        _deployment.Setup(source => source.RemovePackageAsync("Wanted.App_1_x64__publisher", sid, It.IsAny<Action<int>>(), It.IsAny<CancellationToken>()))
+            .Callback<string, string, Action<int>, CancellationToken>((_, _, report, _) => report(50)).Returns(Task.CompletedTask);
+
+        Assert.True((await CreateSut().UninstallAsync(item)).Success);
+
+        _deployment.Verify(source => source.RemovePackageAsync("Wanted.App_1_x64__publisher", sid, It.IsAny<Action<int>>(), It.IsAny<CancellationToken>()), Times.Once);
+        _deployment.Verify(source => source.RemovePackageAsync("Other.App_1_x64__publisher", It.IsAny<string>(), It.IsAny<Action<int>>(), It.IsAny<CancellationToken>()), Times.Never);
+        _taskProgressService.Verify(service => service.UpdateProgress(50, It.IsAny<string>()), Times.Once);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FailedOrCancelledAppxRemovalDoesNotReportSuccess(bool cancelled)
+    {
+        var item = new ItemDefinition { Id = "appx", Name = "App", Description = "Test", DetectedVia = DetectionSource.AppX, AppxPackageName = ["Wanted.App"] };
+        _deployment.SetupGet(source => source.InteractiveAccountSid).Returns("S-1-5-21-1-2-3-1001");
+        _deployment.Setup(source => source.GetPackagesAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([new AppxPackageIdentity("Wanted.App", "Wanted.App_1_x64__publisher")]);
+        _deployment.Setup(source => source.RemovePackageAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Action<int>>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(cancelled ? new OperationCanceledException() : new IOException("Deployment denied"));
+
+        Assert.False((await CreateSut().UninstallAsync(item)).Success);
+
+        _taskProgressService.Verify(service => service.UpdateProgress(100, It.IsAny<string>()), Times.Never);
+        _chocolateyService.VerifyNoOtherCalls();
+    }
 
     [Theory]
     [InlineData(0, true, false)]
@@ -37,11 +86,107 @@ public class ExternalAppUninstallServiceTests
     {
         var item = new ItemDefinition { Id = "registry-app", Name = "Registry app", Description = "Test", DetectedVia = DetectionSource.Registry };
         _uninstallCommands.Setup(source => source.GetAsync(item)).ReturnsAsync((true, @"C:\Test\uninstall.exe /quiet"));
-        _processExecutor.Setup(executor => executor.ShellExecuteAsync(@"C:\Test\uninstall.exe", "/quiet /VERYSILENT /NORESTART", true, It.IsAny<CancellationToken>())).ReturnsAsync(exitCode);
+        _processExecutor.Setup(executor => executor.ShellExecuteAsync(@"C:\Test\uninstall.exe", "", true, CancellationToken.None)).ReturnsAsync(exitCode);
         var result = await CreateSut().UninstallAsync(item);
         Assert.Equal(success, result.Success);
         Assert.Equal(deferred, result.InfoMessage != null);
-        _processExecutor.Verify(executor => executor.ShellExecuteAsync(@"C:\Test\uninstall.exe", "/quiet /VERYSILENT /NORESTART", true, It.IsAny<CancellationToken>()), Times.Once);
+        _processExecutor.Verify(executor => executor.ShellExecuteAsync(@"C:\Test\uninstall.exe", "", true, CancellationToken.None), Times.Once);
+        _review.Verify(review => review.ConfirmAutomaticUninstallAsync(It.IsAny<ItemDefinition>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData("\"C:\\Program Files\\App\\unins000.exe\" /VERYSILENT /NORESTART", @"C:\Program Files\App\unins000.exe", "/NORESTART")]
+    [InlineData(@"C:\Program Files\App\setup.exe --uninstall /S", @"C:\Program Files\App\setup.exe", "--uninstall")]
+    [InlineData("MsiExec.exe /I{01234567-89AB-CDEF-0123-456789ABCDEF} /qn", "MsiExec.exe", "/X{01234567-89AB-CDEF-0123-456789ABCDEF}")]
+    [InlineData("msiexec /i {01234567-89AB-CDEF-0123-456789ABCDEF} /QUIET", "msiexec", "/X {01234567-89AB-CDEF-0123-456789ABCDEF}")]
+    [InlineData("\"C:\\App\\remove.exe\" --uninstall \"C:\\Data\\silent folder\"", @"C:\App\remove.exe", "--uninstall \"C:\\Data\\silent folder\"")]
+    [InlineData("\"C:\\App\\remove.exe\" --log \"C:\\Data /S folder\\log.txt\" /silent", @"C:\App\remove.exe", "--log \"C:\\Data /S folder\\log.txt\"")]
+    public async Task NativeUninstallEnablesUiAndPreservesRequiredArguments(string command, string executable, string arguments)
+    {
+        var item = new ItemDefinition { Id = "app", Name = "App", Description = "Test", WinGetPackageId = ["Publisher.App"] };
+        _uninstallCommands.Setup(source => source.GetAsync(item)).ReturnsAsync((true, command));
+        _processExecutor.Setup(executor => executor.ShellExecuteAsync(executable, arguments, true, CancellationToken.None)).ReturnsAsync(0);
+
+        Assert.True((await CreateSut().UninstallAsync(item)).Success);
+
+        _processExecutor.Verify(executor => executor.ShellExecuteAsync(executable, arguments, true, CancellationToken.None), Times.Once);
+        _uninstallCommands.Verify(source => source.GetAsync(item), Times.Once);
+        _winGetPackageInstaller.VerifyNoOtherCalls();
+        _review.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task NativeUninstallerMustExitBeforeCompletionEvenWhenCancellationIsRequested()
+    {
+        var item = new ItemDefinition { Id = "app", Name = "App", Description = "Test", WinGetPackageId = ["Publisher.App"] };
+        using var cancellation = new CancellationTokenSource();
+        var exited = new TaskCompletionSource<int?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _uninstallCommands.Setup(source => source.GetAsync(item)).ReturnsAsync((true, @"C:\App\remove.exe"));
+        _processExecutor.Setup(executor => executor.ShellExecuteAsync(@"C:\App\remove.exe", "", true, CancellationToken.None)).Returns(exited.Task);
+
+        var pending = CreateSut().UninstallAsync(item, cancellationToken: cancellation.Token);
+        Assert.False(pending.IsCompleted);
+        cancellation.Cancel();
+        Assert.False(pending.IsCompleted);
+        exited.SetResult(0);
+
+        var result = await pending;
+        Assert.False(result.Success);
+        Assert.Contains("cancelled", result.ErrorMessage);
+        _review.VerifyNoOtherCalls();
+        _winGetPackageInstaller.VerifyNoOtherCalls();
+    }
+
+    [Theory]
+    [InlineData(1602)]
+    [InlineData(1603)]
+    public async Task NativeCancellationOrFailureDoesNotStartAutomaticUninstall(int exitCode)
+    {
+        var item = new ItemDefinition { Id = "app", Name = "App", Description = "Test", WinGetPackageId = ["Publisher.App"] };
+        _uninstallCommands.Setup(source => source.GetAsync(item)).ReturnsAsync((true, @"C:\App\remove.exe"));
+        _processExecutor.Setup(executor => executor.ShellExecuteAsync(@"C:\App\remove.exe", "", true, CancellationToken.None)).ReturnsAsync(exitCode);
+
+        Assert.False((await CreateSut().UninstallAsync(item)).Success);
+
+        _review.VerifyNoOtherCalls();
+        _winGetPackageInstaller.VerifyNoOtherCalls();
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task MissingNativeUninstallerWaitsForExplicitAutomaticConsent(bool consent)
+    {
+        var item = new ItemDefinition { Id = "app", Name = "App", Description = "Test", WinGetPackageId = ["Publisher.App"] };
+        var response = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _review.Setup(review => review.ConfirmAutomaticUninstallAsync(item, It.IsAny<CancellationToken>())).Returns(response.Task);
+        _winGetPackageInstaller.Setup(installer => installer.UninstallPackageAsync("Publisher.App", "winget", "App", It.IsAny<CancellationToken>())).ReturnsAsync(true);
+
+        var pending = CreateSut().UninstallAsync(item);
+        Assert.False(pending.IsCompleted);
+        _winGetPackageInstaller.VerifyNoOtherCalls();
+        response.SetResult(consent);
+        Assert.Equal(consent, (await pending).Success);
+
+        _winGetPackageInstaller.Verify(installer => installer.UninstallPackageAsync("Publisher.App", "winget", "App", It.IsAny<CancellationToken>()), consent ? Times.Once() : Times.Never());
+        _processExecutor.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task DecliningAutomaticFileRemovalPreservesDetectedData()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), $"WinOptimizerTest_{Guid.NewGuid():N}");
+        Directory.CreateDirectory(folder);
+        var file = Path.Combine(folder, "retained.txt");
+        await File.WriteAllTextAsync(file, "Retain this data");
+        try
+        {
+            var item = new ItemDefinition { Id = "app", Name = "App", Description = "Test", DetectedVia = DetectionSource.FileSystem, DetectionPaths = [folder] };
+            _review.Setup(review => review.ConfirmAutomaticUninstallAsync(item, It.IsAny<CancellationToken>())).ReturnsAsync(false);
+            Assert.False((await CreateSut().UninstallAsync(item)).Success);
+            Assert.Equal("Retain this data", await File.ReadAllTextAsync(file));
+        }
+        finally { Directory.Delete(folder, true); }
     }
 
     // --- UninstallAsync: FileSystem method ---

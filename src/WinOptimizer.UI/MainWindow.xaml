@@ -49,6 +49,7 @@
                 <Button x:Name="NavigateBackButton" Click="NavigateBack_Click"
                         IsEnabled="{x:Bind CanNavigateBack, Mode=OneWay}"
                         Style="{StaticResource TitleBarButtonStyle}"
+                        CornerRadius="4,0,0,4"
                         ToolTipService.ToolTip="{x:Bind ViewModel.NavigationBackTooltip, Mode=OneWay}"
                         AutomationProperties.Name="{x:Bind ViewModel.NavigationBackTooltip, Mode=OneWay}">
                     <fluentIcons:FluentIcon Icon="ArrowLeft" IconVariant="Regular" FontSize="16"/>
@@ -56,6 +57,7 @@
                 <Button x:Name="NavigateForwardButton" Click="NavigateForward_Click"
                         IsEnabled="{x:Bind CanNavigateForward, Mode=OneWay}"
                         Style="{StaticResource TitleBarButtonStyle}"
+                        CornerRadius="0,4,4,0"
                         ToolTipService.ToolTip="{x:Bind ViewModel.NavigationForwardTooltip, Mode=OneWay}"
                         AutomationProperties.Name="{x:Bind ViewModel.NavigationForwardTooltip, Mode=OneWay}">
                     <fluentIcons:FluentIcon Icon="ArrowRight" IconVariant="Regular" FontSize="16"/>

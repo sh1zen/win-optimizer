@@ -34,6 +34,7 @@ public sealed class WindowsUninstallPackageSource : IUninstallPackageSource
 /// <summary>Supplies machine scan locations without querying Windows during construction.</summary>
 public interface IUninstallScanFolders
 {
+    IReadOnlyList<string> InstallationDirectories { get; }
     IReadOnlyList<string> ApplicationDirectories { get; }
     IReadOnlyList<string> ShortcutDirectories { get; }
     string WindowsDirectory { get; }
@@ -41,12 +42,14 @@ public interface IUninstallScanFolders
 
 public sealed class WindowsUninstallScanFolders : IUninstallScanFolders
 {
-    public IReadOnlyList<string> ApplicationDirectories => new[]
+    public IReadOnlyList<string> InstallationDirectories => new[]
     {
         Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
-        Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
-        Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData)
+        Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86)
     }.Where(path => !string.IsNullOrWhiteSpace(path)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+    public IReadOnlyList<string> ApplicationDirectories => InstallationDirectories
+        .Append(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData))
+        .Where(path => !string.IsNullOrWhiteSpace(path)).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
     public IReadOnlyList<string> ShortcutDirectories => new[]
     {
         Environment.GetFolderPath(Environment.SpecialFolder.CommonPrograms),
@@ -168,7 +171,8 @@ internal static class UninstallResources
         return extension >= 0 ? LocalPath(text[..(extension + 4)]) : null;
     }
 
-    public static bool References(string value, IReadOnlyCollection<string> paths)
+    /// <summary>Matches path boundaries; exact targets can include a trailing separator without owning sibling paths.</summary>
+    public static bool References(string value, IReadOnlyCollection<string> paths, bool includeDescendants = true)
     {
         foreach (var path in paths)
         {
@@ -177,7 +181,11 @@ internal static class UninstallResources
             {
                 var end = offset + path.Length;
                 var before = offset == 0 || !char.IsLetterOrDigit(value[offset - 1]) && value[offset - 1] is not '\\' and not '/' and not '_';
-                var after = end == value.Length || value[end] is '\\' or '/' or '"' or '\'' or ',' or ';' or '|' or '\0' or '\r' or '\n' || char.IsWhiteSpace(value[end]);
+                var boundary = end;
+                if (!includeDescendants)
+                    while (boundary < value.Length && value[boundary] is '\\' or '/') boundary++;
+                var after = boundary == value.Length || value[boundary] is '"' or '\'' or ',' or ';' or '|' or '\0' or '\r' or '\n' ||
+                    char.IsWhiteSpace(value[boundary]) || includeDescendants && value[boundary] is '\\' or '/';
                 if (before && after) return true;
                 offset = end;
             }
@@ -207,9 +215,23 @@ internal static class UninstallResources
         if (root.InstallerCache)
         {
             // Only individually captured installer files may use the system-cache recovery boundary.
-            var allowed = new[] { Path.Combine(folders.WindowsDirectory, "Installer") }
-                .Concat(folders.ApplicationDirectories.Select(directory => Path.Combine(directory, "Package Cache")));
-            if (!root.SingleFile || root.Sid != null || !allowed.Contains(root.BaseDirectory, StringComparer.OrdinalIgnoreCase) ||
+            bool allowedCache;
+            if (root.Sid == null)
+            {
+                var allowed = new[] { Path.Combine(folders.WindowsDirectory, "Installer") }
+                    .Concat(folders.ApplicationDirectories.Select(directory => Path.Combine(directory, "Package Cache")));
+                allowedCache = root.Folder == null && allowed.Contains(root.BaseDirectory, StringComparer.OrdinalIgnoreCase);
+            }
+            else
+            {
+                using var ownedAccount = currentAccount == null ? sessions.Open(root.Sid) : null;
+                var account = currentAccount ?? ownedAccount!;
+                allowedCache = root.Folder == Environment.SpecialFolder.LocalApplicationData &&
+                    account.UserPrefix.Equals(@"HKEY_USERS\" + root.Sid, StringComparison.Ordinal) &&
+                    Path.Combine(account.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Package Cache")
+                        .Equals(root.BaseDirectory, StringComparison.OrdinalIgnoreCase);
+            }
+            if (!root.SingleFile || !allowedCache ||
                 !Under(path, root.BaseDirectory) || path.Equals(root.BaseDirectory, StringComparison.OrdinalIgnoreCase) ||
                 !new[] { ".msi", ".msp", ".exe" }.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase))
                 throw new IOException("The installer file is outside its captured cache boundary.");

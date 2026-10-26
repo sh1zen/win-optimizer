@@ -111,14 +111,6 @@ public class ConfigApplicationExecutionService : IConfigApplicationExecutionServ
                 }
             }
 
-            if (!selectedSections.Any())
-            {
-                _dialogService.ShowMessage(
-                    _localizationService.GetString("Config_Import_Error_NoSelection") ?? "No changes to apply.",
-                    _localizationService.GetString("Config_Import_Error_NoSelection_Title") ?? "No Changes");
-                return;
-            }
-
             // Pre-select Windows Apps from config
             bool saveRemovalScripts = true;
             if (hasWindowsApps)
@@ -158,6 +150,14 @@ public class ConfigApplicationExecutionService : IConfigApplicationExecutionServ
 
             // Add action-only subsections for Customize actions that the user enabled
             importOptions = ConfigActionSelection.IncludeSections(selectedSections, importOptions);
+
+            if (!selectedSections.Any())
+            {
+                _dialogService.ShowMessage(
+                    _localizationService.GetString("Config_Import_Error_NoSelection") ?? "No changes to apply.",
+                    _localizationService.GetString("Config_Import_Error_NoSelection_Title") ?? "No Changes");
+                return;
+            }
 
             // Show overlay during config application
             var overlayStatus = _localizationService.GetString("Config_Import_Status_Applying")
@@ -226,6 +226,7 @@ public class ConfigApplicationExecutionService : IConfigApplicationExecutionServ
         bool hasCustomize = selectedSections.Any(s => s == "Customize" || s.StartsWith("Customize_"));
 
         var parallelTasks = new List<Task>();
+        Task<bool>? settingsTask = null;
 
         // Branch 1: Bloat removal (no Task.Run - ViewModel needs UI thread for property change notifications)
         if (shouldRemoveApps)
@@ -237,10 +238,13 @@ public class ConfigApplicationExecutionService : IConfigApplicationExecutionServ
         // Branch 2: All settings (Optimize + Customize in parallel within)
         if (hasOptimize || hasCustomize)
         {
-            parallelTasks.Add(ApplyAllSettingsGroupsAsync(config, selectedSections, options, hasOptimize, hasCustomize));
+            settingsTask = ApplyAllSettingsGroupsAsync(config, selectedSections, options, hasOptimize, hasCustomize);
+            parallelTasks.Add(settingsTask);
         }
 
         await Task.WhenAll(parallelTasks);
+        if (settingsTask != null && !await settingsTask)
+            throw new InvalidOperationException("One or more configuration settings failed. Review the log and refresh the affected settings before retrying.");
 
         // Always restart explorer at the end to apply all changes
         _overlayService.UpdateStatus(
@@ -268,7 +272,7 @@ public class ConfigApplicationExecutionService : IConfigApplicationExecutionServ
         });
     }
 
-    private async Task ApplyAllSettingsGroupsAsync(
+    private async Task<bool> ApplyAllSettingsGroupsAsync(
         UnifiedConfigurationFile config,
         List<string> selectedSections,
         ImportOptions options,
@@ -322,7 +326,7 @@ public class ConfigApplicationExecutionService : IConfigApplicationExecutionServ
             _logService.Log(LogLevel.Info, $"Feature completed: {featureName} ({completed}/{totalFeatures})");
         };
 
-        var groupTasks = new List<Task>();
+        var groupTasks = new List<Task<bool>>();
 
         if (hasOptimize)
         {
@@ -331,6 +335,7 @@ public class ConfigApplicationExecutionService : IConfigApplicationExecutionServ
                 var success = await ApplyFeatureGroupWithOptionsAsync(
                     config.Optimize!, "Optimize", options, selectedSections, onFeatureCompleted);
                 _logService.Log(LogLevel.Info, $"  Optimize group: {(success ? "Success" : "Failed")}");
+                return success;
             }));
         }
 
@@ -341,10 +346,11 @@ public class ConfigApplicationExecutionService : IConfigApplicationExecutionServ
                 var success = await ApplyFeatureGroupWithOptionsAsync(
                     config.Customize!, "Customize", options, selectedSections, onFeatureCompleted);
                 _logService.Log(LogLevel.Info, $"  Customize group: {(success ? "Success" : "Failed")}");
+                return success;
             }));
         }
 
-        await Task.WhenAll(groupTasks);
+        return (await Task.WhenAll(groupTasks)).All(success => success);
     }
 
     private async Task<bool> ApplyFeatureGroupWithOptionsAsync(

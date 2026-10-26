@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml.Controls;
 using WinOptimizer.UI.Tests.Services;
 using WinOptimizer.UI.Tests.Converters;
 using WinOptimizer.UI.Tests.ViewModels;
+using WinOptimizer.UI.Tests.Utilities;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Moq;
@@ -62,7 +63,7 @@ public sealed partial class StartupTestApplication(string resultPath) : WinOptim
         {
             try
             {
-                var count = await NativeTestCases.RunAsync(typeof(CustomIconTests), typeof(SettingViewModelFactoryTests), typeof(TechnicalDetailsManagerTests), typeof(StartupOrchestratorTests), typeof(StartupPresentationTests), typeof(SectionNavigationTests), typeof(NavigationRouterTests), typeof(SavedWifiViewModelTests), typeof(SavedWifiPageTests), typeof(SettingsPageTests));
+                var count = await NativeTestCases.RunAsync(typeof(CustomIconTests), typeof(SettingViewModelFactoryTests), typeof(TechnicalDetailsManagerTests), typeof(StartupOrchestratorTests), typeof(StartupPresentationTests), typeof(WindowSizeManagerTests), typeof(CleanerProgressReporterTests), typeof(CleanerViewModelTests), typeof(SectionNavigationTests), typeof(NavigationRouterTests), typeof(SavedWifiViewModelTests), typeof(SavedWifiPageTests), typeof(SettingsPageTests));
                 Finish($"PASS: {count} startup, native first-frame and navigation cases. Fake OS boundaries only.", true);
             }
             catch (Exception ex) { Finish(ex.ToString()); }

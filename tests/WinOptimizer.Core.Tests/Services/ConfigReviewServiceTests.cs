@@ -137,29 +137,6 @@ public class ConfigReviewServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task EnterReviewModeAsync_SetsCurrentModeToConfigReview()
-    {
-        var service = CreateService();
-
-        await service.EnterReviewModeAsync(new UnifiedConfigurationFile());
-
-        service.CurrentMode.Should().Be(WinOptimizerMode.ConfigReview);
-        service.IsInReviewMode.Should().BeTrue();
-    }
-
-    [Fact]
-    public async Task ExitReviewMode_ResetsCurrentModeToNormal()
-    {
-        var service = CreateService();
-        await service.EnterReviewModeAsync(new UnifiedConfigurationFile());
-
-        service.ExitReviewMode();
-
-        service.CurrentMode.Should().Be(WinOptimizerMode.Normal);
-        service.IsInReviewMode.Should().BeFalse();
-    }
-
-    [Fact]
     public async Task EnterReviewModeAsync_RaisesModeChanged()
     {
         var service = CreateService();
@@ -247,25 +224,14 @@ public class ConfigReviewServiceTests : IDisposable
     }
 
     [Fact]
-    public void Dispose_UnsubscribesFromLanguageChanged()
-    {
-        var service = CreateService();
-        service.Dispose();
-
-        // After dispose, raising language changed should not cause errors
-        _mockLocalizationService.Raise(l => l.LanguageChanged += null, EventArgs.Empty);
-
-        // No exception means unsubscribe worked
-    }
-
-    [Fact]
-    public async Task EnterReviewModeAsync_SetsIsInReviewMode()
+    public async Task EnterReviewModeAsync_SetsModeAndActiveConfig()
     {
         var config = new UnifiedConfigurationFile();
 
         var service = CreateService();
         await service.EnterReviewModeAsync(config);
 
+        service.CurrentMode.Should().Be(WinOptimizerMode.ConfigReview);
         service.IsInReviewMode.Should().BeTrue();
         service.ActiveConfig.Should().BeSameAs(config);
     }
@@ -603,6 +569,7 @@ public class ConfigReviewServiceTests : IDisposable
 
         service.ExitReviewMode();
 
+        service.CurrentMode.Should().Be(WinOptimizerMode.Normal);
         service.IsInReviewMode.Should().BeFalse();
         service.ActiveConfig.Should().BeNull();
         service.TotalChanges.Should().Be(0);
@@ -1135,15 +1102,6 @@ public class ConfigReviewServiceTests : IDisposable
         diff.Should().NotBeNull();
         diff!.CurrentValueDisplay.Should().Be("Aus");
         diff.ConfigValueDisplay.Should().Be("Ein");
-    }
-
-    [Fact]
-    public void LanguageChanged_WhenNotInReviewMode_DoesNothing()
-    {
-        var service = CreateService();
-
-        // Should not throw
-        _mockLocalizationService.Raise(l => l.LanguageChanged += null, EventArgs.Empty);
     }
 
     [Fact]

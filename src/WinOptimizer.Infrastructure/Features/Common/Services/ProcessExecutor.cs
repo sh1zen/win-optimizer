@@ -18,6 +18,7 @@ public class ProcessExecutor : IProcessExecutor
         string arguments,
         CancellationToken ct = default)
     {
+        ct.ThrowIfCancellationRequested();
         using var process = new Process();
         process.StartInfo = new ProcessStartInfo
         {
@@ -34,11 +35,11 @@ public class ProcessExecutor : IProcessExecutor
         process.Start();
 
         // Read stdout and stderr concurrently to avoid deadlocks
-        var stdoutTask = process.StandardOutput.ReadToEndAsync(ct);
-        var stderrTask = process.StandardError.ReadToEndAsync(ct);
+        var stdoutTask = process.StandardOutput.ReadToEndAsync(CancellationToken.None);
+        var stderrTask = process.StandardError.ReadToEndAsync(CancellationToken.None);
 
-        await Task.WhenAll(stdoutTask, stderrTask).ConfigureAwait(false);
-        await process.WaitForExitAsync(ct).ConfigureAwait(false);
+        await WaitForOwnedProcessAsync(process,
+            Task.WhenAll(stdoutTask, stderrTask, process.WaitForExitAsync(CancellationToken.None)), ct).ConfigureAwait(false);
 
         return new ProcessExecutionResult
         {
@@ -92,7 +93,20 @@ public class ProcessExecutor : IProcessExecutor
             }
         }, CancellationToken.None);
 
-        var completion = Task.WhenAll(readOutput, readError, process.WaitForExitAsync(CancellationToken.None));
+        await WaitForOwnedProcessAsync(process,
+            Task.WhenAll(readOutput, readError, process.WaitForExitAsync(CancellationToken.None)), ct).ConfigureAwait(false);
+
+        return new ProcessExecutionResult
+        {
+            ExitCode = process.ExitCode,
+            StandardOutput = stdout.ToString(),
+            StandardError = stderr.ToString()
+        };
+    }
+
+    /// <summary>Stops only the owned process tree and drains its pipes before releasing a cancelled operation.</summary>
+    private static async Task WaitForOwnedProcessAsync(Process process, Task completion, CancellationToken ct)
+    {
         try
         {
             await completion.WaitAsync(ct).ConfigureAwait(false);
@@ -106,13 +120,6 @@ public class ProcessExecutor : IProcessExecutor
             throw;
         }
         ct.ThrowIfCancellationRequested();
-
-        return new ProcessExecutionResult
-        {
-            ExitCode = process.ExitCode,
-            StandardOutput = stdout.ToString(),
-            StandardError = stderr.ToString()
-        };
     }
 
     public void KillProcessesByName(string processName)

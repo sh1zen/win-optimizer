@@ -254,35 +254,43 @@ public class OscdimgToolManager : IOscdimgToolManager
         }
     }
 
+    /// <summary>Checks or installs WinGet before either deployment-tool package attempt.</summary>
+    private async Task<bool> PrepareWinGetAsync(IProgress<TaskProgressDetail>? progress, CancellationToken cancellationToken)
+    {
+        progress?.Report(new TaskProgressDetail
+        {
+            StatusText = _localization.GetString("Progress_CheckingWinget"),
+            TerminalOutput = "Verifying winget availability"
+        });
+
+        var wingetInstalled = await _winGetPackageInstaller.IsWinGetInstalledAsync(cancellationToken).ConfigureAwait(false);
+
+        if (!wingetInstalled)
+        {
+            progress?.Report(new TaskProgressDetail
+            {
+                StatusText = _localization.GetString("Progress_InstallingWinget"),
+                TerminalOutput = "winget is required for this installation method"
+            });
+
+            var wingetInstallSuccess = await _winGetBootstrapper.InstallWinGetAsync(cancellationToken).ConfigureAwait(false);
+            if (!wingetInstallSuccess)
+            {
+                _logService.LogError("Failed to install winget");
+                return false;
+            }
+        }
+        return true;
+    }
+
     private async Task<bool> InstallAdkViaWingetAsync(
         IProgress<TaskProgressDetail>? progress,
         CancellationToken cancellationToken)
     {
         try
         {
-            progress?.Report(new TaskProgressDetail
-            {
-                StatusText = _localization.GetString("Progress_CheckingWinget"),
-                TerminalOutput = "Verifying winget availability"
-            });
-
-            var wingetInstalled = await _winGetPackageInstaller.IsWinGetInstalledAsync(cancellationToken).ConfigureAwait(false);
-
-            if (!wingetInstalled)
-            {
-                progress?.Report(new TaskProgressDetail
-                {
-                    StatusText = _localization.GetString("Progress_InstallingWinget"),
-                    TerminalOutput = "winget is required for this installation method"
-                });
-
-                var wingetInstallSuccess = await _winGetBootstrapper.InstallWinGetAsync(cancellationToken).ConfigureAwait(false);
-                if (!wingetInstallSuccess)
-                {
-                    _logService.LogError("Failed to install winget");
-                    return false;
-                }
-            }
+            if (!await PrepareWinGetAsync(progress, cancellationToken).ConfigureAwait(false))
+                return false;
 
             progress?.Report(new TaskProgressDetail
             {
@@ -329,29 +337,8 @@ public class OscdimgToolManager : IOscdimgToolManager
     {
         try
         {
-            progress?.Report(new TaskProgressDetail
-            {
-                StatusText = _localization.GetString("Progress_CheckingWinget"),
-                TerminalOutput = "Verifying winget availability"
-            });
-
-            var wingetInstalled = await _winGetPackageInstaller.IsWinGetInstalledAsync(cancellationToken).ConfigureAwait(false);
-
-            if (!wingetInstalled)
-            {
-                progress?.Report(new TaskProgressDetail
-                {
-                    StatusText = _localization.GetString("Progress_InstallingWinget"),
-                    TerminalOutput = "winget is required for this installation method"
-                });
-
-                var wingetInstallSuccess = await _winGetBootstrapper.InstallWinGetAsync(cancellationToken).ConfigureAwait(false);
-                if (!wingetInstallSuccess)
-                {
-                    _logService.LogError("Failed to install winget");
-                    return false;
-                }
-            }
+            if (!await PrepareWinGetAsync(progress, cancellationToken).ConfigureAwait(false))
+                return false;
 
             progress?.Report(new TaskProgressDetail
             {

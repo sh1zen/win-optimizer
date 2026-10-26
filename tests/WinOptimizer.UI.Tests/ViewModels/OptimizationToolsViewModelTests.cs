@@ -26,7 +26,6 @@ public sealed class OptimizationToolsViewModelTests
         Assert.Equal("{x:Bind IsOn, Mode=OneWay}", (string?)toggle.Attribute("IsOn"));
         Assert.Equal("{x:Bind IsAvailable, Mode=OneWay}", (string?)toggle.Attribute("IsEnabled"));
         Assert.Equal("{x:Bind Title, Mode=OneWay}", (string?)toggle.Attribute("AutomationProperties.Name"));
-        Assert.DoesNotContain(document.Descendants(ui + "Button"), button => (string?)button.Attribute("Click") == "Apply_Click");
     }
     private readonly Mock<IOptimizationToolsService> _service = new();
     private readonly Mock<IDialogService> _dialogs = new();

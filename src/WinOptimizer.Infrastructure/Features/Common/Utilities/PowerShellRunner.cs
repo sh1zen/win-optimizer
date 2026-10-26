@@ -14,7 +14,7 @@ namespace WinOptimizer.Infrastructure.Features.Common.Utilities;
 
 public class PowerShellRunner : IPowerShellRunner
 {
-    private const string PowerShellPath = @"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe";
+    internal static string PowerShellPath => Path.Combine(Environment.SystemDirectory, @"WindowsPowerShell\v1.0\powershell.exe");
 
     // Windows command-line size limit is ~32,767 chars. base64-encoded UTF-16-LE
     // is ~4 chars per 2 bytes of script, so the effective script-size limit before
@@ -86,10 +86,10 @@ public class PowerShellRunner : IPowerShellRunner
 
         var (output, errors, exitCode) = await LaunchPowerShellAsync(args, progress, ct).ConfigureAwait(false);
 
-        if (exitCode != 0 && errors.Length > 0)
+        if (exitCode != 0)
         {
             throw new InvalidOperationException(
-                $"In-memory PowerShell script failed (exit code {exitCode}):\n{errors}");
+                $"In-memory PowerShell script failed (exit code {exitCode}):\n{(errors.Length > 0 ? errors : output)}");
         }
 
         return output.ToString();
@@ -118,7 +118,7 @@ public class PowerShellRunner : IPowerShellRunner
 
         var (output, errors, exitCode) = await LaunchPowerShellAsync(args, progress, ct).ConfigureAwait(false);
 
-        if (exitCode != 0 && errors.Length > 0)
+        if (exitCode != 0)
         {
             var errorText = errors.ToString();
 
@@ -147,7 +147,7 @@ public class PowerShellRunner : IPowerShellRunner
                 var (retryOutput, retryErrors, retryExitCode) =
                     await LaunchPowerShellAsync(fallbackArgs, progress, ct).ConfigureAwait(false);
 
-                if (retryExitCode == 0 || retryErrors.Length == 0)
+                if (retryExitCode == 0)
                     return retryOutput.ToString();
 
                 // Both attempts failed
@@ -156,7 +156,7 @@ public class PowerShellRunner : IPowerShellRunner
             }
 
             throw new InvalidOperationException(
-                $"PowerShell execution failed (exit code {exitCode}):\n{errorText}");
+                $"PowerShell execution failed (exit code {exitCode}):\n{(errors.Length > 0 ? errorText : output.ToString())}");
         }
 
         return output.ToString();
@@ -165,6 +165,7 @@ public class PowerShellRunner : IPowerShellRunner
     private async Task<(StringBuilder Output, StringBuilder Errors, int ExitCode)> LaunchPowerShellAsync(
         string arguments, IProgress<TaskProgressDetail>? progress, CancellationToken ct)
     {
+        ct.ThrowIfCancellationRequested();
         var psi = new ProcessStartInfo
         {
             FileName = PowerShellPath,

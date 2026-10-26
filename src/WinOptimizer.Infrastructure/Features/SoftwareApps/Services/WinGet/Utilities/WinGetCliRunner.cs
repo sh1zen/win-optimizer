@@ -193,6 +193,7 @@ public static class WinGetCliRunner
     /// If provided and OTS elevation is active, runs winget as the interactive user
     /// so packages install to the correct user's scope.
     /// </param>
+    /// <param name="timeProvider">Clock for command deadlines; defaults to the system clock.</param>
     public static async Task<WinGetCliResult> RunAsync(
         string arguments,
         Action<string>? onOutputLine = null,
@@ -202,22 +203,12 @@ public static class WinGetCliRunner
         string? exePathOverride = null,
         IInteractiveUserService? interactiveUserService = null,
         Action<string>? onProgressLine = null,
-        int idleTimeoutMs = 0)
+        int idleTimeoutMs = 0,
+        TimeProvider? timeProvider = null)
     {
+        timeProvider ??= TimeProvider.System;
         var exePath = exePathOverride ?? GetWinGetExePath(interactiveUserService)
             ?? throw new FileNotFoundException("winget.exe not found. Bundled CLI may be missing.");
-
-        // OTS: run winget as the interactive user so packages install to their scope.
-        // Idle-timeout is not plumbed through the OTS helper; callers that need it
-        // pass a generous wall-clock timeoutMs as the fallback.
-        if (interactiveUserService != null
-            && interactiveUserService.IsOtsElevation
-            && interactiveUserService.HasInteractiveUserToken)
-        {
-            var result = await interactiveUserService.RunProcessAsInteractiveUserAsync(
-                exePath, arguments, onOutputLine, onErrorLine, cancellationToken, timeoutMs, onProgressLine).ConfigureAwait(false);
-            return new WinGetCliResult(result.ExitCode, result.StandardOutput, result.StandardError);
-        }
 
         CancellationTokenSource? wallClockCts = null;
         CancellationTokenSource? idleCts = null;
@@ -227,12 +218,12 @@ public static class WinGetCliRunner
             var tokens = new List<CancellationToken> { cancellationToken };
             if (timeoutMs > 0)
             {
-                wallClockCts = new CancellationTokenSource(timeoutMs);
+                wallClockCts = new CancellationTokenSource(TimeSpan.FromMilliseconds(timeoutMs), timeProvider);
                 tokens.Add(wallClockCts.Token);
             }
             if (idleTimeoutMs > 0)
             {
-                idleCts = new CancellationTokenSource(idleTimeoutMs);
+                idleCts = new CancellationTokenSource(TimeSpan.FromMilliseconds(idleTimeoutMs), timeProvider);
                 tokens.Add(idleCts.Token);
             }
             linkedCts = CancellationTokenSource.CreateLinkedTokenSource(tokens.ToArray());
@@ -273,6 +264,24 @@ public static class WinGetCliRunner
                 ResetIdle(capturedIdleCts, capturedIdleMs);
                 onProgressLine?.Invoke(line);
             };
+
+            // The CLI runner owns deadlines for every transport. The token runner
+            // kills and drains its process using this same linked cancellation.
+            if (interactiveUserService is { IsOtsElevation: true, HasInteractiveUserToken: true })
+            {
+                try
+                {
+                    var result = await interactiveUserService.RunProcessAsInteractiveUserAsync(
+                        exePath, arguments, wrapOutput, wrapError, linkedCts.Token,
+                        Timeout.Infinite, wrapProgress).ConfigureAwait(false);
+                    return new WinGetCliResult(result.ExitCode, result.StandardOutput, result.StandardError,
+                        GetTerminationReason(result.ExitCode));
+                }
+                catch (OperationCanceledException) when (linkedCts.IsCancellationRequested)
+                {
+                    return new WinGetCliResult(-1, "", "", GetTerminationReason(-1));
+                }
+            }
 
             // When real-time progress is requested, use ConPTY so that winget sees
             // isatty(stdout)==true and outputs progress bars with std::flush.

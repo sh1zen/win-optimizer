@@ -19,15 +19,9 @@ public class WindowSizeManager
     private readonly IUserPreferencesService _userPreferencesService;
     private readonly ILogService _logService;
 
-    private const int MinWidth = 800;
-    private const int MinHeight = 600;
-    private const double ScreenWidthPercentage = 0.70;
-    private const double ScreenHeightPercentage = 0.80;
+    private static readonly SizeInt32 DefaultSize = new(1280, 800);
 
-    // Minimum on-screen overlap required for a restored window position to be
-    // considered usable. Smaller than a normal title bar so partially-dragged
-    // windows still restore in place, large enough that a stale off-screen
-    // position (e.g. saved on a since-disconnected secondary monitor) fails.
+    // Restored windows need a reachable title-bar region on an active display.
     internal const int MinVisibleWidth = 120;
     internal const int MinVisibleHeight = 40;
 
@@ -37,6 +31,7 @@ public class WindowSizeManager
     private int _normalWidth;
     private int _normalHeight;
     private bool _isTrackingBounds;
+    private bool _isMaximized;
 
     public WindowSizeManager(AppWindow appWindow, IUserPreferencesService userPreferencesService, ILogService logService)
     {
@@ -56,18 +51,17 @@ public class WindowSizeManager
 
             if (!loaded)
             {
-                SetDynamicWindowSize();
+                _appWindow.Resize(DefaultSize);
                 CenterOnScreen();
+                RecordNormalBounds();
             }
 
-            // Start tracking normal bounds after initial positioning
-            RecordNormalBounds();
             SubscribeToWindowChanges();
         }
         catch (Exception ex)
         {
             _logService.Log(LogLevel.Error, $"Error initializing window size: {ex.Message}");
-            SetDynamicWindowSize();
+            _appWindow.Resize(DefaultSize);
             CenterOnScreen();
             RecordNormalBounds();
             SubscribeToWindowChanges();
@@ -85,31 +79,21 @@ public class WindowSizeManager
             var presenter = _appWindow.Presenter as OverlappedPresenter;
             var state = presenter?.State ?? OverlappedPresenterState.Restored;
 
-            // Skip saving if minimized to avoid bad coordinates
-            if (state == OverlappedPresenterState.Minimized)
-                return;
+            // Minimized native coordinates are unusable; retain the latest normal
+            // bounds and the presentation state from before minimization.
+            if (state == OverlappedPresenterState.Restored) RecordNormalBounds();
+            if (state != OverlappedPresenterState.Minimized)
+                _isMaximized = state == OverlappedPresenterState.Maximized;
 
-            var prefs = await _userPreferencesService.GetPreferencesAsync();
-
-            if (state == OverlappedPresenterState.Maximized)
+            var saved = await _userPreferencesService.UpdatePreferencesAsync(new Dictionary<string, object>
             {
-                prefs[UserPreferenceKeys.WindowMaximized] = true;
-                // Save tracked normal bounds (pre-maximize size/position)
-                prefs[UserPreferenceKeys.WindowWidth] = (double)_normalWidth;
-                prefs[UserPreferenceKeys.WindowHeight] = (double)_normalHeight;
-                prefs[UserPreferenceKeys.WindowLeft] = (double)_normalX;
-                prefs[UserPreferenceKeys.WindowTop] = (double)_normalY;
-            }
-            else
-            {
-                prefs[UserPreferenceKeys.WindowMaximized] = false;
-                prefs[UserPreferenceKeys.WindowWidth] = (double)_appWindow.Size.Width;
-                prefs[UserPreferenceKeys.WindowHeight] = (double)_appWindow.Size.Height;
-                prefs[UserPreferenceKeys.WindowLeft] = (double)_appWindow.Position.X;
-                prefs[UserPreferenceKeys.WindowTop] = (double)_appWindow.Position.Y;
-            }
-
-            await _userPreferencesService.SavePreferencesAsync(prefs);
+                [UserPreferenceKeys.WindowMaximized] = _isMaximized,
+                [UserPreferenceKeys.WindowWidth] = (double)_normalWidth,
+                [UserPreferenceKeys.WindowHeight] = (double)_normalHeight,
+                [UserPreferenceKeys.WindowLeft] = (double)_normalX,
+                [UserPreferenceKeys.WindowTop] = (double)_normalY
+            });
+            if (!saved.Success) throw new InvalidOperationException(saved.ErrorMessage ?? "Window placement could not be saved.");
         }
         catch (Exception ex)
         {
@@ -128,7 +112,8 @@ public class WindowSizeManager
             var isMaximized = await _userPreferencesService.GetPreferenceAsync<bool>(UserPreferenceKeys.WindowMaximized, false);
 
             // Only reject clearly invalid values (no saved prefs yet)
-            if (width <= 0 || height <= 0)
+            if (!double.IsFinite(width) || !double.IsFinite(height) ||
+                width < 1 || height < 1 || width > int.MaxValue || height > int.MaxValue)
                 return false;
 
             int w = (int)width;
@@ -137,7 +122,8 @@ public class WindowSizeManager
             // Restore position if valid and still visible on an active monitor.
             // If the saved rect is off-screen (e.g. secondary monitor was disconnected
             // since last close), fall back to centering on the primary display.
-            if (!double.IsNaN(left) && !double.IsNaN(top))
+            if (double.IsFinite(left) && double.IsFinite(top) &&
+                left >= int.MinValue && left <= int.MaxValue && top >= int.MinValue && top <= int.MaxValue)
             {
                 var savedRect = new RectInt32((int)left, (int)top, w, h);
 
@@ -160,11 +146,20 @@ public class WindowSizeManager
                 CenterOnScreen();
             }
 
-            // Restore maximized state (must be done after position/size)
+            // Retain the restored dimensions before maximizing changes the native bounds.
+            RecordNormalBounds();
+            _isMaximized = isMaximized;
             if (isMaximized)
             {
                 var presenter = _appWindow.Presenter as OverlappedPresenter;
-                presenter?.Maximize();
+                if (presenter is not null)
+                {
+                    // Maximize also shows the native window. Preserve caller-owned
+                    // visibility until explicit activation, including widget startup.
+                    var wasVisible = _appWindow.IsVisible;
+                    try { presenter.Maximize(); }
+                    finally { if (!wasVisible) _appWindow.Hide(); }
+                }
             }
 
             return true;
@@ -206,28 +201,6 @@ public class WindowSizeManager
         }
     }
 
-    private void SetDynamicWindowSize()
-    {
-        try
-        {
-            var displayArea = DisplayArea.GetFromWindowId(_appWindow.Id, DisplayAreaFallback.Nearest);
-            var workArea = displayArea.WorkArea;
-
-            int windowWidth = (int)(workArea.Width * ScreenWidthPercentage);
-            int windowHeight = (int)(workArea.Height * ScreenHeightPercentage);
-
-            windowWidth = Math.Max(windowWidth, MinWidth);
-            windowHeight = Math.Max(windowHeight, MinHeight);
-
-            _appWindow.Resize(new SizeInt32(windowWidth, windowHeight));
-        }
-        catch (Exception ex)
-        {
-            _logService.Log(LogLevel.Error, $"Error setting dynamic window size: {ex.Message}");
-            _appWindow.Resize(new SizeInt32(1280, 800));
-        }
-    }
-
     private void CenterOnScreen()
     {
         try
@@ -235,16 +208,18 @@ public class WindowSizeManager
             var displayArea = DisplayArea.GetFromWindowId(_appWindow.Id, DisplayAreaFallback.Nearest);
             var workArea = displayArea.WorkArea;
 
-            int x = workArea.X + (workArea.Width - _appWindow.Size.Width) / 2;
-            int y = workArea.Y + (workArea.Height - _appWindow.Size.Height) / 2;
-
-            _appWindow.Move(new PointInt32(x, y));
+            _appWindow.Move(GetCenteredPosition(_appWindow.Size, workArea));
         }
         catch (Exception ex)
         {
             _logService.Log(LogLevel.Error, $"Error centering window: {ex.Message}");
         }
     }
+
+    /// <summary>Centers each fitting dimension and anchors oversized dimensions inside the work area's origin.</summary>
+    internal static PointInt32 GetCenteredPosition(SizeInt32 size, RectInt32 workArea) => new(
+        workArea.X + Math.Max(0, (workArea.Width - size.Width) / 2),
+        workArea.Y + Math.Max(0, (workArea.Height - size.Height) / 2));
 
     private void RecordNormalBounds()
     {
@@ -270,7 +245,7 @@ public class WindowSizeManager
             int overlapLeft = Math.Max(windowRect.X, work.X);
             int overlapTop = Math.Max(windowRect.Y, work.Y);
             int overlapRight = Math.Min(windowRect.X + windowRect.Width, work.X + work.Width);
-            int overlapBottom = Math.Min(windowRect.Y + windowRect.Height, work.Y + work.Height);
+            int overlapBottom = Math.Min(windowRect.Y + Math.Min(windowRect.Height, MinVisibleHeight), work.Y + work.Height);
 
             int overlapW = overlapRight - overlapLeft;
             int overlapH = overlapBottom - overlapTop;
@@ -287,17 +262,15 @@ public class WindowSizeManager
         if (!_isTrackingBounds)
             return;
 
-        // Only record bounds when the window is in normal (restored) state
-        if (args.DidPositionChange || args.DidSizeChange)
+        var presenter = sender.Presenter as OverlappedPresenter;
+        if (presenter?.State == OverlappedPresenterState.Minimized) return;
+        _isMaximized = presenter?.State == OverlappedPresenterState.Maximized;
+
+        // Only record bounds when the window is in normal (restored) state.
+        if ((args.DidPositionChange || args.DidSizeChange) &&
+            presenter?.State == OverlappedPresenterState.Restored)
         {
-            var presenter = sender.Presenter as OverlappedPresenter;
-            if (presenter?.State == OverlappedPresenterState.Restored)
-            {
-                _normalX = sender.Position.X;
-                _normalY = sender.Position.Y;
-                _normalWidth = sender.Size.Width;
-                _normalHeight = sender.Size.Height;
-            }
+            RecordNormalBounds();
         }
     }
 }

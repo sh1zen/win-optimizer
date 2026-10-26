@@ -134,7 +134,7 @@ public class WimCustomizationService : IWimCustomizationService
                 TerminalOutput = "Setting up SetupComplete.cmd"
             });
 
-            CreateSetupCompleteScript(workingDirectory);
+            await CreateSetupCompleteScriptAsync(workingDirectory, cancellationToken).ConfigureAwait(false);
 
             _logService.LogInformation($"Successfully added {copiedCount} driver(s) - WinPE: {winpeDriverPath}, OEM: {oemDriverPath}");
             return true;
@@ -182,43 +182,37 @@ public class WimCustomizationService : IWimCustomizationService
         }
     }
 
-    private void CreateSetupCompleteScript(string workingDirectory)
+    /// <summary>Prepends one returning driver hook while retaining existing OEM setup commands.</summary>
+    private async Task CreateSetupCompleteScriptAsync(string workingDirectory, CancellationToken ct)
     {
-        try
+        var scriptsPath = _fileSystemService.CombinePath(workingDirectory, "sources", "$OEM$", "$$", "Setup", "Scripts");
+        _fileSystemService.CreateDirectory(scriptsPath);
+        const string driverName = "WinOptimizer-Drivers.cmd";
+        var driverPath = _fileSystemService.CombinePath(scriptsPath, driverName);
+        var driverScript = """
+            @echo off
+            setlocal
+            set "LOGFILE=%SystemRoot%\Logs\DriverInstall.log"
+            "%SystemRoot%\System32\pnputil.exe" /add-driver "%SystemRoot%\Drivers\*.inf" /subdirs /install >> "%LOGFILE%" 2>&1
+            set "DriverExit=%ERRORLEVEL%"
+            echo Driver installation exit code: %DriverExit% >> "%LOGFILE%"
+            exit /b %DriverExit%
+            """;
+        await _fileSystemService.WriteAllTextAsync(driverPath, driverScript, ct).ConfigureAwait(false);
+        var setupPath = _fileSystemService.CombinePath(scriptsPath, "SetupComplete.cmd");
+        var existing = _fileSystemService.FileExists(setupPath)
+            ? await _fileSystemService.ReadAllBytesAsync(setupPath, ct).ConfigureAwait(false) : [];
+        if (existing.AsSpan().StartsWith(new byte[] { 0xff, 0xfe }) || existing.AsSpan().StartsWith(new byte[] { 0xfe, 0xff }))
+            throw new IOException("SetupComplete.cmd uses UTF-16, which cmd.exe cannot execute. Preserve the file and select media with an ANSI or UTF-8 setup script.");
+        int preamble = existing.AsSpan().StartsWith(new byte[] { 0xef, 0xbb, 0xbf }) ? 3 : 0;
+        var hook = System.Text.Encoding.ASCII.GetBytes($"@call \"%~dp0{driverName}\"\r\n");
+        if (preamble != 0 || !existing.AsSpan().StartsWith(hook))
         {
-            var scriptsPath = _fileSystemService.CombinePath(workingDirectory, "sources", "$OEM$", "$$", "Setup", "Scripts");
-            _fileSystemService.CreateDirectory(scriptsPath);
-
-            var setupCompleteScript = @"@echo off
-REM win-optimizer Automatic Driver Installation Script
-REM This script is executed automatically by Windows Setup
-
-set LOGFILE=C:\Windows\Logs\DriverInstall.log
-
-echo ================================================== > %LOGFILE%
-echo win-optimizer Driver Installation Log >> %LOGFILE%
-echo Date: %DATE% %TIME% >> %LOGFILE%
-echo ================================================== >> %LOGFILE%
-echo. >> %LOGFILE%
-
-echo Installing drivers from C:\Windows\Drivers... >> %LOGFILE%
-pnputil /add-driver C:\Windows\Drivers\*.inf /subdirs /install >> %LOGFILE% 2>&1
-
-echo. >> %LOGFILE%
-echo Driver installation completed >> %LOGFILE%
-echo Exit Code: %ERRORLEVEL% >> %LOGFILE%
-
-exit
-";
-
-            var scriptPath = _fileSystemService.CombinePath(scriptsPath, "SetupComplete.cmd");
-            _fileSystemService.WriteAllText(scriptPath, setupCompleteScript);
-
-            _logService.LogInformation($"Created SetupComplete.cmd at: {scriptPath}");
+            // cmd.exe treats a UTF-8 BOM as command text. Keep the payload without its preamble.
+            byte[] updated = existing.AsSpan(preamble).StartsWith(hook)
+                ? existing[preamble..] : [.. hook, .. existing.AsSpan(preamble)];
+            await _fileSystemService.WriteAllBytesAsync(setupPath, updated, ct).ConfigureAwait(false);
         }
-        catch (Exception ex)
-        {
-            _logService.LogWarning($"Could not create SetupComplete.cmd: {ex.Message}");
-        }
+        _logService.LogInformation($"Prepared driver setup hook at: {setupPath}");
     }
 }

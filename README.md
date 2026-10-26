@@ -43,6 +43,11 @@ some hardware tools also depend on compatible firmware or drivers.
 ## Getting started
 
 Opening the app shows a loading window while settings and the main interface initialize.
+The window reopens at its last saved size and position, including maximized state,
+and keeps that size throughout loading.
+The loading screen uses the saved language and theme from its first frame, and the
+main interface opens with the saved sidebar and app-list layout already applied.
+Centered windows keep their title bar reachable when the saved or default size exceeds the screen's work area.
 
 1. **Pick a task.** Open Software & Apps, Optimize, Cleaner or another section from
    the sidebar. Overview cards lead to individual tools; Optimize and Customize
@@ -87,6 +92,19 @@ Unavailable values appear as **—**. **Show hidden or inactive installed apps**
 an administrator-only opt-in for catalogued AppX packages retained on the device
 without a current-account registration; inactive entries have orange indicators.
 
+Uninstall opens a desktop program's unambiguously matched registered uninstaller
+and waits for it to finish. If none can be identified, confirm whether to use automatic removal through
+the available package manager or detected installation files. Cancelling that
+prompt preserves the app. Verified removals update the cached list before leftover
+review without rescanning app inventories or icons. Failed or cancelled package
+verification does not establish removal. Unverified outcomes keep their
+cached status; use **Refresh** to check Windows again.
+AppX inventory and external-app removal follow the interactive account when the
+app runs with another administrator's credentials.
+Store downloads install for that signed-in account. Interactive EXE installers
+finish before reporting success; cancellation stops further silent attempts.
+Portable-app detection and file removal resolve profile paths for that same interactive account.
+
 After uninstallation, review detected registry resources, files and folders before
 choosing **Delete selected**. Active, shared, restart-deferred and unverifiable
 resources remain protected, and coverage gaps are reported. **Scan again** refreshes
@@ -105,15 +123,17 @@ registered by Windows for the machine or current account. **Refresh** discovers
 new installations. Programs outside the catalogue appear under **Other Utilities**;
 automatic reinstallation is available only for supported catalogue entries.
 
-The **Leftover** tab lists verified obsolete app registrations, unused MSI/MSP/EXE
-installer-cache files and aged installation folders identified by stale registrations
-in Program Files, ProgramData and account AppData. Executable payloads, active
-references, unknown ownership, incomplete coverage, ongoing installation, pending
-restart or recent use exclude affected files/folders. Review paths and explanations,
-select entries and choose **Delete selected**. The summary includes selections hidden
-by search. Cleanup creates a verified backup under **Uninstall cleanup backups**;
-**Refresh** rescans. See the [leftover scan guide](src/WinOptimizer.Infrastructure/Features/SoftwareApps/Leftover/README.md)
-for locations and eligibility.
+The **Leftover** tab scans obsolete app registrations, unused installer caches and
+aged installation folders across shared application locations and all registered
+Windows profiles, including per-user installer caches. It also finds empty previous
+installation directories under Program Files and Local\Programs while protecting
+active paths and Windows-managed folders. Review paths and eligibility reasons,
+then choose **Delete selected**.
+The summary includes selections hidden by search; **Refresh** rescans. Cleanup requires
+a verified backup, restorable through **Uninstall cleanup backups**. The
+[leftover scan guide](src/WinOptimizer.Infrastructure/Features/SoftwareApps/Leftover/README.md)
+defines exact ownership evidence, age limits and protections for active installations,
+runnable files, queued operations and incomplete coverage.
 
 ### Fine-tune Windows settings and privacy
 
@@ -285,11 +305,9 @@ diagnostics and maintenance:
   save** uses the same save workflow to restore it.
 - **Battery charge limit:** discover supported OEM controls, select an advertised
   threshold and choose **Apply limit**. Only matching firmware readback confirms
-  success. Discovery selects 80% when available without applying it. Compatible
-  Dell, HP, ASUS and Acer endpoints have direct providers; other devices receive
-  manufacturer guidance. **Install OEM support…** opens an official installation
-  route; **Recheck support** repeats discovery. Battery health, capacity and available
-  power readings accompany the controls. See [battery provider coverage](src/WinOptimizer.Infrastructure/Features/Utilities/README.md).
+  success. Battery health, capacity and available power readings accompany the controls.
+  The [battery guide](src/WinOptimizer.Infrastructure/Features/Utilities/README.md)
+  covers provider availability, OEM support installation and hardware limitations.
 - **Connection:** inspect adapters, DNS, Windows VPN profiles, 30 days of retained
   usage and a live 15-minute traffic window while the page is open. DNS changes
   require **Apply**; VPN management opens the interactive user's Windows Settings.
@@ -300,22 +318,17 @@ diagnostics and maintenance:
   Credentials stay in memory and clear on leaving the page. Use the signed-in
   account; alternate-account elevation cannot read this inventory.
 - **Autorun management:** review startup entries grouped by user, shared and system
-  scope. Search, filter and confirm supported native enable/disable actions. Mode
-  changes load automatically; Advanced mode uses Microsoft Autorunsc after explicit
-  license/download consent and starts its first scan. Advanced entries are for
-  inspection. See the [autorun guide](src/WinOptimizer.Infrastructure/Features/Management/AUTORUNS.md).
+  scope and confirm supported enable/disable actions. The
+  [autorun guide](src/WinOptimizer.Infrastructure/Features/Management/AUTORUNS.md)
+  covers editable sources, account permissions and inspection through Microsoft Autorunsc.
 - **Process monitor:** explore a process tree, CPU/memory/I/O, process details and
-  TCP/UDP ports. Sort by Process, PID, CPU or Memory; click again to reverse, or
-  choose **Process tree** to restore the hierarchy. Open-file queries use Microsoft
-  Handle after license/download consent. File queries and optional ETW traffic
-  observation require elevation; traffic stops on selection change, navigation or
-  shutdown. See the [measurement guide](src/WinOptimizer.Infrastructure/Features/Management/PROCESS-MONITOR.md).
+  TCP/UDP ports. The
+  [measurement guide](src/WinOptimizer.Infrastructure/Features/Management/PROCESS-MONITOR.md)
+  explains sorting, coverage, permissions and consent for open-file queries and traffic observation.
 - **Windows status and restore:** run quick health checks, full diagnosis, DISM/SFC
-  repair or separately confirmed component cleanup. Opening the page starts no
-  servicing. Pending restarts block repair/cleanup; the app never restarts Windows.
-  Cancellation stops the worker and its child processes, retaining completed
-  results. See the [Windows servicing guide](src/WinOptimizer.Infrastructure/Features/Management/README.md)
-  for repair sources, ResetBase consequences and cancellation.
+  repair or separately confirmed component cleanup. The
+  [Windows servicing guide](src/WinOptimizer.Infrastructure/Features/Management/README.md)
+  explains repair sources, restart restrictions, ResetBase consequences and cancellation.
 
 Battery support depends on hardware, firmware and drivers. System-variable, hosts
 and firmware writes require the applicable Windows/BIOS permissions and are blocked
@@ -327,6 +340,8 @@ in Test mode and configuration review.
 
 - **WIMUtil:** customize Windows installation media, add drivers, and generate an
   answer file from current selections or select a local XML file.
+  Conversion preserves the source until every edition is exported and verified.
+  Adding drivers retains nested package files and existing setup commands.
 - **Autounattend generator:** build a Windows unattended-installation XML file
   from selected settings.
 - **System information:** collect a dated snapshot of hardware, Windows and installed
@@ -375,7 +390,10 @@ installations. Account-dependent data uses `Users\<SID>` folders. See the
 
 Uninstallation keeps this store by default so reinstalling retains preferences,
 backups and history. Full cleanup removes the entire store, including cached tools
-and scripts; it does not undo Windows changes. Restore settings that depend on
+and scripts, this installation's Windows usage/compatibility and shortcut history
+across registered accounts, matching startup tasks and the app's Prefetch files.
+Empty app folders in Task Scheduler are removed; other applications' entries and
+tasks are preserved. It does not undo Windows changes. Restore settings that depend on
 these scripts before choosing full cleanup, and close the app first. Administrator
 access may be required to remove protected data. If cleanup fails, uninstall stops
 and reports the remaining-data location so you can retry or keep it.
@@ -398,11 +416,20 @@ and the Windows SDK. Open [win-optimizer.sln](win-optimizer.sln) in Visual Studi
 ```powershell
 ./build.ps1
 ./build.ps1 -Configuration Debug
+./build.ps1 -NoRestore
 ./build.ps1 -BuildRoot ./build/isolated
 ```
 
 The default is Release/x64 at `build/win-optimizer.exe`, with logs in
 `build/logs/build.log`. `-Clean` rebuilds; `-MSBuildPath` selects MSBuild explicitly.
+Use `-NoRestore` for code-only incremental builds after a successful restore;
+restore again after changing dependencies or the SDK.
+Release uses optimized IL and portable PDBs retained in compiler intermediates;
+deployment and publish folders omit symbol copies. Debug builds keep normal debugger
+settings and adjacent symbols. Packaging exports matching PDBs separately to
+`build/symbols/win-optimizer-vYY.MM.DD-win-x64.zip`, outside the runtime payload.
+Keep that ZIP with its release for source-level debugging and crash analysis.
+`./extras/export-debug-symbols.ps1 -Version YY.MM.DD` exports an existing Release build.
 `-BuildRoot` redirects generated output together, useful while another build is running.
 `Version.props` is the single source for the application's `YY.MM.DD` version,
 defaulting to the build machine's local date. `./build.ps1 -Version 26.01.05`
@@ -414,47 +441,40 @@ Test commands, focused suites and isolation requirements are in the
 
 Packaging uses `./extras/build-and-package.ps1` with Inno Setup 6 and a
 `YY.MM.DD` version (`-Version`, defaulting through `Version.props` to the current date).
-It resolves the version once for the application and installer, builds Release,
-runs checks and produces an installer under
-`build/installers/`. See [PIPELINE.md](PIPELINE.md#build-and-packaging) for ordering.
-Use `-SkipSigning` to create an unsigned package without signing prompts, and
-`-InnoCompiler <path-to-ISCC.exe>` for a portable Inno Setup installation. Packaging
-uses the clean MSBuild payload under `build/publish/`, including the application's
-`win-optimizer.pri` compiled UI resources. Requested signing failures
-stop packaging.
+It produces `build/installers/win-optimizer.Installer.exe` from `build/publish/`.
+Use `-SkipSigning` for an unsigned package without signing prompts, and
+`-InnoCompiler <path-to-ISCC.exe>` for a portable Inno Setup installation.
+Build ownership, test/build reuse and signing order are documented in
+[Architecture](ARCHITECTURE.md#build-configuration).
 
 The **Build Windows installer** GitHub Actions workflow runs on pushes/pull requests
 to `main` and through **Actions → Build Windows installer → Run workflow**. Its optional
-version accepts `YY.MM.DD`, defaulting to the build date. It runs the packaging script,
-main suites, installer checks, UI compilation and portable-payload validation,
-including the required application resource index.
-Installer, published app and installed app must have matching product/file versions,
-including numeric Windows metadata, before upload. Download the unsigned installer
+version accepts `YY.MM.DD`, defaulting to the build date. Download the validated unsigned installer
 from **Artifacts → win-optimizer-windows-x64-vYY.MM.DD** after success.
 Installers are retained for 30 days; test results/build logs for 14 days, including failures.
+Matching symbol ZIPs are separate `win-optimizer-symbols-windows-x64-vYY.MM.DD`
+artifacts retained for 30 days.
 Validation artifacts use `win-optimizer-validation-vYY.MM.DD` (or `vunresolved`
 if version resolution fails).
 
-The **Release** workflow runs when a tag matching `vYY.MM.DD` is pushed. It reuses
-the installer workflow, validates the calendar date and builds with that exact version.
-After all checks succeed, it publishes a stable GitHub Release with generated notes
-and the unsigned `win-optimizer.Installer.exe` asset used by installation and in-app updates.
-For example, after committing the desired sources and workflows:
+Push a `vYY.MM.DD` tag to run the **Release** workflow, build that version and publish
+the validated installer with notes from [CHANGELOG.md](CHANGELOG.md).
+Keep concise changes under `## [Unreleased]`. Before a release, rename that section
+to the exact tag and release date (for example `## [v26.10.23] - 2026-10-23`) and
+add a new `Unreleased` section. Publication uses only the matching section's body,
+preserving its Markdown through a UTF-8 notes file. A missing, empty or duplicate
+tag section stops publication; `Unreleased` stays reserved for future changes.
+For example, after committing the desired sources, workflows and changelog:
 
 ```powershell
-git tag v26.10.21
-git push origin v26.10.21
+git tag v26.10.23
+git push origin v26.10.23
 ```
 
-[ARCHITECTURE.md](ARCHITECTURE.md) describes ownership and storage;
-[PIPELINE.md](PIPELINE.md) describes execution, cancellation and recovery.
-[Application artwork](src/WinOptimizer.UI/Assets/ICON-ATTRIBUTION.md)
-and [sponsor data instructions](sponsors/README.md) cover those assets.
-
-The Custom icon pack uses original vector drawings. Edit their authoring definitions
-in `extras/generate-icons.py`, then run `python extras/generate-icons.py` to update
-the resources and name lookup. `python extras/generate-icons.py --check` verifies
-the generated files; generation uses Python's standard library.
+[ARCHITECTURE.md](ARCHITECTURE.md) describes components, storage and execution contracts.
+[Application artwork](src/WinOptimizer.UI/Assets/ICON-ATTRIBUTION.md) covers icon
+authoring, generation and attribution; [sponsor data instructions](sponsors/README.md)
+cover online and bundled sponsor assets.
 
 </details>
 

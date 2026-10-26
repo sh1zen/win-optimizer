@@ -7,8 +7,10 @@ using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using WinOptimizer.Core.Features.Common.Interfaces;
+using WinOptimizer.Core.Features.Common.Constants;
 using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.Core.Features.SoftwareApps.Interfaces;
+using WinOptimizer.Infrastructure.Features.Common.Services;
 
 namespace WinOptimizer.Infrastructure.Features.SoftwareApps.Services;
 
@@ -23,6 +25,8 @@ public class StoreDownloadService : IStoreDownloadService
     private readonly ILocalizationService _localization;
     private readonly IFileSystemService _fileSystemService;
     private readonly HttpClient _httpClient;
+    private readonly IAppxDeployment _deployment;
+    private readonly IInteractiveUserService _user;
 
     private const string StoreApiUrl = "https://store.rg-adguard.net/api/GetFiles";
 
@@ -41,6 +45,8 @@ public class StoreDownloadService : IStoreDownloadService
         ILocalizationService localization,
         IFileSystemService fileSystemService,
         HttpClient httpClient,
+        IAppxDeployment deployment,
+        IInteractiveUserService user,
         ILogService? logService = null)
     {
         _taskProgressService = taskProgressService;
@@ -48,6 +54,8 @@ public class StoreDownloadService : IStoreDownloadService
         _fileSystemService = fileSystemService;
         _logService = logService;
         _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
+        _deployment = deployment;
+        _user = user;
     }
 
     public async Task<bool> DownloadAndInstallPackageAsync(
@@ -56,10 +64,15 @@ public class StoreDownloadService : IStoreDownloadService
         CancellationToken cancellationToken = default)
     {
         displayName ??= productId;
-        var tempPath = _fileSystemService.CombinePath(_fileSystemService.GetTempPath(), $"WinOptimizer_{productId}_{Guid.NewGuid():N}");
+        // Another-account deployment runs without elevation and needs its own account-readable workspace.
+        var temporaryRoot = _user.IsOtsElevation
+            ? Path.Combine(AppDataPaths.User(_deployment.InteractiveAccountSid), "Temp")
+            : _fileSystemService.GetTempPath();
+        var tempPath = AppDataPaths.Child(temporaryRoot, $"WinOptimizer_{productId}_{Guid.NewGuid():N}");
 
         try
         {
+            if (_user.IsOtsElevation) AppDataStorage.ValidatePath(tempPath);
             // Create temporary directory
             _fileSystemService.CreateDirectory(tempPath);
             _logService?.LogInformation($"Created temporary directory: {tempPath}");
@@ -485,9 +498,7 @@ public class StoreDownloadService : IStoreDownloadService
         {
             _logService?.LogInformation($"Installing package: {packagePath}");
 
-            var packageManager = new Windows.Management.Deployment.PackageManager();
-            var packageUri = new Uri(packagePath);
-            await packageManager.AddPackageAsync(packageUri, null, Windows.Management.Deployment.DeploymentOptions.None).AsTask(cancellationToken).ConfigureAwait(false);
+            await _deployment.InstallPackageAsync(packagePath, [], cancellationToken).ConfigureAwait(false);
 
             _logService?.LogInformation($"Successfully installed {displayName}");
             return (true, string.Empty);
@@ -519,11 +530,7 @@ public class StoreDownloadService : IStoreDownloadService
         {
             _logService?.LogInformation($"Installing package with {dependencyPaths.Count} dependencies: {packagePath}");
 
-            var packageManager = new Windows.Management.Deployment.PackageManager();
-            var packageUri = new Uri(packagePath);
-            var dependencyUris = dependencyPaths.Select(p => new Uri(p)).ToList();
-
-            await packageManager.AddPackageAsync(packageUri, dependencyUris, Windows.Management.Deployment.DeploymentOptions.None).AsTask(cancellationToken).ConfigureAwait(false);
+            await _deployment.InstallPackageAsync(packagePath, dependencyPaths, cancellationToken).ConfigureAwait(false);
 
             _logService?.LogInformation($"Successfully installed {displayName} with dependencies");
             return (true, string.Empty);

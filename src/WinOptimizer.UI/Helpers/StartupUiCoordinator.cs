@@ -3,6 +3,7 @@ using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Animation;
 using WinOptimizer.Core.Features.Common.Extensions;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Models;
@@ -132,7 +133,7 @@ internal sealed class StartupUiCoordinator
         {
             // Navigation creates the page without starting discovery before its first frame.
             navSidebar.SelectedTag = "SoftwareApps";
-            contentFrame.Navigate(typeof(SoftwareAppsPage), "startup");
+            contentFrame.Navigate(typeof(SoftwareAppsPage), "startup", new SuppressNavigationTransitionInfo());
         }
         catch (Exception ex)
         {
@@ -140,9 +141,9 @@ internal sealed class StartupUiCoordinator
             _logService?.LogWarning($"SoftwareApps init failed: {ex.Message}");
         }
 
-        // Hide overlay and mark startup complete
-        markStartupComplete();
-        loadingOverlay.Visibility = Visibility.Collapsed;
+        // Keep the loader visible until bindings, zoom and the initial page have been laid out.
+        try { await RevealShellAsync(contentFrame, loadingOverlay, markStartupComplete); }
+        catch (OperationCanceledException) { return; }
         StartupLogger.Log("StartupUiCoordinator", "Startup complete, overlay hidden");
 
         // Scheduling starts only after the shell is usable; the service defers the first check.
@@ -185,6 +186,14 @@ internal sealed class StartupUiCoordinator
         // Pre-warm the sponsors cache for the manually opened support dialog.
         App.Services.GetService<ISponsorsService>()?.GetSponsorsAsync().FireAndForget(_logService!);
 
+    }
+
+    /// <summary>Reveals the initialized shell only after its initial layout has rendered behind the loader.</summary>
+    internal static async Task RevealShellAsync(FrameworkElement content, Grid loadingOverlay, Action markStartupComplete)
+    {
+        await RunAfterFirstRenderAsync(content, () => Task.CompletedTask);
+        markStartupComplete();
+        loadingOverlay.Visibility = Visibility.Collapsed;
     }
 
     /// <summary>Starts deferred work after a rendered frame; unloading cancels and releases both event subscriptions.</summary>

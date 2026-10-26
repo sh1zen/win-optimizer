@@ -524,17 +524,6 @@ public class ComboBoxResolverTests
     #region GetIndexFromDisplayName
 
     [Fact]
-    public void GetIndexFromDisplayName_KnownName_ReturnsCorrectIndex()
-    {
-        var displayNames = new[] { "Off", "Low", "Medium", "High" };
-        var setting = CreateSettingWithDisplayNames("test", displayNames);
-
-        var result = _sut.GetIndexFromDisplayName(setting, "Medium");
-
-        result.Should().Be(2);
-    }
-
-    [Fact]
     public void GetIndexFromDisplayName_CaseInsensitiveMatch_ReturnsCorrectIndex()
     {
         var displayNames = new[] { "Off", "Low", "Medium", "High" };

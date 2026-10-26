@@ -1,8 +1,8 @@
 # Architecture
 
-[README.md](README.md) covers setup and usage; [PIPELINE.md](PIPELINE.md) covers
-execution order, cancellation and recovery. This document maps responsibilities
-and state ownership to the implementation.
+[README.md](README.md) covers setup and usage. This document maps components,
+state ownership and execution contracts to the implementation; feature guides
+cover local rules and native boundaries.
 
 ## Project boundaries
 
@@ -19,41 +19,46 @@ and state ownership to the implementation.
 Infrastructure's `AddSettingServices` registers application/discovery dispatchers
 and their handlers; the power interface and handler share one singleton.
 
-Tests isolate external boundaries; native hosts exercise production pages with
-synthetic data. `tests/Build-NativeTestHost.ps1` owns their common build setup;
-individual runners own scenarios. See the [test guide](tests/README.md).
+Test hosts, boundaries and commands are in the [test guide](tests/README.md).
 
 ## Build configuration
 
-`global.json` selects the SDK. Project manifests own frameworks, dependencies and
-x64 deployment; `Directory.Build.props` owns output roots and WinRT metadata
-selection. `WinOptimizerBuildRoot` redirects generated output. CsWinRT projections
-and WinGet runtime/metadata copies are incremental.
+| Owner | Responsibility |
+| --- | --- |
+| `global.json` / project manifests | SDK selection, frameworks, dependencies and x64 deployment |
+| `Directory.Build.props` | Output roots, `WinOptimizerBuildRoot` and WinRT metadata selection |
+| `Directory.Build.targets` | Release symbol-copy policy and compiler PDB output groups |
+| `Version.props` | Shared date-version defaults, validation and application metadata |
+| `build.ps1` / `extras/Resolve-MSBuild.ps1` | Local build entry point and Visual Studio discovery |
+| UI publish targets | Runtime payload and compiled XAML resource index |
+| `extras/build-and-package.ps1` | Dependency refresh, build/test/publish orchestration, symbol export, signing and installer inputs |
+| `extras/win-optimizer.Installer.iss` | Installed payload, regular/portable integration and uninstallation |
+| `build-installer.yml` / `release.yml` | CI validation/artifacts and tag-triggered publication |
+| `CHANGELOG.md` | Curated release notes |
 
-`build.ps1` is the local/packaging entry point; `extras/Resolve-MSBuild.ps1` owns
-Visual Studio discovery. `Version.props` owns version defaults, validation and
-assembly/product metadata. The UI imports it; packaging passes its resolved value
-through build, publish and Inno Setup. MSBuild owns the payload in `build/publish/`.
-The UI project's publish target includes its generated PRI containing compiled
-XAML resources and fails if that required build output is missing.
-`build-installer.yml` owns shared CI validation, packaging and versioned artifacts;
-`release.yml` calls it for date tags and publishes the verified installer with
-release-write permissions confined to the publishing job.
-The [pipeline](PIPELINE.md#build-and-packaging) defines stage ordering;
-the [development guide](README.md#development) contains commands and CI usage.
+Build/restore use MSBuild's static graph. Packaging resolves one version, refreshes
+bundled dependencies, builds Release, runs checks and publishes with `NoBuild=true`.
+Its UI compilation check reuses Release project outputs. Symbols are exported
+before signing; installer compilation cleans its unique temporary inputs on every exit.
+The [development guide](README.md#development) owns commands, output paths and
+release instructions; the [test guide](tests/README.md) owns validation commands.
 
 ## Startup, navigation and lifetime
 
-`App` activates `MainWindow` with a service-independent `StartupLoadingView` before
-loading feature resources or building the host. After storage and localization are
-ready, `MainWindow.InitializeShell` retains that loader inside the full shell in
-the same native window. Automatic widget launches keep the window hidden.
+`App` owns host and storage initialization. `MainWindow` hosts `StartupLoadingView`
+and the full shell in one native window; `WindowSizeManager` owns saved placement.
+The loader and shell share extended title-bar geometry. `App` restores language,
+theme and shell preferences before their first presentation; `SoftwareAppsViewModel`
+restores list presentation separately from inventory discovery.
 
 `LogService.StartLogAsync` owns shared diagnostic initialization and its writer.
 UI's `StartupOrchestrator` owns shell setup, deferred inventory and the initial
 configuration backup; `StartupUiCoordinator` owns first-frame navigation/readiness.
 `WindowsAppsViewModel` shares its load task. Infrastructure's `AppStatusDiscoveryService`
 combines package/component evidence; `WindowsComponentStatusSource` serializes DISM.
+The initial backup waits for that app load and has a 30-second wait limit without
+cancelling the export. Its completion flag follows task return; the exporter logs
+write failures internally, so the flag does not verify the backup file.
 
 `NavigationRouter` maps details to owning sections. The main Frame owns the journal;
 nested frames render content. Settings owns transient subscriptions and category
@@ -63,8 +68,8 @@ lifetime and redirected launches; `SystemMonitorLaunch` identifies logon activat
 
 Application's `BackgroundUpdateCheckService` owns persistent update scheduling.
 Infrastructure's `VersionService` owns release lookup/installer acquisition;
-`UpdateCheckViewModel` owns UI dispatch and cancellation. Execution order is in
-[startup](PIPELINE.md#application-startup-and-exit) and [updates](PIPELINE.md#in-app-updates).
+`UpdateCheckViewModel` owns UI dispatch and cancellation. Automatic scheduling
+persists the UTC attempt time before enabled checks, including failed attempts.
 
 ## Configuration and application mode
 
@@ -79,9 +84,10 @@ Autounattend, including localized names and AppX/capability/feature precedence.
 Core's singleton `ConfigReviewService` owns application mode, review differences,
 Test-mode drafts (`Builder`) and typed `BuilderEdit` snapshots. Infrastructure aliases
 its mode/review/diff/badge interfaces to that instance. `SettingViewModelFactory`
-restores drafts; setting view models retain their presentation baselines. System-operation reservations
-coordinate real writes with Test mode; the [configuration pipeline](PIPELINE.md#configuration-and-test-mode)
-defines transitions and export/apply semantics.
+restores drafts; setting view models retain their presentation baselines.
+System-operation reservations prevent real writes from overlapping Test mode.
+Exit restores presentation before clearing drafts; Apply captures edits, exits the
+mode and invokes normal configuration execution. Failed/cancelled exports retain drafts.
 
 `BuildVersionGate` owns Windows setting compatibility and message tokens, shared by
 import checking, filtering, catalogue decoration and bulk actions.
@@ -90,6 +96,10 @@ import checking, filtering, catalogue decoration and bulk actions.
 and UI owns wizard presentation and file pickers. Its XML step uses the local
 Autounattend generator or a user-selected answer file; `WimCustomizationService`
 copies selected XML and drivers into the extracted media.
+`WimImageService` exports every edition and verifies the destination inventory before
+replacing the source. `DriverCategorizer` owns package-relative payload paths;
+`WimCustomizationService` integrates a returning driver script with existing
+`SetupComplete.cmd` commands. Cancellation stops owned processes and retains verified output.
 
 ## Settings and presentation
 
@@ -97,6 +107,8 @@ copies selected XML and drivers into the extracted media.
 `PreferenceSaveQueue<T>` orders snapshots; feature owners validate values and
 Infrastructure's `UserPreferencesService` persists typed JSON. Shared preference
 owners synchronize sidebar, color, updates and extension consumers.
+Its atomic field-update operation owns read/merge/write synchronization;
+`WindowSizeManager` submits only its five placement fields.
 
 Optimize/Customize share `SectionPageView`, `BaseSettingsFeatureViewModel` and
 `SettingsLoadingService`. `CompatibleSettingsRegistry` owns filtered/authoring
@@ -132,11 +144,9 @@ and `ISystemSettingsDiscoveryService`.
 registered desktop `DisplayIcon` resources through `IDesktopAppIconSource`.
 `DesktopAppIconSource` validates local paths, expands interactive-user variables,
 preserves signed resource indices and releases native icon/GDI handles after PNG
-encoding. Serialized cache writes use definition ID plus package version or desktop
-path/index, size and modification time. Missing artwork uses category glyphs.
-Navigation and the Custom icon pack share original drawings in `FeatureIcons.xaml`;
-`extras/generate-icons.py` generates the Custom resources. Explicit Fluent symbols
-use the declared library; `BaseDefinition` owns the default icon-pack value.
+encoding. `AppIconResolver` owns versioned PNG caches and glyph fallbacks;
+`BaseDefinition` owns the default icon-pack value. Vector authoring and generation
+are documented in the [artwork guide](src/WinOptimizer.UI/Assets/ICON-ATTRIBUTION.md#interface-artwork).
 
 `ExternalAppsService` merges the installation catalogue with `IInstalledProgramSource`
 registrations, retaining catalogue identities for matching products and leaving
@@ -145,33 +155,46 @@ reads machine and interactive-user uninstall roots in both registry views throug
 `IWindowsRegistryService`, including its alternate-account elevation redirection.
 Discovered entries carry stable registry-derived IDs and exact registration paths;
 installation status, metadata and fresh uninstall-command lookup use that identity.
-The External Apps view model reconciles inventory on refresh while preserving
-existing view models and selections.
+`WindowsUninstallCommandSource` uses this shared inventory for catalogue entries,
+requiring one exact-name or fingerprint match before rereading the command.
+`WindowsAppxDeployment` owns interactive-account selection and the WinRT/process
+boundary shared by AppX discovery, external-app removal and Store downloads.
+Calling-account deployment uses WinRT; alternate-account removal targets the
+interactive SID, while installation uses its process token and private staging.
+`AppPaths` shares application-path expansion across metadata, icons, portable
+discovery and removal through `IInteractiveUserService` folder bindings.
 
 `AppStatusDiscoveryService` refreshes each installed definition's nullable `AppMetadata`
 through `IAppMetadataSource`. Infrastructure's `WindowsAppMetadataSource` reads uninstall
-registrations, matching AppX packages and interactive-user UserAssist history. Metadata
-failures are logged independently of installation status. UI's `AppSortHelper` owns one
-comparison for table, card and compact ordering, with localized groups and name/ID ties.
+registrations, matching AppX packages and interactive-user UserAssist history.
+Discovery owns shared provider generations and registry-expression caches; metadata
+owns package-size caches. Page view models reconcile inventory and batch presentation
+updates. Shared WinGet/AppX reads survive until invalidation; old reads cannot
+repopulate a new generation. UI's `AppSortHelper` supplies the comparison shared by
+table, card and compact views, with localized groups and name/ID ties.
 
 ## Application removal
 
 `ILeftoverService` owns standalone leftover scan selections, separately from app
 uninstallation and configuration selection. Infrastructure's `WindowsLeftoverSource`
-combines account-bound uninstall registrations, `IInstallerInventory` product/patch
-references and bounded cache discovery. `LeftoverDirectoryScanner` captures aged,
-non-executable installation remnants
-from stale registration paths within machine application roots and account AppData;
-active directory references protect overlapping paths. Scan results contain only
-eligible selections. `WindowsInstallerInventory` distinguishes advertised products
-from installed products before querying installed-only cache properties.
-`WindowsInstallerSourceLists` owns native source enumeration and read-only checks
-for absent source-list keys in the product's exact registry account/context.
+combines account-bound uninstall registrations, `IInstallerInventory` references
+and cache discovery; `LeftoverDirectoryScanner` owns installation-folder evidence.
+`IUninstallScanFolders` distinguishes dedicated installation roots from shared app-data
+roots. Folder evidence is an obsolete installation record or an independently verified
+empty installation leaf; recorded executable paths can establish missing optional ARP
+locations. Current product identity and exact paths protect active data. Per-user cache
+evidence retains its SID and Local AppData binding through backup and recovery.
+`WindowsInstallerInventory` owns product/patch states; `WindowsInstallerSourceLists`
+owns native repair-source enumeration and exact registration checks.
+`WindowsLeftoverSource` also owns MSI activity, restart and queued-file protections.
+Native all-user MSI coverage governs its managed cache. Account-hive gaps protect
+bundle caches and data-containing folders and remain visible in scan notices; empty
+installation leaves have an independent filesystem proof. Exact cache metadata
+references protect their target or named directory without claiming sibling caches.
 `LeftoverService` revalidates scan-issued IDs and uses
 `UninstallBackupStore`/`UninstallResourceEditor` for typed registry and
-file backup, deletion and recovery. Installer-file evidence carries an explicit
-cache boundary; ordinary uninstall residue retains its existing system-directory
-protections. `LeftoverAppsViewModel` owns the third tab's results and confirmation;
+file backup, deletion and recovery. Evidence retains its account and filesystem
+boundary. `LeftoverAppsViewModel` owns the third tab's results and confirmation;
 `SoftwareAppsViewModel` routes tab/search/actions and excludes cleanup from Builder
 and configuration-review modes. Local rules are in the [leftover guide](src/WinOptimizer.Infrastructure/Features/SoftwareApps/Leftover/README.md).
 
@@ -190,24 +213,32 @@ inspection sessions, targeted folder monitoring and cleanup/recovery coordinatio
 - `UninstallBackupStore` owns authenticated `manifest.uninstall` sessions and
   verified payloads in the Cleaner vault, with a separate format/recovery list.
 
-UI's `UninstallResidueReview` owns dialogs and dispatch; `UninstallResidueNode`
-builds resource-selection trees. Deferred configuration reviews retain their
-inspection session and operation reservation until presentation completes.
+UI's `UninstallResidueReview` owns dialogs, dispatch and deferred review lifetimes;
+`UninstallResidueNode` builds selection trees. `ExternalAppUninstallService` owns
+native and automatic removal. The workflow passes outcomes to page view models,
+which reconcile only verified removals under their inventory gate before residue
+review. Provider invalidation does not trigger discovery. Configuration workflows
+defer review until enclosing overlays close. Cleanup accepts current selectable IDs,
+revalidates evidence and publishes a verified backup before deletion; recovery
+preserves conflicting destination data.
 
-`WinGetOutputLines` owns transcript buffering and progress/permanent-line callbacks
-for redirected and ConPTY output. `ConPtyProcess` owns terminal escape parsing and
-progress-track formatting.
+`WinGetPackageInstaller` shares CLI execution and progress across install/uninstall.
+Its removal check distinguishes explicit package absence from inventory failure
+and propagates cancellation. `WinGetCliRunner` translates unlimited CLI timeouts
+to `Timeout.Infinite` at the interactive-user process boundary. It owns linked
+wall-clock and idle deadlines for all transports, renewing only the idle deadline
+on output. `WinGetExitCodes` maps HRESULTs from the bundled WinGet release.
+`WinGetOutputLines` owns transcript callbacks; `ConPtyProcess` owns terminal escape
+parsing and progress formatting.
 
 ## Cleaner
 
 The singleton `CleanerViewModel` owns scan/review presentation for both Cleaner
 pages. `CleanerSettingsViewModel` owns validated options and per-area account
 selections; `Cleaner.SelectedAreas` owns scan-area persistence.
-`CleanerFileScanner` owns allowlisted profile/machine sources and inventories
-protected files as non-actionable findings. Selection and scan sequencing are
-defined in the [Cleaner pipeline](PIPELINE.md#cleaner).
 
-Core's `CleanerService` serializes scan/apply operations and retains the current
+Core's `CleanerService` deduplicates file paths across categories in stage order,
+serializes scan/apply operations and retains the current
 immutable evidence and scan-owned options. Callers submit finding IDs, not rebuilt
 targets. `ICleanerBackend` separates domain ordering from Windows work:
 
@@ -228,6 +259,13 @@ Its optional `ResultReport` supplies ordered presentation sections and label/val
 rows. `CleanerDiskReport` structures native disk output without changing the scan
 evidence; `GroupedResultsList` selects the inline report template for these items.
 
+`CleanerPaths` owns directory boundaries and traversal; account sessions cache
+folder bindings until disposal. `CleanerProgressReporter` coalesces pending UI
+measurements. Privacy/junk inspection uses batches of 64 and up to four workers;
+backup copies use at most four concurrent file payloads. Completed scans publish
+immutable plans; selected backup preparation must finish before any mutation.
+Failed/cancelled scans cannot supply a cleanup plan, and consumed findings cannot replay.
+
 Cleaner's Events cleanup card opens `EventsCleanupPage` with Cleaner as its sidebar
 owner. `EventLogCleanupService` owns serialization, selection authorization and mode
 reservations; `WindowsEventLogStore` owns local channel APIs and protected EVTX storage.
@@ -242,8 +280,9 @@ Infrastructure's `WindowsSecurityBackend` owns encoded PowerShell requests,
 interactive-user targeting and atomic read/compare/write/readback units. Existing
 privacy checks use the settings owners. UI's singleton `SecurityViewModel` owns
 the report, selection and task presentation; `SecurityPage` owns responsive layout.
-The [security pipeline](PIPELINE.md#security) defines confirmations, cancellation,
-mode gates, unavailable evidence and verification.
+Only completed scans publish applicable reports. Fixes require confirmation and
+normal mode, recheck evidence and verify readback; cancellation retains completed
+receipts and active native write units finish before stopping.
 
 ## Drivers
 
@@ -255,7 +294,9 @@ Infrastructure supplies inventory/update sources through PowerShell, DISM and
 Windows Update. `WindowsDriverInfInspector` owns INF/catalog inspection;
 `DriverScanWorkspace` owns private exports and paths; `WindowsDriverRemovalBackend`
 executes PnPUtil identities. UI's transient `DriversViewModel` owns tasks/selection
-and `DriverResultItem` owns row metadata. See the [driver pipeline](PIPELINE.md#drivers).
+and `DriverResultItem` owns row metadata. Removal rechecks exact package/device
+identities; bound, inbox and boot-critical packages remain protected. Cancellation
+stops between native removals and preserves completed results.
 
 ## Extension and Control
 
@@ -278,9 +319,13 @@ entry loads tool data; writes use normal-mode reservations and shutdown draining
 | Autoruns | `AutorunService` owns snapshot/write authority; `AutorunPowerShellBackend` owns native scripts; `AutorunCsvReader` validates advanced inventory. See the [autorun guide](src/WinOptimizer.Infrastructure/Features/Management/AUTORUNS.md). |
 | Process monitor | `ProcessMonitorService` owns serialized samples and selected-process resources; `WindowsProcessSource`, `WindowsProcessPorts`, `WindowsProcessFiles` and `WindowsProcessNetwork` own native boundaries. `ProcessTrafficLedger` aggregates bounded ETW totals. See the [measurement guide](src/WinOptimizer.Infrastructure/Features/Management/PROCESS-MONITOR.md). |
 
-`ManagementPowerShellRunner` authenticates embedded script bytes and passes encoded
-request data. Its shared `Sysinternals-Cache.ps1` owns allowlisted Microsoft tool
-acquisition, signature validation and executable locks for Autorunsc and Handle.
+`ManagementPowerShellRunner` materializes embedded scripts into exclusive temporary
+files. An encoded loader hashes the bytes read from disk before executing that
+same buffer; request JSON travels separately as base64 data. The runner deletes
+temporary scripts after command completion. `Sysinternals-Cache.ps1` owns
+allowlisted Microsoft tool acquisition, Authenticode validation, reparse checks
+and executable read locks for Autorunsc and Handle. Each feature guide defines its
+consent, executable, arguments and cache subdirectory.
 
 ## SysMonitor
 
@@ -296,9 +341,9 @@ persistence and the SID-scoped logon task through `IScheduledTaskService`.
 Infrastructure's `WindowsSystemMonitorService` serializes samples and calculates
 deltas through `ISystemMonitorProbe`. `WindowsSystemMonitorProbe` owns native/WMI
 reads; `HardwareMonitorSensors` owns a lazy LibreHardwareMonitor session and PawnIO
-discovery. `SystemMonitorMetric` carries typed readings across layers. Telemetry
-stays in memory; the [sampling pipeline](PIPELINE.md#sysmonitor) defines baselines,
-bounded histories, cancellation and handle release.
+discovery. `SystemMonitorMetric` carries typed readings across layers. Samples do
+not overlap; new/reset counters establish baselines. Histories stay bounded in
+memory, and shutdown drains native reads before releasing handles.
 
 ## System information and Restore
 
@@ -329,20 +374,24 @@ Groups reference the original presentation rows; a new page preserves expansion.
 `LogTopics` assigns message subjects when a writing workflow has no explicit topic.
 Readers use the topic stored in each diagnostic record.
 
-`AppDataPaths` in Core owns the layout beneath `%ProgramData%/win-optimizer`.
-Path resolution performs no IO. Infrastructure's `AppDataStorage.InitializeAsync`
-explicitly prepares administrator-owned shared storage and private account folders
-before preferences, logging and feature services start. Shared executables, machine
-state and recovery data are writable only by Administrators and SYSTEM; account
-folders additionally grant their account access. Existing directories owned by
-the launching account receive administrator ownership and protected permissions
-before use; directories owned by other accounts are rejected. Storage validation
-rejects links and junctions before use.
+`AppDataPaths` in Core owns the layout beneath `%ProgramData%/win-optimizer`;
+path resolution performs no IO. Infrastructure's `AppDataStorage` owns explicit
+initialization and validates ownership, permissions and filesystem boundaries.
+Shared executables, machine state and recovery data are writable only by
+Administrators and SYSTEM; account folders additionally grant their account access.
+`InitializeAsync` completes before preferences, logging and feature work. It
+normalizes launching-account-owned directories to administrator ownership and
+protected permissions, rejects other owners except Administrators and SYSTEM,
+and rejects links and junctions before use.
 
-Inno Setup owns retention/deletion of the shared store, separately from tracked
-installation files. The [packaging pipeline](PIPELINE.md#build-and-packaging)
-documents cleanup validation and ordering; [user guidance](README.md#preferences-and-app-updates)
-documents the choices and recovery consequences.
+Inno Setup owns retention/deletion of the shared store and targeted Windows trace
+cleanup, separately from tracked installation files. Profile registry sessions
+mount offline hives only for cleanup and release them in a `finally` block. Task Scheduler
+owns task and folder removal through its COM API.
+[User guidance](README.md#preferences-and-app-updates) documents retention choices
+and recovery consequences. Full cleanup validates the store/profile/Prefetch
+boundaries before deleting traces and shared data; access, mount or deletion
+failures stop uninstallation before tracked payload removal.
 
 | Data | Subpath / owner |
 | --- | --- |

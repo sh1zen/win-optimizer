@@ -310,21 +310,42 @@ public partial class WindowsAppsViewModel : BaseViewModel, IWindowsAppsItemsProv
         }
     }
 
+    private bool _updatingInventory;
+
     private void Item_PropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(AppItemViewModel.IsSelected))
         {
-            NotifySelectionStateChanged();
+            if (!_updatingInventory) NotifySelectionStateChanged();
         }
         else if (e.PropertyName is nameof(AppItemViewModel.IsInstalled) or nameof(AppItemViewModel.IsRetainedOnDevice))
         {
             if (sender is AppItemViewModel app && !app.IsInstalled &&
                 !(ShowHiddenInstalledApps && app.IsRetainedOnDevice))
                 app.IsSelected = false;
+            if (_updatingInventory) return;
             ItemsView.RefreshFilter();
             NotifyCardViewProperties();
             NotifySelectionStateChanged();
         }
+    }
+
+    /// <summary>Publishes one card/filter/sort update for a batch of installation changes.</summary>
+    private void UpdateInventoryRows(Action update)
+    {
+        _updatingInventory = true;
+        try
+        {
+            using (ItemsView.DeferRefresh())
+            {
+                update();
+                ItemsView.RefreshFilter();
+                ItemsView.RefreshSorting();
+            }
+        }
+        finally { _updatingInventory = false; }
+        NotifyCardViewProperties();
+        NotifySelectionStateChanged();
     }
 
     [RelayCommand]
@@ -351,10 +372,8 @@ public partial class WindowsAppsViewModel : BaseViewModel, IWindowsAppsItemsProv
     }
 
     // Serializes the install-status re-check. It runs from the Refresh button,
-    // the WinGetReady event (OnWinGetInstalled) and post-removal
-    // (RefreshAfterOperationAsync — including config-apply); none are mutually
-    // exclusive. Overlapping callers queue here instead of interleaving access
-    // to the shared Items collection and the detection cache.
+    // the WinGetReady event and cached uninstall reconciliation. Overlapping
+    // callers queue here so older scans cannot overwrite verified removals.
     private readonly SemaphoreSlim _statusCheckGate = new(1, 1);
 
     public async Task CheckInstallationStatusAsync()
@@ -388,7 +407,7 @@ public partial class WindowsAppsViewModel : BaseViewModel, IWindowsAppsItemsProv
                 $"[WindowsAppsViewModel] CheckInstallationStatusAsync pre-dispatch HasThreadAccess={_dispatcherService.HasThreadAccess}");
             await _dispatcherService.RunOnUIThreadAsync(() =>
             {
-                using (ItemsView.DeferRefresh())
+                UpdateInventoryRows(() =>
                 {
                     foreach (var item in Items)
                     {
@@ -400,9 +419,7 @@ public partial class WindowsAppsViewModel : BaseViewModel, IWindowsAppsItemsProv
                         item.IsRetainedOnDevice = devicePackages is not null &&
                             item.Definition.AppxPackageName?.Any(devicePackages.Contains) == true;
                     }
-                }
-                ItemsView.RefreshSorting();
-                NotifyCardViewProperties();
+                });
                 return Task.CompletedTask;
             });
         }
@@ -535,10 +552,10 @@ public partial class WindowsAppsViewModel : BaseViewModel, IWindowsAppsItemsProv
         try
         {
             var definitions = selectedItems.Select(a => a.Definition).ToList();
-            var result = await _uninstallWorkflow.UninstallAsync(definitions, AppUninstallKind.Windows, saveRemovalScripts);
+            var result = await _uninstallWorkflow.UninstallAsync(definitions, AppUninstallKind.Windows, saveRemovalScripts,
+                refreshInventory: result => _dispatcherService.RunOnUIThreadWithContextAsync(() => ApplyUninstallResultAsync(result)));
             var removed = result.Applications.Where(app => app.State == UninstallVerificationState.Removed)
                 .Select(app => app.AppId).ToHashSet(StringComparer.Ordinal);
-            foreach (var item in selectedItems.Where(item => removed.Contains(item.Id))) item.IsInstalled = false;
             StatusText = _localizationService.GetString("UninstallResidue_Outcome", removed.Count, selectedItems.Count);
         }
         catch (OperationCanceledException)
@@ -552,18 +569,31 @@ public partial class WindowsAppsViewModel : BaseViewModel, IWindowsAppsItemsProv
         }
         finally
         {
+            _windowsAppsService.InvalidateStatusCache();
+            ClearSelections();
             IsTaskRunning = false;
         }
-
-        await RefreshAfterOperationAsync();
     }
 
-    private async Task RefreshAfterOperationAsync()
+    /// <summary>Applies verified removal evidence to cached rows, retaining device-retention evidence.</summary>
+    private async Task ApplyUninstallResultAsync(AppUninstallResult result)
     {
-        _windowsAppsService.InvalidateStatusCache();
-        await CheckInstallationStatusAsync();
-        NotifyCardViewProperties();
-        ClearSelections();
+        await _statusCheckGate.WaitAsync();
+        try
+        {
+            var removed = result.Applications.Where(app => app.State == UninstallVerificationState.Removed)
+                .Select(app => app.AppId).ToHashSet(StringComparer.Ordinal);
+            UpdateInventoryRows(() =>
+            {
+                foreach (var item in Items.Where(item => removed.Contains(item.Id)))
+                {
+                    item.IsInstalled = false;
+                    item.Definition.Metadata = null;
+                    item.NotifyMetadataChanged();
+                }
+            });
+        }
+        finally { _statusCheckGate.Release(); }
     }
 
     [RelayCommand]

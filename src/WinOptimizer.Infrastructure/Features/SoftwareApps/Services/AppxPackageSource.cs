@@ -11,10 +11,16 @@ namespace WinOptimizer.Infrastructure.Features.SoftwareApps.Services;
 
 public class AppxPackageSource(
     ILogService logService,
-    IPowerShellRunner powerShellRunner) : IAppxPackageSource
+    IPowerShellRunner powerShellRunner,
+    IAppxDeployment deployment) : IAppxPackageSource
 {
-    public Task<HashSet<string>> GetInstalledPackageNamesAsync(CancellationToken cancellationToken = default) =>
-        DiscoverPackageNamesAsync(null, cancellationToken);
+    /// <summary>Uses the interactive account explicitly under alternate-account elevation.</summary>
+    public async Task<HashSet<string>> GetInstalledPackageNamesAsync(CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var sid = deployment.InteractiveAccountSid;
+        return await DiscoverPackageNamesAsync(sid.Length == 0 ? null : sid, cancellationToken).ConfigureAwait(false);
+    }
 
     /// <summary>Enumerates retained device packages without falling back to a narrower account inventory.</summary>
     public async Task<HashSet<string>> GetDevicePackageNamesAsync(CancellationToken cancellationToken = default)
@@ -61,23 +67,13 @@ public class AppxPackageSource(
         {
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             linkedCts.CancelAfter(TimeSpan.FromSeconds(15));
-            await Task.Run(() =>
+            linkedCts.Token.ThrowIfCancellationRequested();
+            var packages = await deployment.GetPackagesAsync(accountSid ?? "", linkedCts.Token).ConfigureAwait(false);
+            foreach (var package in packages)
             {
-                var packageManager = new PackageManager();
-                foreach (var package in packageManager.FindPackagesForUser(accountSid ?? ""))
-                {
-                    linkedCts.Token.ThrowIfCancellationRequested();
-                    try
-                    {
-                        packageNames.Add(package.Id.Name);
-                    }
-                    catch (Exception ex)
-                    {
-                        if (accountSid is not null) throw new IOException($"Cannot read an installed package for account {accountSid}.", ex);
-                        logService.LogWarning($"PackageManager enumeration skipped an entry: {ex.Message}");
-                    }
-                }
-            }, linkedCts.Token).ConfigureAwait(false);
+                linkedCts.Token.ThrowIfCancellationRequested();
+                packageNames.Add(package.Name);
+            }
 
             logService.LogInformation($"AppX detection via PackageManager: found {packageNames.Count} packages");
         }

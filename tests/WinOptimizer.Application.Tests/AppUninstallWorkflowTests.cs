@@ -39,6 +39,29 @@ public sealed class AppUninstallWorkflowTests
     }
 
     [Fact]
+    public async Task InventoryRefreshCompletesBeforeSelectableResiduesArePresented()
+    {
+        _external.Setup(service => service.UninstallAppAsync(It.IsAny<ItemDefinition>(), It.IsAny<IProgress<TaskProgressDetail>>()))
+            .ReturnsAsync(OperationResult<bool>.Succeeded(true));
+        var refreshed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        AppUninstallResult? published = null;
+        var pending = _sut.UninstallAsync(_apps, AppUninstallKind.External, refreshInventory: result =>
+        {
+            published = result;
+            Assert.Same(_scan.Applications, result.Applications);
+            Assert.Same(_scan.Notices, result.Notices);
+            _events.Add("refresh");
+            return refreshed.Task;
+        });
+        Assert.Equal(new[] { "reserve", "capture", "inspect", "refresh" }, _events);
+        Assert.False(pending.IsCompleted);
+        _review.Verify(review => review.ShowAsync(It.IsAny<IUninstallResidueSession>(), It.IsAny<UninstallResidueScan>(), It.IsAny<CancellationToken>()), Times.Never);
+        refreshed.SetResult();
+        Assert.Same(published, await pending);
+        Assert.Equal(new[] { "reserve", "capture", "inspect", "refresh", "review", "release", "dispose" }, _events);
+    }
+
+    [Fact]
     public async Task WindowsPreservesMixedOutcomes_AndCapturesBeforeLaunchingNativeRemoval()
     {
         UninstallNativeOutcome[] native = [new("one", true, false, null), new("two", false, true, "Restart required")];

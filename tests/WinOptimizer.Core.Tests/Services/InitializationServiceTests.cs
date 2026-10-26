@@ -17,29 +17,6 @@ public class InitializationServiceTests
     }
 
     [Fact]
-    public void IsGloballyInitializing_Initially_ReturnsFalse()
-    {
-        _service.IsGloballyInitializing.Should().BeFalse();
-    }
-
-    [Fact]
-    public void StartFeatureInitialization_SetsIsGloballyInitializing()
-    {
-        _service.StartFeatureInitialization("Feature1");
-
-        _service.IsGloballyInitializing.Should().BeTrue();
-    }
-
-    [Fact]
-    public void CompleteFeatureInitialization_SingleFeature_ClearsIsGloballyInitializing()
-    {
-        _service.StartFeatureInitialization("Feature1");
-        _service.CompleteFeatureInitialization("Feature1");
-
-        _service.IsGloballyInitializing.Should().BeFalse();
-    }
-
-    [Fact]
     public void MultipleFeatures_OnlyCompletesWhenAllDone()
     {
         _service.StartFeatureInitialization("Feature1");
@@ -69,22 +46,21 @@ public class InitializationServiceTests
         action.Should().NotThrow();
     }
 
+    /// <summary>Checks the normal feature lifecycle and its start/completion receipts together.</summary>
     [Fact]
-    public void StartFeatureInitialization_LogsMessage()
+    public void SingleFeatureLifecycle_UpdatesStateAndLogsStartAndCompletion()
     {
-        _service.StartFeatureInitialization("TestFeature");
+        _service.IsGloballyInitializing.Should().BeFalse();
 
+        _service.StartFeatureInitialization("TestFeature");
+        _service.IsGloballyInitializing.Should().BeTrue();
         _mockLog.Verify(l => l.Log(
             WinOptimizer.Core.Features.Common.Enums.LogLevel.Info,
             It.Is<string>(s => s.Contains("TestFeature") && s.Contains("Started")),
             null), Times.Once);
-    }
 
-    [Fact]
-    public void CompleteFeatureInitialization_LogsMessage()
-    {
-        _service.StartFeatureInitialization("TestFeature");
         _service.CompleteFeatureInitialization("TestFeature");
+        _service.IsGloballyInitializing.Should().BeFalse();
 
         _mockLog.Verify(l => l.Log(
             WinOptimizer.Core.Features.Common.Enums.LogLevel.Info,

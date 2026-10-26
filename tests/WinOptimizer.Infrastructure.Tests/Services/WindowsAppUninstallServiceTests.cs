@@ -95,7 +95,7 @@ public class WindowsAppUninstallServiceTests
     }
 
     [Fact]
-    public async Task UninstallAppAsync_AppWithoutRemovalScript_RoutesBloatRemoval()
+    public async Task UninstallAppAsync_AppWithoutRemovalScript_RoutesBloatRemovalAndLogsRemoval()
     {
         var sut = CreateSut();
         var app = new ItemDefinition
@@ -126,33 +126,6 @@ public class WindowsAppUninstallServiceTests
                 It.IsAny<IProgress<TaskProgressDetail>?>(),
                 It.IsAny<CancellationToken>()),
             Times.Once);
-    }
-
-    [Fact]
-    public async Task UninstallAppAsync_Success_LogsAppRemoved()
-    {
-        var sut = CreateSut();
-        var app = new ItemDefinition
-        {
-            Id = "windows-app-calc",
-            Name = "Calculator",
-            Description = "Windows calculator",
-            AppxPackageName = ["Microsoft.WindowsCalculator"]
-        };
-
-        _windowsAppsService
-            .Setup(x => x.GetAppByIdAsync("windows-app-calc"))
-            .ReturnsAsync(app);
-
-        _bloatRemovalService
-            .Setup(x => x.ExecuteBloatRemovalAsync(
-                It.IsAny<List<ItemDefinition>>(),
-                It.IsAny<IProgress<TaskProgressDetail>?>(),
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync(RemovalOutcome.Success);
-
-        await sut.UninstallAppAsync("windows-app-calc");
-
         _changeHistoryService.Verify(
             x => x.LogAppChange("Calculator", AppChangeKind.Removed), Times.Once);
     }

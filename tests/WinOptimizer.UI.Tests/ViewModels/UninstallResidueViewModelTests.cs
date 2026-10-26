@@ -27,6 +27,29 @@ public sealed class UninstallResidueViewModelTests
     private static IEnumerable<UninstallResidueNode> Walk(IEnumerable<UninstallResidueNode> roots) => roots.SelectMany(root => new[] { root }.Concat(Walk(root.Children)));
 
     [Fact]
+    public async Task FileAndRegistryLeftoversCanBeSelectedTogetherForDeeperCleanup()
+    {
+        var file = Finding(UninstallArtifactKind.File, @"C:\Recuva\settings.ini");
+        var registry = Finding(UninstallArtifactKind.RegistryValue, @"HKEY_USERS\account\Software\Recuva", "Options");
+        var protectedRegistry = Finding(UninstallArtifactKind.RegistryKey, @"HKEY_USERS\account\Software\Shared", canDelete: false);
+        using var vm = Create(file, registry, protectedRegistry);
+        Assert.False(vm.CanDelete);
+        Walk(vm.FileRoots).Single(node => node.Finding?.Id == file.Id).IsSelected = true;
+        Walk(vm.RegistryRoots).Single(node => node.Finding?.Id == registry.Id).IsSelected = true;
+        vm.RequestDeleteCommand.Execute(null);
+        _session.Setup(session => session.CleanAsync(It.Is<IReadOnlyCollection<Guid>>(ids => ids.Count == 2 && ids.Contains(file.Id) && ids.Contains(registry.Id)),
+            It.IsAny<IProgress<UninstallResidueProgress>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new UninstallCleanupResult([file.Id, registry.Id], [], Guid.NewGuid()));
+
+        await vm.ConfirmCommand.ExecuteAsync(null);
+
+        Assert.Empty(vm.FileRoots);
+        Assert.Equal(protectedRegistry.Id, Assert.Single(Walk(vm.RegistryRoots), node => node.Finding != null).Finding!.Id);
+        Assert.True(vm.CanRestore);
+        _session.Verify(session => session.CleanAsync(It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<IProgress<UninstallResidueProgress>>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
     public void PartialChildSelectionExcludesParent_AndProtectedResourcesRemainUnselected()
     {
         var parent = Finding(UninstallArtifactKind.Directory, @"C:\ProgramData\Recuva");

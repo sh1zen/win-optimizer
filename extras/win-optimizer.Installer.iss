@@ -73,6 +73,319 @@ var
 function GetStorageFileAttributes(const FileName: String): Cardinal;
   external 'GetFileAttributesW@kernel32.dll stdcall';
 
+function OpenCleanupRegistryKey(Root: Integer; SubKey: String; Options, Access: Cardinal;
+  var Key: Cardinal): Longint;
+  external 'RegOpenKeyExW@advapi32.dll stdcall';
+function CloseCleanupRegistryKey(Key: Cardinal): Longint;
+  external 'RegCloseKey@advapi32.dll stdcall';
+function ExpandCleanupEnvironment(const Source: String; Buffer: String; Size: Cardinal): Cardinal;
+  external 'ExpandEnvironmentStringsW@kernel32.dll stdcall';
+function OpenCleanupDirectory(const Name: String; Access, Share: Cardinal; Security: Integer;
+  Creation, Flags: Cardinal; Template: Integer): Integer;
+  external 'CreateFileW@kernel32.dll stdcall';
+function CloseCleanupDirectory(Handle: Integer): Boolean;
+  external 'CloseHandle@kernel32.dll stdcall';
+function ParseCleanupSid(const Value: String; var Sid: Cardinal): Boolean;
+  external 'ConvertStringSidToSidW@advapi32.dll stdcall';
+function FreeCleanupSid(Sid: Cardinal): Cardinal;
+  external 'LocalFree@kernel32.dll stdcall';
+
+// ProfileList can contain repair/backup keys whose names are not account SIDs.
+function IsCleanupAccount(const Value: String): Boolean;
+var
+  Sid: Cardinal;
+begin
+  Result := (Pos('S-1-5-21-', Value) = 1) or (Pos('S-1-12-1-', Value) = 1);
+  if Result then
+  begin
+    Result := ParseCleanupSid(Value, Sid);
+    if Result then FreeCleanupSid(Sid);
+  end;
+end;
+
+// Expand registered profile paths using Windows rather than the uninstaller's syntax.
+function CleanupProfilePath(const Value: String): String;
+var
+  Size, Written: Cardinal;
+begin
+  Size := ExpandCleanupEnvironment(Value, '', 0);
+  if Size = 0 then RaiseException('Cannot expand Windows profile location: ' + Value);
+  SetLength(Result, Size);
+  Written := ExpandCleanupEnvironment(Value, Result, Size);
+  if (Written = 0) or (Written > Size) then
+    RaiseException('Cannot expand Windows profile location: ' + Value);
+  SetLength(Result, Written - 1);
+end;
+
+// Distinguish missing keys from denied access instead of silently skipping a profile.
+function CleanupKeyExists(Root: Integer; const SubKey: String): Boolean;
+var
+  NativeRoot: Integer;
+  Key: Cardinal;
+  Access: Cardinal;
+  Status: Longint;
+begin
+  case Root of
+    HKCU32, HKCU64: NativeRoot := HKCU;
+    HKU32, HKU64: NativeRoot := HKU;
+    HKLM64: NativeRoot := HKLM;
+  else
+    NativeRoot := Root;
+  end;
+  Access := $20019;
+  if (Root = HKCU64) or (Root = HKU64) or (Root = HKLM64) then
+    Access := Access or $100;
+  if (Root = HKCU32) or (Root = HKU32) then
+    Access := Access or $200;
+  Status := OpenCleanupRegistryKey(NativeRoot, SubKey, 0, Access, Key);
+  Result := Status = 0;
+  if Result then CloseCleanupRegistryKey(Key)
+  else if (Status <> 2) and (Status <> 3) then
+    RaiseException('Cannot inspect registry key ' + SubKey + '. ' + SysErrorMessage(Status));
+end;
+
+// Windows launch history can replace Program Files with a known-folder GUID.
+function IsApplicationExecutable(Value: String): Boolean;
+begin
+  Value := Lowercase(Value);
+  StringChangeEx(Value, '{6d809377-6af0-444b-8957-a3773f02200e}', ExpandConstant('{pf64}'), True);
+  StringChangeEx(Value, '{7c5a40ef-a0fb-4bfc-874a-c0f2e0b9fa8e}', ExpandConstant('{pf32}'), True);
+  StringChangeEx(Value, '{905e63b6-c1bf-494e-b29c-65b732d3d21a}', ExpandConstant('{pf64}'), True);
+  Result := CompareText(Value, ExpandConstant('{app}\{#MyAppExeName}')) = 0;
+end;
+
+// Delete individual owned values, preserving shared Windows keys and other applications.
+procedure CleanupTraceValues(Root: Integer; const SubKey: String; MultiStringData: Boolean);
+var
+  Names: TArrayOfString;
+  I: Integer;
+  Data: String;
+  Owned: Boolean;
+begin
+  if not CleanupKeyExists(Root, SubKey) then Exit;
+  if not RegGetValueNames(Root, SubKey, Names) then
+    RaiseException('Cannot enumerate registry values at ' + SubKey);
+  for I := 0 to GetArrayLength(Names) - 1 do
+  begin
+    if MultiStringData then
+    begin
+      // UFH stores the shortcut and executable as separate REG_MULTI_SZ strings.
+      if not RegQueryMultiStringValue(Root, SubKey, Names[I], Data) then
+        RaiseException('Cannot read shortcut history at ' + SubKey + '\' + Names[I]);
+      Owned := Pos(#0 + Lowercase(ExpandConstant('{app}\{#MyAppExeName}')) + #0,
+        (#0 + Lowercase(Data) + #0)) > 0;
+    end
+    else Owned := IsApplicationExecutable(Names[I]);
+    if Owned then
+    begin
+      if not RegDeleteValue(Root, SubKey, Names[I]) or RegValueExists(Root, SubKey, Names[I]) then
+        RaiseException('Cannot remove registry value ' + SubKey + '\' + Names[I]);
+      Log('Removed application trace: ' + SubKey + '\' + Names[I]);
+    end;
+  end;
+end;
+
+// HKCU and each loaded/offline HKU profile use the same value-level cleanup.
+procedure CleanupUserTraces(Root: Integer; const Prefix: String);
+var
+  FeatureKey: String;
+  Names: TArrayOfString;
+  I: Integer;
+begin
+  FeatureKey := Prefix + 'Software\Microsoft\Windows\CurrentVersion\Explorer\FeatureUsage';
+  if CleanupKeyExists(Root, FeatureKey) then
+  begin
+    if not RegGetSubkeyNames(Root, FeatureKey, Names) then
+      RaiseException('Cannot enumerate application usage at ' + FeatureKey);
+    for I := 0 to GetArrayLength(Names) - 1 do
+      CleanupTraceValues(Root, FeatureKey + '\' + Names[I], False);
+  end;
+  CleanupTraceValues(Root, Prefix + 'Software\Microsoft\Windows\CurrentVersion\UFH\SHC', True);
+  CleanupTraceValues(Root, Prefix + 'Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Compatibility Assistant\Store', False);
+  CleanupTraceValues(Root, Prefix + 'Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Compatibility Assistant\Persisted', False);
+  CleanupTraceValues(Root, Prefix + 'Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers', False);
+end;
+
+// Inspect ancestors first so Windows never has to traverse an untrusted junction.
+procedure ValidateCleanupDirectory(const Directory: String);
+var
+  Parent: String;
+  Attributes, ErrorCode: Cardinal;
+begin
+  Parent := ExtractFileDir(Directory);
+  if (Parent <> '') and (CompareText(Parent, Directory) <> 0) then
+    ValidateCleanupDirectory(Parent);
+  Attributes := GetStorageFileAttributes(Directory);
+  if Attributes = $FFFFFFFF then
+  begin
+    ErrorCode := DLLGetLastError();
+    if (ErrorCode <> 2) and (ErrorCode <> 3) then
+      RaiseException('Cannot inspect cleanup folder ' + Directory + '. ' + SysErrorMessage(ErrorCode));
+  end
+  else
+  begin
+    if (Attributes and $400) <> 0 then
+      RaiseException('Full cleanup cannot use a linked application-data folder: ' + Directory);
+    if (Attributes and $10) = 0 then
+      RaiseException('The cleanup path is not a directory: ' + Directory);
+  end;
+end;
+
+// reg.exe enables the backup/restore privileges required for an offline profile hive.
+procedure RunCleanupRegistryCommand(const Arguments: String);
+var
+  ExitCode: Integer;
+begin
+  if not Exec(ExpandConstant('{sys}\reg.exe'), Arguments, '', SW_HIDE, ewWaitUntilTerminated, ExitCode) then
+    RaiseException('Cannot run registry cleanup. ' + SysErrorMessage(ExitCode));
+  if ExitCode <> 0 then
+    RaiseException('Cannot load or release a Windows profile hive (reg.exe exit ' + IntToStr(ExitCode) +
+      '). Close win-optimizer and retry full cleanup as administrator.');
+end;
+
+// Own the lifetime of an offline mount and share cleanup with already loaded profiles.
+procedure CleanupProfileTraces(const Sid, ProfilesKey: String);
+var
+  ProfilePath, HivePath, RootName: String;
+  Attributes, ErrorCode: Cardinal;
+  Mounted: Boolean;
+begin
+  RootName := Sid;
+  Mounted := False;
+  if not CleanupKeyExists(HKU64, Sid) then
+  begin
+    if not RegQueryStringValue(HKLM64, ProfilesKey + '\' + Sid, 'ProfileImagePath', ProfilePath) then
+      RaiseException('Cannot read Windows profile location for ' + Sid);
+    ProfilePath := CleanupProfilePath(ProfilePath);
+    if (Length(ProfilePath) < 3) or (Copy(ProfilePath, 2, 2) <> ':\') or
+      (Pos('"', ProfilePath) > 0) or (Pos('%', ProfilePath) > 0) then
+      RaiseException('Invalid local Windows profile location for ' + Sid);
+    ProfilePath := RemoveBackslash(ExpandFileName(ProfilePath));
+    ValidateCleanupDirectory(ProfilePath);
+    HivePath := AddBackslash(ProfilePath) + 'NTUSER.DAT';
+    Attributes := GetStorageFileAttributes(HivePath);
+    if Attributes = $FFFFFFFF then
+    begin
+      ErrorCode := DLLGetLastError();
+      if (ErrorCode <> 2) and (ErrorCode <> 3) then
+        RaiseException('Cannot inspect Windows profile hive ' + HivePath + '. ' + SysErrorMessage(ErrorCode));
+      Log('No Windows profile hive to clean: ' + HivePath);
+      Exit;
+    end;
+    if (Attributes and $410) <> 0 then
+      RaiseException('Invalid or linked Windows profile hive: ' + HivePath);
+    RootName := 'WinOptimizerUninstall-' + GetMD5OfString(ExpandConstant('{tmp}'));
+    if CleanupKeyExists(HKU64, RootName) then
+      RaiseException('The temporary registry mount is already in use: ' + RootName);
+    RunCleanupRegistryCommand('load "HKU\' + RootName + '" "' + HivePath + '"');
+    Mounted := True;
+  end;
+  try
+    CleanupUserTraces(HKU64, RootName + '\');
+    CleanupUserTraces(HKU32, RootName + '\');
+  finally
+    if Mounted then RunCleanupRegistryCommand('unload "HKU\' + RootName + '"');
+  end;
+end;
+
+// Visit registered desktop accounts, including profiles not currently signed in.
+procedure CleanupRegistryTraces();
+var
+  Profiles: TArrayOfString;
+  ProfilesKey: String;
+  I: Integer;
+begin
+  CleanupUserTraces(HKCU64, '');
+  CleanupUserTraces(HKCU32, '');
+  ProfilesKey := 'SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList';
+  if not CleanupKeyExists(HKLM64, ProfilesKey) then
+    RaiseException('Windows profile registrations are unavailable for full cleanup.');
+  if not RegGetSubkeyNames(HKLM64, ProfilesKey, Profiles) then
+    RaiseException('Cannot enumerate Windows profiles for full cleanup.');
+  for I := 0 to GetArrayLength(Profiles) - 1 do
+    if IsCleanupAccount(Profiles[I]) then CleanupProfileTraces(Profiles[I], ProfilesKey);
+end;
+
+// Scheduler APIs keep files and TaskCache consistent; other task actions remain intact.
+procedure CleanupScheduledTasks();
+var
+  Service, Root, Folder, Folders, Tasks, Task, Document, Commands: Variant;
+  I, J: Integer;
+begin
+  Service := CreateOleObject('Schedule.Service');
+  Service.Connect();
+  Root := Service.GetFolder('\');
+  Folders := Root.GetFolders(0);
+  for I := 1 to Folders.Count do
+  begin
+    Folder := Folders.Item(I);
+    if CompareText(Folder.Name, 'win-optimizer') = 0 then
+    begin
+      Document := CreateOleObject('MSXML2.DOMDocument.6.0');
+      Document.setProperty('SelectionNamespaces', 'xmlns:t="http://schemas.microsoft.com/windows/2004/02/mit/task"');
+      Tasks := Folder.GetTasks(1); // Include hidden tasks.
+      for J := Tasks.Count downto 1 do
+      begin
+        Task := Tasks.Item(J);
+        if not Document.loadXML(Task.Xml) then
+          RaiseException('Cannot inspect scheduled task ' + Task.Path);
+        Commands := Document.selectNodes('/t:Task/t:Actions[count(*)=1]/t:Exec/t:Command');
+        if Commands.length = 1 then
+          if IsApplicationExecutable(Commands.item(0).text) then
+          begin
+            Folder.DeleteTask(Task.Name, 0);
+            Log('Removed application startup task: ' + Task.Path);
+          end;
+      end;
+      Tasks := Folder.GetTasks(1);
+      Folders := Folder.GetFolders(0);
+      if (Tasks.Count = 0) and (Folders.Count = 0) then
+      begin
+        Root.DeleteFolder('win-optimizer', 0);
+        Log('Removed empty application Task Scheduler folder.');
+      end;
+      Exit;
+    end;
+  end;
+end;
+
+// Prefetch hashes vary by launch path; accept only the executable's exact cache format.
+procedure CleanupPrefetch();
+var
+  Directory, Name, Hash: String;
+  FindRec: TFindRec;
+  I, Handle: Integer;
+  Valid: Boolean;
+begin
+  Directory := ExpandConstant('{win}\Prefetch');
+  ValidateCleanupDirectory(Directory);
+  if not DirExists(Directory) then Exit;
+  Handle := OpenCleanupDirectory(Directory, 1, 7, 0, 3, $02000000, 0);
+  if Handle = -1 then
+    RaiseException('Cannot enumerate application Prefetch files at ' + Directory + '. ' + SysErrorMessage(DLLGetLastError()));
+  CloseCleanupDirectory(Handle);
+  if FindFirst(AddBackslash(Directory) + '{#MyAppExeName}-????????.pf', FindRec) then
+  begin
+    try
+      repeat
+        Name := FindRec.Name;
+        Hash := Copy(Name, Length('{#MyAppExeName}') + 2, 8);
+        Valid := (FindRec.Attributes and $410) = 0;
+        for I := 1 to Length(Hash) do
+          if Pos(Uppercase(Hash[I]), '0123456789ABCDEF') = 0 then Valid := False;
+        if Valid then
+        begin
+          if not DeleteFile(AddBackslash(Directory) + Name) then
+            RaiseException('Cannot remove application Prefetch file: ' + AddBackslash(Directory) + Name);
+          Log('Removed application Prefetch file: ' + Name);
+        end;
+      until not FindNext(FindRec);
+    finally
+      FindClose(FindRec);
+    end;
+  end;
+end;
+
 // The installer boundary mirrors AppDataPaths.Root; command-line paths cannot override it.
 function ApplicationDataRoot(): String;
 begin
@@ -82,35 +395,14 @@ end;
 // Reject redirects on the storage root and its ancestors before deleting any data.
 procedure ValidateDataCleanupPath();
 var
-  StorageRoot, InstallRoot, CurrentPath, ParentPath: String;
-  Attributes, ErrorCode: Cardinal;
+  StorageRoot, InstallRoot: String;
 begin
   StorageRoot := ApplicationDataRoot();
   InstallRoot := RemoveBackslash(ExpandFileName(ExpandConstant('{app}')));
   if Pos(Lowercase(AddBackslash(StorageRoot)), Lowercase(AddBackslash(InstallRoot))) = 1 then
     RaiseException('The application is installed inside its data folder. Keep data during uninstall, then remove ' +
       StorageRoot + ' manually after uninstalling.');
-  CurrentPath := StorageRoot;
-  repeat
-    Attributes := GetStorageFileAttributes(CurrentPath);
-    if Attributes = $FFFFFFFF then
-    begin
-      ErrorCode := DLLGetLastError();
-      if (ErrorCode <> 2) and (ErrorCode <> 3) then
-        RaiseException('Cannot inspect application data at ' + CurrentPath + '. ' + SysErrorMessage(ErrorCode));
-    end
-    else
-    begin
-      if (Attributes and $400) <> 0 then
-        RaiseException('Full cleanup cannot use a linked application-data folder: ' + CurrentPath);
-      if (CompareText(CurrentPath, StorageRoot) = 0) and ((Attributes and $10) = 0) then
-        RaiseException('The application-data path is not a directory: ' + CurrentPath);
-    end;
-    ParentPath := ExtractFileDir(CurrentPath);
-    if CompareText(ParentPath, CurrentPath) = 0 then
-      Break;
-    CurrentPath := ParentPath;
-  until CurrentPath = '';
+  ValidateCleanupDirectory(StorageRoot);
 end;
 
 function InitializeUninstall(): Boolean;
@@ -137,7 +429,7 @@ begin
       'Close win-optimizer before continuing. Removing data does not undo Windows changes. Restore any settings that use application scripts before a full cleanup.',
       mbConfirmation, MB_YESNOCANCEL, ['Keep data for reinstalling (recommended)' + #13#10 +
        'Keep preferences, backups, history and other saved application data.',
-       'Remove all application data' + #13#10 + 'Permanently delete data shared by ALL Windows accounts and other win-optimizer copies, including backups, caches and downloaded tools. Administrator access may be required.',
+       'Remove all application data' + #13#10 + 'Permanently delete data shared by ALL Windows accounts and other win-optimizer copies, including backups, caches and downloaded tools, plus this installation''s Windows usage traces and startup tasks. Administrator access may be required.',
        'Cancel'], IDNO, IDYES);
     if (Choice <> IDYES) and (Choice <> IDNO) then
       Exit;
@@ -180,6 +472,9 @@ begin
   end;
   try
     ValidateDataCleanupPath();
+    CleanupScheduledTasks();
+    CleanupRegistryTraces();
+    CleanupPrefetch();
     // DelTree removes child reparse points themselves, without visiting their targets.
     if DirExists(DataRoot) and not DelTree(DataRoot, True, True, True) then
       RaiseException('Some application data could not be removed from ' + DataRoot +
@@ -281,7 +576,7 @@ Name: "regularinstall\startmenuicon"; Description: "Create a shortcut in the Sta
 ;    excluding them makes the installer ~13 MB smaller. The metapackage can't be
 ;    slimmed at the NuGet level (icon/control packages depend on it); see
 ;    microsoft/WindowsAppSDK#5969.
-Source: "C:\win-optimizer\build\publish\*"; Excludes: "nul,onnxruntime.dll,DirectML.dll"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+Source: "C:\win-optimizer\build\publish\*"; Excludes: "nul,*.pdb,onnxruntime.dll,DirectML.dll"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 ; Create a marker file for portable installations
 Source: "C:\win-optimizer\extras\portable.marker"; DestDir: "{app}"; Flags: ignoreversion; Tasks: portableinstall
 ; NOTE: Don't use "Flags: ignoreversion" on any shared system files
