@@ -97,7 +97,7 @@ public class VersionService : IVersionService
         const int maxRetries = 3;
         int delayMs = 2000;
 
-        for (int attempt = 1; attempt <= maxRetries; attempt++)
+        for (int attempt = 1; ; attempt++)
         {
             try
             {
@@ -108,7 +108,7 @@ public class VersionService : IVersionService
                 // Get the latest release information from GitHub API
                 using var request = new HttpRequestMessage(HttpMethod.Get, _latestReleaseApiUrl);
                 request.Headers.TryAddWithoutValidation("User-Agent", _userAgent);
-                HttpResponseMessage response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+                using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
                 response.EnsureSuccessStatusCode();
 
                 string responseBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
@@ -158,11 +158,9 @@ public class VersionService : IVersionService
             catch (Exception ex)
             {
                 _logService.Log(LogLevel.Error, $"Error checking for updates: {ex.Message}", ex);
-                return new VersionInfo { IsUpdateAvailable = false };
+                throw;
             }
         }
-
-        return new VersionInfo { IsUpdateAvailable = false };
     }
 
     private static bool IsTransientError(Exception ex)

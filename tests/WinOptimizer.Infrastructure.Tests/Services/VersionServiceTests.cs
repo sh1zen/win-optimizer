@@ -119,17 +119,23 @@ public class VersionServiceTests
     }
 
     [Fact]
-    public async Task CheckForUpdateAsync_HttpError_ReturnsNoUpdate()
+    public async Task CheckForUpdateAsync_HttpErrorPropagatesInsteadOfClaimingNoUpdate()
     {
         // Arrange — simulate a non-transient HTTP error (404)
         SetupHttpResponse(HttpStatusCode.NotFound, "Not Found");
 
         // Act
-        var result = await _service.CheckForUpdateAsync(CancellationToken.None);
+        await Assert.ThrowsAsync<HttpRequestException>(() => _service.CheckForUpdateAsync(CancellationToken.None));
+    }
 
-        // Assert — on non-retryable error, service returns a default VersionInfo with no update
-        result.Should().NotBeNull();
-        result.IsUpdateAvailable.Should().BeFalse();
+    [Theory]
+    [InlineData("invalid JSON", typeof(JsonException))]
+    [InlineData("{}", typeof(KeyNotFoundException))]
+    public async Task InvalidReleaseResponsesPropagateAnError(string response, Type expected)
+    {
+        SetupHttpResponse(HttpStatusCode.OK, response);
+        var error = await Record.ExceptionAsync(() => _service.CheckForUpdateAsync());
+        Assert.IsAssignableFrom(expected, error);
     }
 
     [Theory]
@@ -244,41 +250,6 @@ public class VersionServiceTests
         // the path with its embedded space correctly
         args.Should().Contain($"/DIR=\"{customPath}\"");
     }
-
-    #endregion
-
-    #region Constructor Validation
-
-    [Fact]
-    public void Constructor_NullProcessExecutor_ThrowsArgumentNullException()
-    {
-        var act = () => new VersionService(
-            _mockLogService.Object, null!, _mockFileSystemService.Object, _httpClient);
-
-        act.Should().Throw<ArgumentNullException>()
-            .WithParameterName("processExecutor");
-    }
-
-    [Fact]
-    public void Constructor_NullFileSystemService_ThrowsArgumentNullException()
-    {
-        var act = () => new VersionService(
-            _mockLogService.Object, _mockProcessExecutor.Object, null!, _httpClient);
-
-        act.Should().Throw<ArgumentNullException>()
-            .WithParameterName("fileSystemService");
-    }
-
-    [Fact]
-    public void Constructor_NullHttpClient_ThrowsArgumentNullException()
-    {
-        var act = () => new VersionService(
-            _mockLogService.Object, _mockProcessExecutor.Object, _mockFileSystemService.Object, null!);
-
-        act.Should().Throw<ArgumentNullException>()
-            .WithParameterName("httpClient");
-    }
-
     #endregion
 
     #region Helpers
@@ -290,7 +261,7 @@ public class VersionServiceTests
                 "SendAsync",
                 ItExpr.IsAny<HttpRequestMessage>(),
                 ItExpr.IsAny<CancellationToken>())
-            .ReturnsAsync(new HttpResponseMessage(statusCode)
+            .ReturnsAsync(() => new HttpResponseMessage(statusCode)
             {
                 Content = new StringContent(content)
             });

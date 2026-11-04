@@ -51,6 +51,11 @@ public class UserPreferencesService : IUserPreferencesService
         {
             return await GetPreferencesUnsafeAsync().ConfigureAwait(false);
         }
+        catch (Exception ex)
+        {
+            _logService.Log(LogLevel.Error, $"Error getting user preferences: {ex.Message}");
+            return new Dictionary<string, object>();
+        }
         finally
         {
             _fileLock.Release();
@@ -73,8 +78,7 @@ public class UserPreferencesService : IUserPreferencesService
 
             if (string.IsNullOrEmpty(json))
             {
-                _logService.Log(LogLevel.Warning, "Preferences file exists but is empty");
-                return new Dictionary<string, object>();
+                throw new JsonException("The preferences file is empty.");
             }
 
             var preferences = JsonSerializer.Deserialize<Dictionary<string, object>>(json);
@@ -87,19 +91,11 @@ public class UserPreferencesService : IUserPreferencesService
             }
             else
             {
-                _logService.Log(LogLevel.Warning, "Deserialized preferences is null, returning empty dictionary");
-                return new Dictionary<string, object>();
+                throw new JsonException("The preferences file must contain an object.");
             }
         }
-        catch (Exception ex)
-        {
-            _logService.Log(LogLevel.Error, $"Error getting user preferences: {ex.Message}");
-            if (ex.InnerException != null)
-            {
-                _logService.Log(LogLevel.Error, $"Inner exception: {ex.InnerException.Message}");
-            }
-            return new Dictionary<string, object>();
-        }
+        catch (JsonException ex)
+        { throw new IOException("The preferences file is invalid. Restore or repair it before saving settings.", ex); }
     }
 
     public async Task<OperationResult> SavePreferencesAsync(Dictionary<string, object> preferences)

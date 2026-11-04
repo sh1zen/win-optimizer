@@ -81,11 +81,26 @@ public partial class CleanerViewModel : ObservableObject, IDisposable
     private CleanerOptions? _scannedOptions;
     private int _selectedCount;
     private long _selectedBytes;
+    private readonly Dictionary<CleanerArea, CleanerCategoryReport> _reportsByArea = [];
+    private string? _applyFailure;
+    private bool _reportCancelled;
+    private int _reportErrorCount;
+    private enum RunResult { Completed, Cancelled, Failed }
     public CleanerSettingsViewModel Settings { get; }
     public ObservableCollection<CleanerChoice<CleanerArea>> Areas { get; } = [];
     public ObservableCollection<CleanerResultItem> Results { get; } = [];
     public ObservableCollection<SelectableResultGroup> ResultGroups { get; } = [];
-    [ObservableProperty] [NotifyPropertyChangedFor(nameof(IsIdle), nameof(CanChooseAreas), nameof(HasStatus), nameof(HasScanStatus))]
+    public ObservableCollection<CleanerCategoryReport> CategoryReports { get; } = [];
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(SelectedCategoryGroups), nameof(HasCategoryItems), nameof(HasEmptyCategory))]
+    public partial CleanerCategoryReport? SelectedCategory { get; set; }
+    public IReadOnlyList<SelectableResultGroup> SelectedCategoryGroups => SelectedCategory?.ReviewGroups ?? [];
+    public bool HasCategoryItems => SelectedCategory?.HasSelectableItems == true;
+    public bool HasEmptyCategory => SelectedCategory is { HasSelectableItems: false };
+    public bool ShowCategoryReview => HasScanned && !HasCleanupReport;
+    public string CategoriesLabel => Text("SystemInfo_Categories");
+    public string NoSelectableItemsLabel => Text("Cleaner_NoSelectableResults");
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(IsIdle), nameof(CanChooseAreas), nameof(CanSelectResults), nameof(HasStatus), nameof(HasScanStatus), nameof(ReportState))]
     [NotifyCanExecuteChangedFor(nameof(ScanCommand), nameof(ApplyCommand))]
     public partial bool IsBusy { get; set; }
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(CanChooseAreas))]
@@ -96,25 +111,48 @@ public partial class CleanerViewModel : ObservableObject, IDisposable
     public bool HasAreaSelectionError => !string.IsNullOrEmpty(AreaSelectionError);
     public bool CanChooseAreas => IsIdle && !IsLoadingSelection;
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(HasStatus), nameof(HasScanStatus))] public partial string Status { get; set; } = "";
-    [ObservableProperty] [NotifyPropertyChangedFor(nameof(HasNotices))] public partial string Notices { get; set; } = "";
-    [ObservableProperty] [NotifyPropertyChangedFor(nameof(HasScanStatus))] public partial bool HasScanned { get; private set; }
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(HasNotices), nameof(ReportDetails), nameof(HasReportDetails))] public partial string Notices { get; set; } = "";
+    [ObservableProperty] public partial bool AreDetailsExpanded { get; set; }
+    [ObservableProperty] public partial bool HasCleanupReport { get; private set; }
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(HasScanStatus), nameof(HasEmptyResults), nameof(RequiresRescan), nameof(CanSelectResults))] public partial bool HasScanned { get; private set; }
     public bool IsIdle => !IsBusy;
     public bool HasStatus => IsIdle && !string.IsNullOrWhiteSpace(Status);
-    public bool HasScanStatus => HasStatus && !HasScanned;
+    public bool HasScanStatus => HasStatus && !HasScanned && !HasCleanupReport;
     public bool HasNotices => !string.IsNullOrWhiteSpace(Notices);
     public bool HasResults => Results.Count > 0;
+    public bool HasEmptyResults => HasScanned && !HasResults;
+    public bool RequiresRescan => HasScanned && !ReferenceEquals(_scannedOptions, Settings.Options);
+    public bool CanSelectResults => IsIdle && HasScanned && !RequiresRescan;
+    public string RescanDescription => Text("Cleaner_Rescan");
     public int ResultCount => Results.Count;
     public int SelectedCount => _selectedCount;
     public string SelectedSize => CleanerVisuals.FormatSize(_selectedBytes);
+    public bool HasSummary => HasScanned || HasCleanupReport;
+    public bool ShowReviewItems => HasResults && !HasCleanupReport;
+    public int RemovedCount => CategoryReports.Sum(report => report.RemovedCount);
+    public int ReportErrorCount => _reportErrorCount;
+    public string ReportTitle => HasCleanupReport ? Text("Cleaner_ReportTitle") : ResultsLabel;
+    public string ReportDescription => HasCleanupReport ? Text("Cleaner_ReportNote") : ReviewDescription;
+    public string OutcomeLabel => HasCleanupReport ? Text("Cleaner_ReportRemoved") : SelectedLabel;
+    public int OutcomeCount => HasCleanupReport ? RemovedCount : SelectedCount;
+    public string IssueLabel => Text(HasCleanupReport ? "Cleaner_ReportErrors" : "Cleaner_ReportProtected");
+    public int IssueCount => HasCleanupReport ? ReportErrorCount : Results.Count(item => !item.CanClean);
+    public string ReportSpace => HasCleanupReport
+        ? CategoryReports.Any(report => report.HasFileSelection)
+            ? CleanerVisuals.FormatSize(CategoryReports.Sum(report => report.EstimatedFreedFileBytes)) : "—"
+        : SelectedSize;
+    public string ReportState => !HasCleanupReport || IsBusy ? "" : _reportCancelled ? Text("Cleaner_ReportCancelled")
+        : _reportErrorCount > 0 ? $"{_reportErrorCount:N0} {Text("Cleaner_ReportErrors")}" : Text("Logs_Level_Success");
+    public string ReportDetails => string.Join(Environment.NewLine, new[] { Notices, _applyFailure }.Where(text => !string.IsNullOrWhiteSpace(text)));
+    public bool HasReportDetails => HasNotices || !string.IsNullOrWhiteSpace(_applyFailure);
     public string CategorySummary => string.Format(Text("Cleaner_CategorySummary"), Areas.Count(x => x.IsSelected), Areas.Count);
-    public string EmptyTitle => Text("Cleaner_NoResults");
-    public string EmptyDescription => Text("Cleaner_NoResultsDescription");
     public string ReviewDescription => Text("Cleaner_ReviewDescription");
+    public string DetailsLabel => Text("Logs_Details");
     public string ReviewLabel => Text("Cleaner_ReviewResults");
     public string AreasLabel => Text("Cleaner_Areas");
     public string FoundLabel => Text("Cleaner_Found");
     public string SelectedLabel => Text("Cleaner_Selected");
-    public string SpaceLabel => Text("Cleaner_SelectedSpace");
+    public string SpaceLabel => Text(HasCleanupReport ? "Cleaner_ReportFreed" : "Cleaner_SelectedSpace");
     public string IntroTitle => Text("Cleaner_IntroTitle");
     public string IntroDescription => Text("Cleaner_IntroDescription");
     public string ScanStep => Text("Cleaner_StepScan");
@@ -235,13 +273,14 @@ public partial class CleanerViewModel : ObservableObject, IDisposable
         if (!await Settings.FlushAsync()) { Status = Settings.Status; return; }
         if (_tasks.IsTaskRunning) { Status = Text("Cleaner_Wait"); return; }
         var options = Settings.Options;
+        var selectedAreas = Areas.Where(area => area.IsSelected).Select(area => area.Value).ToArray();
         var completed = await RunAsync(async ct =>
         {
             ClearResults();
             HasScanned = false;
             Notices = "";
             _scannedOptions = null;
-            var report = await _cleaner.ScanAsync(options, Areas.Where(x => x.IsSelected).Select(x => x.Value).ToArray(), CreateProgress(), ct);
+            var report = await _cleaner.ScanAsync(options, selectedAreas, CreateProgress(), ct);
             foreach (var finding in report.Findings)
             {
                 ct.ThrowIfCancellationRequested();
@@ -253,23 +292,38 @@ public partial class CleanerViewModel : ObservableObject, IDisposable
             }
             ct.ThrowIfCancellationRequested();
             // Groups reference the same selectable items used by cleanup, preserving scan order.
-            foreach (var group in Results.GroupBy(item => (item.Finding.Area, item.Finding.LabelKey)))
+            var groupsByArea = new Dictionary<CleanerArea, List<SelectableResultGroup>>();
+            foreach (var group in Results.Where(item => item.CanClean).GroupBy(item => (item.Finding.Area, item.Finding.LabelKey)))
             {
                 var bytes = group.Sum(item => item.Finding.Bytes);
-                ResultGroups.Add(new SelectableResultGroup(group.Key.LabelKey, group.ToArray(),
-                    bytes > 0 ? CleanerVisuals.FormatSize(bytes) : "", CleanerVisuals.IconFor(group.Key.Area), _localization));
+                var resultGroup = new SelectableResultGroup(group.Key.LabelKey, group.ToArray(),
+                    bytes > 0 ? CleanerVisuals.FormatSize(bytes) : "", CleanerVisuals.IconFor(group.Key.Area), _localization);
+                ResultGroups.Add(resultGroup);
+                if (!groupsByArea.TryGetValue(group.Key.Area, out var categoryGroups))
+                    groupsByArea.Add(group.Key.Area, categoryGroups = []);
+                categoryGroups.Add(resultGroup);
             }
+            var itemsByArea = Results.GroupBy(item => item.Finding.Area).ToDictionary(group => group.Key, group => group.ToArray());
+            foreach (var area in selectedAreas)
+            {
+                var category = new CleanerCategoryReport(area, itemsByArea.GetValueOrDefault(area) ?? [],
+                    groupsByArea.GetValueOrDefault(area)?.ToArray() ?? [], _localization);
+                CategoryReports.Add(category);
+                _reportsByArea.Add(area, category);
+            }
+            SelectedCategory = CategoryReports.FirstOrDefault(category => category.HasSelectableItems) ?? CategoryReports.FirstOrDefault();
             RefreshResultSummary();
             Notices = string.Join(Environment.NewLine, report.Notices);
-            Status = string.Format(Text("Cleaner_ScanComplete"), Results.Count, Results.Sum(x => x.Finding.Bytes) / 1048576d, report.CheckedItems);
+            Status = string.Format(Text("Cleaner_ScanComplete"), Results.Count, CleanerVisuals.FormatSize(Results.Sum(x => x.Finding.Bytes)), report.CheckedItems);
         });
         // Publish review availability only after the entire operation has stopped successfully.
-        if (completed)
+        if (completed == RunResult.Completed)
         {
             _scannedOptions = options;
             HasScanned = true;
             ApplyCommand.NotifyCanExecuteChanged();
         }
+        RefreshReport();
     }
 
     [RelayCommand(CanExecute = nameof(CanApply))]
@@ -302,17 +356,38 @@ public partial class CleanerViewModel : ObservableObject, IDisposable
             return;
         }
         finally { IsBusy = false; }
-        await RunAsync(async ct =>
+        var confirmed = ids.ToHashSet();
+        foreach (var category in CategoryReports) category.SnapshotSelection(confirmed);
+        HasCleanupReport = true;
+        AreDetailsExpanded = false;
+        RefreshReport();
+        var run = await RunAsync(async ct =>
         {
             var result = await _cleaner.ApplyAsync(ids, CreateProgress(), ct);
-            Status = string.Format(Text("Cleaner_ApplyComplete"), result.Completed, result.Errors.Count);
-            Notices = string.Join(Environment.NewLine, result.Errors);
+            var outcomes = result.Items.GroupBy(item => item.Finding.Area).ToDictionary(group => group.Key, group => group.ToArray());
+            foreach (var category in CategoryReports) category.SetOutcomes(outcomes.GetValueOrDefault(category.Area) ?? []);
+            _reportErrorCount = result.Errors.Count;
+            _reportCancelled = result.IsCancelled;
+            Status = result.IsCancelled ? Text("Cleaner_Cancelled") : string.Format(Text("Cleaner_ApplyComplete"), result.Completed, result.Errors.Count);
+            Notices = string.Join(Environment.NewLine, new[] { Notices }.Concat(result.Errors).Where(text => !string.IsNullOrWhiteSpace(text)));
+            // Keep the final outcome in task details even when coalesced progress never reaches the footer.
+            var output = result.Errors.Count > 0 ? $"{Status}{Environment.NewLine}{Notices}" : Status;
+            _tasks.UpdateDetailedProgress(new TaskProgressDetail
+            {
+                StatusText = Title,
+                TerminalOutput = output,
+                DetailedMessage = output,
+                LogLevel = result.Errors.Count > 0 ? WinOptimizer.Core.Features.Common.Enums.LogLevel.Error : WinOptimizer.Core.Features.Common.Enums.LogLevel.Info
+            });
         });
+        if (run == RunResult.Cancelled) _reportCancelled = true;
+        if (run == RunResult.Failed) { _applyFailure = Status; _reportErrorCount++; }
         _scannedOptions = null;
-        ApplyCommand.NotifyCanExecuteChanged();
+        RefreshReviewState();
+        RefreshReport();
     }
 
-    private async Task<bool> RunAsync(Func<CancellationToken, Task> operation)
+    private async Task<RunResult> RunAsync(Func<CancellationToken, Task> operation)
     {
         IsBusy = true;
         CancellationTokenSource? cts = null;
@@ -322,13 +397,13 @@ public partial class CleanerViewModel : ObservableObject, IDisposable
             _operationCts = cts;
             await operation(cts.Token);
             cts.Token.ThrowIfCancellationRequested();
-            return true;
+            return RunResult.Completed;
         }
         catch (OperationCanceledException)
         {
             if (_scannedOptions is null) { ClearResults(); HasScanned = false; }
             Status = Text("Cleaner_Cancelled");
-            return false;
+            return RunResult.Cancelled;
         }
         catch (Exception ex)
         {
@@ -340,7 +415,7 @@ public partial class CleanerViewModel : ObservableObject, IDisposable
                 LogLevel = WinOptimizer.Core.Features.Common.Enums.LogLevel.Error,
                 StatusText = Title, TerminalOutput = ex.Message
             });
-            return false;
+            return RunResult.Failed;
         }
         finally
         {
@@ -369,17 +444,26 @@ public partial class CleanerViewModel : ObservableObject, IDisposable
         });
     }
 
-    [RelayCommand] private void SelectAll() { if (!IsBusy) foreach (var result in Results) result.IsSelected = true; }
-    [RelayCommand] private void ClearSelection() { if (!IsBusy) foreach (var result in Results) result.IsSelected = false; }
+    [RelayCommand] private void SelectAll() { if (CanSelectResults) foreach (var result in Results) result.IsSelected = true; }
+    [RelayCommand] private void ClearSelection() { if (CanSelectResults) foreach (var result in Results) result.IsSelected = false; }
     private void ClearResults()
     {
         foreach (var group in ResultGroups) group.Dispose();
         ResultGroups.Clear();
         foreach (var result in Results) result.PropertyChanged -= OnSelectionChanged;
         Results.Clear();
+        CategoryReports.Clear();
+        SelectedCategory = null;
+        _reportsByArea.Clear();
+        HasCleanupReport = false;
+        AreDetailsExpanded = false;
+        _applyFailure = null;
+        _reportCancelled = false;
+        _reportErrorCount = 0;
         _selectedCount = 0;
         _selectedBytes = 0;
         RefreshResultSummary();
+        RefreshReport();
     }
 
     /// <summary>Publishes counters after a scan/reset; selection changes update their cached totals in constant time.</summary>
@@ -387,8 +471,11 @@ public partial class CleanerViewModel : ObservableObject, IDisposable
     {
         OnPropertyChanged(nameof(ResultCount));
         OnPropertyChanged(nameof(HasResults));
+        OnPropertyChanged(nameof(HasEmptyResults));
         OnPropertyChanged(nameof(SelectedCount));
         OnPropertyChanged(nameof(SelectedSize));
+        OnPropertyChanged(nameof(ShowReviewItems));
+        OnPropertyChanged(nameof(ShowCategoryReview));
     }
     private void OnSelectionChanged(object? sender, PropertyChangedEventArgs e)
     {
@@ -399,6 +486,9 @@ public partial class CleanerViewModel : ObservableObject, IDisposable
             _selectedBytes += result.IsSelected ? result.Finding.Bytes : -result.Finding.Bytes;
             OnPropertyChanged(nameof(SelectedCount));
             OnPropertyChanged(nameof(SelectedSize));
+            OnPropertyChanged(nameof(OutcomeCount));
+            OnPropertyChanged(nameof(ReportSpace));
+            if (!HasCleanupReport && _reportsByArea.TryGetValue(result.Finding.Area, out var category)) category.SelectionChanged(result);
         }
         else
         {
@@ -412,14 +502,31 @@ public partial class CleanerViewModel : ObservableObject, IDisposable
         }
         ApplyCommand.NotifyCanExecuteChanged();
     }
+    /// <summary>Marks a consumed or changed scan read-only until a fresh scan supplies current evidence.</summary>
+    private void RefreshReviewState()
+    {
+        OnPropertyChanged(nameof(RequiresRescan));
+        OnPropertyChanged(nameof(CanSelectResults));
+        ApplyCommand.NotifyCanExecuteChanged();
+    }
     private void OnSettingsChanged(object? sender, PropertyChangedEventArgs e)
-    { if (e.PropertyName == nameof(Settings.Options)) ApplyCommand.NotifyCanExecuteChanged(); }
+    { if (e.PropertyName == nameof(Settings.Options)) RefreshReviewState(); }
     private void OnLanguageChanged(object? sender, EventArgs e)
     {
         OnPropertyChanged(string.Empty);
         foreach (var area in Areas) area.RefreshText();
         foreach (var result in Results) result.RefreshText();
         foreach (var group in ResultGroups) group.RefreshText();
+        foreach (var report in CategoryReports) report.RefreshText();
+    }
+
+    /// <summary>Publishes numerical scan/cleanup snapshots independently from technical diagnostic text.</summary>
+    private void RefreshReport()
+    {
+        foreach (var property in new[] { nameof(HasCleanupReport), nameof(HasSummary), nameof(ShowReviewItems), nameof(ShowCategoryReview),
+            nameof(RemovedCount), nameof(ReportErrorCount), nameof(ReportTitle), nameof(ReportDescription), nameof(OutcomeLabel),
+            nameof(OutcomeCount), nameof(IssueLabel), nameof(IssueCount), nameof(ReportSpace), nameof(SpaceLabel), nameof(ReportState),
+            nameof(ReportDetails), nameof(HasReportDetails), nameof(HasScanStatus) }) OnPropertyChanged(property);
     }
     public void Dispose()
     {

@@ -184,7 +184,15 @@ public static class UIServicesExtensions
         services.AddSingleton<IWindowsAppsItemsProvider>(sp => sp.GetRequiredService<WindowsAppsViewModel>());
         services.AddSingleton<ExternalAppsViewModel>();
         services.AddSingleton<LeftoverAppsViewModel>();
-        services.AddSingleton<WinOptimizer.Core.Features.SoftwareApps.Interfaces.IUninstallResidueReview, UninstallResidueReview>();
+        services.AddSingleton<WinOptimizer.Core.Features.SoftwareApps.Interfaces.IUninstallResidueReview>(sp =>
+            new UninstallResidueReview(sp.GetRequiredService<WinOptimizer.Core.Features.SoftwareApps.Interfaces.IUninstallResidueService>(),
+                sp.GetRequiredService<IDialogService>(), sp.GetRequiredService<IDispatcherService>(),
+                sp.GetRequiredService<ITaskProgressService>(), sp.GetRequiredService<ILocalizationService>(),
+                sp.GetRequiredService<IApplicationModeService>(),
+                () => (sp.GetRequiredService<IMainWindowProvider>().MainWindow as MainWindow)?.NavigationFrame
+                    ?? throw new InvalidOperationException("The main navigation frame is unavailable."),
+                () => (sp.GetRequiredService<IMainWindowProvider>().MainWindow as MainWindow)?.SuspendForUninstall()
+                    ?? throw new InvalidOperationException("The main application window is unavailable.")));
         services.AddSingleton<IExternalAppsItemsProvider>(sp => sp.GetRequiredService<ExternalAppsViewModel>());
         services.AddSingleton<SoftwareAppsViewModel>();
 

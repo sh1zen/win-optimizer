@@ -20,6 +20,7 @@ public class WimImageFormatViewModelTests : IDisposable
     private readonly Mock<ILogService> _mockLogService = new();
 
     private readonly WimImageFormatViewModel _sut;
+    private CancellationTokenSource? _currentTask;
 
     public WimImageFormatViewModelTests()
     {
@@ -36,6 +37,10 @@ public class WimImageFormatViewModelTests : IDisposable
             .Callback<Func<Task>>(a => a().GetAwaiter().GetResult())
             .Returns(Task.CompletedTask);
 
+        _mockTaskProgressService.Setup(service => service.StartTask(It.IsAny<string>(), It.IsAny<bool>()))
+            .Returns(() => _currentTask = new CancellationTokenSource());
+        _mockTaskProgressService.SetupGet(service => service.CurrentTaskCancellationSource).Returns(() => _currentTask);
+        _mockTaskProgressService.Setup(service => service.CompleteTask()).Callback(() => { _currentTask?.Dispose(); _currentTask = null; });
         _sut = new WimImageFormatViewModel(
             _mockWimImageService.Object,
             _mockTaskProgressService.Object,
@@ -48,6 +53,7 @@ public class WimImageFormatViewModelTests : IDisposable
     public void Dispose()
     {
         _sut.Dispose();
+        _currentTask?.Dispose();
     }
 
     [Fact]
@@ -67,6 +73,26 @@ public class WimImageFormatViewModelTests : IDisposable
         _mockWimImageService.Verify(s => s.ConvertImageAsync(
             It.IsAny<string>(), It.IsAny<ImageFormat>(),
             It.IsAny<IProgress<TaskProgressDetail>>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task OldDetectionsCannotOverwriteNewMediaOrHideItsConversionCard(bool oldFails)
+    {
+        var pending = new TaskCompletionSource<ImageDetectionResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _mockWimImageService.Setup(service => service.DetectAllImageFormatsAsync("Old media")).Returns(pending.Task);
+        _mockWimImageService.Setup(service => service.DetectAllImageFormatsAsync("New media")).ReturnsAsync(new ImageDetectionResult
+        { EsdInfo = new ImageFormatInfo { Format = ImageFormat.Esd } });
+        _sut.WorkingDirectory = "Old media";
+        var old = _sut.DetectImageFormatAsync();
+        _sut.WorkingDirectory = "New media";
+        await _sut.DetectImageFormatAsync();
+        if (oldFails) pending.SetException(new IOException("Old read failed"));
+        else pending.SetResult(new() { WimInfo = new ImageFormatInfo { Format = ImageFormat.Wim } });
+        await old;
+        Assert.Equal(ImageFormat.Esd, _sut.CurrentImageFormat!.Format);
+        Assert.True(_sut.ShowConversionCard);
     }
 
     [Fact]
@@ -222,14 +248,6 @@ public class WimImageFormatViewModelTests : IDisposable
             .ReturnsAsync(new ConfirmationResponse { Confirmed = true });
 
         _mockTaskProgressService
-            .Setup(t => t.StartTask(It.IsAny<string>(), It.IsAny<bool>()))
-            .Returns(new CancellationTokenSource());
-
-        _mockTaskProgressService
-            .Setup(t => t.CurrentTaskCancellationSource)
-            .Returns(new CancellationTokenSource());
-
-        _mockTaskProgressService
             .Setup(t => t.CreatePowerShellProgress())
             .Returns(new Progress<TaskProgressDetail>());
 
@@ -266,14 +284,6 @@ public class WimImageFormatViewModelTests : IDisposable
         _mockDialogService
             .Setup(d => d.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>()))
             .ReturnsAsync(new ConfirmationResponse { Confirmed = true });
-
-        _mockTaskProgressService
-            .Setup(t => t.StartTask(It.IsAny<string>(), It.IsAny<bool>()))
-            .Returns(new CancellationTokenSource());
-
-        _mockTaskProgressService
-            .Setup(t => t.CurrentTaskCancellationSource)
-            .Returns(new CancellationTokenSource());
 
         _mockTaskProgressService
             .Setup(t => t.CreatePowerShellProgress())

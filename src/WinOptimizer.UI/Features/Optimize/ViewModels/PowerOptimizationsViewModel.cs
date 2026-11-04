@@ -142,6 +142,11 @@ public partial class PowerOptimizationsViewModel : BaseSettingsFeatureViewModel,
         try
         {
             if (planToDelete == null) return;
+            if (_applicationModeService.CurrentMode == WinOptimizerMode.Builder)
+            {
+                await _dialogService.ShowWarningAsync(_localizationService.GetString("TrialMode_Blocked"));
+                return;
+            }
 
             if (planToDelete.IsActive)
             {
@@ -177,6 +182,7 @@ public partial class PowerOptimizationsViewModel : BaseSettingsFeatureViewModel,
             })).Confirmed;
             if (!confirmed) return;
 
+            using var operation = _applicationModeService.BeginSystemOperation();
             var success = await _powerService.DeletePowerPlanAsync(planToDelete.SystemPlan.Guid);
 
             if (success)

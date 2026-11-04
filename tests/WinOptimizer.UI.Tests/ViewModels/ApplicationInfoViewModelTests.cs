@@ -33,7 +33,7 @@ public class ApplicationInfoViewModelTests
             _mockLogService.Object,
             _mockDialogService.Object, _processExecutor.Object,
             new UpdateCheckViewModel(_mockVersionService.Object, _mockLocalization.Object, _mockLogService.Object,
-                Mock.Of<IBackgroundUpdateCheckService>(), Mock.Of<IDispatcherService>()));
+                Mock.Of<IBackgroundUpdateCheckService>(), Mock.Of<IDispatcherService>(), Mock.Of<IApplicationCloseService>()));
     }
 
     [Theory]

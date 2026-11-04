@@ -65,6 +65,27 @@ public class TaskProgressViewModelTests : IDisposable
     }
 
     [Fact]
+    public void QueuedOldTaskUpdatesCannotOverwriteTheReplacementPresentation()
+    {
+        var deferred = false; var queued = new Queue<Action>();
+        var dispatcher = new Mock<IDispatcherService>();
+        dispatcher.Setup(service => service.RunOnUIThread(It.IsAny<Action>()))
+            .Callback<Action>(action => { if (deferred) queued.Enqueue(action); else action(); });
+        var tasks = new WinOptimizer.Infrastructure.Features.Common.Services.TaskProgressService(_mockLogService.Object);
+        using var vm = new TaskProgressViewModel(tasks, dispatcher.Object, _mockDialogService.Object, _mockLocalizationService.Object, _mockLogService.Object);
+        tasks.StartTask("Old task");
+        deferred = true;
+        tasks.UpdateDetailedProgress(new() { StatusText = "Old status", Progress = 50, LogLevel = LogLevel.Error });
+        tasks.CompleteTask();
+        deferred = false;
+        tasks.StartTask("New task");
+        while (queued.TryDequeue(out var update)) update();
+        Assert.True(vm.IsTaskRunning); Assert.True(vm.IsLoading); Assert.False(vm.IsTaskFailed);
+        Assert.Equal("New task", vm.AppName); Assert.Equal(0, vm.ProgressValue);
+        tasks.CompleteTask();
+    }
+
+    [Fact]
     public void PageOwnedTask_HidesGlobalBarThroughFailureAndCompletion_AndNextGlobalTaskAppears()
     {
         _mockTaskProgressService.Setup(service => service.IsTaskRunning).Returns(true);

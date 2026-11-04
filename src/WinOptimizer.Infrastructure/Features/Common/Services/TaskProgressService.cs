@@ -328,17 +328,19 @@ public class TaskProgressService : ITaskProgressService, IMultiScriptProgressSer
     /// <returns>The progress reporter.</returns>
     public IProgress<TaskProgressDetail> CreateDetailedProgress()
     {
-        return new Progress<TaskProgressDetail>(UpdateDetailedProgress);
+        var owner = _cancellationSource;
+        return new Progress<TaskProgressDetail>(detail =>
+        {
+            // Check on dispatch, including callbacks queued before completion or replacement.
+            if (owner is not null && ReferenceEquals(owner, _cancellationSource)) UpdateDetailedProgress(detail);
+        });
     }
 
     /// <summary>
     /// Creates a progress reporter for PowerShell progress.
     /// </summary>
     /// <returns>The progress reporter.</returns>
-    public IProgress<TaskProgressDetail> CreatePowerShellProgress()
-    {
-        return new Progress<TaskProgressDetail>(UpdateDetailedProgress);
-    }
+    public IProgress<TaskProgressDetail> CreatePowerShellProgress() => CreateDetailedProgress();
 
     /// <summary>
     /// Starts a multi-script task with the specified script names.
@@ -390,11 +392,14 @@ public class TaskProgressService : ITaskProgressService, IMultiScriptProgressSer
     /// </summary>
     public IProgress<TaskProgressDetail> CreateScriptProgress(int slotIndex)
     {
+        var owner = _cancellationSource;
         var slotCount = _activeScriptSlotCount;
         var slotName = _scriptSlotNames != null && slotIndex < _scriptSlotNames.Length
             ? _scriptSlotNames[slotIndex] : null;
         return new Progress<TaskProgressDetail>(detail =>
         {
+            // Queued script output belongs only to the task that created this reporter.
+            if (owner is null || !ReferenceEquals(owner, _cancellationSource)) return;
             detail.ScriptSlotIndex = slotIndex;
             detail.ScriptSlotCount = slotCount;
 

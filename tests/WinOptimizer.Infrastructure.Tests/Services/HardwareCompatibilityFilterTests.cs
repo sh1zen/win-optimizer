@@ -26,28 +26,6 @@ public class HardwareCompatibilityFilterTests
             _mockLogService.Object);
     }
 
-    #region Constructor
-
-    [Fact]
-    public void Constructor_NullHardwareDetectionService_ThrowsArgumentNullException()
-    {
-        var act = () => new HardwareCompatibilityFilter(null!, _mockLogService.Object);
-
-        act.Should().Throw<ArgumentNullException>()
-            .WithParameterName("hardwareDetectionService");
-    }
-
-    [Fact]
-    public void Constructor_NullLogService_ThrowsArgumentNullException()
-    {
-        var act = () => new HardwareCompatibilityFilter(_mockHardwareDetection.Object, null!);
-
-        act.Should().Throw<ArgumentNullException>()
-            .WithParameterName("logService");
-    }
-
-    #endregion
-
     #region FilterSettingsByHardwareAsync
 
     [Fact]

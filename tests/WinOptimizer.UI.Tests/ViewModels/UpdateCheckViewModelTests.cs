@@ -17,6 +17,7 @@ public class UpdateCheckViewModelTests : IDisposable
     private readonly Mock<IBackgroundUpdateCheckService> _backgroundUpdates = new();
     private readonly Mock<IDispatcherService> _dispatcher = new();
 
+    private readonly Mock<IApplicationCloseService> _close = new();
     private readonly UpdateCheckViewModel _sut;
 
     public UpdateCheckViewModelTests()
@@ -32,7 +33,7 @@ public class UpdateCheckViewModelTests : IDisposable
         _sut = new UpdateCheckViewModel(
             _mockVersionService.Object,
             _mockLocalizationService.Object,
-            _mockLogService.Object, _backgroundUpdates.Object, _dispatcher.Object);
+            _mockLogService.Object, _backgroundUpdates.Object, _dispatcher.Object, _close.Object);
     }
 
     public void Dispose()
@@ -79,7 +80,7 @@ public class UpdateCheckViewModelTests : IDisposable
     }
 
     [Fact]
-    public async Task CheckForUpdatesCommand_NullResult_ShowsNoUpdates()
+    public async Task CheckForUpdatesCommand_NullResult_ShowsAnError()
     {
         _mockVersionService
             .Setup(v => v.CheckForUpdateAsync(It.IsAny<CancellationToken>()))
@@ -92,6 +93,30 @@ public class UpdateCheckViewModelTests : IDisposable
 
         _sut.IsUpdateInfoBarOpen.Should().BeTrue();
         _sut.IsUpdateActionButtonVisible.Should().BeFalse();
+        _sut.UpdateInfoBarSeverity.Should().Be(InfoBarSeverity.Error);
+    }
+
+    [Fact]
+    public async Task EmptyReleaseMetadataIsUnavailableRatherThanUpToDate()
+    {
+        _mockVersionService.Setup(service => service.CheckForUpdateAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new VersionInfo());
+        await _sut.CheckForUpdatesCommand.ExecuteAsync(null);
+        Assert.Equal(InfoBarSeverity.Error, _sut.UpdateInfoBarSeverity);
+        Assert.False(_sut.IsUpdateActionButtonVisible);
+    }
+
+    [Fact]
+    public async Task RelaunchUsesTheSharedConfirmationAndDrainWorkflow()
+    {
+        Action? install = null;
+        _close.Setup(service => service.CheckOperationsAndRestartAsync(It.IsAny<Action>()))
+            .Callback<Action>(action => install = action).ReturnsAsync(OperationResult.Failed("User cancelled application close"));
+        await _sut.RelaunchCommand.ExecuteAsync(null);
+        Assert.NotNull(install);
+        _mockVersionService.Verify(service => service.LaunchInstallerAndRestart(), Times.Never);
+        install();
+        _mockVersionService.Verify(service => service.LaunchInstallerAndRestart(), Times.Once);
+        _close.Verify(service => service.CheckOperationsAndRestartAsync(It.IsAny<Action>()), Times.Once);
     }
 
     [Fact]
@@ -336,7 +361,7 @@ public class UpdateCheckViewModelTests : IDisposable
         var sut = new UpdateCheckViewModel(
             _mockVersionService.Object,
             _mockLocalizationService.Object,
-            _mockLogService.Object, _backgroundUpdates.Object, _dispatcher.Object);
+            _mockLogService.Object, _backgroundUpdates.Object, _dispatcher.Object, _close.Object);
 
         sut.Dispose();
 

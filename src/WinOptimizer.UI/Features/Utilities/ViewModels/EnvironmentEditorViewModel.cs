@@ -18,12 +18,24 @@ public partial class EnvironmentEditorViewModel : UtilityViewModel
     private EnvironmentScope? _loadedScope;
     private Task? _loading;
     private bool _updatingPathValue;
+    private int _scopeIndex;
     private EnvironmentScope Scope => ScopeIndex switch { 0 => EnvironmentScope.User, 1 => EnvironmentScope.System,
         _ => throw new ArgumentOutOfRangeException(nameof(ScopeIndex)) };
     protected override string TitleKey => "Utilities_Environment";
     public ObservableCollection<EnvironmentVariableEntry> Variables { get; } = [];
     public ObservableCollection<EnvironmentPathEntryViewModel> PathEntries { get; } = [];
-    [ObservableProperty] public partial int ScopeIndex { get; set; }
+    public int ScopeIndex
+    {
+        get => _scopeIndex;
+        set
+        {
+            // Native selectors briefly report no selection while their items attach.
+            if (value == -1) return;
+            if (value is not (0 or 1)) throw new ArgumentOutOfRangeException(nameof(value));
+            if (value != _scopeIndex) PendingScopeChange = ChangeScopeAsync(value);
+        }
+    }
+    public Task PendingScopeChange { get; private set; } = Task.CompletedTask;
     [ObservableProperty] public partial string Query { get; set; } = "";
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(CanChangeName))] public partial EnvironmentVariableEntry? SelectedVariable { get; set; }
     [ObservableProperty] public partial string VariableName { get; set; } = "";
@@ -68,7 +80,22 @@ public partial class EnvironmentEditorViewModel : UtilityViewModel
 
     public Task LoadAsync() => _loadedScope == Scope ? Task.CompletedTask :
         _loading is { IsCompleted: false } ? _loading : _loading = ReloadAsync();
-    partial void OnScopeIndexChanged(int value) { if (value is 0 or 1) _ = LoadAsync(); }
+    /// <summary>Keeps the current scope and draft until discard is confirmed and the target scope loads successfully.</summary>
+    public async Task ChangeScopeAsync(int index)
+    {
+        var target = index switch { 0 => EnvironmentScope.User, 1 => EnvironmentScope.System,
+            _ => throw new ArgumentOutOfRangeException(nameof(index)) };
+        if (index == _scopeIndex) return;
+        await ExecuteAsync(async () =>
+        {
+            if (!await ConfirmDiscardAsync()) return;
+            var variables = await _service.ReadAsync(target);
+            _all = variables; _loadedScope = target;
+            SetProperty(ref _scopeIndex, index, nameof(ScopeIndex));
+            Filter(); New();
+        });
+        if (index != _scopeIndex) OnPropertyChanged(nameof(ScopeIndex));
+    }
     partial void OnQueryChanged(string value) => Filter();
     partial void OnVariableNameChanged(string value)
     {
@@ -191,7 +218,17 @@ public partial class EnvironmentEditorViewModel : UtilityViewModel
 
     [RelayCommand(CanExecute = nameof(IsIdle))]
     private Task RefreshAsync() => ReloadAsync();
-    private Task ReloadAsync() => ExecuteAsync(async () => { await ReadValuesAsync(); New(); });
+    private Task ReloadAsync() => ExecuteAsync(async () =>
+    {
+        if (!await ConfirmDiscardAsync()) return;
+        await ReadValuesAsync(); New();
+    });
+
+    private async Task<bool> ConfirmDiscardAsync() => !HasChanges || (await _dialogs.ShowConfirmationAsync(new ConfirmationRequest
+    {
+        Title = RefreshLabel, Message = Text("Utilities_DiscardEnvironment"),
+        ConfirmButtonText = Text("TrialMode_Discard"), CancelButtonText = Text("Button_Cancel")
+    })).Confirmed;
     private async Task ReadValuesAsync()
     {
         var scope = Scope;

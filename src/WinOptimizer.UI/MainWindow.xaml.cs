@@ -73,6 +73,19 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
+    /// <summary>Hosts workflow result pages in the shell's existing navigation journal.</summary>
+    internal Frame NavigationFrame => ContentFrame;
+
+    private Features.SoftwareApps.Services.UninstallWindowSuspension? _uninstallSuspension;
+
+    /// <summary>Protects the shell and native close action until the external uninstaller has exited.</summary>
+    internal IDisposable SuspendForUninstall()
+    {
+        if (_uninstallSuspension is { IsDisposed: false })
+            throw new InvalidOperationException("A native uninstaller is already running.");
+        return _uninstallSuspension = new(this);
+    }
+
     /// <summary>Reads the native journal without creating history during startup or for repeated pages.</summary>
     public bool CanNavigateBack => !_isStartupLoading && ContentFrame.CanGoBack &&
         _navigationRouter?.CanNavigateTo(ContentFrame.BackStack[ContentFrame.BackStack.Count - 1].SourcePageType) == true;
@@ -276,6 +289,7 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
             this.AppWindow.Closing += async (sender, args) =>
             {
                 args.Cancel = true;
+                if (_uninstallSuspension is { IsDisposed: false }) return;
                 await applicationCloseService.CheckOperationsAndCloseAsync();
             };
         }

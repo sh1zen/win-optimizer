@@ -31,6 +31,7 @@ public partial class TaskProgressViewModel : ObservableObject, IDisposable
     [ObservableProperty] public partial bool IsIndeterminate { get; set; } = true;
 
     private CancellationTokenSource? _hideDelayCts;
+    private CancellationTokenSource? _presentationOwner;
 
     [ObservableProperty]
     public partial string AppName { get; set; }
@@ -134,9 +135,12 @@ public partial class TaskProgressViewModel : ObservableObject, IDisposable
     {
         // Capture lifecycle state before completion disposes its token or another task starts.
         var running = _taskProgressService.IsTaskRunning;
+        var owner = _taskProgressService.CurrentTaskCancellationSource;
+        if (running) _presentationOwner = owner;
         var cancelled = _taskProgressService.CurrentTaskCancellationSource?.IsCancellationRequested == true;
         _dispatcherService.RunOnUIThread(() =>
         {
+            if (_disposed || !ReferenceEquals(owner, _presentationOwner)) return;
             CanCancel = detail.CanCancel;
             if (!detail.ShowInTaskBar)
             {
@@ -250,7 +254,8 @@ public partial class TaskProgressViewModel : ObservableObject, IDisposable
             await Task.Delay(2000, cts.Token).ConfigureAwait(false);
             _dispatcherService.RunOnUIThread(() =>
             {
-                if (!_taskProgressService.IsTaskRunning)
+                if (!_disposed && !cts.IsCancellationRequested && ReferenceEquals(_hideDelayCts, cts) &&
+                    !_taskProgressService.IsTaskRunning)
                     IsLoading = false;
             });
         }

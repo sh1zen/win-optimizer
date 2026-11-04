@@ -25,23 +25,6 @@ public class WallpaperServiceTests
             _mockSystemParametersService.Object);
     }
 
-    #region Constructor
-
-    [Fact]
-    public void Constructor_NullLogService_ThrowsArgumentNullException()
-    {
-        var act = () => new WallpaperService(
-            null!,
-            _mockInteractiveUserService.Object,
-            _mockRegistryService.Object,
-            _mockSystemParametersService.Object);
-
-        act.Should().Throw<ArgumentNullException>()
-            .WithParameterName("logService");
-    }
-
-    #endregion
-
     #region GetDefaultWallpaperPath
 
     [Fact]

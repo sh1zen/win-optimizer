@@ -14,10 +14,11 @@ public interface IUninstallResidueService
 /// <summary>Owns targeted filesystem monitors, account-bound evidence and the lifetime of a reviewed scan.</summary>
 public interface IUninstallResidueSession : IAsyncDisposable
 {
-    Task<UninstallResidueScan> InspectAsync(IReadOnlyList<UninstallNativeOutcome> outcomes,
+    /// <summary>Verifies native completion without enumerating leftover files or registry resources.</summary>
+    Task<AppUninstallResult> VerifyAsync(IReadOnlyList<UninstallNativeOutcome> outcomes,
         IProgress<UninstallResidueProgress>? progress, CancellationToken ct);
-    /// <summary>Rechecks the same native outcomes after processes or account resources have changed.</summary>
-    Task<UninstallResidueScan> RescanAsync(IProgress<UninstallResidueProgress>? progress, CancellationToken ct);
+    /// <summary>Scans leftovers on explicit request, rechecking the retained native outcomes.</summary>
+    Task<UninstallResidueScan> ScanAsync(IProgress<UninstallResidueProgress>? progress, CancellationToken ct);
     Task<UninstallCleanupResult> CleanAsync(IReadOnlyCollection<Guid> selected,
         IProgress<UninstallResidueProgress>? progress, CancellationToken ct);
 }
@@ -25,11 +26,13 @@ public interface IUninstallResidueSession : IAsyncDisposable
 /// <summary>Desktop interaction boundary for reviewing individually selectable uninstall leftovers.</summary>
 public interface IUninstallResidueReview
 {
+    /// <summary>Blocks the application during the native uninstaller and restores it when disposed.</summary>
+    Task<IAsyncDisposable> SuspendForUninstallAsync(CancellationToken ct);
     /// <summary>Asks before automatic removal when the application has no registered native uninstaller.</summary>
     Task<bool> ConfirmAutomaticUninstallAsync(ItemDefinition application, CancellationToken ct);
     /// <summary>A deferred review takes ownership of the session until its deferral scope is disposed.</summary>
-    Task<UninstallReviewDisposition> ShowAsync(IUninstallResidueSession session, UninstallResidueScan scan, CancellationToken ct);
-    /// <summary>Queues residue dialogs until the enclosing configuration flow has closed its overlay.</summary>
+    Task<UninstallReviewDisposition> ShowAsync(IUninstallResidueSession session, AppUninstallResult verification, CancellationToken ct);
+    /// <summary>Queues residue reviews until the enclosing configuration flow has closed its overlay.</summary>
     IAsyncDisposable Defer();
     Task ShowBackupsAsync();
 }

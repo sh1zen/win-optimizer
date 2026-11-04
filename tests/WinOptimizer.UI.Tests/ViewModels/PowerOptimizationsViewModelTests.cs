@@ -75,6 +75,54 @@ public class PowerOptimizationsViewModelTests
     }
 
     [Fact]
+    public async Task TestModeDeletionNeverReachesThePowerService()
+    {
+        _mockApplicationModeService.Setup(mode => mode.CurrentMode).Returns(WinOptimizer.Core.Features.Common.Enums.WinOptimizerMode.Builder);
+        using var vm = CreateViewModel();
+        await vm.DeletePowerPlanAsync(new PowerPlanComboBoxOption
+        { ExistsOnSystem = true, SystemPlan = new WinOptimizer.Core.Features.Optimize.Models.PowerPlan { Guid = Guid.NewGuid().ToString() } });
+        _mockPowerService.VerifyNoOtherCalls();
+        _mockDialogService.Verify(dialog => dialog.ShowWarningAsync("TrialMode_Blocked", It.IsAny<string>(), It.IsAny<string>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task ConfirmedDeletionHoldsTheModeReservationUntilTheServiceCompletes()
+    {
+        var lease = new Mock<IDisposable>();
+        var completion = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _mockApplicationModeService.Setup(mode => mode.BeginSystemOperation()).Returns(lease.Object);
+        _mockDialogService.Setup(dialog => dialog.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>()))
+            .ReturnsAsync(new ConfirmationResponse { Confirmed = true });
+        var guid = Guid.NewGuid().ToString();
+        _mockPowerService.Setup(service => service.DeletePowerPlanAsync(guid)).Returns(completion.Task);
+        using var vm = CreateViewModel();
+        var deletion = vm.DeletePowerPlanAsync(new PowerPlanComboBoxOption
+        { ExistsOnSystem = true, SystemPlan = new WinOptimizer.Core.Features.Optimize.Models.PowerPlan { Guid = guid } });
+        Assert.False(deletion.IsCompleted);
+        _mockApplicationModeService.Verify(mode => mode.BeginSystemOperation(), Times.Once);
+        lease.Verify(reservation => reservation.Dispose(), Times.Never);
+        completion.SetResult(true);
+        await deletion;
+        _mockPowerService.Verify(service => service.DeletePowerPlanAsync(guid), Times.Once);
+        lease.Verify(reservation => reservation.Dispose(), Times.Once);
+    }
+
+    [Fact]
+    public async Task TestModeEnteredDuringConfirmationPreventsDeletion()
+    {
+        _mockDialogService.Setup(dialog => dialog.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>()))
+            .Callback(() => _mockApplicationModeService.Setup(mode => mode.BeginSystemOperation())
+                .Throws(new InvalidOperationException("TrialMode_Blocked")))
+            .ReturnsAsync(new ConfirmationResponse { Confirmed = true });
+        using var vm = CreateViewModel();
+        await vm.DeletePowerPlanAsync(new PowerPlanComboBoxOption
+        { ExistsOnSystem = true, SystemPlan = new WinOptimizer.Core.Features.Optimize.Models.PowerPlan { Guid = Guid.NewGuid().ToString() } });
+        _mockPowerService.VerifyNoOtherCalls();
+        _mockDialogService.Verify(dialog => dialog.ShowErrorAsync(It.Is<string>(message => message.Contains("TrialMode_Blocked")),
+            It.IsAny<string>(), It.IsAny<string>()), Times.Once);
+    }
+
+    [Fact]
     public void DisplayName_ReturnsLocalizedPowerName()
     {
         // Arrange

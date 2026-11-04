@@ -6,6 +6,7 @@
     <DefineConstants>DISABLE_XAML_GENERATED_MAIN</DefineConstants><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable><IsPackable>false</IsPackable>
   </PropertyGroup>
   <ItemGroup>
+    <Page Include="..\..\src\WinOptimizer.UI\Features\Common\Resources\PageStyles.xaml" Link="Features\Common\Resources\PageStyles.xaml"/>
     <Page Remove="SortingApp.xaml"/><ApplicationDefinition Include="SortingApp.xaml"/>
     <ProjectReference Include="..\..\src\WinOptimizer.UI\WinOptimizer.UI.csproj"/>
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260416003"/>

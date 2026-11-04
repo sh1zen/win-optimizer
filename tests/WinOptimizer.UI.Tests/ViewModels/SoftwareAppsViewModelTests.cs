@@ -238,6 +238,9 @@ public class SoftwareAppsViewModelTests
         sut.InitializePresentation();
 
         sut.ViewMode.Should().Be(expected);
+        sut.IsCardView.Should().Be(expected == SoftwareAppsViewMode.Card);
+        sut.IsTableView.Should().Be(expected == SoftwareAppsViewMode.Table);
+        sut.IsCompactView.Should().Be(expected == SoftwareAppsViewMode.Compact);
         sut.SortMode.Should().Be(AppSortMode.NameAsc);
         sut.WindowsAppsViewModel.SortMode.Should().Be(AppSortMode.NameAsc);
         sut.ExternalAppsViewModel.SortMode.Should().Be(AppSortMode.NameAsc);
@@ -280,73 +283,6 @@ public class SoftwareAppsViewModelTests
 
         _configReviewBadgeService.VerifySet(s => s.IsSoftwareAppsReviewed = It.IsAny<bool>(), Times.AtLeastOnce);
         _configReviewBadgeService.Verify(s => s.NotifyBadgeStateChanged(), Times.AtLeastOnce);
-    }
-
-    [Fact]
-    public async Task DefaultViewMode_IsCard_WhenNoPreferenceSaved()
-    {
-        _userPreferencesService.Setup(u => u.GetPreference("SoftwareAppsViewMode", "Card"))
-            .Returns("Card");
-        _windowsAppsService.Setup(s => s.GetAppsAsync())
-            .ReturnsAsync(Enumerable.Empty<ItemDefinition>());
-        _externalAppsService.Setup(s => s.GetAppsAsync())
-            .ReturnsAsync(Enumerable.Empty<ItemDefinition>());
-        _windowsAppsService.Setup(s => s.CheckBatchInstalledAsync(It.IsAny<IEnumerable<ItemDefinition>>()))
-            .ReturnsAsync(new Dictionary<string, bool>());
-        _externalAppsService.Setup(s => s.CheckBatchInstalledAsync(It.IsAny<IEnumerable<ItemDefinition>>()))
-            .ReturnsAsync(new Dictionary<string, bool>());
-
-        var sut = CreateSut();
-        await sut.InitializeAsync();
-
-        sut.ViewMode.Should().Be(SoftwareAppsViewMode.Card);
-        sut.IsCardView.Should().BeTrue();
-        sut.IsTableView.Should().BeFalse();
-        sut.IsCompactView.Should().BeFalse();
-    }
-
-    [Fact]
-    public async Task ViewMode_LoadsTable_WhenPreferenceIsTable()
-    {
-        _userPreferencesService.Setup(u => u.GetPreference("SoftwareAppsViewMode", "Card"))
-            .Returns("Table");
-        _windowsAppsService.Setup(s => s.GetAppsAsync())
-            .ReturnsAsync(Enumerable.Empty<ItemDefinition>());
-        _externalAppsService.Setup(s => s.GetAppsAsync())
-            .ReturnsAsync(Enumerable.Empty<ItemDefinition>());
-        _windowsAppsService.Setup(s => s.CheckBatchInstalledAsync(It.IsAny<IEnumerable<ItemDefinition>>()))
-            .ReturnsAsync(new Dictionary<string, bool>());
-        _externalAppsService.Setup(s => s.CheckBatchInstalledAsync(It.IsAny<IEnumerable<ItemDefinition>>()))
-            .ReturnsAsync(new Dictionary<string, bool>());
-
-        var sut = CreateSut();
-        await sut.InitializeAsync();
-
-        sut.ViewMode.Should().Be(SoftwareAppsViewMode.Table);
-        sut.IsTableView.Should().BeTrue();
-        sut.IsCardView.Should().BeFalse();
-        sut.IsCompactView.Should().BeFalse();
-    }
-
-    [Fact]
-    public async Task ViewMode_LoadsCompact_WhenPreferenceIsCompact()
-    {
-        _userPreferencesService.Setup(u => u.GetPreference("SoftwareAppsViewMode", "Card"))
-            .Returns("Compact");
-        _windowsAppsService.Setup(s => s.GetAppsAsync())
-            .ReturnsAsync(Enumerable.Empty<ItemDefinition>());
-        _externalAppsService.Setup(s => s.GetAppsAsync())
-            .ReturnsAsync(Enumerable.Empty<ItemDefinition>());
-        _windowsAppsService.Setup(s => s.CheckBatchInstalledAsync(It.IsAny<IEnumerable<ItemDefinition>>()))
-            .ReturnsAsync(new Dictionary<string, bool>());
-        _externalAppsService.Setup(s => s.CheckBatchInstalledAsync(It.IsAny<IEnumerable<ItemDefinition>>()))
-            .ReturnsAsync(new Dictionary<string, bool>());
-
-        var sut = CreateSut();
-        await sut.InitializeAsync();
-
-        sut.ViewMode.Should().Be(SoftwareAppsViewMode.Compact);
-        sut.IsCompactView.Should().BeTrue();
     }
 
     [Fact]

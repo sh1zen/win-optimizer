@@ -1,0 +1,17 @@
+<Page x:Class="WinOptimizer.UI.Features.SoftwareApps.UninstallResiduePage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:common="using:WinOptimizer.UI.Features.Common.Controls">
+    <Grid Style="{StaticResource PageGridStyle}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+        <Grid ColumnSpacing="16">
+            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+            <common:PageHeader x:Name="Header" Icon="Database"/>
+            <Button x:Name="FinishButton" Grid.Column="1" Click="Finish_Click" VerticalAlignment="Top"/>
+        </Grid>
+        <ContentControl x:Name="ReviewHost" Grid.Row="1" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"/>
+    </Grid>
+</Page>

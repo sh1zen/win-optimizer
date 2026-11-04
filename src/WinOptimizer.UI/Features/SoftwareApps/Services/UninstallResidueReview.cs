@@ -1,4 +1,5 @@
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.Core.Features.SoftwareApps.Interfaces;
@@ -8,15 +9,39 @@ using WinOptimizer.UI.Features.SoftwareApps.ViewModels;
 
 namespace WinOptimizer.UI.Features.SoftwareApps.Services;
 
-/// <summary>Marshals residue/recovery dialogs to the UI thread while their owning workflow retains the session.</summary>
+/// <summary>Marshals residue pages and recovery dialogs while their owning workflow retains the session.</summary>
 public sealed class UninstallResidueReview(IUninstallResidueService service, IDialogService dialogs,
     IDispatcherService dispatcher, ITaskProgressService tasks, ILocalizationService text,
-    IApplicationModeService mode) : IUninstallResidueReview
+    IApplicationModeService mode, Func<Frame> reviewFrame, Func<IDisposable> suspendWindow) : IUninstallResidueReview
 {
     private readonly object _reviewGate = new();
     private readonly Queue<PendingReview> _pending = new();
     private int _deferrals;
-    private sealed record PendingReview(IUninstallResidueSession Session, UninstallResidueScan Scan, CancellationToken Cancellation, IDisposable Reservation);
+    private sealed record PendingReview(IUninstallResidueSession Session, AppUninstallResult Verification, CancellationToken Cancellation, IDisposable Reservation);
+
+    /// <summary>Acquires and releases native window state on the UI dispatcher, including failed launches.</summary>
+    public async Task<IAsyncDisposable> SuspendForUninstallAsync(CancellationToken ct)
+    {
+        IDisposable? suspension = null;
+        await dispatcher.RunOnUIThreadWithContextAsync(() =>
+        {
+            ct.ThrowIfCancellationRequested();
+            suspension = suspendWindow();
+            return Task.CompletedTask;
+        });
+        return new WindowSuspension(dispatcher, suspension
+            ?? throw new InvalidOperationException("The application window could not be suspended."));
+    }
+
+    private sealed class WindowSuspension(IDispatcherService dispatcher, IDisposable suspension) : IAsyncDisposable
+    {
+        private IDisposable? _suspension = suspension;
+        public ValueTask DisposeAsync() => new(dispatcher.RunOnUIThreadWithContextAsync(() =>
+        {
+            Interlocked.Exchange(ref _suspension, null)?.Dispose();
+            return Task.CompletedTask;
+        }));
+    }
 
     /// <summary>Shows fallback consent on the UI dispatcher even when native discovery completes on a worker.</summary>
     public async Task<bool> ConfirmAutomaticUninstallAsync(ItemDefinition application, CancellationToken ct)
@@ -37,28 +62,41 @@ public sealed class UninstallResidueReview(IUninstallResidueService service, IDi
         return confirmed;
     }
 
-    public async Task<UninstallReviewDisposition> ShowAsync(IUninstallResidueSession session, UninstallResidueScan scan, CancellationToken ct)
+    public async Task<UninstallReviewDisposition> ShowAsync(IUninstallResidueSession session, AppUninstallResult verification, CancellationToken ct)
     {
         lock (_reviewGate)
         {
             if (_deferrals > 0)
             {
-                _pending.Enqueue(new(session, scan, ct, mode.BeginSystemOperation()));
+                _pending.Enqueue(new(session, verification, ct, mode.BeginSystemOperation()));
                 return UninstallReviewDisposition.Deferred;
             }
         }
-        await ShowCoreAsync(session, scan, ct);
+        await ShowCoreAsync(session, verification, ct);
         return UninstallReviewDisposition.Completed;
     }
 
-    private Task ShowCoreAsync(IUninstallResidueSession session, UninstallResidueScan scan, CancellationToken ct) =>
+    private Task ShowCoreAsync(IUninstallResidueSession session, AppUninstallResult verification, CancellationToken ct) =>
         dispatcher.RunOnUIThreadWithContextAsync(async () =>
         {
             ct.ThrowIfCancellationRequested();
-            using var viewModel = new UninstallResidueViewModel(session, scan, service, tasks, text);
-            var content = new UninstallResidueReviewControl(viewModel);
-            using var layout = new DialogLayout(content);
-            await dialogs.ShowCustomContentDialogAsync(text.GetString("UninstallResidue_Title"), content, text.GetString("UninstallResidue_Finish"));
+            using var viewModel = new UninstallResidueViewModel(session, verification, service, tasks, text);
+            var frame = reviewFrame();
+            if (!frame.Navigate(typeof(UninstallResiduePage), viewModel))
+                throw new InvalidOperationException("The uninstall results page could not be opened.");
+            try { await ((UninstallResiduePage)frame.Content).Closed; }
+            finally
+            {
+                // A completed review cannot reopen with an expired inspection session.
+                RemoveReviewEntries(frame.BackStack);
+                RemoveReviewEntries(frame.ForwardStack);
+            }
+
+            void RemoveReviewEntries(IList<Microsoft.UI.Xaml.Navigation.PageStackEntry> entries)
+            {
+                for (var index = entries.Count - 1; index >= 0; index--)
+                    if (ReferenceEquals(entries[index].Parameter, viewModel)) entries.RemoveAt(index);
+            }
         });
 
     public IAsyncDisposable Defer()
@@ -79,7 +117,7 @@ public sealed class UninstallResidueReview(IUninstallResidueService service, IDi
         List<Exception> errors = [];
         foreach (var review in pending)
         {
-            try { await ShowCoreAsync(review.Session, review.Scan, review.Cancellation); }
+            try { await ShowCoreAsync(review.Session, review.Verification, review.Cancellation); }
             catch (OperationCanceledException) { /* The enclosing operation was cancelled before this review opened. */ }
             catch (Exception ex)
             {
@@ -105,14 +143,14 @@ public sealed class UninstallResidueReview(IUninstallResidueService service, IDi
     public Task ShowBackupsAsync() => dispatcher.RunOnUIThreadWithContextAsync(async () =>
     {
         using var operation = mode.BeginSystemOperation();
-        var viewModel = new UninstallBackupsViewModel(service, tasks, text);
+        using var viewModel = new UninstallBackupsViewModel(service, tasks, text, dispatcher);
         await viewModel.LoadAsync();
         var content = new UninstallBackupsControl(viewModel);
         using var layout = new DialogLayout(content);
         await dialogs.ShowCustomContentDialogAsync(text.GetString("UninstallResidue_Backups"), content, text.GetString("UninstallResidue_Finish"));
     });
 
-    /// <summary>Sizes both review dialogs to their current window and releases root subscriptions when closed.</summary>
+    /// <summary>Sizes the recovery dialog to its window and releases root subscriptions when closed.</summary>
     private sealed class DialogLayout : IDisposable
     {
         private readonly FrameworkElement _content;

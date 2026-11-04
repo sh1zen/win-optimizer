@@ -71,7 +71,7 @@ public class MainWindowViewModelTests : IDisposable
             _mockLocalizationService.Object,
             _mockLogService.Object,
             Mock.Of<IBackgroundUpdateCheckService>(),
-            _mockDispatcherService.Object);
+            _mockDispatcherService.Object, Mock.Of<IApplicationCloseService>());
 
         _sidebarPreferences = new(_mockUserPreferencesService.Object, _mockLocalizationService.Object);
     }

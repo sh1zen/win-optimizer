@@ -198,7 +198,8 @@ internal sealed class TaskProgressCoordinator
             await Task.Delay(delayMs, cancellationToken).ConfigureAwait(false);
             _dispatcherQueue.TryEnqueue(() =>
             {
-                control.IsProgressVisible = Visibility.Collapsed;
+                if (!cancellationToken.IsCancellationRequested)
+                    control.IsProgressVisible = Visibility.Collapsed;
             });
         }
         catch (OperationCanceledException)

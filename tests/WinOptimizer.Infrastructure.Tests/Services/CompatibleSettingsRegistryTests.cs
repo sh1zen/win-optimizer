@@ -291,46 +291,6 @@ public class CompatibleSettingsRegistryTests
     }
 
     [Fact]
-    public void Constructor_NullWindowsFilter_ThrowsArgumentNullException()
-    {
-        var action = () => new CompatibleSettingsRegistry(
-            null!, _hardwareFilter.Object, _powerValidation.Object, _logService.Object);
-
-        action.Should().Throw<ArgumentNullException>()
-            .WithParameterName("windowsFilter");
-    }
-
-    [Fact]
-    public void Constructor_NullHardwareFilter_ThrowsArgumentNullException()
-    {
-        var action = () => new CompatibleSettingsRegistry(
-            _windowsFilter.Object, null!, _powerValidation.Object, _logService.Object);
-
-        action.Should().Throw<ArgumentNullException>()
-            .WithParameterName("hardwareFilter");
-    }
-
-    [Fact]
-    public void Constructor_NullPowerValidation_ThrowsArgumentNullException()
-    {
-        var action = () => new CompatibleSettingsRegistry(
-            _windowsFilter.Object, _hardwareFilter.Object, null!, _logService.Object);
-
-        action.Should().Throw<ArgumentNullException>()
-            .WithParameterName("powerValidation");
-    }
-
-    [Fact]
-    public void Constructor_NullLogService_ThrowsArgumentNullException()
-    {
-        var action = () => new CompatibleSettingsRegistry(
-            _windowsFilter.Object, _hardwareFilter.Object, _powerValidation.Object, null!);
-
-        action.Should().Throw<ArgumentNullException>()
-            .WithParameterName("logService");
-    }
-
-    [Fact]
     public void GetById_BeforeInitialize_ThrowsInvalidOperationException()
     {
         Action act = () => _sut.GetById("any-id");

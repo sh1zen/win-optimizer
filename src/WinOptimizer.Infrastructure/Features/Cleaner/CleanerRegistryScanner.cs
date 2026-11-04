@@ -184,7 +184,7 @@ public sealed partial class CleanerRegistryScanner(ICleanerRegistrySessions sess
                     var target = new CleanerRegistryTarget(displayPath, name, Serialize(value), (int)entry.Kind, view == RegistryView.Registry32, missing, diagnostic)
                         { ReferenceArea = rule.Area };
                     findings.Add(new(Guid.NewGuid(), CleanerArea.Registry, $"Cleaner_Registry_{rule.Area}",
-                        $"{displayPath}\\{(name.Length == 0 ? "(Default)" : name)} ({(view == RegistryView.Registry32 ? "32-bit" : "64-bit")}) → {missing}", 0, !diagnostic, target));
+                        $"{displayPath}\\{(name.Length == 0 ? "(Default)" : name)} ({(view == RegistryView.Registry32 ? "32-bit" : "64-bit")}) → {missing}", entry.EstimatedDataBytes, !diagnostic, target));
                 }
                 catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException or ArgumentException or System.ComponentModel.Win32Exception)
                 { notices.Add($"{displayPath}\\{entry.Name} ({(view == RegistryView.Registry32 ? "32-bit" : "64-bit")}): {ex.Message}"); }

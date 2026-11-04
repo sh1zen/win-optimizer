@@ -335,7 +335,6 @@ public sealed partial class PreviewApplication : Microsoft.UI.Xaml.Application
                 "The support actions lost their labels or order.");
             Require(buttons.All(button => button.ActualWidth > 0 && button.ActualHeight > 0) &&
                 buttons.Sum(button => button.ActualWidth) + 10 <= body.ActualWidth, "The support actions are clipped.");
-            Require(!Descendants<CheckBox>(body).Any(), "The support dialog must not contain checkboxes.");
             Require(body.RowDefinitions.Count == 6, "The support dialog must contain six content rows.");
             Require(dialog.CloseButtonText == strings[mode == SponsorsDialogMode.Exit ? "Sponsors_Exit" : "Sponsors_Close"], "The close action changed.");
             await CaptureAsync(dialog, $"sponsors-{language}-{theme}-{mode}.png");

@@ -212,8 +212,33 @@ public class StartupOrchestratorTests
         var result = await sut.RunDeferredInitializationAsync();
 
         result.Should().NotBeNull();
+        result.IsFirstLaunch.Should().BeFalse();
+        _preferencesService.Verify(p => p.SetPreferenceAsync(UserPreferenceKeys.InitialConfigBackupCompleted, true), Times.Never);
         _logService.Verify(l => l.LogWarning(It.Is<string>(s =>
             s.Contains("User backup config failed"))), Times.Once);
+    }
+
+    /// <summary>A failed export keeps the preference unset so the next application startup retries.</summary>
+    [Fact]
+    public async Task FailedBackupIsRetriedOnNextStartupAndMarkedCompleteOnlyAfterSuccess()
+    {
+        var completed = false;
+        _preferencesService.Setup(p => p.GetPreference(UserPreferenceKeys.InitialConfigBackupCompleted, false)).Returns(() => completed);
+        _preferencesService.Setup(p => p.SetPreferenceAsync(UserPreferenceKeys.InitialConfigBackupCompleted, true))
+            .Callback(() => completed = true).ReturnsAsync(OperationResult.Succeeded());
+        _configurationService.SetupSequence(service => service.CreateUserBackupConfigAsync())
+            .ThrowsAsync(new IOException("Backup write failed.")).Returns(Task.CompletedTask);
+
+        var failed = await CreateSut().RunDeferredInitializationAsync();
+        Assert.False(completed);
+        Assert.False(failed.IsFirstLaunch);
+        _preferencesService.Verify(p => p.SetPreferenceAsync(UserPreferenceKeys.InitialConfigBackupCompleted, true), Times.Never);
+        var retried = await CreateSut().RunDeferredInitializationAsync();
+        Assert.True(completed);
+        Assert.True(retried.IsFirstLaunch);
+        _configurationService.Verify(service => service.CreateUserBackupConfigAsync(), Times.Exactly(2));
+        await CreateSut().RunDeferredInitializationAsync();
+        _configurationService.Verify(service => service.CreateUserBackupConfigAsync(), Times.Exactly(2));
     }
 
     // --- IsFirstLaunch ---

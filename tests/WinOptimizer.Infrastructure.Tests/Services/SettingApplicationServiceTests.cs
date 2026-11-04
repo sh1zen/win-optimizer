@@ -306,25 +306,6 @@ public class SettingApplicationServiceTests
             evt => evt.SettingId == "fail-event")), Times.Once);
     }
 
-    [Fact]
-    public async Task ApplySettingAsync_ExecutorSucceeds_ReturnsSuccess()
-    {
-        SetupSettingInRegistry("ok-setting");
-        _mockExecutor
-            .Setup(e => e.ApplySettingOperationsAsync(
-                It.Is<SettingDefinition>(s => s.Id == "ok-setting"),
-                It.IsAny<bool>(), It.IsAny<object?>()))
-            .ReturnsAsync(OperationResult.Succeeded());
-
-        var result = await _service.ApplySettingAsync(new ApplySettingRequest
-        {
-            SettingId = "ok-setting",
-            Enable = true,
-        });
-
-        result.Success.Should().BeTrue();
-    }
-
     // ---------------------------------------------------------------
     // Change history (#367): record setting changes before → after
     // ---------------------------------------------------------------

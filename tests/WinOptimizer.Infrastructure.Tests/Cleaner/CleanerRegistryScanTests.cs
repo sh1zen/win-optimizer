@@ -10,6 +10,26 @@ namespace WinOptimizer.Infrastructure.Tests.Cleaner;
 
 public sealed class CleanerRegistryScanTests
 {
+    public static TheoryData<object, RegistryValueKind, long> RegistryPayloadSizes => new()
+    {
+        { "", RegistryValueKind.String, 2 },
+        { "a😀", RegistryValueKind.String, 8 },
+        { "%TEMP%", RegistryValueKind.ExpandString, 14 },
+        { new[] { "a", "bc" }, RegistryValueKind.MultiString, 12 },
+        { Array.Empty<string>(), RegistryValueKind.MultiString, 4 },
+        { new byte[] { 1, 2, 3 }, RegistryValueKind.Binary, 3 },
+        { Array.Empty<byte>(), RegistryValueKind.None, 0 },
+        { -1, RegistryValueKind.DWord, 4 },
+        { long.MaxValue, RegistryValueKind.QWord, 8 }
+    };
+
+    [Theory]
+    [MemberData(nameof(RegistryPayloadSizes))]
+    public void RegistryValuesEstimateNativePayloadSize(object data, RegistryValueKind kind, long expected)
+    {
+        Assert.Equal(expected, new CleanerRegistryValue("test", data, kind).EstimatedDataBytes);
+    }
+
     private readonly Mock<ICleanerRegistryReader> _reader = new();
     private readonly CleanerRegistryScanner _scanner;
     public CleanerRegistryScanTests()
@@ -37,6 +57,7 @@ public sealed class CleanerRegistryScanTests
         _reader.Verify(x => x.GetValues(@"HKEY_LOCAL_MACHINE\" + root + @"\test.exe", false, It.IsAny<CancellationToken>(), It.IsAny<ICollection<string>?>()), Times.Once);
         _reader.Verify(x => x.GetValues(@"HKEY_LOCAL_MACHINE\" + root + @"\test.exe", true, It.IsAny<CancellationToken>(), It.IsAny<ICollection<string>?>()), Times.Once);
         result.Findings.Should().ContainSingle().Which.CanClean.Should().BeTrue();
+        Assert.Equal(38, Assert.Single(result.Findings).Bytes);
         measurements.Should().Contain(x => x.IsIndeterminate);
         measurements.Should().Contain(x => x.Message == "Cleaner_Registry_SystemExtensions");
         measurements[^1].Completed.Should().Be(result.CheckedItems);
@@ -89,6 +110,7 @@ public sealed class CleanerRegistryScanTests
             .Returns([new(missing, 2, RegistryValueKind.DWord)]);
         var result = _scanner.Scan(new() { RegistryAreas = [RegistryArea.SharedFiles] }, default);
         var target = (CleanerRegistryTarget)result.Findings.Should().ContainSingle().Which.Target;
+        Assert.Equal(4, Assert.Single(result.Findings).Bytes);
         target.Kind.Should().Be((int)RegistryValueKind.DWord);
         target.Data.Should().Be("2");
         target.MissingPath.Should().Be(missing);

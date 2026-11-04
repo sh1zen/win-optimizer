@@ -102,7 +102,21 @@ public sealed record CleanerScanResult(IReadOnlyList<CleanerFinding> Findings, I
 {
     public int CheckedItems { get; init; }
 }
-public sealed record CleanerApplyResult(int Completed, IReadOnlyList<string> Errors);
+/// <summary>Retains the original resource and its confirmed cleanup outcome for reporting.</summary>
+public sealed record CleanerItemResult(CleanerFinding Finding, string? Error)
+{
+    public bool Succeeded => Error is null;
+    public bool Removed => Succeeded && Finding.Target is CleanerFileTarget or CleanerRegistryTarget;
+    public long EstimatedFreedFileBytes => Succeeded && Finding.Target is CleanerFileTarget file ? file.Length : 0;
+    public long RemovedRegistryBytes => Succeeded && Finding.Target is CleanerRegistryTarget ? Finding.Bytes : 0;
+}
+
+/// <summary>Reports completed work, including a partial result when cancellation interrupts cleanup.</summary>
+public sealed record CleanerApplyResult(int Completed, IReadOnlyList<string> Errors)
+{
+    public IReadOnlyList<CleanerItemResult> Items { get; init; } = [];
+    public bool IsCancelled { get; init; }
+}
 public sealed record CleanerApplication(string Id, string DisplayName);
 public sealed record CleanerApplicationInventory(IReadOnlyList<CleanerApplication> Applications, IReadOnlyList<string> Notices);
 /// <summary>A registered Windows profile offered for account-scoped Cleaner operations.</summary>

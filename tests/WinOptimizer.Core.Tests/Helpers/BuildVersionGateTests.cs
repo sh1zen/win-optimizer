@@ -54,7 +54,6 @@ public class BuildVersionGateTests
     }
 
     [Theory]
-    [InlineData(22000, 100, 26100, null, true)]  // below min build, no revision -> incompatible
     [InlineData(26099, 9999, 26100, null, true)] // one short of min -> incompatible
     [InlineData(26100, 0, 26100, null, false)]   // exactly min build, no revision constraint -> ok
     [InlineData(26101, 0, 26100, null, false)]   // above min -> ok

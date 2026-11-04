@@ -16,6 +16,9 @@ public class ApplicationCloseService : IApplicationCloseService
 
     // Terminates the process. Replaced in tests so the test host survives.
     public Action ShutdownAction { get; set; } = DefaultShutdown;
+    /// <summary>Exits for installation even when normal closing retains a desktop widget.</summary>
+    public Action RestartShutdownAction { get; set; } = DefaultShutdown;
+    private Task<OperationResult>? _pendingClose;
 
     private static void DefaultShutdown()
     {
@@ -39,24 +42,26 @@ public class ApplicationCloseService : IApplicationCloseService
         _dialogService = dialogService ?? throw new ArgumentNullException(nameof(dialogService));
     }
 
-    public async Task<OperationResult> CheckOperationsAndCloseAsync()
+    public Task<OperationResult> CheckOperationsAndCloseAsync() => StartCloseAsync(null);
+
+    public Task<OperationResult> CheckOperationsAndRestartAsync(Action launchInstaller)
+    {
+        ArgumentNullException.ThrowIfNull(launchInstaller);
+        return StartCloseAsync(launchInstaller);
+    }
+
+    private Task<OperationResult> StartCloseAsync(Action? launchInstaller) =>
+        _pendingClose is { IsCompleted: false } pending ? pending : _pendingClose = CloseCoreAsync(launchInstaller);
+
+    /// <summary>Obtains consent before cleanup and waits for the captured operation to release its resources.</summary>
+    private async Task<OperationResult> CloseCoreAsync(Action? launchInstaller)
     {
         try
         {
-            if (BeforeShutdown != null)
-            {
-                try
-                {
-                    await BeforeShutdown.Invoke();
-                }
-                catch (Exception ex)
-                {
-                    _logService.LogError($"Error running cleanup tasks: {ex.Message}", ex);
-                }
-            }
-
+            CancellationTokenSource? operation = null;
             if (_taskProgressService.IsTaskRunning)
             {
+                operation = _taskProgressService.CurrentTaskCancellationSource;
                 string currentOperation = _taskProgressService.CurrentStatusText ?? "an operation";
 
                 _logService.LogInformation($"Close requested while operation in progress: {currentOperation}");
@@ -64,7 +69,7 @@ public class ApplicationCloseService : IApplicationCloseService
                 var confirmed = (await _dialogService.ShowConfirmationAsync(new ConfirmationRequest
                 {
                     Message = $"The following operation is still running:\n\n{currentOperation}\n\n" +
-                              $"Closing now may leave incomplete files or mounted drives.\n\n" +
+                              $"The app will wait for cleanup and pending saves to finish.\n\n" +
                               $"Cancel this operation and close win-optimizer?",
                     Title = "Warning: Operation in Progress",
                     ConfirmButtonText = "Yes, Close",
@@ -78,40 +83,53 @@ public class ApplicationCloseService : IApplicationCloseService
                 }
 
                 _logService.LogInformation("User confirmed close, cancelling operation...");
-                _taskProgressService.CancelCurrentTask();
+                // A prompt can overlap a task transition; cancellation never targets the replacement.
+                if (_taskProgressService.IsTaskRunning)
+                {
+                    if (ReferenceEquals(operation, _taskProgressService.CurrentTaskCancellationSource))
+                        _taskProgressService.CancelCurrentTask();
+                    else return OperationResult.Failed("The active operation changed. Try closing again.");
+                }
             }
 
-            CloseApplication();
+            if (BeforeShutdown is not null) await BeforeShutdown.Invoke();
+            if (operation is not null) await WaitForOperationAsync(operation);
+            if (_taskProgressService.IsTaskRunning && !ReferenceEquals(operation, _taskProgressService.CurrentTaskCancellationSource))
+                return OperationResult.Failed("Another operation started. Try closing again.");
+            launchInstaller?.Invoke();
+            CloseApplication(launchInstaller is null ? ShutdownAction : RestartShutdownAction);
             return OperationResult.Succeeded();
         }
         catch (Exception ex)
         {
             _logService.LogError($"Error in CheckOperationsAndCloseAsync: {ex.Message}", ex);
 
-            try
-            {
-                CloseApplication();
-            }
-            catch
-            {
-                ShutdownAction();
-            }
-            return OperationResult.Succeeded();
+            return OperationResult.Failed(ex.Message, ex);
         }
     }
 
-    /// <summary>Invokes the configured lifetime action and retries if shutdown fails.</summary>
-    private void CloseApplication()
+    /// <summary>Observes completion without polling or cancelling work that replaces the captured task.</summary>
+    private async Task WaitForOperationAsync(CancellationTokenSource owner)
     {
+        var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        void Check(object? sender, TaskProgressDetail detail)
+        {
+            if (!_taskProgressService.IsTaskRunning || !ReferenceEquals(owner, _taskProgressService.CurrentTaskCancellationSource))
+                completion.TrySetResult();
+        }
+        _taskProgressService.ProgressUpdated += Check;
         try
         {
-            _logService.LogInformation("Shutting down application");
-            ShutdownAction();
+            Check(null, new TaskProgressDetail());
+            await completion.Task;
         }
-        catch (Exception ex)
-        {
-            _logService.LogError($"Error shutting down application: {ex.Message}", ex);
-            ShutdownAction();
-        }
+        finally { _taskProgressService.ProgressUpdated -= Check; }
+    }
+
+    /// <summary>Invokes the selected desktop lifetime strategy after successful cleanup.</summary>
+    private void CloseApplication(Action shutdown)
+    {
+        _logService.LogInformation("Shutting down application");
+        shutdown();
     }
 }

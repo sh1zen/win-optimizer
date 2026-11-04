@@ -20,11 +20,16 @@ public class ExternalAppUninstallServiceTests
     private readonly Mock<IProcessExecutor> _processExecutor = new();
     private readonly Mock<IUninstallResidueReview> _review = new();
     private readonly Mock<IAppxDeployment> _deployment = new(MockBehavior.Strict);
+    private readonly Mock<IAsyncDisposable> _suspension = new();
+    private bool _windowBlocked;
 
     public ExternalAppUninstallServiceTests()
     {
         _review.Setup(review => review.ConfirmAutomaticUninstallAsync(It.IsAny<ItemDefinition>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
+        _review.Setup(review => review.SuspendForUninstallAsync(It.IsAny<CancellationToken>()))
+            .Callback(() => _windowBlocked = true).ReturnsAsync(_suspension.Object);
+        _suspension.Setup(scope => scope.DisposeAsync()).Callback(() => _windowBlocked = false).Returns(ValueTask.CompletedTask);
     }
 
     private ExternalAppUninstallService CreateSut() => new(
@@ -112,6 +117,7 @@ public class ExternalAppUninstallServiceTests
         _processExecutor.Verify(executor => executor.ShellExecuteAsync(executable, arguments, true, CancellationToken.None), Times.Once);
         _uninstallCommands.Verify(source => source.GetAsync(item), Times.Once);
         _winGetPackageInstaller.VerifyNoOtherCalls();
+        _review.Verify(review => review.SuspendForUninstallAsync(It.IsAny<CancellationToken>()), Times.Once);
         _review.VerifyNoOtherCalls();
     }
 
@@ -126,13 +132,18 @@ public class ExternalAppUninstallServiceTests
 
         var pending = CreateSut().UninstallAsync(item, cancellationToken: cancellation.Token);
         Assert.False(pending.IsCompleted);
+        Assert.True(_windowBlocked);
         cancellation.Cancel();
         Assert.False(pending.IsCompleted);
+        Assert.True(_windowBlocked);
         exited.SetResult(0);
 
         var result = await pending;
         Assert.False(result.Success);
         Assert.Contains("cancelled", result.ErrorMessage);
+        Assert.False(_windowBlocked);
+        _suspension.Verify(scope => scope.DisposeAsync(), Times.Once);
+        _review.Verify(review => review.SuspendForUninstallAsync(It.IsAny<CancellationToken>()), Times.Once);
         _review.VerifyNoOtherCalls();
         _winGetPackageInstaller.VerifyNoOtherCalls();
     }
@@ -148,8 +159,23 @@ public class ExternalAppUninstallServiceTests
 
         Assert.False((await CreateSut().UninstallAsync(item)).Success);
 
+        Assert.False(_windowBlocked);
+        _suspension.Verify(scope => scope.DisposeAsync(), Times.Once);
+        _review.Verify(review => review.SuspendForUninstallAsync(It.IsAny<CancellationToken>()), Times.Once);
         _review.VerifyNoOtherCalls();
         _winGetPackageInstaller.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task NativeLaunchFailureRestoresTheApplication()
+    {
+        var item = new ItemDefinition { Id = "app", Name = "App", Description = "Test" };
+        _uninstallCommands.Setup(source => source.GetAsync(item)).ReturnsAsync((true, @"C:\App\remove.exe"));
+        _processExecutor.Setup(executor => executor.ShellExecuteAsync(@"C:\App\remove.exe", "", true, CancellationToken.None))
+            .ThrowsAsync(new System.ComponentModel.Win32Exception(5));
+        Assert.False((await CreateSut().UninstallAsync(item)).Success);
+        Assert.False(_windowBlocked);
+        _suspension.Verify(scope => scope.DisposeAsync(), Times.Once);
     }
 
     [Theory]

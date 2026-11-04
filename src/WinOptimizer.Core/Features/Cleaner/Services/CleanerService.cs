@@ -80,9 +80,11 @@ public sealed class CleanerService(ICleanerBackend backend, ICleanerBackupServic
             }
             int completed = 0;
             List<string> errors = [];
+            List<CleanerItemResult> outcomes = [];
+            var cancelled = false;
             foreach (var id in ids.OrderBy(id => Stage(_findings[id].Area)))
             {
-                ct.ThrowIfCancellationRequested();
+                if (ct.IsCancellationRequested) { cancelled = true; break; }
                 var item = _findings[id];
                 progress?.Report(new(item.Detail, completed + errors.Count, ids.Length));
                 // Consume before execution, including cancellation and partial external failures.
@@ -91,14 +93,19 @@ public sealed class CleanerService(ICleanerBackend backend, ICleanerBackupServic
                 {
                     await backend.CleanAsync(item, _options, ct).ConfigureAwait(false);
                     completed++;
+                    outcomes.Add(new(item, null));
                 }
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or System.ComponentModel.Win32Exception)
+                catch (OperationCanceledException) { cancelled = true; break; }
+                // RegistryKey can report denied writes as SecurityException rather than UnauthorizedAccessException.
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException or InvalidOperationException or System.ComponentModel.Win32Exception)
                 {
-                    errors.Add($"{item.Detail}: {ex.Message}");
+                    var error = $"{item.Detail}: {ex.Message}";
+                    errors.Add(error);
+                    outcomes.Add(new(item, error));
                 }
                 progress?.Report(new(item.Detail, completed + errors.Count, ids.Length));
             }
-            return new(completed, errors.AsReadOnly());
+            return new(completed, errors.AsReadOnly()) { Items = outcomes.AsReadOnly(), IsCancelled = cancelled };
         }
         finally { _gate.Release(); }
     }

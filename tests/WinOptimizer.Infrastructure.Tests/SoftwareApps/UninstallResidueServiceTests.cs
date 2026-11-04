@@ -81,8 +81,27 @@ public sealed class UninstallResidueServiceTests : IDisposable
     }
     private string Local(string sid, string relative) => Path.Combine(_profiles[sid], @"AppData\Local", relative);
     private void NativeRemove() { File.Delete(_executable); _registry.Remove(Arp, false); }
-    private Task<UninstallResidueScan> Inspect(WinOptimizer.Core.Features.SoftwareApps.Interfaces.IUninstallResidueSession session,
-        bool success = true, bool deferred = false) => session.InspectAsync([new(_app.Id, success, deferred, null)], null, default);
+    private async Task<UninstallResidueScan> Inspect(WinOptimizer.Core.Features.SoftwareApps.Interfaces.IUninstallResidueSession session,
+        bool success = true, bool deferred = false)
+    {
+        await session.VerifyAsync([new(_app.Id, success, deferred, null)], null, default);
+        return await session.ScanAsync(null, default);
+    }
+
+    [Fact]
+    public async Task VerificationDoesNotIssueCleanupEvidence_AndScanRequiresVerification()
+    {
+        var path = Write(Local(First, @"Recuva\settings"), "residual");
+        await using var session = await _sut.CaptureAsync([_app], null, default);
+        await Assert.ThrowsAsync<InvalidOperationException>(() => session.ScanAsync(null, default));
+        NativeRemove();
+        var verification = await session.VerifyAsync([new(_app.Id, true, false, null)], null, default);
+        Assert.Equal(UninstallVerificationState.Removed, Assert.Single(verification.Applications).State);
+        await Assert.ThrowsAsync<IOException>(() => session.CleanAsync([Guid.NewGuid()], null, default));
+        Assert.True(File.Exists(path));
+        var scan = await session.ScanAsync(null, default);
+        Assert.Contains(scan.Findings, finding => finding.Path == path && finding.CanDelete);
+    }
 
     [Fact]
     public async Task ScansEveryAccountIncludingServiceProfiles_AndOnlyProductSpecificFolders()
@@ -133,7 +152,7 @@ public sealed class UninstallResidueServiceTests : IDisposable
         Assert.Equal(UninstallVerificationState.StillInstalled, scan.Applications[0].State);
         Assert.All(scan.Findings, item => Assert.False(item.CanDelete));
         _processes.Setup(source => source.FindRunningExecutables(It.IsAny<IReadOnlyCollection<string>>(), It.IsAny<ICollection<string>>())).Returns([]);
-        scan = await session.RescanAsync(null, default);
+        scan = await session.ScanAsync(null, default);
         Assert.Equal(UninstallVerificationState.Removed, scan.Applications[0].State);
         Assert.All(scan.Findings, item => Assert.True(item.CanDelete));
     }

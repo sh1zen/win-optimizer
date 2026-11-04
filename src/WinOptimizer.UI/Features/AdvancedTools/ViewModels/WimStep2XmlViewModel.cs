@@ -16,6 +16,8 @@ namespace WinOptimizer.UI.Features.AdvancedTools.ViewModels;
 /// </summary>
 public partial class WimStep2XmlViewModel : ObservableObject
 {
+    /// <summary>Identifies the media whose files are about to change, including failed partial writes.</summary>
+    public event Action<string>? MediaContentChanging;
     private readonly IAutounattendXmlGeneratorService _xmlGeneratorService;
     private readonly IWimCustomizationService _wimCustomizationService;
     private readonly ISelectedAppsProvider _selectedAppsProvider;
@@ -25,11 +27,26 @@ public partial class WimStep2XmlViewModel : ObservableObject
     private readonly IFilePickerService _filePickerService;
     private readonly ILogService _logService;
     private readonly IResourceService _resourceService;
+    private int _mediaRevision;
 
     /// <summary>
     /// The working directory, set by the parent when Step 1 completes.
     /// </summary>
-    public string WorkingDirectory { get; set; } = string.Empty;
+    [ObservableProperty]
+    public partial string WorkingDirectory { get; set; } = string.Empty;
+
+    partial void OnWorkingDirectoryChanged(string value) => ResetForMediaChange();
+
+    /// <summary>Clears XML evidence and presentation when the prepared media changes.</summary>
+    public void ResetForMediaChange()
+    {
+        _mediaRevision++;
+        IsXmlAdded = false;
+        SelectedXmlPath = string.Empty;
+        XmlStatus = _localizationService.GetString("WIMUtil_Status_NoXmlAdded");
+        GenerateWinOptimizerXmlCard.IsComplete = SelectXmlCard.IsComplete = false;
+        GenerateWinOptimizerXmlCard.HasFailed = SelectXmlCard.HasFailed = false;
+    }
 
     [ObservableProperty]
     public partial string SelectedXmlPath { get; set; }
@@ -96,12 +113,14 @@ public partial class WimStep2XmlViewModel : ObservableObject
     [RelayCommand]
     private async Task GenerateWinOptimizerXml()
     {
+        var workingDirectory = WorkingDirectory;
+        var revision = _mediaRevision;
         try
         {
             GenerateWinOptimizerXmlCard.IsComplete = false;
             GenerateWinOptimizerXmlCard.HasFailed = false;
 
-            if (string.IsNullOrEmpty(WorkingDirectory))
+            if (string.IsNullOrEmpty(workingDirectory))
             {
                 await _dialogService.ShowWarningAsync(
                     _localizationService.GetString("WIMUtil_Msg_WorkingDirectoryRequired"),
@@ -132,8 +151,12 @@ public partial class WimStep2XmlViewModel : ObservableObject
             }
 
             XmlStatus = _localizationService.GetString("WIMUtil_Status_XmlGenerating");
-            var outputPath = _fileSystemService.CombinePath(WorkingDirectory, "autounattend.xml");
+            var outputPath = _fileSystemService.CombinePath(workingDirectory, "autounattend.xml");
+            if (revision != _mediaRevision) return;
+            MediaContentChanging?.Invoke(workingDirectory);
             var generatedPath = await _xmlGeneratorService.GenerateFromCurrentSelectionsAsync(outputPath);
+
+            if (revision != _mediaRevision) return;
 
             SelectedXmlPath = generatedPath;
             IsXmlAdded = true;
@@ -155,12 +178,14 @@ public partial class WimStep2XmlViewModel : ObservableObject
     [RelayCommand]
     private async Task SelectXmlFile()
     {
+        var workingDirectory = WorkingDirectory;
+        var revision = _mediaRevision;
         try
         {
             SelectXmlCard.IsComplete = false;
             SelectXmlCard.HasFailed = false;
 
-            if (string.IsNullOrEmpty(WorkingDirectory))
+            if (string.IsNullOrEmpty(workingDirectory))
             {
                 await _dialogService.ShowWarningAsync(
                     _localizationService.GetString("WIMUtil_Msg_WorkingDirectoryRequired"),
@@ -186,7 +211,10 @@ public partial class WimStep2XmlViewModel : ObservableObject
             }
 
             XmlStatus = _localizationService.GetString("WIMUtil_Status_XmlAdding");
-            var addSuccess = await _wimCustomizationService.AddXmlToImageAsync(selectedPath, WorkingDirectory);
+            if (revision != _mediaRevision) return;
+            MediaContentChanging?.Invoke(workingDirectory);
+            var addSuccess = await _wimCustomizationService.AddXmlToImageAsync(selectedPath, workingDirectory);
+            if (revision != _mediaRevision) return;
             if (addSuccess)
             {
                 SelectedXmlPath = selectedPath;

@@ -211,7 +211,11 @@ public class ExternalAppUninstallService(
 
             cancellationToken.ThrowIfCancellationRequested();
             // Cancellation stops the queue after this UI exits; it must not release cleanup while the uninstaller runs.
-            var exitCode = await processExecutor.ShellExecuteAsync(fileName, arguments, waitForExit: true, CancellationToken.None).ConfigureAwait(false);
+            int? exitCode;
+            await using (await review.SuspendForUninstallAsync(cancellationToken).ConfigureAwait(false))
+            {
+                exitCode = await processExecutor.ShellExecuteAsync(fileName, arguments, waitForExit: true, CancellationToken.None).ConfigureAwait(false);
+            }
             cancellationToken.ThrowIfCancellationRequested();
             if (exitCode is 3010 or 1641)
                 return OperationResult<bool>.DeferredSuccess(true, "The uninstaller requires a restart; inspect leftovers after restarting Windows.");

@@ -29,11 +29,13 @@ public partial class WimStep4IsoViewModel : ObservableObject, IDisposable
     private readonly ILogService _logService;
     private readonly IResourceService _resourceService;
     private bool _disposed;
+    private int _mediaRevision;
 
     /// <summary>
     /// The working directory, set by the parent when Step 1 completes.
     /// </summary>
-    public string WorkingDirectory { get; set; } = string.Empty;
+    [ObservableProperty]
+    public partial string WorkingDirectory { get; set; } = string.Empty;
 
     [ObservableProperty]
     public partial bool IsOscdimgAvailable { get; set; }
@@ -43,6 +45,17 @@ public partial class WimStep4IsoViewModel : ObservableObject, IDisposable
 
     [ObservableProperty]
     public partial bool IsIsoCreated { get; set; }
+
+    // Completion belongs to the current input directory and destination file.
+    partial void OnWorkingDirectoryChanged(string value) => ResetForMediaChange();
+    partial void OnOutputIsoPathChanged(string value) => ResetForMediaChange();
+
+    /// <summary>Invalidates completion and pending results when the media or destination changes.</summary>
+    public void ResetForMediaChange()
+    {
+        _mediaRevision++;
+        IsIsoCreated = false;
+    }
 
     public WizardActionCard DownloadOscdimgCard { get; private set; } = new();
     public WizardActionCard SelectOutputCard { get; private set; } = new();
@@ -101,6 +114,13 @@ public partial class WimStep4IsoViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private async Task DownloadOscdimg()
     {
+        if (_taskProgressService.IsTaskRunning)
+        {
+            await _dialogService.ShowWarningAsync(_localizationService.GetString("Cleaner_Wait"),
+                _localizationService.GetString("Dialog_Warning"));
+            return;
+        }
+        CancellationTokenSource? task = null;
         try
         {
             DownloadOscdimgCard.IsComplete = false;
@@ -108,11 +128,11 @@ public partial class WimStep4IsoViewModel : ObservableObject, IDisposable
             DownloadOscdimgCard.IsProcessing = true;
             DownloadOscdimgCard.IsEnabled = false;
 
-            _taskProgressService.StartTask(_localizationService.GetString("WIMUtil_Status_InstallingOscdimg"), true);
+            task = _taskProgressService.StartTask(_localizationService.GetString("WIMUtil_Status_InstallingOscdimg"), true);
             var progress = _taskProgressService.CreatePowerShellProgress();
 
             var success = await _oscdimgToolManager.EnsureOscdimgAvailableAsync(
-                progress, _taskProgressService.CurrentTaskCancellationSource!.Token);
+                progress, task.Token);
 
             DownloadOscdimgCard.IsProcessing = false;
 
@@ -148,7 +168,7 @@ public partial class WimStep4IsoViewModel : ObservableObject, IDisposable
         }
         finally
         {
-            _taskProgressService.CompleteTask();
+            _taskProgressService.CompleteOwnedTask(task);
         }
     }
 
@@ -169,6 +189,16 @@ public partial class WimStep4IsoViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private async Task CreateIso()
     {
+        if (_taskProgressService.IsTaskRunning)
+        {
+            await _dialogService.ShowWarningAsync(_localizationService.GetString("Cleaner_Wait"),
+                _localizationService.GetString("Dialog_Warning"));
+            return;
+        }
+        CancellationTokenSource? task = null;
+        var workingDirectory = WorkingDirectory;
+        var outputIsoPath = OutputIsoPath;
+        var revision = _mediaRevision;
         try
         {
             if (!IsOscdimgAvailable)
@@ -179,7 +209,7 @@ public partial class WimStep4IsoViewModel : ObservableObject, IDisposable
                 return;
             }
 
-            if (string.IsNullOrEmpty(OutputIsoPath))
+            if (string.IsNullOrEmpty(outputIsoPath))
             {
                 await _dialogService.ShowWarningAsync(
                     _localizationService.GetString("WIMUtil_Msg_OutputRequired"),
@@ -187,7 +217,7 @@ public partial class WimStep4IsoViewModel : ObservableObject, IDisposable
                 return;
             }
 
-            if (string.IsNullOrEmpty(WorkingDirectory))
+            if (string.IsNullOrEmpty(workingDirectory))
             {
                 await _dialogService.ShowWarningAsync(
                     _localizationService.GetString("WIMUtil_Msg_WorkingDirectoryRequired"),
@@ -195,32 +225,33 @@ public partial class WimStep4IsoViewModel : ObservableObject, IDisposable
                 return;
             }
 
+            IsIsoCreated = false;
             SelectOutputCard.IsEnabled = false;
             SelectOutputCard.Opacity = 0.5;
 
-            _taskProgressService.StartTask(_localizationService.GetString("WIMUtil_Status_CreatingIso"), true);
+            task = _taskProgressService.StartTask(_localizationService.GetString("WIMUtil_Status_CreatingIso"), true);
             var progress = _taskProgressService.CreatePowerShellProgress();
 
-            var success = await _isoService.CreateIsoAsync(WorkingDirectory, OutputIsoPath, progress, _taskProgressService.CurrentTaskCancellationSource!.Token);
+            var success = await _isoService.CreateIsoAsync(workingDirectory, outputIsoPath, progress, task.Token);
 
             SelectOutputCard.IsEnabled = true;
             SelectOutputCard.Opacity = 1.0;
 
             if (success)
             {
-                IsIsoCreated = true;
+                IsIsoCreated = revision == _mediaRevision;
                 SelectOutputCard.Description = _localizationService.GetString("WIMUtil_Desc_IsoCreatedSuccess");
 
                 var openFolder = (await _dialogService.ShowConfirmationAsync(new ConfirmationRequest
                 {
-                    Message = string.Format(_localizationService.GetString("WIMUtil_Msg_IsoCreatedSuccess"), OutputIsoPath),
+                    Message = string.Format(_localizationService.GetString("WIMUtil_Msg_IsoCreatedSuccess"), outputIsoPath),
                     Title = _localizationService.GetString("WIMUtil_Desc_IsoCreatedSuccess"),
                     ConfirmButtonText = _localizationService.GetString("WIMUtil_Button_OpenFolder"),
                     CancelButtonText = _localizationService.GetString("Button_Close"),
                 })).Confirmed;
                 if (openFolder)
                 {
-                    _processExecutor.ShellExecuteAsync("explorer.exe", $"/select,\"{OutputIsoPath}\"").FireAndForget(_logService);
+                    _processExecutor.ShellExecuteAsync("explorer.exe", $"/select,\"{outputIsoPath}\"").FireAndForget(_logService);
                 }
             }
             else
@@ -235,7 +266,6 @@ public partial class WimStep4IsoViewModel : ObservableObject, IDisposable
         {
             SelectOutputCard.IsEnabled = true;
             SelectOutputCard.Opacity = 1.0;
-            try { if (_fileSystemService.FileExists(OutputIsoPath)) _fileSystemService.DeleteFile(OutputIsoPath); } catch (Exception ex) { _logService.LogDebug($"Best-effort incomplete ISO cleanup failed: {ex.Message}"); }
             SelectOutputCard.Description = _localizationService.GetString("WIMUtil_Desc_IsoCreateCancelled");
         }
         catch (InsufficientDiskSpaceException spaceEx)
@@ -258,7 +288,7 @@ public partial class WimStep4IsoViewModel : ObservableObject, IDisposable
         }
         finally
         {
-            _taskProgressService.CompleteTask();
+            _taskProgressService.CompleteOwnedTask(task);
         }
     }
 

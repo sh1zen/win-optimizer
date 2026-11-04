@@ -147,6 +147,31 @@ public class FileSystemServiceTests : IClassFixture<TempDirectoryFixture>
     }
 
     [Fact]
+    public void ReplaceFilePublishesTheNewBytesAndConsumesTheTemporaryFile()
+    {
+        var source = TempFile("replacement-source.iso");
+        var destination = TempFile("replacement-destination.iso");
+        File.WriteAllText(source, "New ISO");
+        File.WriteAllText(destination, "Previous ISO");
+        _service.ReplaceFile(source, destination);
+        Assert.Equal("New ISO", File.ReadAllText(destination));
+        Assert.False(File.Exists(source));
+    }
+
+    [Fact]
+    public void FailedReplacementPreservesBothFilesWhenTheDestinationIsLocked()
+    {
+        var source = TempFile("locked-source.iso");
+        var destination = TempFile("locked-destination.iso");
+        File.WriteAllText(source, "New ISO");
+        File.WriteAllText(destination, "Previous ISO");
+        using (var locked = new FileStream(destination, FileMode.Open, FileAccess.Read, FileShare.Read))
+            Assert.ThrowsAny<IOException>(() => _service.ReplaceFile(source, destination));
+        Assert.Equal("Previous ISO", File.ReadAllText(destination));
+        Assert.Equal("New ISO", File.ReadAllText(source));
+    }
+
+    [Fact]
     public void GetFileSize_ReturnsCorrectSize()
     {
         // Arrange

@@ -34,6 +34,59 @@ public class CleanerServiceTests
     private static Task<CleanerScanResult> Scan(CleanerService service) => service.ScanAsync(new(), [CleanerArea.JunkFiles], null, default);
 
     [Fact]
+    public async Task CleanupReportsEachOriginalResource_AndCountsOnlySuccessfulFileSpace()
+    {
+        var file = Finding();
+        var denied = Finding() with { Area = CleanerArea.Privacy };
+        var registry = Finding() with { Area = CleanerArea.Registry, Bytes = 128,
+            Target = new CleanerRegistryTarget(@"HKEY_CURRENT_USER\Software\Example", "value", "data", 1, false, "missing") };
+        var maintenance = Finding() with { Area = CleanerArea.Disk, Bytes = 0, Target = new CleanerDiskTarget(@"C:\") };
+        var findings = new[] { file, denied, registry, maintenance };
+        _backend.Setup(backend => backend.ScanAsync(It.IsAny<CleanerArea>(), It.IsAny<CleanerOptions>(), It.IsAny<IProgress<CleanerProgress>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((CleanerArea area, CleanerOptions _, IProgress<CleanerProgress>? _, CancellationToken _) =>
+                new CleanerScanResult(findings.Where(finding => finding.Area == area).ToArray(), []));
+        _backend.Setup(backend => backend.CleanAsync(It.IsAny<CleanerFinding>(), It.IsAny<CleanerOptions>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        _backend.Setup(backend => backend.CleanAsync(denied, It.IsAny<CleanerOptions>(), It.IsAny<CancellationToken>())).ThrowsAsync(new UnauthorizedAccessException("Protected file"));
+        var service = new CleanerService(_backend.Object, _backups.Object);
+        await service.ScanAsync(new(), findings.Select(finding => finding.Area).ToArray(), null, default);
+
+        var result = await service.ApplyAsync(findings.Select(finding => finding.Id).ToArray(), null, default);
+
+        Assert.Equal(3, result.Completed);
+        Assert.Single(result.Errors);
+        Assert.Equal(4, result.Items.Count);
+        Assert.Same(file, Assert.Single(result.Items, item => item.Finding.Id == file.Id).Finding);
+        Assert.Equal(2, result.Items.Count(item => item.Removed));
+        Assert.Equal(10, result.Items.Sum(item => item.EstimatedFreedFileBytes));
+        Assert.Equal(128, result.Items.Sum(item => item.RemovedRegistryBytes));
+        Assert.False(result.IsCancelled);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CancellationRetainsConfirmedOutcomes_WithoutClaimingUnfinishedWork(bool insideBackend)
+    {
+        using var cancellation = new CancellationTokenSource();
+        var first = Finding(); var second = Finding();
+        var service = SetupScan(first, second);
+        await Scan(service);
+        _backend.Setup(backend => backend.CleanAsync(first, It.IsAny<CleanerOptions>(), It.IsAny<CancellationToken>()))
+            .Callback(() => { if (!insideBackend) cancellation.Cancel(); }).Returns(Task.CompletedTask);
+        if (insideBackend)
+            _backend.Setup(backend => backend.CleanAsync(second, It.IsAny<CleanerOptions>(), It.IsAny<CancellationToken>())).ThrowsAsync(new OperationCanceledException());
+
+        var result = await service.ApplyAsync([first.Id, second.Id], null, cancellation.Token);
+
+        Assert.True(result.IsCancelled);
+        Assert.Equal(1, result.Completed);
+        Assert.Empty(result.Errors);
+        Assert.Same(first, Assert.Single(result.Items).Finding);
+        Assert.Equal(10, result.Items[0].EstimatedFreedFileBytes);
+        if (!insideBackend) _backend.Verify(backend => backend.CleanAsync(second, It.IsAny<CleanerOptions>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
     public void ExistingPreferencesWithoutBackupFields_EnableBothBackups()
     {
         var options = System.Text.Json.JsonSerializer.Deserialize<CleanerOptions>("{\"DeepClean\":true}")!;
@@ -231,13 +284,18 @@ public class CleanerServiceTests
         await Assert.ThrowsAsync<InvalidOperationException>(() => service.ApplyAsync([item.Id], null, default));
     }
 
-    [Fact]
-    public async Task Apply_ReportsSpecificFailure_ContinuesRemainingSelection_AndPreventsReplay()
+    /// <summary>Access-denied registry failures are isolated to their finding, just like changed files.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Apply_ReportsSpecificFailure_ContinuesRemainingSelection_AndPreventsReplay(bool registryDenied)
     {
         var broken = Finding(); var good = Finding(); var service = SetupScan(broken, good); await Scan(service);
-        _backend.Setup(x => x.CleanAsync(broken, It.IsAny<CleanerOptions>(), It.IsAny<CancellationToken>())).ThrowsAsync(new IOException("file changed"));
+        Exception failure = registryDenied ? new System.Security.SecurityException("Requested registry access is not allowed.") : new IOException("file changed");
+        _backend.Setup(x => x.CleanAsync(broken, It.IsAny<CleanerOptions>(), It.IsAny<CancellationToken>())).ThrowsAsync(failure);
         var result = await service.ApplyAsync([broken.Id, good.Id], null, default);
-        result.Completed.Should().Be(1); result.Errors.Should().ContainSingle().Which.Should().Contain("file changed");
+        result.Completed.Should().Be(1); result.Errors.Should().ContainSingle().Which.Should().Contain(failure.Message);
+        _backend.Verify(x => x.CleanAsync(good, It.IsAny<CleanerOptions>(), It.IsAny<CancellationToken>()), Times.Once);
         await Assert.ThrowsAsync<InvalidOperationException>(() => service.ApplyAsync([broken.Id], null, default));
     }
 

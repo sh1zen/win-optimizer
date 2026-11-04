@@ -84,6 +84,14 @@ public class IsoService : IIsoService
 
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
+            var sourcePath = Path.GetFullPath(isoPath);
+            var workspacePath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(workingDirectory));
+            var sourceRelativePath = Path.GetRelativePath(workspacePath, sourcePath);
+            if (!Path.IsPathRooted(sourceRelativePath) && sourceRelativePath != ".." &&
+                !sourceRelativePath.StartsWith(".." + Path.DirectorySeparatorChar, StringComparison.Ordinal))
+                throw new InvalidOperationException("Move the source ISO outside the extraction folder before extracting it.");
+
             if (!await ValidateIsoFileAsync(isoPath).ConfigureAwait(false))
             {
                 return false;
@@ -268,14 +276,17 @@ public class IsoService : IIsoService
         }
     }
 
+    /// <summary>Owns the temporary ISO and publishes it only after successful creation and validation.</summary>
     public async Task<bool> CreateIsoAsync(
         string workingDirectory,
         string outputPath,
         IProgress<TaskProgressDetail>? progress = null,
         CancellationToken cancellationToken = default)
     {
+        string? stagedPath = null;
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if (string.IsNullOrEmpty(workingDirectory))
             {
                 _logService.LogError("Working directory path is empty.");
@@ -316,13 +327,9 @@ public class IsoService : IIsoService
             if (!string.IsNullOrEmpty(outputDir) && !_fileSystemService.DirectoryExists(outputDir))
                 _fileSystemService.CreateDirectory(outputDir);
 
-            if (_fileSystemService.FileExists(outputPath))
-            {
-                _fileSystemService.DeleteFile(outputPath);
-                _logService.LogInformation("Removed existing ISO file");
-            }
-
-            var arguments = $"-m -o -u2 -udfver102 -bootdata:2#p0,e,b\"{etfsbootPath}\"#pEF,e,b\"{efisysPath}\" \"{workingDirectory}\" \"{outputPath}\"";
+            cancellationToken.ThrowIfCancellationRequested();
+            stagedPath = outputPath + $".{Guid.NewGuid():N}.tmp.iso";
+            var arguments = $"-m -o -u2 -udfver102 -bootdata:2#p0,e,b\"{etfsbootPath}\"#pEF,e,b\"{efisysPath}\" \"{workingDirectory}\" \"{stagedPath}\"";
 
             progress?.Report(new TaskProgressDetail
             {
@@ -335,14 +342,20 @@ public class IsoService : IIsoService
                 throw new Exception($"oscdimg.exe failed with exit code: {exitCode}");
             }
 
-            // Verify ISO was created
-            if (!_fileSystemService.FileExists(outputPath))
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!await ValidateIsoFileAsync(stagedPath).ConfigureAwait(false))
             {
-                _logService.LogError("ISO file was not created");
+                _logService.LogError("The generated ISO is missing or invalid. The destination has been preserved.");
                 return false;
             }
 
-            var isoFileSize = _fileSystemService.GetFileSize(outputPath);
+            var isoFileSize = _fileSystemService.GetFileSize(stagedPath);
+            cancellationToken.ThrowIfCancellationRequested();
+            if (_fileSystemService.FileExists(outputPath))
+                _fileSystemService.ReplaceFile(stagedPath, outputPath);
+            else
+                _fileSystemService.MoveFile(stagedPath, outputPath);
+            stagedPath = null;
             _logService.LogInformation($"ISO created successfully: {outputPath} ({isoFileSize:N0} bytes)");
 
             progress?.Report(new TaskProgressDetail
@@ -371,6 +384,16 @@ public class IsoService : IIsoService
                 TerminalOutput = ex.Message
             });
             return false;
+        }
+        finally
+        {
+            // Only this attempt's temporary artifact is eligible for cleanup.
+            if (stagedPath is not null)
+            {
+                try { if (_fileSystemService.FileExists(stagedPath)) _fileSystemService.DeleteFile(stagedPath); }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
+                { _logService.LogWarning($"Could not remove incomplete ISO '{stagedPath}': {ex.Message}"); }
+            }
         }
     }
 

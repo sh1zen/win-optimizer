@@ -335,6 +335,7 @@
   "Utilities_PathMoveUp": "Sposta su",
   "Utilities_PathMoveDown": "Sposta giù",
   "Utilities_UnsavedChanges": "Modifiche non salvate",
+  "Utilities_DiscardEnvironment": "Scartare le modifiche non salvate alle variabili d’ambiente?",
   "Utilities_ResetDraft": "Ripristina",
   "Utilities_DeleteConfirm": "Eliminare la variabile “{0}” dall’ambito selezionato?",
   "Utilities_SavedVariables": "Salvato. Windows è stato notificato; riavvia i processi già aperti per usare il nuovo ambiente.",
@@ -4462,7 +4463,7 @@
 
   "Cleaner_Selected": "Elementi selezionati",
 
-  "Cleaner_SelectedSpace": "Spazio selezionato stimato",
+  "Cleaner_SelectedSpace": "Dimensione dati selezionati",
 
   "Cleaner_ReviewDescription": "Controlla la scansione completata e scegli gli elementi da pulire. Le modifiche richiedono la tua conferma.",
 
@@ -4530,7 +4531,7 @@
 
   "Cleaner_NoBackups": "Non sono ancora stati creati backup del registro.",
 
-  "Cleaner_ScanComplete": "{2:N0} controlli eseguiti: {0} risultati, {1:N2} MB. Controlla le voci del registro e seleziona quelle da correggere.",
+  "Cleaner_ScanComplete": "{2:N0} controlli eseguiti: {0} risultati, {1}. Controlla le voci del registro e seleziona quelle da correggere.",
 
   "Cleaner_Confirm": "Applicare {0} operazioni selezionate? Saranno rimossi file spazzatura, dati della privacy e collegamenti non validi selezionati. Le correzioni del registro riguardano solo i valori selezionati e invariati. L’ottimizzazione disco usa gli strumenti di Windows.",
 
@@ -4937,7 +4938,7 @@
   "Uninstall_AutomaticPrompt": "Non è stato trovato un programma di disinstallazione registrato per {0}. Procedere con la disinstallazione automatica? Potrebbe essere usato un gestore di pacchetti o potrebbero essere eliminati i file e le cartelle di installazione rilevati.",
   "Uninstall_AutomaticProceed": "Disinstalla automaticamente",
   "UninstallResidue_Capture": "Preparazione disinstallazione: inventario di tutti gli account",
-  "UninstallResidue_Verifying": "Verifica disinstallazione e scansione dei residui",
+  "UninstallResidue_Verifying": "Verifica della disinstallazione",
   "UninstallResidue_Skipped": "Operazione saltata dall’utente",
   "UninstallResidue_Title": "Residui della disinstallazione",
   "UninstallResidue_Finish": "Completa",
@@ -5099,5 +5100,17 @@
   "SoftwareApps_Tab_Leftover": "Residui",
   "Leftover_Description": "Seleziona voci obsolete delle app, cache degli installer inutilizzate e cartelle residue di installazione verificate.",
   "Leftover_ScanFirst": "Seleziona Aggiorna per cercare voci residue delle app e file di installazione.",
-  "Leftover_Count": "{0} elementi · {1} rimovibili"
+  "Leftover_Count": "{0} elementi · {1} rimovibili",
+  "UninstallResidue_Scan": "Scansiona",
+  "UninstallResidue_ScanHint": "Seleziona Scansiona per cercare file, cartelle e voci del registro residui. Non viene rimosso nulla finché non selezioni gli elementi e confermi.",
+  "Cleaner_ReportTitle": "Report pulizia",
+  "Cleaner_ReportRemoved": "Voci eliminate",
+  "Cleaner_ReportErrors": "Errori",
+  "Cleaner_ReportUnprocessed": "Non elaborati",
+  "Cleaner_ReportFreed": "Spazio file liberato stimato",
+  "Cleaner_ReportRegistryData": "Dati del registro rimossi",
+  "Cleaner_ReportProtected": "Voci protette",
+  "Cleaner_ReportNote": "Lo spazio dei file è stimato. I dati del registro e le operazioni di manutenzione sono conteggiati separatamente.",
+  "Cleaner_ReportCancelled": "Annullata",
+  "Cleaner_NoSelectableResults": "Nessuna voce selezionabile in questa categoria."
 }

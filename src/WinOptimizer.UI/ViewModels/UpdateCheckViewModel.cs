@@ -1,6 +1,5 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.UI.Features.Common.Interfaces;
@@ -32,6 +31,7 @@ public partial class UpdateCheckViewModel : ObservableObject, IDisposable
     private readonly ILogService _logService;
     private readonly IBackgroundUpdateCheckService _backgroundUpdates;
     private readonly IDispatcherService _dispatcher;
+    private readonly IApplicationCloseService _close;
     private readonly CancellationTokenSource _backgroundCancellation = new();
     private Task? _backgroundTask;
 
@@ -73,13 +73,14 @@ public partial class UpdateCheckViewModel : ObservableObject, IDisposable
         ILocalizationService localizationService,
         ILogService logService,
         IBackgroundUpdateCheckService backgroundUpdates,
-        IDispatcherService dispatcher)
+        IDispatcherService dispatcher, IApplicationCloseService close)
     {
         _versionService = versionService;
         _localizationService = localizationService;
         _logService = logService;
         _backgroundUpdates = backgroundUpdates;
         _dispatcher = dispatcher;
+        _close = close;
 
         UpdateInfoBarTitle = string.Empty;
         UpdateInfoBarMessage = string.Empty;
@@ -117,6 +118,8 @@ public partial class UpdateCheckViewModel : ObservableObject, IDisposable
             _logService.Log(Core.Features.Common.Enums.LogLevel.Info, "Checking for updates...");
 
             var latestVersion = await _versionService.CheckForUpdateAsync();
+            if (latestVersion is null || string.IsNullOrWhiteSpace(latestVersion.Version))
+                throw new InvalidOperationException(_localizationService.GetString("Dialog_Update_CheckError_Title") ?? "The update check did not return a supported release.");
             var currentVersion = _versionService.GetCurrentVersion();
 
             if (latestVersion != null && latestVersion.IsUpdateAvailable)
@@ -191,12 +194,11 @@ public partial class UpdateCheckViewModel : ObservableObject, IDisposable
     }
 
     [RelayCommand]
-    private void Relaunch()
+    private async Task RelaunchAsync()
     {
         try
         {
-            _versionService.LaunchInstallerAndRestart();
-            Microsoft.UI.Xaml.Application.Current.Exit();
+            await _close.CheckOperationsAndRestartAsync(_versionService.LaunchInstallerAndRestart);
         }
         catch (Exception ex)
         {

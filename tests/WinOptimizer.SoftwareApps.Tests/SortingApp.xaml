@@ -5,6 +5,8 @@
         <ResourceDictionary>
             <ResourceDictionary.MergedDictionaries>
                 <XamlControlsResources xmlns="using:Microsoft.UI.Xaml.Controls"/>
+                <resources:AppColorResources xmlns:resources="using:WinOptimizer.UI.Features.Common.Resources"/>
+                <ResourceDictionary Source="ms-appx:///Features/Common/Resources/PageStyles.xaml"/>
             </ResourceDictionary.MergedDictionaries>
         </ResourceDictionary>
     </Application.Resources>

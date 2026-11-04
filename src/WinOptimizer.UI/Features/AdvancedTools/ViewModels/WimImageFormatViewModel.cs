@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using WinOptimizer.Core.Features.Common.Extensions;
 using WinOptimizer.Core.Features.AdvancedTools.Interfaces;
 using WinOptimizer.Core.Features.AdvancedTools.Models;
 using WinOptimizer.Core.Features.Common.Interfaces;
@@ -18,6 +19,7 @@ namespace WinOptimizer.UI.Features.AdvancedTools.ViewModels;
 /// </summary>
 public partial class WimImageFormatViewModel : ObservableObject, IDisposable
 {
+    public event Action<string>? MediaContentChanging;
     private readonly IWimImageService _wimImageService;
     private readonly ITaskProgressService _taskProgressService;
     private readonly IDialogService _dialogService;
@@ -26,11 +28,25 @@ public partial class WimImageFormatViewModel : ObservableObject, IDisposable
     private readonly ILogService _logService;
     private CancellationTokenSource? _cancellationTokenSource;
     private bool _disposed;
+    private long _detectionRevision;
 
     /// <summary>
     /// The working directory, set by the parent when Step 1 completes.
     /// </summary>
-    public string WorkingDirectory { get; set; } = string.Empty;
+    [ObservableProperty]
+    public partial string WorkingDirectory { get; set; } = string.Empty;
+
+    partial void OnWorkingDirectoryChanged(string value)
+    {
+        _detectionRevision++;
+        DetectionResult = null;
+        CurrentImageFormat = null;
+        BothFormatsExist = ShowConversionCard = false;
+        WimFileSize = EsdFileSize = string.Empty;
+        ConvertImageCard.IsComplete = false;
+        ConvertImageCard.HasFailed = false;
+        ConvertImageCard.IsEnabled = false;
+    }
 
     [ObservableProperty]
     public partial ImageFormatInfo? CurrentImageFormat { get; set; }
@@ -106,6 +122,13 @@ public partial class WimImageFormatViewModel : ObservableObject, IDisposable
             return;
         }
 
+        if (_taskProgressService.IsTaskRunning)
+        {
+            await _dialogService.ShowWarningAsync(_localizationService.GetString("Cleaner_Wait"), _localizationService.GetString("Dialog_Warning"));
+            return;
+        }
+        CancellationTokenSource? task = null;
+        var workingDirectory = WorkingDirectory;
         try
         {
             var targetFormat = CurrentImageFormat.Format == ImageFormat.Wim ? ImageFormat.Esd : ImageFormat.Wim;
@@ -124,16 +147,22 @@ public partial class WimImageFormatViewModel : ObservableObject, IDisposable
                 CancelButtonText = "No",
             })).Confirmed;
             if (!confirmed) return;
+            if (_taskProgressService.IsTaskRunning)
+            {
+                await _dialogService.ShowWarningAsync(_localizationService.GetString("Cleaner_Wait"), _localizationService.GetString("Dialog_Warning"));
+                return;
+            }
 
             IsConverting = true;
             ConvertImageCard.IsProcessing = true;
             ConvertImageCard.IsEnabled = false;
             ConversionStatus = string.Format(_localizationService.GetString("WIMUtil_Status_ConvertingToFormat"), currentFormatName, targetFormatName);
 
-            _taskProgressService.StartTask(string.Format(_localizationService.GetString("WIMUtil_Status_ConvertingToFormat"), currentFormatName, targetFormatName), true);
+            task = _taskProgressService.StartTask(string.Format(_localizationService.GetString("WIMUtil_Status_ConvertingToFormat"), currentFormatName, targetFormatName), true);
             var progress = _taskProgressService.CreatePowerShellProgress();
 
-            var success = await _wimImageService.ConvertImageAsync(WorkingDirectory, targetFormat, progress, _taskProgressService.CurrentTaskCancellationSource!.Token);
+            MediaContentChanging?.Invoke(workingDirectory);
+            var success = await _wimImageService.ConvertImageAsync(workingDirectory, targetFormat, progress, task.Token);
 
             if (success)
             {
@@ -171,17 +200,20 @@ public partial class WimImageFormatViewModel : ObservableObject, IDisposable
             IsConverting = false;
             ConvertImageCard.IsProcessing = false;
             ConvertImageCard.IsEnabled = true;
-            _taskProgressService.CompleteTask();
+            _taskProgressService.CompleteOwnedTask(task);
         }
     }
 
     public async Task DetectImageFormatAsync()
     {
+        var directory = WorkingDirectory;
+        var revision = ++_detectionRevision;
         try
         {
-            var detection = await _wimImageService.DetectAllImageFormatsAsync(WorkingDirectory);
+            var detection = await _wimImageService.DetectAllImageFormatsAsync(directory);
             _dispatcherService.RunOnUIThread(() =>
             {
+                if (_disposed || revision != _detectionRevision) return;
                 DetectionResult = detection;
                 BothFormatsExist = detection.BothExist;
                 CurrentImageFormat = detection.PrimaryFormat;
@@ -197,7 +229,10 @@ public partial class WimImageFormatViewModel : ObservableObject, IDisposable
         catch (Exception ex)
         {
             _logService.LogError($"Error detecting image formats: {ex.Message}", ex);
-            ShowConversionCard = false;
+            _dispatcherService.RunOnUIThread(() =>
+            {
+                if (!_disposed && revision == _detectionRevision) ShowConversionCard = false;
+            });
         }
     }
 
@@ -239,6 +274,7 @@ public partial class WimImageFormatViewModel : ObservableObject, IDisposable
             _cancellationTokenSource = new CancellationTokenSource();
             var progress = new Progress<TaskProgressDetail>(detail => { });
 
+            MediaContentChanging?.Invoke(WorkingDirectory);
             var success = await _wimImageService.DeleteImageFileAsync(
                 WorkingDirectory,
                 ImageFormat.Wim,
@@ -294,6 +330,7 @@ public partial class WimImageFormatViewModel : ObservableObject, IDisposable
             _cancellationTokenSource = new CancellationTokenSource();
             var progress = new Progress<TaskProgressDetail>(detail => { });
 
+            MediaContentChanging?.Invoke(WorkingDirectory);
             var success = await _wimImageService.DeleteImageFileAsync(
                 WorkingDirectory,
                 ImageFormat.Esd,

@@ -14,7 +14,8 @@ public interface IVersionService
     /// <summary>
     /// Checks if an update is available
     /// </summary>
-    /// <returns>A task that resolves to true if an update is available, false otherwise</returns>
+    /// <returns>The release metadata, including whether an update is available.</returns>
+    /// <remarks>Lookup failures propagate so callers can distinguish an unavailable check from an up-to-date installation.</remarks>
     Task<VersionInfo> CheckForUpdateAsync(CancellationToken cancellationToken = default);
 
     /// <summary>

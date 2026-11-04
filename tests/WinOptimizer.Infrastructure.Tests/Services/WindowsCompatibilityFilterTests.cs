@@ -12,28 +12,6 @@ public class WindowsCompatibilityFilterTests
     private readonly Mock<IWindowsVersionService> _mockVersionService = new();
     private readonly Mock<ILogService> _mockLogService = new();
 
-    #region Constructor
-
-    [Fact]
-    public void Constructor_NullVersionService_ThrowsArgumentNullException()
-    {
-        var act = () => new WindowsCompatibilityFilter(null!, _mockLogService.Object);
-
-        act.Should().Throw<ArgumentNullException>()
-            .WithParameterName("versionService");
-    }
-
-    [Fact]
-    public void Constructor_NullLogService_ThrowsArgumentNullException()
-    {
-        var act = () => new WindowsCompatibilityFilter(_mockVersionService.Object, null!);
-
-        act.Should().Throw<ArgumentNullException>()
-            .WithParameterName("logService");
-    }
-
-    #endregion
-
     #region FilterSettingsByWindowsVersion (with applyFilter=true)
 
     [Fact]

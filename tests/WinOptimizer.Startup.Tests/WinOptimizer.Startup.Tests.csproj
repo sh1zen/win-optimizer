@@ -18,6 +18,13 @@
     <Compile Include="..\WinOptimizer.UI.Tests\Utilities\WindowSizeManagerTests.cs" Link="WindowSizeManagerTests.cs"/>
     <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\CleanerProgressReporterTests.cs" Link="CleanerProgressReporterTests.cs"/>
     <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\CleanerViewModelTests.cs" Link="CleanerViewModelTests.cs"/>
+    <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\WimStep4IsoViewModelTests.cs" Link="WimStep4IsoViewModelTests.cs"/>
+    <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\WimWorkflowRegressionTests.cs" Link="WimWorkflowRegressionTests.cs"/>
+    <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\WimStep1ViewModelTests.cs" Link="WimStep1ViewModelTests.cs"/>
+    <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\WimStep2XmlViewModelTests.cs" Link="WimStep2XmlViewModelTests.cs"/>
+    <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\WimStep3DriversViewModelTests.cs" Link="WimStep3DriversViewModelTests.cs"/>
+    <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\WimImageFormatViewModelTests.cs" Link="WimImageFormatViewModelTests.cs"/>
+    <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\WimUtilViewModelTests.cs" Link="WimUtilViewModelTests.cs"/>
     <Compile Include="..\WinOptimizer.UI.Tests\Services\SectionNavigationTests.cs" Link="SectionNavigationTests.cs"/>
     <Page Include="..\WinOptimizer.UI.Tests\Services\Navigation*Page.xaml" Link="Services\%(Filename)%(Extension)"/>
     <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\NavigationRouterTests.cs" Link="NavigationRouterTests.cs"/>
@@ -27,5 +34,11 @@
     <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\SettingsViewModelTests.cs" Link="SettingsViewModelTests.cs"/>
     <Compile Include="..\WinOptimizer.UI.Tests\Helpers\ExtensionTestDispatcher.cs" Link="ExtensionTestDispatcher.cs"/>
     <Compile Include="..\WinOptimizer.UI.Tests\Helpers\NativeTestCases.cs" Link="NativeTestCases.cs"/>
+    <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\PowerOptimizationsViewModelTests.cs" Link="PowerOptimizationsViewModelTests.cs"/>
+    <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\TaskProgressViewModelTests.cs" Link="TaskProgressViewModelTests.cs"/>
+    <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\UpdateCheckViewModelTests.cs" Link="UpdateCheckViewModelTests.cs"/>
+    <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\EnvironmentEditorViewModelTests.cs" Link="EnvironmentEditorViewModelTests.cs"/>
+    <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\UninstallBackupsViewModelTests.cs" Link="UninstallBackupsViewModelTests.cs"/>
+    <Compile Include="..\WinOptimizer.UI.Tests\Services\ApplicationCloseServiceTests.cs" Link="ApplicationCloseServiceTests.cs"/>
   </ItemGroup>
 </Project>

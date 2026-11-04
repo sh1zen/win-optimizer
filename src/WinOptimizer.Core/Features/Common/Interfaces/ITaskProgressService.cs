@@ -74,13 +74,13 @@ public interface ITaskProgressService
     void CancelCurrentTask();
 
     /// <summary>
-    /// Creates a progress reporter for detailed progress.
+    /// Creates a detailed reporter bound to the task active at creation; completed or replaced tasks cannot update later tasks.
     /// </summary>
     /// <returns>The progress reporter.</returns>
     IProgress<TaskProgressDetail> CreateDetailedProgress();
 
     /// <summary>
-    /// Creates a progress reporter for PowerShell progress.
+    /// Creates a PowerShell reporter bound to the task active at creation.
     /// </summary>
     /// <returns>The progress reporter.</returns>
     IProgress<TaskProgressDetail> CreatePowerShellProgress();

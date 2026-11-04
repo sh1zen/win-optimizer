@@ -35,14 +35,9 @@ public class GlobalSettingsPreloaderTests
     };
 
     [Fact]
-    public void IsPreloaded_InitiallyFalse()
-    {
-        _sut.IsPreloaded.Should().BeFalse();
-    }
-
-    [Fact]
     public async Task PreloadAllSettingsAsync_RegistersAllSettingsInGlobalRegistry()
     {
+        _sut.IsPreloaded.Should().BeFalse();
         var settings1 = new List<SettingDefinition>
         {
             CreateSetting("s1"),

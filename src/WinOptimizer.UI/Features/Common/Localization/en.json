@@ -335,6 +335,7 @@
   "Utilities_PathMoveUp": "Move up",
   "Utilities_PathMoveDown": "Move down",
   "Utilities_UnsavedChanges": "Unsaved changes",
+  "Utilities_DiscardEnvironment": "Discard unsaved changes to environment variables?",
   "Utilities_ResetDraft": "Reset",
   "Utilities_DeleteConfirm": "Delete the variable “{0}” from the selected scope?",
   "Utilities_SavedVariables": "Saved. Windows has been notified; restart existing processes to use the new environment.",
@@ -4462,7 +4463,7 @@
 
   "Cleaner_Selected": "Items selected",
 
-  "Cleaner_SelectedSpace": "Estimated selected space",
+  "Cleaner_SelectedSpace": "Selected data size",
 
   "Cleaner_ReviewDescription": "Review the completed scan and choose the items to clean. Changes require your confirmation.",
 
@@ -4530,7 +4531,7 @@
 
   "Cleaner_NoBackups": "No registry backups have been created yet.",
 
-  "Cleaner_ScanComplete": "{2:N0} checks completed: {0} results, {1:N2} MB. Review registry entries and select the ones to correct.",
+  "Cleaner_ScanComplete": "{2:N0} checks completed: {0} results, {1}. Review registry entries and select the ones to correct.",
 
   "Cleaner_Confirm": "Apply {0} selected operations? Selected junk files, privacy data and broken shortcuts will be removed. Registry corrections affect only selected unchanged values. Disk optimization uses Windows maintenance tools.",
 
@@ -4937,7 +4938,7 @@
   "Uninstall_AutomaticPrompt": "No registered uninstaller was found for {0}. Proceed with automatic uninstall? This may use a package manager or delete detected installation files and folders.",
   "Uninstall_AutomaticProceed": "Uninstall automatically",
   "UninstallResidue_Capture": "Preparing uninstall: inventory all accounts",
-  "UninstallResidue_Verifying": "Verifying uninstall and scanning leftovers",
+  "UninstallResidue_Verifying": "Verifying uninstallation",
   "UninstallResidue_Skipped": "Skipped by the user",
   "UninstallResidue_Title": "Uninstall leftovers",
   "UninstallResidue_Finish": "Finish",
@@ -5099,5 +5100,17 @@
   "SoftwareApps_Tab_Leftover": "Leftover",
   "Leftover_Description": "Select verified obsolete app entries, unused installer caches and leftover installation folders.",
   "Leftover_ScanFirst": "Select Refresh to scan leftover app entries and installer files.",
-  "Leftover_Count": "{0} candidates · {1} removable"
+  "Leftover_Count": "{0} candidates · {1} removable",
+  "UninstallResidue_Scan": "Scan",
+  "UninstallResidue_ScanHint": "Select Scan to find leftover files, folders and registry entries. Nothing is removed until you select items and confirm.",
+  "Cleaner_ReportTitle": "Cleanup report",
+  "Cleaner_ReportRemoved": "Items removed",
+  "Cleaner_ReportErrors": "Errors",
+  "Cleaner_ReportUnprocessed": "Not processed",
+  "Cleaner_ReportFreed": "Estimated file space freed",
+  "Cleaner_ReportRegistryData": "Registry data removed",
+  "Cleaner_ReportProtected": "Protected items",
+  "Cleaner_ReportNote": "File space is estimated. Registry data and maintenance operations are counted separately.",
+  "Cleaner_ReportCancelled": "Cancelled",
+  "Cleaner_NoSelectableResults": "No selectable items in this category."
 }

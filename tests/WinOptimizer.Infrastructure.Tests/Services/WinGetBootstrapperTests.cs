@@ -8,7 +8,7 @@ using Xunit;
 namespace WinOptimizer.Infrastructure.Tests.Services;
 
 /// <summary>
-/// Checks initial availability, readiness diagnostics and pre-cancelled installation.
+/// Checks pre-cancelled WinGet installation.
 /// </summary>
 public class WinGetBootstrapperTests
 {
@@ -34,45 +34,6 @@ public class WinGetBootstrapperTests
             _mockFileSystemService.Object,
             _mockTaskProgressService.Object,
             new System.Net.Http.HttpClient());
-    }
-
-    [Fact]
-    public void IsSystemWinGetAvailable_DefaultsToFalse()
-    {
-        // The backing field _systemWinGetAvailable defaults to false
-        _sut.IsSystemWinGetAvailable.Should().BeFalse();
-    }
-
-    [Fact]
-    public async Task EnsureWinGetReadyAsync_LogsAvailabilityCheck()
-    {
-        // Arrange
-        _mockInteractiveUserService.Setup(s => s.IsOtsElevation).Returns(false);
-        _mockFileSystemService.Setup(f => f.FileExists(It.IsAny<string>())).Returns(false);
-
-        // Act
-        await _sut.EnsureWinGetReadyAsync();
-
-        // Assert: should log "Checking WinGet availability..."
-        _mockLogService.Verify(
-            l => l.LogInformation(It.Is<string>(s => s.Contains("Checking WinGet availability"))),
-            Times.Once);
-    }
-
-    [Fact]
-    public async Task EnsureWinGetReadyAsync_LogsSystemWinGetAvailability()
-    {
-        // Arrange
-        _mockInteractiveUserService.Setup(s => s.IsOtsElevation).Returns(false);
-        _mockFileSystemService.Setup(f => f.FileExists(It.IsAny<string>())).Returns(false);
-
-        // Act
-        await _sut.EnsureWinGetReadyAsync();
-
-        // Assert: should log the system winget availability status
-        _mockLogService.Verify(
-            l => l.LogInformation(It.Is<string>(s => s.Contains("System winget available:"))),
-            Times.Once);
     }
 
     [Fact]

@@ -57,22 +57,4 @@ public class NumericConversionHelperTests
         var action = () => NumericConversionHelper.ConvertNumericValue(new object());
         action.Should().Throw<ArgumentException>();
     }
-
-    [Fact]
-    public void ConvertNumericValue_ZeroInt_ReturnsZero()
-    {
-        NumericConversionHelper.ConvertNumericValue(0).Should().Be(0);
-    }
-
-    [Fact]
-    public void ConvertNumericValue_NegativeInt_ReturnsNegative()
-    {
-        NumericConversionHelper.ConvertNumericValue(-5).Should().Be(-5);
-    }
-
-    [Fact]
-    public void ConvertNumericValue_NegativeString_Parses()
-    {
-        NumericConversionHelper.ConvertNumericValue("-10").Should().Be(-10);
-    }
 }

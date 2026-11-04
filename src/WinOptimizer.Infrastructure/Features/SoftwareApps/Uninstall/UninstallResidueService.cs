@@ -38,7 +38,7 @@ public sealed class UninstallResidueService(IUninstallAccountSessions sessions, 
 
     private UninstallBackupStore CreateBackupStore() => new(vault, new(sessions, folders, shortcuts));
 
-    /// <summary>Retains the original evidence while the native uninstaller runs and a review dialog remains open.</summary>
+    /// <summary>Retains original evidence through native removal, optional scanning and selected cleanup.</summary>
     private sealed class Session : IUninstallResidueSession
     {
         private readonly UninstallDiscovery _discovery;
@@ -57,6 +57,7 @@ public sealed class UninstallResidueService(IUninstallAccountSessions sessions, 
         private int _observedChanges;
         private long _lastChangeAt;
         private bool _disposed;
+        private bool _verified;
 
         public Session(ICleanerRegistrySessions sessions, IUninstallPackageSource packages, IUninstallScanFolders folders,
             IUninstallProcessSource processes, ICleanerShortcutReader shortcuts, ICleanerBackupVault vault,
@@ -112,28 +113,41 @@ public sealed class UninstallResidueService(IUninstallAccountSessions sessions, 
             Interlocked.Exchange(ref _lastChangeAt, _clock.GetTimestamp());
         }
 
-        public Task<UninstallResidueScan> InspectAsync(IReadOnlyList<UninstallNativeOutcome> outcomes,
-            IProgress<UninstallResidueProgress>? progress, CancellationToken ct) => ScanAsync(outcomes, true, progress, ct);
-
-        public Task<UninstallResidueScan> RescanAsync(IProgress<UninstallResidueProgress>? progress, CancellationToken ct) =>
-            ScanAsync(null, false, progress, ct);
-
-        private Task<UninstallResidueScan> ScanAsync(IReadOnlyList<UninstallNativeOutcome>? outcomes, bool wait,
+        public Task<AppUninstallResult> VerifyAsync(IReadOnlyList<UninstallNativeOutcome> outcomes,
             IProgress<UninstallResidueProgress>? progress, CancellationToken ct) => Task.Run(async () =>
         {
             await _gate.WaitAsync(ct).ConfigureAwait(false);
             try
             {
                 ObjectDisposedException.ThrowIf(_disposed, this);
-                if (outcomes != null) _outcomes = outcomes.ToArray();
-                if (wait) await WaitForCompletionAsync(progress, ct).ConfigureAwait(false);
+                _verified = false;
+                _evidence.Clear();
+                _outcomes = outcomes.ToArray();
+                await WaitForCompletionAsync(progress, ct).ConfigureAwait(false);
                 StopMonitors();
+                _discovery.RefreshLocations(_plans, ct);
+                var verification = _inspection.VerifyAll(_plans, _outcomes, ct);
+                _verified = true;
+                return new AppUninstallResult(verification.Values.Select(context => context.Verification).ToArray(),
+                    _discovery.Notices.Concat(_monitorNotices).Distinct().ToArray());
+            }
+            finally { _gate.Release(); }
+        }, ct);
+
+        public Task<UninstallResidueScan> ScanAsync(
+            IProgress<UninstallResidueProgress>? progress, CancellationToken ct) => Task.Run(async () =>
+        {
+            await _gate.WaitAsync(ct).ConfigureAwait(false);
+            try
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                if (!_verified) throw new InvalidOperationException("Verify uninstall completion before scanning leftovers.");
+                _evidence.Clear();
                 _discovery.RefreshLocations(_plans, ct);
                 var verification = _inspection.VerifyAll(_plans, _outcomes, ct);
                 List<UninstallEvidence> findings = [];
                 foreach (var plan in _plans) findings.AddRange(_inspection.ScanFiles(plan, verification, progress, ct));
                 findings.AddRange(_inspection.ScanRegistry(_plans, verification, ct));
-                _evidence.Clear();
                 var sharedAccounts = findings.Where(entry => entry.Root != null).GroupBy(entry => entry.Finding.Path, StringComparer.OrdinalIgnoreCase)
                     .Where(group => group.Select(entry => entry.Root!.Sid).Distinct().Count() > 1)
                     .Select(group => group.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);

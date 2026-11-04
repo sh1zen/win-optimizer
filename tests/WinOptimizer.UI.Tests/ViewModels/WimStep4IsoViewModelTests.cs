@@ -5,6 +5,7 @@ using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.UI.Features.AdvancedTools.ViewModels;
 using WinOptimizer.UI.Features.Common.Interfaces;
+using WinOptimizer.Infrastructure.Features.Common.Services;
 using Xunit;
 
 namespace WinOptimizer.UI.Tests.ViewModels;
@@ -23,6 +24,7 @@ public class WimStep4IsoViewModelTests : IDisposable
     private readonly Mock<IResourceService> _mockResourceService = new();
 
     private readonly WimStep4IsoViewModel _sut;
+    private CancellationTokenSource? _currentTask;
 
     public WimStep4IsoViewModelTests()
     {
@@ -34,22 +36,22 @@ public class WimStep4IsoViewModelTests : IDisposable
             .Setup(f => f.GetFileName(It.IsAny<string>()))
             .Returns((string p) => System.IO.Path.GetFileName(p));
 
-        _mockTaskProgressService
-            .Setup(t => t.StartTask(It.IsAny<string>(), It.IsAny<bool>()))
-            .Returns(new CancellationTokenSource());
-
-        _mockTaskProgressService
-            .Setup(t => t.CurrentTaskCancellationSource)
-            .Returns(new CancellationTokenSource());
+        _mockTaskProgressService.Setup(service => service.StartTask(It.IsAny<string>(), It.IsAny<bool>()))
+            .Returns(() => _currentTask = new CancellationTokenSource());
+        _mockTaskProgressService.SetupGet(service => service.CurrentTaskCancellationSource).Returns(() => _currentTask);
+        _mockTaskProgressService.Setup(service => service.CompleteTask()).Callback(() => { _currentTask?.Dispose(); _currentTask = null; });
 
         _mockTaskProgressService
             .Setup(t => t.CreatePowerShellProgress())
             .Returns(new Progress<TaskProgressDetail>());
 
-        _sut = new WimStep4IsoViewModel(
+        _sut = CreateViewModel();
+    }
+
+    private WimStep4IsoViewModel CreateViewModel(ITaskProgressService? tasks = null) => new(
             _mockOscdimgToolManager.Object,
             _mockIsoService.Object,
-            _mockTaskProgressService.Object,
+            tasks ?? _mockTaskProgressService.Object,
             _mockProcessExecutor.Object,
             _mockDialogService.Object,
             _mockLocalizationService.Object,
@@ -57,11 +59,11 @@ public class WimStep4IsoViewModelTests : IDisposable
             _mockFilePickerService.Object,
             _mockLogService.Object,
             _mockResourceService.Object);
-    }
 
     public void Dispose()
     {
         _sut.Dispose();
+        _currentTask?.Dispose();
     }
 
     [Fact]
@@ -143,6 +145,8 @@ public class WimStep4IsoViewModelTests : IDisposable
 
         _mockDialogService.Verify(d => d.ShowWarningAsync(
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Once);
+        _mockTaskProgressService.Verify(service => service.StartTask(It.IsAny<string>(), It.IsAny<bool>()), Times.Never);
+        _mockTaskProgressService.Verify(service => service.CompleteTask(), Times.Never);
     }
 
     [Fact]
@@ -155,6 +159,7 @@ public class WimStep4IsoViewModelTests : IDisposable
 
         _mockDialogService.Verify(d => d.ShowWarningAsync(
             It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Once);
+        _mockTaskProgressService.Verify(service => service.CompleteTask(), Times.Never);
     }
 
     [Fact]
@@ -172,6 +177,7 @@ public class WimStep4IsoViewModelTests : IDisposable
             It.IsAny<string>(), It.IsAny<string>(),
             It.IsAny<IProgress<WinOptimizer.Core.Features.Common.Models.TaskProgressDetail>>(),
             It.IsAny<CancellationToken>()), Times.Never);
+        _mockTaskProgressService.Verify(service => service.CompleteTask(), Times.Never);
     }
 
     [Fact]
@@ -180,14 +186,6 @@ public class WimStep4IsoViewModelTests : IDisposable
         _sut.IsOscdimgAvailable = true;
         _sut.OutputIsoPath = "D:\\Output\\test.iso";
         _sut.WorkingDirectory = "C:\\WorkDir";
-
-        _mockTaskProgressService
-            .Setup(t => t.StartTask(It.IsAny<string>(), It.IsAny<bool>()))
-            .Returns(new CancellationTokenSource());
-
-        _mockTaskProgressService
-            .Setup(t => t.CurrentTaskCancellationSource)
-            .Returns(new CancellationTokenSource());
 
         _mockTaskProgressService
             .Setup(t => t.CreatePowerShellProgress())
@@ -217,14 +215,6 @@ public class WimStep4IsoViewModelTests : IDisposable
         _sut.WorkingDirectory = "C:\\WorkDir";
 
         _mockTaskProgressService
-            .Setup(t => t.StartTask(It.IsAny<string>(), It.IsAny<bool>()))
-            .Returns(new CancellationTokenSource());
-
-        _mockTaskProgressService
-            .Setup(t => t.CurrentTaskCancellationSource)
-            .Returns(new CancellationTokenSource());
-
-        _mockTaskProgressService
             .Setup(t => t.CreatePowerShellProgress())
             .Returns(new Progress<TaskProgressDetail>());
 
@@ -240,19 +230,11 @@ public class WimStep4IsoViewModelTests : IDisposable
     }
 
     [Fact]
-    public async Task CreateIsoCommand_AlwaysCallsCompleteTask()
+    public async Task CreateIsoCommand_CompletesTheTaskItStarted()
     {
         _sut.IsOscdimgAvailable = true;
         _sut.OutputIsoPath = "D:\\Output\\test.iso";
         _sut.WorkingDirectory = "C:\\WorkDir";
-
-        _mockTaskProgressService
-            .Setup(t => t.StartTask(It.IsAny<string>(), It.IsAny<bool>()))
-            .Returns(new CancellationTokenSource());
-
-        _mockTaskProgressService
-            .Setup(t => t.CurrentTaskCancellationSource)
-            .Returns(new CancellationTokenSource());
 
         _mockTaskProgressService
             .Setup(t => t.CreatePowerShellProgress())
@@ -280,14 +262,6 @@ public class WimStep4IsoViewModelTests : IDisposable
         _sut.OutputIsoPath = "D:\\Output\\test.iso";
         _sut.WorkingDirectory = "C:\\WorkDir";
         bool wasDisabledDuring = false;
-
-        _mockTaskProgressService
-            .Setup(t => t.StartTask(It.IsAny<string>(), It.IsAny<bool>()))
-            .Returns(new CancellationTokenSource());
-
-        _mockTaskProgressService
-            .Setup(t => t.CurrentTaskCancellationSource)
-            .Returns(new CancellationTokenSource());
 
         _mockTaskProgressService
             .Setup(t => t.CreatePowerShellProgress())
@@ -323,6 +297,154 @@ public class WimStep4IsoViewModelTests : IDisposable
 
         _sut.DownloadOscdimgCard.IsEnabled.Should().BeFalse();
         _sut.DownloadOscdimgCard.IsComplete.Should().BeTrue();
+    }
+
+    [Fact]
+    public async Task CancellingIsoCreationPreservesTheDestinationOwnedByTheService()
+    {
+        _sut.IsOscdimgAvailable = true;
+        _sut.WorkingDirectory = @"C:\Example\Windows";
+        _sut.OutputIsoPath = @"C:\Example\output.iso";
+        _mockFileSystemService.Setup(files => files.FileExists(_sut.OutputIsoPath)).Returns(true);
+        _mockIsoService.Setup(service => service.CreateIsoAsync(_sut.WorkingDirectory, _sut.OutputIsoPath,
+            It.IsAny<IProgress<TaskProgressDetail>>(), It.IsAny<CancellationToken>())).ThrowsAsync(new OperationCanceledException());
+        await _sut.CreateIsoCommand.ExecuteAsync(null);
+        Assert.False(_sut.IsIsoCreated);
+        Assert.True(_sut.SelectOutputCard.IsEnabled);
+        Assert.Equal("WIMUtil_Desc_IsoCreateCancelled", _sut.SelectOutputCard.Description);
+        _mockFileSystemService.Verify(files => files.DeleteFile(It.IsAny<string>()), Times.Never);
+        _mockTaskProgressService.Verify(tasks => tasks.CompleteTask(), Times.Once);
+    }
+
+    /// <summary>ISO commands leave another operation's progress and cancellation token intact.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CommandsWaitForAnExistingTaskWithoutCancellingOrCompletingIt(bool download)
+    {
+        var tasks = new TaskProgressService(_mockLogService.Object);
+        var existing = tasks.StartTask("Existing operation");
+        using var vm = CreateViewModel(tasks);
+        vm.IsOscdimgAvailable = true;
+        vm.WorkingDirectory = @"C:\Example\Windows";
+        vm.OutputIsoPath = @"C:\Example\output.iso";
+        try
+        {
+            await (download ? vm.DownloadOscdimgCommand : vm.CreateIsoCommand).ExecuteAsync(null);
+            Assert.True(tasks.IsTaskRunning);
+            Assert.Same(existing, tasks.CurrentTaskCancellationSource);
+            Assert.False(existing.IsCancellationRequested);
+            Assert.Equal(0, tasks.CurrentProgress);
+            _mockIsoService.Verify(service => service.CreateIsoAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IProgress<TaskProgressDetail>>(), It.IsAny<CancellationToken>()), Times.Never);
+            _mockOscdimgToolManager.Verify(service => service.EnsureOscdimgAvailableAsync(It.IsAny<IProgress<TaskProgressDetail>>(), It.IsAny<CancellationToken>()), Times.Never);
+            _mockDialogService.Verify(service => service.ShowWarningAsync("Cleaner_Wait", "Dialog_Warning", It.IsAny<string>()), Times.Once);
+        }
+        finally { tasks.CompleteTask(); }
+    }
+
+    /// <summary>A command completing after task replacement cannot finish or lose the replacement's cancellation source.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task FinishingAReplacedTaskPreservesTheNewOwner(bool download)
+    {
+        var tasks = new TaskProgressService(_mockLogService.Object);
+        var pending = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _mockIsoService.Setup(service => service.CreateIsoAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IProgress<TaskProgressDetail>>(), It.IsAny<CancellationToken>())).Returns(pending.Task);
+        _mockOscdimgToolManager.Setup(service => service.EnsureOscdimgAvailableAsync(It.IsAny<IProgress<TaskProgressDetail>>(), It.IsAny<CancellationToken>())).Returns(pending.Task);
+        using var vm = CreateViewModel(tasks);
+        vm.IsOscdimgAvailable = true;
+        vm.WorkingDirectory = @"C:\Example\Windows";
+        vm.OutputIsoPath = @"C:\Example\output.iso";
+        var operation = (download ? vm.DownloadOscdimgCommand : vm.CreateIsoCommand).ExecuteAsync(null);
+        try
+        {
+            var started = tasks.CurrentTaskCancellationSource;
+            Assert.NotNull(started);
+            if (download) _mockOscdimgToolManager.Verify(service => service.EnsureOscdimgAvailableAsync(It.IsAny<IProgress<TaskProgressDetail>>(), started.Token), Times.Once);
+            else _mockIsoService.Verify(service => service.CreateIsoAsync(vm.WorkingDirectory, vm.OutputIsoPath, It.IsAny<IProgress<TaskProgressDetail>>(), started.Token), Times.Once);
+            var replacement = tasks.StartTask("Replacement operation");
+            Assert.True(started.IsCancellationRequested);
+            pending.SetResult(false);
+            await operation;
+            Assert.True(tasks.IsTaskRunning);
+            Assert.Same(replacement, tasks.CurrentTaskCancellationSource);
+            Assert.False(replacement.IsCancellationRequested);
+            Assert.Equal("Replacement operation", tasks.CurrentStatusText);
+        }
+        finally
+        {
+            pending.TrySetResult(false);
+            await operation;
+            tasks.CompleteTask();
+        }
+    }
+
+    /// <summary>Each attempt publishes its own completion state, including partial work, failures and cancellation.</summary>
+    [Theory]
+    [InlineData("failure")]
+    [InlineData("exception")]
+    [InlineData("cancelled")]
+    public async Task RegenerationClearsEarlierSuccessBeforeWorkAndRetainsFailureState(string outcome)
+    {
+        _sut.IsOscdimgAvailable = true;
+        _sut.WorkingDirectory = @"C:\Example\Windows";
+        _sut.OutputIsoPath = @"C:\Example\output.iso";
+        _mockDialogService.Setup(service => service.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>())).ReturnsAsync(new ConfirmationResponse { Confirmed = false });
+        _mockIsoService.Setup(service => service.CreateIsoAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IProgress<TaskProgressDetail>>(), It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        await _sut.CreateIsoCommand.ExecuteAsync(null);
+        Assert.True(_sut.IsIsoCreated);
+        var pending = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _mockIsoService.Setup(service => service.CreateIsoAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<IProgress<TaskProgressDetail>>(), It.IsAny<CancellationToken>())).Returns(pending.Task);
+        var operation = _sut.CreateIsoCommand.ExecuteAsync(null);
+        try { Assert.False(_sut.IsIsoCreated); }
+        finally
+        {
+            if (outcome == "exception") pending.SetException(new IOException("ISO write failed."));
+            else if (outcome == "cancelled") pending.SetCanceled();
+            else pending.SetResult(false);
+        }
+        await operation;
+        Assert.False(_sut.IsIsoCreated);
+        Assert.True(_sut.SelectOutputCard.IsEnabled);
+        _mockTaskProgressService.Verify(service => service.CompleteTask(), Times.Exactly(2));
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ChangingAnArtifactPathClearsItsCompletion(bool inputDirectory)
+    {
+        _sut.WorkingDirectory = @"C:\Example\Windows";
+        _sut.OutputIsoPath = @"C:\Example\first.iso";
+        _sut.IsIsoCreated = true;
+        if (inputDirectory) _sut.WorkingDirectory = @"C:\Example\OtherWindows";
+        else
+        {
+            _mockFilePickerService.Setup(service => service.PickSaveFile(It.IsAny<string[]>(), It.IsAny<string>(), It.IsAny<string>())).Returns(@"C:\Example\second.iso");
+            _sut.SelectIsoOutputLocationCommand.Execute(null);
+        }
+        Assert.False(_sut.IsIsoCreated);
+    }
+
+    [Fact]
+    public async Task ACompletedAttemptDoesNotMarkAChangedWorkingDirectoryComplete()
+    {
+        _sut.IsOscdimgAvailable = true;
+        _sut.WorkingDirectory = @"C:\Example\Windows";
+        _sut.OutputIsoPath = @"C:\Example\output.iso";
+        var pending = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _mockIsoService.Setup(service => service.CreateIsoAsync(_sut.WorkingDirectory, _sut.OutputIsoPath, It.IsAny<IProgress<TaskProgressDetail>>(), It.IsAny<CancellationToken>())).Returns(pending.Task);
+        _mockDialogService.Setup(service => service.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>())).ReturnsAsync(new ConfirmationResponse { Confirmed = false });
+        var operation = _sut.CreateIsoCommand.ExecuteAsync(null);
+        try
+        {
+            Assert.False(operation.IsCompleted);
+            _sut.WorkingDirectory = @"C:\Example\OtherWindows";
+        }
+        finally { pending.TrySetResult(true); }
+        await operation;
+        Assert.False(_sut.IsIsoCreated);
     }
 
     [Fact]

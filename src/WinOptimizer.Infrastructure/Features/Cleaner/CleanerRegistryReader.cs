@@ -2,7 +2,20 @@ using Microsoft.Win32;
 
 namespace WinOptimizer.Infrastructure.Features.Cleaner;
 
-public sealed record CleanerRegistryValue(string Name, object Data, RegistryValueKind Kind);
+/// <summary>A typed registry value with its estimated native payload size, excluding key/value metadata.</summary>
+public sealed record CleanerRegistryValue(string Name, object Data, RegistryValueKind Kind)
+{
+    /// <summary>Counts UTF-16 strings and terminators, binary data and fixed-width integer payloads.</summary>
+    public long EstimatedDataBytes => Data switch
+    {
+        string text => ((long)text.Length + 1) * sizeof(char),
+        string[] strings => Math.Max(2, strings.Sum(text => (long)text.Length + 1) + 1) * sizeof(char),
+        byte[] bytes => bytes.LongLength,
+        int => sizeof(int),
+        long => sizeof(long),
+        _ => throw new IOException($"Cannot estimate registry value data size for {Name}: unsupported data type {Data.GetType().Name}.")
+    };
+}
 
 /// <summary>Read-only Windows boundary used by registry discovery and reference checks.</summary>
 public interface ICleanerRegistryReader

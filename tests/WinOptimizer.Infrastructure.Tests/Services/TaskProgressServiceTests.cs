@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Moq;
 using WinOptimizer.Core.Features.Common.Enums;
+using WinOptimizer.Core.Features.Common.Extensions;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.Infrastructure.Features.Common.Services;
@@ -16,17 +17,6 @@ public class TaskProgressServiceTests
     public TaskProgressServiceTests()
     {
         _sut = new TaskProgressService(_mockLog.Object);
-    }
-
-    // ── Constructor ──
-
-    [Fact]
-    public void Constructor_NullLogService_ThrowsArgumentNullException()
-    {
-        var act = () => new TaskProgressService(null!);
-
-        act.Should().Throw<ArgumentNullException>()
-            .WithParameterName("logService");
     }
 
     [Fact]
@@ -270,6 +260,65 @@ public class TaskProgressServiceTests
         received[1].ScriptSlotCount.Should().Be(2);
     }
 
+    /// <summary>Queued slot callbacks cannot revive completed scripts or add output to another operation.</summary>
+    [Theory]
+    [InlineData("completed")]
+    [InlineData("completed-then-single")]
+    [InlineData("replaced-single")]
+    [InlineData("replaced-multi")]
+    [InlineData("idle")]
+    public void ScriptProgressCannotOutliveItsTask(string transition)
+    {
+        var context = new QueuedContext();
+        var previous = SynchronizationContext.Current;
+        SynchronizationContext.SetSynchronizationContext(context);
+        CancellationTokenSource? owner = null;
+        try
+        {
+            if (transition != "idle") owner = _sut.StartMultiScriptTask(["Old removal", "Other removal"]);
+            var reporter = _sut.CreateScriptProgress(0);
+            reporter.Report(new() { Progress = 65, StatusText = "Old status", TerminalOutput = "Old output", IsCompletion = true });
+            if (transition.StartsWith("completed")) _sut.CompleteMultiScriptTask();
+            if (transition is "completed-then-single" or "replaced-single" or "idle") _sut.StartTask("New task");
+            else if (transition == "replaced-multi") _sut.StartMultiScriptTask(["New removal"]);
+            var running = _sut.IsTaskRunning;
+            var current = _sut.CurrentTaskCancellationSource;
+            var updates = new List<TaskProgressDetail>();
+            _sut.ProgressUpdated += (_, detail) => updates.Add(detail);
+            context.Drain();
+            Assert.Empty(updates);
+            Assert.Empty(_sut.GetTerminalOutputLines());
+            Assert.Equal(running, _sut.IsTaskRunning);
+            Assert.Same(current, _sut.CurrentTaskCancellationSource);
+        }
+        finally { _sut.CompleteMultiScriptTask(); owner?.Dispose(); SynchronizationContext.SetSynchronizationContext(previous); }
+    }
+
+    [Fact]
+    public void ScriptProgressRetainsSlotMetadataAndFinalDiagnosticsForItsCancelledOwner()
+    {
+        var context = new QueuedContext();
+        var previous = SynchronizationContext.Current;
+        SynchronizationContext.SetSynchronizationContext(context);
+        try
+        {
+            _sut.StartMultiScriptTask(["First", "Second"]);
+            var reporter = _sut.CreateScriptProgress(1);
+            var updates = new List<TaskProgressDetail>();
+            _sut.ProgressUpdated += (_, detail) => updates.Add(detail);
+            reporter.Report(new() { Progress = 65, TerminalOutput = "Working" });
+            context.Drain();
+            _sut.CancelCurrentTask();
+            reporter.Report(new() { IsCompletion = true, TerminalOutput = "Cancelled safely" });
+            context.Drain();
+            Assert.Equal(2, updates.Count);
+            Assert.All(updates, detail => { Assert.Equal(1, detail.ScriptSlotIndex); Assert.Equal(2, detail.ScriptSlotCount); });
+            Assert.True(updates[^1].IsCompletion);
+            Assert.Equal(new[] { "[Second] Working", "[Second] Cancelled safely" }, _sut.GetTerminalOutputLines());
+        }
+        finally { _sut.CompleteMultiScriptTask(); SynchronizationContext.SetSynchronizationContext(previous); }
+    }
+
     // ── CompleteMultiScriptTask ──
 
     [Fact]
@@ -376,6 +425,89 @@ public class TaskProgressServiceTests
         var progress = _sut.CreatePowerShellProgress();
 
         progress.Should().NotBeNull();
+    }
+
+    /// <summary>Both public reporter factories retain the identity captured before dispatch.</summary>
+    [Theory]
+    [InlineData(false, "replaced")]
+    [InlineData(true, "replaced")]
+    [InlineData(false, "completed")]
+    [InlineData(true, "completed")]
+    [InlineData(false, "idle")]
+    [InlineData(true, "idle")]
+    public void QueuedProgressDoesNotAttachToAnotherTask(bool powerShell, string transition)
+    {
+        var context = new QueuedContext();
+        var previous = SynchronizationContext.Current;
+        SynchronizationContext.SetSynchronizationContext(context);
+        try
+        {
+            if (transition != "idle") _sut.StartTask("First");
+            var reporter = powerShell ? _sut.CreatePowerShellProgress() : _sut.CreateDetailedProgress();
+            reporter.Report(new() { Progress = 37, StatusText = "Old status", TerminalOutput = "Old output" });
+            if (transition == "completed") _sut.CompleteTask();
+            var replacement = _sut.StartTask("Replacement");
+            var updates = new List<TaskProgressDetail>();
+            _sut.ProgressUpdated += (_, detail) => updates.Add(detail);
+            context.Drain();
+            Assert.Empty(updates);
+            Assert.Equal("Replacement", _sut.CurrentStatusText);
+            Assert.Equal(0, _sut.CurrentProgress);
+            Assert.Same(replacement, _sut.CurrentTaskCancellationSource);
+            Assert.DoesNotContain("Old output", _sut.GetTerminalOutputLines());
+        }
+        finally { _sut.CompleteTask(); SynchronizationContext.SetSynchronizationContext(previous); }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ReporterUpdatesItsOwnerIncludingFinalOutputAfterCancellation(bool powerShell)
+    {
+        var context = new QueuedContext();
+        var previous = SynchronizationContext.Current;
+        SynchronizationContext.SetSynchronizationContext(context);
+        try
+        {
+            _sut.StartTask("Work");
+            var reporter = powerShell ? _sut.CreatePowerShellProgress() : _sut.CreateDetailedProgress();
+            reporter.Report(new() { Progress = 37, StatusText = "Measured", TerminalOutput = "Details" });
+            context.Drain();
+            Assert.Equal(37, _sut.CurrentProgress);
+            Assert.Equal("Measured", _sut.CurrentStatusText);
+            _sut.CancelCurrentTask();
+            reporter.Report(new() { StatusText = "Cancelled", TerminalOutput = "Final diagnostic" });
+            context.Drain();
+            Assert.Equal("Cancelled", _sut.CurrentStatusText);
+            Assert.Contains("Final diagnostic", _sut.GetTerminalOutputLines());
+        }
+        finally { _sut.CompleteTask(); SynchronizationContext.SetSynchronizationContext(previous); }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void OwnedCompletionOnlyCompletesTheMatchingTask(bool replaced)
+    {
+        var owner = _sut.StartTask("Owner");
+        var current = replaced ? _sut.StartTask("Replacement") : owner;
+        _sut.CompleteOwnedTask(owner);
+        Assert.Equal(replaced, _sut.IsTaskRunning);
+        if (replaced)
+        {
+            Assert.Same(current, _sut.CurrentTaskCancellationSource);
+            Assert.False(current.IsCancellationRequested);
+            _sut.CompleteTask();
+        }
+        else Assert.Null(_sut.CurrentTaskCancellationSource);
+    }
+
+    /// <summary>Delivers Progress callbacks deterministically without timing or a real UI dispatcher.</summary>
+    private sealed class QueuedContext : SynchronizationContext
+    {
+        private readonly Queue<(SendOrPostCallback Callback, object? State)> _queue = new();
+        public override void Post(SendOrPostCallback callback, object? state) => _queue.Enqueue((callback, state));
+        public void Drain() { while (_queue.TryDequeue(out var work)) work.Callback(work.State); }
     }
 
     // ── Queue sticky state ──

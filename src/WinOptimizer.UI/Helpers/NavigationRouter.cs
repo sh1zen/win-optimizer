@@ -80,6 +80,7 @@ internal sealed class NavigationRouter
         [nameof(WinOptimizer.UI.Features.Customize.Pages.ContextMenuCustomizePage)] = "Customize",
         [nameof(AdvancedToolsPage)] = "AdvancedTools",
         [nameof(SoftwareAppsPage)] = "SoftwareApps",
+        [nameof(UninstallResiduePage)] = "SoftwareApps",
     };
 
     public NavigationRouter(

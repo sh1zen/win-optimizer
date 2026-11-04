@@ -63,7 +63,7 @@ public sealed partial class UninstallResidueNode(string title, string fullPath, 
     }
 
     public static IReadOnlyList<UninstallResidueNode> Build(IEnumerable<UninstallResidue> findings, bool registry,
-        string view32, string view64, Action<UninstallResidueNode> changed)
+        string view32, string view64, Action<UninstallResidueNode> changed, IReadOnlySet<Guid>? selected = null)
     {
         List<UninstallResidueNode> roots = [];
         foreach (var finding in findings)
@@ -90,6 +90,7 @@ public sealed partial class UninstallResidueNode(string title, string fullPath, 
                 if (index == components.Count - 1)
                 {
                     node.Finding = finding;
+                    node._selected = finding.CanDelete && selected?.Contains(finding.Id) == true;
                     if (finding.Kind == UninstallArtifactKind.RegistryValue && finding.Data.Length > 0)
                         node.Title = component + " = " + finding.Data.Replace('\r', ' ').Replace('\n', ' ');
                 }

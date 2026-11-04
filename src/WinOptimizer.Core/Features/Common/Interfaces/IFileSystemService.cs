@@ -23,6 +23,8 @@ public interface IFileSystemService
     void DeleteFile(string path);
     void CopyFile(string source, string destination, bool overwrite = false);
     void MoveFile(string source, string destination);
+    /// <summary>Atomically replaces an existing destination with a file on the same volume, retaining its access rules.</summary>
+    void ReplaceFile(string source, string destination);
     string ReadAllText(string path, System.Text.Encoding encoding);
     long GetFileSize(string path);
     void SetFileAttributes(string path, System.IO.FileAttributes attributes);

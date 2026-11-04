@@ -85,7 +85,7 @@ public sealed partial class CleanerRegistryScanner
                 ct.ThrowIfCancellationRequested();
                 if (!IsPrivacyValue(rule, value)) continue;
                 var target = new CleanerRegistryTarget(path, value.Name, Serialize(value.Data), (int)value.Kind, false, "") { PrivacyRule = rule.Id };
-                findings.Add(new(Guid.NewGuid(), CleanerArea.Privacy, rule.Id, path + "\\" + value.Name, 0, true, target));
+                findings.Add(new(Guid.NewGuid(), CleanerArea.Privacy, rule.Id, path + "\\" + value.Name, value.EstimatedDataBytes, true, target));
             }
             if ((index + 1) % 64 == 0 || index + 1 == inventory.Count) progress?.Report(new("Cleaner_Privacy", index + 1, inventory.Count));
         }

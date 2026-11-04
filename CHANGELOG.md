@@ -1,6 +1,31 @@
 # Changelog
 
-## [Unreleased]
+## [v26.11.04] - 2026-11-04
+
+- Protect source ISOs contained in the extraction workspace and preserve preferences after read failures.
+- Block power-plan deletion in Test mode and keep backup recovery from replacing active tasks.
+- Confirm closing before cleanup; wait for operations and saves before closing or installing updates.
+- Invalidate built ISOs after media edits and reject obsolete image-format detections.
+- Report failed update checks as errors and confirm disposal of environment-variable drafts.
+- Honor restore-point cancellation before preparation and between native operations.
+- Preserve existing ISO files when replacement creation fails or is cancelled.
+- Keep late parallel-uninstall progress from reviving old indicators or adding output to newer tasks.
+- Invalidate WIM extraction, XML and driver results when media changes or extraction
+  fails; preserve other tasks when driver or conversion prompts are cancelled.
+- Keep delayed progress and queued interface updates from overwriting newer task status.
+- Retry failed initial configuration backups on the next launch.
+- Keep ISO creation and tool downloads from cancelling or completing other tasks;
+  reset ISO completion after failed attempts or path changes.
+- Split Cleaner review into scanned categories with numerical summaries on the left
+  and the selected category's actionable findings on the right; preserve selections
+  between categories.
+- Count registry-value data in Cleaner size totals and show small results in bytes or KB.
+- Show numerical Cleaner reports for every selected scan category, with removed items,
+  errors, estimated file space freed and separate registry data totals. Retain partial
+  results, continue past protected registry entries and offer rescanning; keep technical
+  diagnostics collapsed.
+- Block and minimize the app during native uninstallation, then offer an optional
+  leftover scan with separate file and registry selection steps.
 
 ## [v26.10.27] - 2026-10-27
 

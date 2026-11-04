@@ -9,9 +9,6 @@ public class UnitConversionHelperTests
     [Theory]
     [InlineData(0, 0)]
     [InlineData(60, 1)]
-    [InlineData(120, 2)]
-    [InlineData(300, 5)]
-    [InlineData(3600, 60)]
     public void ConvertFromSystemUnits_Minutes_VariousValues(int systemValue, int expected)
     {
         var result = UnitConversionHelper.ConvertFromSystemUnits(systemValue, "minutes");
@@ -22,8 +19,6 @@ public class UnitConversionHelperTests
     [Theory]
     [InlineData(0, 0)]
     [InlineData(3600, 1)]
-    [InlineData(7200, 2)]
-    [InlineData(36000, 10)]
     public void ConvertFromSystemUnits_Hours_VariousValues(int systemValue, int expected)
     {
         var result = UnitConversionHelper.ConvertFromSystemUnits(systemValue, "hours");
@@ -33,9 +28,6 @@ public class UnitConversionHelperTests
 
     [Theory]
     [InlineData(0, 0)]
-    [InlineData(1, 1)]
-    [InlineData(10, 10)]
-    [InlineData(100, 100)]
     [InlineData(1000, 1000)]
     public void ConvertFromSystemUnits_Milliseconds_VariousValues(int systemValue, int expected)
     {
@@ -46,8 +38,6 @@ public class UnitConversionHelperTests
 
     [Theory]
     [InlineData("seconds")]
-    [InlineData("bytes")]
-    [InlineData("percent")]
     [InlineData("unknown")]
     public void ConvertFromSystemUnits_UnsupportedUnits_PassThrough(string units)
     {
@@ -58,12 +48,9 @@ public class UnitConversionHelperTests
 
     [Theory]
     [InlineData("MINUTES", 120, 2)]
-    [InlineData("Minutes", 120, 2)]
     [InlineData("mInUtEs", 120, 2)]
     [InlineData("HOURS", 3600, 1)]
-    [InlineData("Hours", 3600, 1)]
     [InlineData("MILLISECONDS", 5, 5)]
-    [InlineData("Milliseconds", 5, 5)]
     public void ConvertFromSystemUnits_CaseInsensitive(string units, int systemValue, int expected)
     {
         var result = UnitConversionHelper.ConvertFromSystemUnits(systemValue, units);

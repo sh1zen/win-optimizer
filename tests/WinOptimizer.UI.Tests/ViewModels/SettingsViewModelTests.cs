@@ -77,7 +77,7 @@ public class SettingsViewModelTests
             new ApplicationInfoViewModel(_mockLocalization.Object, Mock.Of<IVersionService>(), _mockLogService.Object,
                 Mock.Of<IDialogService>(), _mockProcessExecutor.Object,
                 new UpdateCheckViewModel(Mock.Of<IVersionService>(), _mockLocalization.Object, _mockLogService.Object,
-                    Mock.Of<IBackgroundUpdateCheckService>(), Mock.Of<IDispatcherService>())),
+                    Mock.Of<IBackgroundUpdateCheckService>(), Mock.Of<IDispatcherService>(), Mock.Of<IApplicationCloseService>())),
             new UpdatePreferencesViewModel(_mockPreferencesService.Object, _mockLocalization.Object),
             new SidebarPreferencesViewModel(_mockPreferencesService.Object, _mockLocalization.Object),
             new AppColorPreferencesViewModel(_mockPreferencesService.Object, _mockLocalization.Object,

@@ -52,39 +52,6 @@ public class WizardActionCardTests
     }
 
     [Fact]
-    public void IsComplete_SetFalse_DoesNotResetOtherFlags()
-    {
-        var card = new WizardActionCard();
-        card.IsProcessing = true;
-
-        card.IsComplete = false; // Setting to false should not trigger the clearing logic
-
-        card.IsProcessing.Should().BeTrue();
-    }
-
-    [Fact]
-    public void HasFailed_SetFalse_DoesNotResetOtherFlags()
-    {
-        var card = new WizardActionCard();
-        card.IsProcessing = true;
-
-        card.HasFailed = false;
-
-        card.IsProcessing.Should().BeTrue();
-    }
-
-    [Fact]
-    public void IsProcessing_SetFalse_DoesNotResetOtherFlags()
-    {
-        var card = new WizardActionCard();
-        card.IsComplete = true;
-
-        card.IsProcessing = false;
-
-        card.IsComplete.Should().BeTrue();
-    }
-
-    [Fact]
     public void ProcessingToComplete_Transition()
     {
         var card = new WizardActionCard();

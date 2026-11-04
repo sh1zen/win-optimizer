@@ -5,6 +5,8 @@ IsIconic
 FindWindow
 GetWindowThreadProcessId
 AllowSetForegroundWindow
+EnableWindow
+IsWindowEnabled
 
 // File dialogs (WinRT pickers fail with admin elevation)
 IFileDialog

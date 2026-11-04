@@ -8,7 +8,7 @@ using Xunit;
 
 namespace WinOptimizer.UI.Tests.ViewModels;
 
-public class WimStep1ViewModelTests
+public class WimStep1ViewModelTests : IDisposable
 {
     private readonly Mock<IIsoService> _mockIsoService = new();
     private readonly Mock<ITaskProgressService> _mockTaskProgressService = new();
@@ -20,6 +20,7 @@ public class WimStep1ViewModelTests
     private readonly Mock<IResourceService> _mockResourceService = new();
 
     private readonly WimStep1ViewModel _sut;
+    private CancellationTokenSource? _currentTask;
 
     public WimStep1ViewModelTests()
     {
@@ -39,6 +40,10 @@ public class WimStep1ViewModelTests
             .Setup(f => f.GetFileName(It.IsAny<string>()))
             .Returns((string p) => System.IO.Path.GetFileName(p));
 
+        _mockTaskProgressService.Setup(service => service.StartTask(It.IsAny<string>(), It.IsAny<bool>()))
+            .Returns(() => _currentTask = new CancellationTokenSource());
+        _mockTaskProgressService.SetupGet(service => service.CurrentTaskCancellationSource).Returns(() => _currentTask);
+        _mockTaskProgressService.Setup(service => service.CompleteTask()).Callback(() => { _currentTask?.Dispose(); _currentTask = null; });
         _sut = new WimStep1ViewModel(
             _mockIsoService.Object,
             _mockTaskProgressService.Object,
@@ -228,14 +233,6 @@ public class WimStep1ViewModelTests
     {
         _sut.SelectedIsoPath = "C:\\test.iso";
         _mockTaskProgressService
-            .Setup(t => t.StartTask(It.IsAny<string>(), It.IsAny<bool>()))
-            .Returns(new CancellationTokenSource());
-
-        _mockTaskProgressService
-            .Setup(t => t.CurrentTaskCancellationSource)
-            .Returns(new CancellationTokenSource());
-
-        _mockTaskProgressService
             .Setup(t => t.CreatePowerShellProgress())
             .Returns(new Progress<Core.Features.Common.Models.TaskProgressDetail>());
 
@@ -256,14 +253,6 @@ public class WimStep1ViewModelTests
     public async Task StartIsoExtractionCommand_OnFailure_DoesNotSetIsExtractionComplete()
     {
         _sut.SelectedIsoPath = "C:\\test.iso";
-        _mockTaskProgressService
-            .Setup(t => t.StartTask(It.IsAny<string>(), It.IsAny<bool>()))
-            .Returns(new CancellationTokenSource());
-
-        _mockTaskProgressService
-            .Setup(t => t.CurrentTaskCancellationSource)
-            .Returns(new CancellationTokenSource());
-
         _mockTaskProgressService
             .Setup(t => t.CreatePowerShellProgress())
             .Returns(new Progress<Core.Features.Common.Models.TaskProgressDetail>());
@@ -286,14 +275,6 @@ public class WimStep1ViewModelTests
         _sut.SelectedIsoPath = "C:\\test.iso";
         bool isoCardEnabledDuringExtraction = true;
         bool dirCardEnabledDuringExtraction = true;
-
-        _mockTaskProgressService
-            .Setup(t => t.StartTask(It.IsAny<string>(), It.IsAny<bool>()))
-            .Returns(new CancellationTokenSource());
-
-        _mockTaskProgressService
-            .Setup(t => t.CurrentTaskCancellationSource)
-            .Returns(new CancellationTokenSource());
 
         _mockTaskProgressService
             .Setup(t => t.CreatePowerShellProgress())
@@ -322,14 +303,6 @@ public class WimStep1ViewModelTests
     {
         _sut.SelectedIsoPath = "C:\\test.iso";
         _mockTaskProgressService
-            .Setup(t => t.StartTask(It.IsAny<string>(), It.IsAny<bool>()))
-            .Returns(new CancellationTokenSource());
-
-        _mockTaskProgressService
-            .Setup(t => t.CurrentTaskCancellationSource)
-            .Returns(new CancellationTokenSource());
-
-        _mockTaskProgressService
             .Setup(t => t.CreatePowerShellProgress())
             .Returns(new Progress<Core.Features.Common.Models.TaskProgressDetail>());
 
@@ -344,4 +317,5 @@ public class WimStep1ViewModelTests
 
         _mockTaskProgressService.Verify(t => t.CompleteTask(), Times.Once);
     }
+    public void Dispose() => _currentTask?.Dispose();
 }

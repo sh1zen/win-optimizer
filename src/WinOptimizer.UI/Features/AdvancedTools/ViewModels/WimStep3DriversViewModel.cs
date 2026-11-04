@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using WinOptimizer.Core.Features.Common.Extensions;
 using WinOptimizer.Core.Features.AdvancedTools.Interfaces;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Models;
@@ -17,6 +18,8 @@ namespace WinOptimizer.UI.Features.AdvancedTools.ViewModels;
 /// </summary>
 public partial class WimStep3DriversViewModel : ObservableObject, IDisposable
 {
+    /// <summary>Invalidates artifacts built from the media before a driver integration attempt.</summary>
+    public event Action<string>? MediaContentChanging;
     private readonly IWimCustomizationService _wimCustomizationService;
     private readonly ITaskProgressService _taskProgressService;
     private readonly IDialogService _dialogService;
@@ -26,11 +29,26 @@ public partial class WimStep3DriversViewModel : ObservableObject, IDisposable
     private readonly ILogService _logService;
     private readonly IResourceService _resourceService;
     private bool _disposed;
+    private int _mediaRevision;
 
     /// <summary>
     /// The working directory, set by the parent when Step 1 completes.
     /// </summary>
-    public string WorkingDirectory { get; set; } = string.Empty;
+    [ObservableProperty]
+    public partial string WorkingDirectory { get; set; } = string.Empty;
+
+    partial void OnWorkingDirectoryChanged(string value) => ResetForMediaChange();
+
+    /// <summary>Clears driver evidence and source descriptions when the prepared media changes.</summary>
+    public void ResetForMediaChange()
+    {
+        _mediaRevision++;
+        AreDriversAdded = false;
+        ExtractSystemDriversCard.IsComplete = SelectCustomDriversCard.IsComplete = false;
+        ExtractSystemDriversCard.HasFailed = SelectCustomDriversCard.HasFailed = false;
+        ExtractSystemDriversCard.Description = _localizationService.GetString("WIMUtil_Card_ExtractDrivers_Description");
+        SelectCustomDriversCard.Description = _localizationService.GetString("WIMUtil_Card_CustomDrivers_Description");
+    }
 
     [ObservableProperty]
     public partial bool AreDriversAdded { get; set; }
@@ -86,12 +104,20 @@ public partial class WimStep3DriversViewModel : ObservableObject, IDisposable
     [RelayCommand]
     private async Task ExtractAndAddSystemDrivers()
     {
+        if (_taskProgressService.IsTaskRunning)
+        {
+            await _dialogService.ShowWarningAsync(_localizationService.GetString("Cleaner_Wait"), _localizationService.GetString("Dialog_Warning"));
+            return;
+        }
+        CancellationTokenSource? task = null;
+        var workingDirectory = WorkingDirectory;
+        var revision = _mediaRevision;
         try
         {
             ExtractSystemDriversCard.IsComplete = false;
             ExtractSystemDriversCard.HasFailed = false;
 
-            if (string.IsNullOrEmpty(WorkingDirectory))
+            if (string.IsNullOrEmpty(workingDirectory))
             {
                 await _dialogService.ShowWarningAsync(
                     _localizationService.GetString("WIMUtil_Msg_WorkingDirectoryRequired"),
@@ -107,24 +133,30 @@ public partial class WimStep3DriversViewModel : ObservableObject, IDisposable
                 CancelButtonText = "No",
             })).Confirmed;
             if (!confirmed) return;
+            if (_taskProgressService.IsTaskRunning)
+            {
+                await _dialogService.ShowWarningAsync(_localizationService.GetString("Cleaner_Wait"), _localizationService.GetString("Dialog_Warning"));
+                return;
+            }
 
+            if (revision != _mediaRevision) return;
             ExtractSystemDriversCard.IsProcessing = true;
             ExtractSystemDriversCard.IsEnabled = false;
 
-            _taskProgressService.StartTask(_localizationService.GetString("WIMUtil_Status_ExportingDrivers"), true);
+            task = _taskProgressService.StartTask(_localizationService.GetString("WIMUtil_Status_ExportingDrivers"), true);
             var progress = _taskProgressService.CreatePowerShellProgress();
 
+            MediaContentChanging?.Invoke(workingDirectory);
             var success = await _wimCustomizationService.AddDriversAsync(
-                WorkingDirectory, null, progress,
-                _taskProgressService.CurrentTaskCancellationSource!.Token);
+                workingDirectory, null, progress, task.Token);
 
             ExtractSystemDriversCard.IsProcessing = false;
             ExtractSystemDriversCard.IsEnabled = true;
 
             if (success)
             {
-                AreDriversAdded = true;
-                ExtractSystemDriversCard.IsComplete = true;
+                if (revision == _mediaRevision)
+                    AreDriversAdded = ExtractSystemDriversCard.IsComplete = true;
                 await _dialogService.ShowInformationAsync(
                     _localizationService.GetString("WIMUtil_Msg_DriversSuccess"),
                     _localizationService.GetString("Dialog_Success") ?? "Success");
@@ -149,19 +181,27 @@ public partial class WimStep3DriversViewModel : ObservableObject, IDisposable
         }
         finally
         {
-            _taskProgressService.CompleteTask();
+            _taskProgressService.CompleteOwnedTask(task);
         }
     }
 
     [RelayCommand]
     private async Task SelectAndAddCustomDrivers()
     {
+        if (_taskProgressService.IsTaskRunning)
+        {
+            await _dialogService.ShowWarningAsync(_localizationService.GetString("Cleaner_Wait"), _localizationService.GetString("Dialog_Warning"));
+            return;
+        }
+        CancellationTokenSource? task = null;
+        var workingDirectory = WorkingDirectory;
+        var revision = _mediaRevision;
         try
         {
             SelectCustomDriversCard.IsComplete = false;
             SelectCustomDriversCard.HasFailed = false;
 
-            if (string.IsNullOrEmpty(WorkingDirectory))
+            if (string.IsNullOrEmpty(workingDirectory))
             {
                 await _dialogService.ShowWarningAsync(
                     _localizationService.GetString("WIMUtil_Msg_WorkingDirectoryRequired"),
@@ -190,25 +230,31 @@ public partial class WimStep3DriversViewModel : ObservableObject, IDisposable
                     _localizationService.GetString("Dialog_Warning") ?? "Warning");
                 return;
             }
+            if (_taskProgressService.IsTaskRunning)
+            {
+                await _dialogService.ShowWarningAsync(_localizationService.GetString("Cleaner_Wait"), _localizationService.GetString("Dialog_Warning"));
+                return;
+            }
 
+            if (revision != _mediaRevision) return;
             SelectCustomDriversCard.IsProcessing = true;
             SelectCustomDriversCard.IsEnabled = false;
             SelectCustomDriversCard.Description = $"{_localizationService.GetString("WIMUtil_Label_Selected")}: {selectedPath}";
 
-            _taskProgressService.StartTask(_localizationService.GetString("WIMUtil_Status_AddingCustomDrivers"), true);
+            task = _taskProgressService.StartTask(_localizationService.GetString("WIMUtil_Status_AddingCustomDrivers"), true);
             var progress = _taskProgressService.CreatePowerShellProgress();
 
+            MediaContentChanging?.Invoke(workingDirectory);
             var success = await _wimCustomizationService.AddDriversAsync(
-                WorkingDirectory, selectedPath, progress,
-                _taskProgressService.CurrentTaskCancellationSource!.Token);
+                workingDirectory, selectedPath, progress, task.Token);
 
             SelectCustomDriversCard.IsProcessing = false;
             SelectCustomDriversCard.IsEnabled = true;
 
             if (success)
             {
-                AreDriversAdded = true;
-                SelectCustomDriversCard.IsComplete = true;
+                if (revision == _mediaRevision)
+                    AreDriversAdded = SelectCustomDriversCard.IsComplete = true;
                 await _dialogService.ShowInformationAsync(
                     _localizationService.GetString("WIMUtil_Msg_DriverFilesAdded"),
                     _localizationService.GetString("Dialog_Success") ?? "Success");
@@ -233,7 +279,7 @@ public partial class WimStep3DriversViewModel : ObservableObject, IDisposable
         }
         finally
         {
-            _taskProgressService.CompleteTask();
+            _taskProgressService.CompleteOwnedTask(task);
         }
     }
 

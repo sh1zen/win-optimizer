@@ -57,19 +57,23 @@ configuration backup; `StartupUiCoordinator` owns first-frame navigation/readine
 `WindowsAppsViewModel` shares its load task. Infrastructure's `AppStatusDiscoveryService`
 combines package/component evidence; `WindowsComponentStatusSource` serializes DISM.
 The initial backup waits for that app load and has a 30-second wait limit without
-cancelling the export. Its completion flag follows task return; the exporter logs
-write failures internally, so the flag does not verify the backup file.
+cancelling the export. The exporter propagates discovery and write failures; startup
+persists completion only after the backup succeeds and observes failures after its
+wait limit. Failed attempts leave the completion preference unset for the next launch.
 
 `NavigationRouter` maps details to owning sections. The main Frame owns the journal;
 nested frames render content. Settings owns transient subscriptions and category
-navigation. `ApplicationCloseService` owns close confirmation; the shutdown hook
-drains operations and preference writes. `ExtensionApplicationLifetime` owns widget-only
+navigation. `ApplicationCloseService` obtains consent before the shutdown hook drains
+operations and preference writes, then waits for the captured task to release its
+resources. Update installation uses that same lifecycle with a full process exit;
+normal closing can retain widgets. `ExtensionApplicationLifetime` owns widget-only
 lifetime and redirected launches; `SystemMonitorLaunch` identifies logon activation.
 
 Application's `BackgroundUpdateCheckService` owns persistent update scheduling.
 Infrastructure's `VersionService` owns release lookup/installer acquisition;
 `UpdateCheckViewModel` owns UI dispatch and cancellation. Automatic scheduling
 persists the UTC attempt time before enabled checks, including failed attempts.
+Release lookup failures propagate to the manual check's error presentation.
 
 ## Configuration and application mode
 
@@ -86,6 +90,7 @@ Test-mode drafts (`Builder`) and typed `BuilderEdit` snapshots. Infrastructure a
 its mode/review/diff/badge interfaces to that instance. `SettingViewModelFactory`
 restores drafts; setting view models retain their presentation baselines.
 System-operation reservations prevent real writes from overlapping Test mode.
+The power-plan deletion command holds a reservation through deletion and list refresh.
 Exit restores presentation before clearing drafts; Apply captures edits, exits the
 mode and invokes normal configuration execution. Failed/cancelled exports retain drafts.
 
@@ -96,6 +101,25 @@ import checking, filtering, catalogue decoration and bulk actions.
 and UI owns wizard presentation and file pickers. Its XML step uses the local
 Autounattend generator or a user-selected answer file; `WimCustomizationService`
 copies selected XML and drivers into the extracted media.
+The ISO step captures its task cancellation source and artifact paths, waits for
+existing tasks and completes only its own active task. Completion state belongs
+to the current input/output paths and the latest creation attempt.
+`IsoService` owns a temporary ISO beside the destination, validates it and publishes
+it through an atomic file replacement (or a move for a new destination).
+Failure and cancellation clean only the temporary artifact; the ISO step leaves
+artifact cleanup to the service.
+Extraction rejects sources contained in the workspace before clearing it.
+XML, driver and image changes announce their target media before mutation so the
+wizard invalidates final ISO evidence, including pending ISO results. Image-format
+detection rejects obsolete query generations at UI dispatch.
+Extraction invalidates dependent evidence before replacing media. XML, driver and ISO
+steps own media revisions so pending results cannot complete different or re-extracted
+media. Their directory setters clear local completion state; the wizard coordinates
+invalidation when extraction evidence changes at the same path. WIM task owners use
+`CompleteOwnedTask` to release their captured cancellation source without completing
+a replacement task. Progress factories, including parallel-script slots, bind
+callbacks to the task active at creation and discard queued updates after completion
+or replacement.
 `WimImageService` exports every edition and verifies the destination inventory before
 replacing the source. `DriverCategorizer` owns package-relative payload paths;
 `WimCustomizationService` integrates a returning driver script with existing
@@ -197,6 +221,8 @@ file backup, deletion and recovery. Evidence retains its account and filesystem
 boundary. `LeftoverAppsViewModel` owns the third tab's results and confirmation;
 `SoftwareAppsViewModel` routes tab/search/actions and excludes cleanup from Builder
 and configuration-review modes. Local rules are in the [leftover guide](src/WinOptimizer.Infrastructure/Features/SoftwareApps/Leftover/README.md).
+Uninstall backup recovery observes the shared task lifecycle and completes only its
+captured task; its dialog releases the progress subscription when closed.
 
 Application's `AppUninstallWorkflow` is shared by Windows Apps, External Apps and
 configuration execution. Core defines native outcomes, verification states and
@@ -213,9 +239,16 @@ inspection sessions, targeted folder monitoring and cleanup/recovery coordinatio
 - `UninstallBackupStore` owns authenticated `manifest.uninstall` sessions and
   verified payloads in the Cleaner vault, with a separate format/recovery list.
 
-UI's `UninstallResidueReview` owns dialogs, dispatch and deferred review lifetimes;
-`UninstallResidueNode` builds selection trees. `ExternalAppUninstallService` owns
-native and automatic removal. The workflow passes outcomes to page view models,
+UI's `UninstallResidueReview` owns result-page navigation, recovery dialogs, dispatch
+and deferred review lifetimes. Its native-uninstaller scope uses `UninstallWindowSuspension`
+to disable/minimize the window and restore its previous enabled/maximized state on every exit.
+`MainWindow` rejects closing while that scope is active. `UninstallResiduePage` keeps the session alive until
+navigation away, blocks navigation during scan/cleanup/recovery and expires its journal
+entries on exit. `UninstallResidueNode` builds selection trees. `ExternalAppUninstallService` owns
+native and automatic removal. Session verification waits for completion and publishes
+outcomes without enumerating leftovers. The review model scans only on request, then
+presents files/folders and registry in separate steps with retained selections and
+cleanup limited to the current step. The workflow passes outcomes to page view models,
 which reconcile only verified removals under their inventory gate before residue
 review. Provider invalidation does not trigger discovery. Configuration workflows
 defer review until enclosing overlays close. Cleanup accepts current selectable IDs,
@@ -236,6 +269,15 @@ parsing and progress formatting.
 The singleton `CleanerViewModel` owns scan/review presentation for both Cleaner
 pages. `CleanerSettingsViewModel` owns validated options and per-area account
 selections; `Cleaner.SelectedAreas` owns scan-area persistence.
+`CleanerCategoryReport` references the same selectable items and preserves the areas
+selected at scan start, including empty categories. Cleanup freezes the confirmed
+selection and aggregates per-finding outcomes into numerical category reports;
+technical diagnostics remain separate from report counters.
+During review, it owns references to the area's actionable result groups and cached
+selection totals. `CleanerViewModel.SelectedCategory` controls the right pane while
+the left pane retains all scanned areas, including empty and protected-only areas.
+Groups and findings retain their identity across category changes; cleanup uses the
+global selection. Protected findings stay in scan evidence and category counts.
 
 Core's `CleanerService` deduplicates file paths across categories in stage order,
 serializes scan/apply operations and retains the current
@@ -255,6 +297,9 @@ Disk maintenance uses `defrag.exe`. `ICleanerProcessMonitor` isolates applicatio
 activity checks. `GroupedResultsList` and `SelectableResultGroup` reference the
 same result items as cleanup and own category selection/expansion presentation.
 The shared selection contract is `ISelectableResultItem`.
+`CleanerRegistryValue` owns native payload-size estimates shared by registry and
+privacy scans. Findings carry those bytes through row/group totals and the selection
+cache; they describe data size rather than registry-hive disk-space recovery.
 Its optional `ResultReport` supplies ordered presentation sections and label/value
 rows. `CleanerDiskReport` structures native disk output without changing the scan
 evidence; `GroupedResultsList` selects the inline report template for these items.
@@ -265,6 +310,9 @@ measurements. Privacy/junk inspection uses batches of 64 and up to four workers;
 backup copies use at most four concurrent file payloads. Completed scans publish
 immutable plans; selected backup preparation must finish before any mutation.
 Failed/cancelled scans cannot supply a cleanup plan, and consumed findings cannot replay.
+Apply results retain original findings with confirmed successes and failures, including
+partial outcomes when cancelled during execution. File-length estimates from successful
+deletions, removed registry payloads and completed maintenance operations remain distinct.
 
 Cleaner's Events cleanup card opens `EventsCleanupPage` with Cleaner as its sidebar
 owner. `EventLogCleanupService` owns serialization, selection authorization and mode
@@ -307,6 +355,13 @@ Control tools. Detail pages retain their owning sidebar section in the shell jou
 Singleton utility view models retain drafts across navigation. `UtilityViewModel`
 owns mode/localization subscriptions and operation presentation. Explicit page
 entry loads tool data; writes use normal-mode reservations and shutdown draining.
+The environment editor confirms draft disposal before refresh or scope changes and
+publishes a scope only after its read succeeds.
+
+`SystemBackupService` owns restore-point phase ordering, cancellation and verification
+timing. `WindowsSystemBackupBackend` owns WMI, shadow-storage commands, native creation
+and restoration of temporary throttle settings. Cancellation stops between native
+units and propagates to process work; active synchronous native calls finish cleanup.
 
 | Feature | Owners and boundaries |
 | --- | --- |

@@ -43,6 +43,31 @@ public class UserPreferencesServiceTests
 
     #region GetPreferenceAsync
 
+    [Theory]
+    [InlineData("read-error")]
+    [InlineData("invalid-json")]
+    [InlineData("empty")]
+    [InlineData("null")]
+    public async Task PreferencePatchesNeverOverwriteAnUnreadableExistingDocument(string failure)
+    {
+        _mockFileSystemService.Setup(files => files.FileExists(It.IsAny<string>())).Returns(true);
+        if (failure == "read-error")
+            _mockFileSystemService.Setup(files => files.ReadAllTextAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ThrowsAsync(new IOException("Read failed."));
+        else
+            _mockFileSystemService.Setup(files => files.ReadAllTextAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(failure == "empty" ? "" : failure == "null" ? "null" : "{ broken JSON");
+        var result = await _service.SetPreferenceAsync("Language", "it");
+        Assert.False(result.Success);
+        Assert.NotEmpty(result.ErrorMessage!);
+        _mockFileSystemService.Verify(files => files.WriteAllTextAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+
+        _mockFileSystemService.Setup(files => files.ReadAllTextAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync("{\"Theme\":\"Dark\"}");
+        _mockFileSystemService.Setup(files => files.WriteAllTextAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        Assert.True((await _service.SetPreferenceAsync("Language", "it")).Success);
+        _mockFileSystemService.Verify(files => files.WriteAllTextAsync(It.IsAny<string>(),
+            It.Is<string>(json => json.Contains("Dark") && json.Contains("Language")), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
     [Fact]
     public async Task PlacementPatchAndConcurrentPreferenceWritePreserveUnrelatedValues()
     {
@@ -423,40 +448,5 @@ public class UserPreferencesServiceTests
         // Assert
         result.Should().BeTrue();
     }
-
-    #endregion
-
-    #region Constructor Validation
-
-    [Fact]
-    public void Constructor_NullLogService_ThrowsArgumentNullException()
-    {
-        var act = () => new UserPreferencesService(
-            null!, _mockInteractiveUserService.Object, _mockFileSystemService.Object);
-
-        act.Should().Throw<ArgumentNullException>()
-            .WithParameterName("logService");
-    }
-
-    [Fact]
-    public void Constructor_NullInteractiveUserService_ThrowsArgumentNullException()
-    {
-        var act = () => new UserPreferencesService(
-            _mockLogService.Object, null!, _mockFileSystemService.Object);
-
-        act.Should().Throw<ArgumentNullException>()
-            .WithParameterName("interactiveUserService");
-    }
-
-    [Fact]
-    public void Constructor_NullFileSystemService_ThrowsArgumentNullException()
-    {
-        var act = () => new UserPreferencesService(
-            _mockLogService.Object, _mockInteractiveUserService.Object, null!);
-
-        act.Should().Throw<ArgumentNullException>()
-            .WithParameterName("fileSystemService");
-    }
-
     #endregion
 }

@@ -17,6 +17,7 @@ public interface IMultiScriptProgressService
 
     /// <summary>
     /// Creates a progress reporter for a specific script slot.
+    /// Reports are bound to the task active at creation and ignored after completion or replacement.
     /// Must be called on the UI thread so Progress&lt;T&gt; captures the SynchronizationContext.
     /// </summary>
     IProgress<TaskProgressDetail> CreateScriptProgress(int slotIndex);

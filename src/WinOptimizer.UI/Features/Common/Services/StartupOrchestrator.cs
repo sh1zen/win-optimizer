@@ -116,6 +116,8 @@ public class StartupOrchestrator : IStartupOrchestrator
                 }
                 else
                 {
+                    // The export continues after the wait limit; observe any later failure.
+                    backupTask.FireAndForget(_logService);
                     StartupLogger.Log("StartupOrchestrator",
                         "Phase 2: User backup config TIMED OUT (will retry next launch)");
                     _logService.LogWarning(

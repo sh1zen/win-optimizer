@@ -18,32 +18,43 @@
             </TreeViewItem>
         </DataTemplate>
     </UserControl.Resources>
-    <Grid MaxWidth="860" RowSpacing="10">
+    <Grid RowSpacing="10">
         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
         <ScrollViewer Padding="{StaticResource ScrollContentPadding}" MaxHeight="100" HorizontalScrollBarVisibility="Disabled"><TextBlock Text="{x:Bind ViewModel.Summary, Mode=OneWay}" TextWrapping="Wrap" IsTextSelectionEnabled="True"/></ScrollViewer>
         <ScrollViewer Padding="{StaticResource ScrollContentPadding}" Grid.Row="1" MaxHeight="75" HorizontalScrollBarVisibility="Disabled">
             <TextBlock Text="{x:Bind ViewModel.Notices, Mode=OneWay}" TextWrapping="Wrap" IsTextSelectionEnabled="True" FontSize="11" Foreground="{ThemeResource SystemFillColorCautionBrush}"/>
         </ScrollViewer>
-        <Pivot Grid.Row="2" MaxHeight="380" MinHeight="240" IsEnabled="{x:Bind ViewModel.CanSelect, Mode=OneWay}">
-            <PivotItem Header="{x:Bind ViewModel.RegistryLabel}">
-                <TreeView ItemsSource="{x:Bind ViewModel.RegistryRoots, Mode=OneWay}" ItemTemplate="{StaticResource ResidueNodeTemplate}"
-                          SelectionMode="None" MaxHeight="330" AutomationProperties.Name="{x:Bind ViewModel.RegistryLabel}"/>
-            </PivotItem>
-            <PivotItem Header="{x:Bind ViewModel.FilesLabel}">
-                <TreeView ItemsSource="{x:Bind ViewModel.FileRoots, Mode=OneWay}" ItemTemplate="{StaticResource ResidueNodeTemplate}"
-                          SelectionMode="None" MaxHeight="330" AutomationProperties.Name="{x:Bind ViewModel.FilesLabel}"/>
-            </PivotItem>
-        </Pivot>
+        <Grid Grid.Row="2">
+            <TextBlock Text="{x:Bind ViewModel.ScanHint}" TextWrapping="Wrap" VerticalAlignment="Top"
+                       Visibility="{x:Bind ViewModel.IsScanStep, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+            <Grid RowSpacing="12" Visibility="{x:Bind ViewModel.HasResults, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                <TextBlock Text="{x:Bind ViewModel.StepLabel, Mode=OneWay}" FontSize="20" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                <TextBlock Grid.Row="1" Text="{x:Bind ViewModel.EmptyLabel}" VerticalAlignment="Top" TextWrapping="Wrap"
+                           Visibility="{x:Bind ViewModel.IsCurrentEmpty, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                <TreeView x:Name="ResultsTree" Grid.Row="1" ItemsSource="{x:Bind ViewModel.CurrentRoots, Mode=OneWay}"
+                          ItemTemplate="{StaticResource ResidueNodeTemplate}" IsEnabled="{x:Bind ViewModel.CanSelect, Mode=OneWay}"
+                          SelectionMode="None" AutomationProperties.Name="{x:Bind ViewModel.StepLabel, Mode=OneWay}"/>
+            </Grid>
+        </Grid>
         <TextBlock Grid.Row="3" Text="{x:Bind ViewModel.Detail, Mode=OneWay}" TextWrapping="Wrap" MaxLines="4" IsTextSelectionEnabled="True" FontSize="11"/>
         <StackPanel Grid.Row="4" Spacing="8">
-            <TextBlock Text="{x:Bind ViewModel.SelectionSummary, Mode=OneWay}" FontWeight="SemiBold"/>
-            <toolkit:WrapPanel HorizontalSpacing="8" VerticalSpacing="8">
+            <TextBlock Text="{x:Bind ViewModel.SelectionSummary, Mode=OneWay}" FontWeight="SemiBold"
+                       Visibility="{x:Bind ViewModel.HasResults, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+            <toolkit:WrapPanel HorizontalSpacing="8" VerticalSpacing="8"
+                               Visibility="{x:Bind ViewModel.HasResults, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
                 <Button Content="{x:Bind ViewModel.SelectAllLabel}" Command="{x:Bind ViewModel.SelectAllCommand}"/>
                 <Button Content="{x:Bind ViewModel.SelectNoneLabel}" Command="{x:Bind ViewModel.SelectNoneCommand}"/>
                 <Button Content="{x:Bind ViewModel.DeleteLabel}" Command="{x:Bind ViewModel.RequestDeleteCommand}"/>
                 <Button Content="{x:Bind ViewModel.RestoreLabel}" Command="{x:Bind ViewModel.RequestRestoreCommand}"/>
             </toolkit:WrapPanel>
-            <Button Content="{x:Bind ViewModel.RescanLabel}" Command="{x:Bind ViewModel.RescanCommand}"/>
+            <toolkit:WrapPanel HorizontalSpacing="8" VerticalSpacing="8">
+                <Button Content="{x:Bind ViewModel.ScanLabel, Mode=OneWay}" Command="{x:Bind ViewModel.ScanCommand}"/>
+                <Button Content="{x:Bind ViewModel.PreviousLabel}" Command="{x:Bind ViewModel.PreviousCommand}"
+                        Visibility="{x:Bind ViewModel.HasResults, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                <Button Content="{x:Bind ViewModel.NextLabel}" Command="{x:Bind ViewModel.NextCommand}"
+                        Visibility="{x:Bind ViewModel.HasResults, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+            </toolkit:WrapPanel>
             <StackPanel Spacing="8" Visibility="{x:Bind ViewModel.IsConfirming, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
                 <TextBlock Text="{x:Bind ViewModel.Confirmation, Mode=OneWay}" TextWrapping="Wrap"/>
                 <StackPanel Orientation="Horizontal" Spacing="8">

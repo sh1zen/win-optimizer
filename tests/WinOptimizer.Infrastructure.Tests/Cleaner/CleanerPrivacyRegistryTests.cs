@@ -57,6 +57,9 @@ public sealed class CleanerPrivacyRegistryTests : IDisposable
         progress.Setup(x => x.Report(It.IsAny<CleanerProgress>())).Callback<CleanerProgress>(reports.Add);
         var result = _registry.ScanPrivacy(new(), default, progress.Object);
         result.Findings.Should().HaveCount(8).And.OnlyContain(x => x.Area == CleanerArea.Privacy && x.CanClean);
+        Assert.All(result.Findings, finding => Assert.True(finding.Bytes > 0));
+        Assert.Equal(16, Assert.Single(result.Findings, finding => ((CleanerRegistryTarget)finding.Target).ValueName == "a").Bytes);
+        Assert.Equal(3, Assert.Single(result.Findings, finding => finding.Detail.EndsWith(@"RecentDocs\0", StringComparison.Ordinal)).Bytes);
         result.Findings.Select(x => ((CleanerRegistryTarget)x.Target).ValueName).Should().NotContain(["Configuration", "other", "ViewStream", "Max", "LangID"]);
         result.Findings.Should().Contain(x => x.LabelKey == "Cleaner_MuiHistory");
         result.Notices.Should().BeEmpty();

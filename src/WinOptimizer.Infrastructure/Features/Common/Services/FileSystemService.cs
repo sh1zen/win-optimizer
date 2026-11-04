@@ -25,6 +25,7 @@ public class FileSystemService : IFileSystemService
     public void DeleteFile(string path) => File.Delete(path);
     public void CopyFile(string source, string destination, bool overwrite = false) => File.Copy(source, destination, overwrite);
     public void MoveFile(string source, string destination) => File.Move(source, destination);
+    public void ReplaceFile(string source, string destination) => File.Replace(source, destination, null);
     public string ReadAllText(string path, System.Text.Encoding encoding) => File.ReadAllText(path, encoding);
     public long GetFileSize(string path) => new FileInfo(path).Length;
     public void SetFileAttributes(string path, FileAttributes attributes) => new FileInfo(path).Attributes = attributes;

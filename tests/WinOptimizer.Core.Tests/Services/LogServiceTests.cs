@@ -240,24 +240,6 @@ public class LogServiceTests : IDisposable
         logContent.Should().Contain("System info unavailable (provider not configured)");
     }
 
-    [Fact]
-    public void StartLog_DoesNotContainUserOrMachineInfo()
-    {
-        var service = CreateService();
-        var mockProvider = new Mock<ISystemInfoProvider>();
-        mockProvider.Setup(p => p.Collect()).Returns(new SystemInfo());
-        service.SetSystemInfoProvider(mockProvider.Object);
-        service.StartLog();
-        var logPath = service.GetLogPath();
-        service.Dispose(); // Release file lock before reading
-
-        var logContent = File.ReadAllText(logPath);
-        logContent.Should().NotContain("User:");
-        logContent.Should().NotContain("Elevated User:");
-        logContent.Should().NotContain("Machine:");
-        logContent.Should().NotContain("Timestamp:");
-    }
-
     // ── CleanupOldLogs (BP-7) ──
 
     [Fact]

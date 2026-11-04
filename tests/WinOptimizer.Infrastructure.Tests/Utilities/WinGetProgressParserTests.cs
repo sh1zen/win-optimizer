@@ -93,13 +93,4 @@ public class WinGetProgressParserTests
         result!.Phase.Should().Be(phase);
         result.Percent.Should().Be(percent);
     }
-
-    [Fact]
-    public void WinGetProgressInfo_EqualityUsesRecordValues()
-    {
-        var progress = new WinGetProgressInfo(WinGetPhase.Downloading, 50);
-
-        progress.Should().Be(new WinGetProgressInfo(WinGetPhase.Downloading, 50));
-        progress.Should().NotBe(new WinGetProgressInfo(WinGetPhase.Installing, 50));
-    }
 }

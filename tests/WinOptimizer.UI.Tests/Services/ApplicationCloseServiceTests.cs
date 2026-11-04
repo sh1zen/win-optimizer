@@ -46,17 +46,19 @@ public class ApplicationCloseServiceTests
     }
 
     [Fact]
-    public async Task CheckOperationsAndCloseAsync_WhenBeforeShutdownThrows_LogsErrorAndContinues()
+    public async Task CheckOperationsAndCloseAsync_WhenBeforeShutdownThrows_PreservesTheApplication()
     {
         var service = CreateService();
         service.BeforeShutdown = () => throw new InvalidOperationException("Cleanup failed");
 
         _mockTaskProgressService.Setup(t => t.IsTaskRunning).Returns(false);
 
-        await service.CheckOperationsAndCloseAsync();
+        var result = await service.CheckOperationsAndCloseAsync();
+        Assert.False(result.Success);
+        Assert.False(_shutdownCalled);
 
         _mockLogService.Verify(
-            l => l.LogError(It.Is<string>(s => s.Contains("Error running cleanup tasks")), It.IsAny<Exception>()),
+            l => l.LogError(It.Is<string>(s => s.Contains("Error in CheckOperationsAndCloseAsync")), It.IsAny<Exception>()),
             Times.Once);
     }
 
@@ -162,7 +164,7 @@ public class ApplicationCloseServiceTests
     }
 
     [Fact]
-    public async Task CheckOperationsAndCloseAsync_WhenConfirmationThrows_LogsAndShutsDown()
+    public async Task CheckOperationsAndCloseAsync_WhenConfirmationThrows_LogsAndPreservesTheApplication()
     {
         var service = CreateService();
         _mockTaskProgressService.Setup(task => task.IsTaskRunning).Returns(true);
@@ -171,10 +173,65 @@ public class ApplicationCloseServiceTests
 
         var result = await service.CheckOperationsAndCloseAsync();
 
-        result.Success.Should().BeTrue();
-        _shutdownCalled.Should().BeTrue();
+        result.Success.Should().BeFalse();
+        _shutdownCalled.Should().BeFalse();
         _mockLogService.Verify(log => log.LogError(It.Is<string>(message => message.Contains("Error in CheckOperationsAndCloseAsync")), It.IsAny<Exception>()), Times.Once);
         _mockDialogService.Verify(dialog => dialog.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>()), Times.Once);
         _mockDialogService.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task DecliningCloseNeverRunsCleanupOrCancelsTheOperation()
+    {
+        var service = CreateService();
+        var cleanup = false;
+        service.BeforeShutdown = () => { cleanup = true; return Task.CompletedTask; };
+        _mockTaskProgressService.Setup(tasks => tasks.IsTaskRunning).Returns(true);
+        _mockDialogService.Setup(dialog => dialog.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>()))
+            .ReturnsAsync(new ConfirmationResponse { Confirmed = false });
+        Assert.False((await service.CheckOperationsAndCloseAsync()).Success);
+        Assert.False(cleanup);
+        _mockTaskProgressService.Verify(tasks => tasks.CancelCurrentTask(), Times.Never);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ConfirmedCloseOrRestartWaitsForTaskCompletionAndPreferenceDrain(bool restart)
+    {
+        var tasks = new WinOptimizer.Infrastructure.Features.Common.Services.TaskProgressService(_mockLogService.Object);
+        var owner = tasks.StartTask("Long work");
+        var drain = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var confirmation = false; var cleanup = false; var installer = false; var exited = false;
+        _mockDialogService.Setup(dialog => dialog.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>()))
+            .Callback(() => confirmation = true).ReturnsAsync(new ConfirmationResponse { Confirmed = true });
+        var service = new ApplicationCloseService(_mockLogService.Object, tasks, _mockDialogService.Object)
+        {
+            BeforeShutdown = () => { Assert.True(confirmation); cleanup = true; return drain.Task; },
+            ShutdownAction = () => exited = true, RestartShutdownAction = () => exited = true
+        };
+        var close = restart ? service.CheckOperationsAndRestartAsync(() => installer = true) : service.CheckOperationsAndCloseAsync();
+        Assert.True(cleanup); Assert.True(owner.IsCancellationRequested);
+        Assert.False(close.IsCompleted); Assert.False(exited); Assert.False(installer);
+        drain.SetResult();
+        Assert.False(close.IsCompleted);
+        tasks.CompleteTask();
+        Assert.True((await close).Success);
+        Assert.True(exited); Assert.Equal(restart, installer);
+    }
+
+    [Fact]
+    public async Task RestartIsCancelledBeforeLaunchingTheInstallerAndCoalescesConcurrentCloseRequests()
+    {
+        var gate = new TaskCompletionSource<ConfirmationResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _mockTaskProgressService.Setup(tasks => tasks.IsTaskRunning).Returns(true);
+        _mockDialogService.Setup(dialog => dialog.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>())).Returns(gate.Task);
+        var service = CreateService(); var launched = false;
+        var restart = service.CheckOperationsAndRestartAsync(() => launched = true);
+        var close = service.CheckOperationsAndCloseAsync();
+        Assert.Same(restart, close);
+        gate.SetResult(new ConfirmationResponse { Confirmed = false });
+        Assert.False((await restart).Success); Assert.False(launched); Assert.False(_shutdownCalled);
+        _mockDialogService.Verify(dialog => dialog.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>()), Times.Once);
     }
 }

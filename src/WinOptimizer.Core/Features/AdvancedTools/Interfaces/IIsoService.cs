@@ -15,6 +15,7 @@ public interface IIsoService
         IProgress<TaskProgressDetail>? progress = null,
         CancellationToken cancellationToken = default);
 
+    /// <summary>Builds and checks a temporary ISO before publishing it; failures and cancellation preserve the destination.</summary>
     Task<bool> CreateIsoAsync(
         string workingDirectory,
         string outputPath,

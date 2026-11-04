@@ -1,11 +1,13 @@
 using System;
 using System.IO;
 using System.Linq;
+using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using WinOptimizer.Core.Features.AdvancedTools.Interfaces;
 using WinOptimizer.Core.Features.Common.Exceptions;
+using WinOptimizer.Core.Features.Common.Extensions;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.UI.Features.AdvancedTools.Models;
@@ -48,6 +50,18 @@ public partial class WimStep1ViewModel : ObservableObject
 
     public WizardActionCard SelectIsoCard { get; private set; } = new();
     public WizardActionCard SelectDirectoryCard { get; private set; } = new();
+
+    partial void OnSelectedIsoPathChanged(string value) => InvalidateExtraction();
+    partial void OnWorkingDirectoryChanged(string value) => InvalidateExtraction();
+
+    /// <summary>Invalidates prepared-media evidence when inputs change or an extraction starts.</summary>
+    private void InvalidateExtraction()
+    {
+        IsExtractionComplete = false;
+        SelectIsoCard.IsComplete = false;
+        SelectIsoCard.HasFailed = false;
+        CanStartExtraction = !string.IsNullOrEmpty(SelectedIsoPath) && !string.IsNullOrEmpty(WorkingDirectory);
+    }
 
     public WimStep1ViewModel(
         IIsoService isoService,
@@ -109,7 +123,6 @@ public partial class WimStep1ViewModel : ObservableObject
         {
             SelectedIsoPath = path;
             SelectIsoCard.Description = SelectedIsoPath;
-            CanStartExtraction = !string.IsNullOrEmpty(SelectedIsoPath) && !string.IsNullOrEmpty(WorkingDirectory);
         }
     }
 
@@ -151,7 +164,6 @@ public partial class WimStep1ViewModel : ObservableObject
             {
                 _fileSystemService.CreateDirectory(WorkingDirectory);
                 SelectDirectoryCard.Description = $"{_localizationService.GetString("WIMUtil_Label_Using")}: {WorkingDirectory}";
-                CanStartExtraction = !string.IsNullOrEmpty(SelectedIsoPath) && !string.IsNullOrEmpty(WorkingDirectory);
             }
             catch (Exception ex)
             {
@@ -193,26 +205,36 @@ public partial class WimStep1ViewModel : ObservableObject
     [RelayCommand]
     private async Task StartIsoExtraction()
     {
+        if (_taskProgressService.IsTaskRunning)
+        {
+            await _dialogService.ShowWarningAsync(_localizationService.GetString("Cleaner_Wait"), _localizationService.GetString("Dialog_Warning"));
+            return;
+        }
+        var isoPath = SelectedIsoPath;
+        var workingDirectory = WorkingDirectory;
+        CancellationTokenSource? task = null;
         try
         {
+            InvalidateExtraction();
             SelectIsoCard.IsEnabled = false;
             SelectIsoCard.Opacity = 0.5;
             SelectDirectoryCard.IsEnabled = false;
             SelectDirectoryCard.Opacity = 0.5;
             IsExtracting = true;
 
-            _taskProgressService.StartTask(_localizationService.GetString("WIMUtil_Status_Extracting"), true);
+            task = _taskProgressService.StartTask(_localizationService.GetString("WIMUtil_Status_Extracting"), true);
             var progress = _taskProgressService.CreatePowerShellProgress();
 
-            var success = await _isoService.ExtractIsoAsync(SelectedIsoPath, WorkingDirectory, progress, _taskProgressService.CurrentTaskCancellationSource!.Token);
+            var success = await _isoService.ExtractIsoAsync(isoPath, workingDirectory, progress, task.Token);
 
             ResetExtractionState();
 
             if (success)
             {
-                SelectIsoCard.IsComplete = true;
                 SelectIsoCard.Description = _localizationService.GetString("WIMUtil_Status_IsoExtractionSuccess");
-                IsExtractionComplete = true;
+                IsExtractionComplete = string.Equals(isoPath, SelectedIsoPath, StringComparison.OrdinalIgnoreCase)
+                    && string.Equals(workingDirectory, WorkingDirectory, StringComparison.OrdinalIgnoreCase);
+                SelectIsoCard.IsComplete = IsExtractionComplete;
                 await _dialogService.ShowInformationAsync(
                     _localizationService.GetString("WIMUtil_Msg_ExtractionComplete"),
                     _localizationService.GetString("WIMUtil_Status_IsoExtractionSuccess"));
@@ -251,7 +273,7 @@ public partial class WimStep1ViewModel : ObservableObject
         }
         finally
         {
-            _taskProgressService.CompleteTask();
+            _taskProgressService.CompleteOwnedTask(task);
         }
     }
 
@@ -280,6 +302,7 @@ public partial class WimStep1ViewModel : ObservableObject
 
     partial void OnHasExtractedIsoAlreadyChanged(bool value)
     {
+        InvalidateExtraction();
         SelectDirectoryCard.Description = value
             ? _localizationService.GetString("WIMUtil_Label_SelectExtracted")
             : string.Format(_localizationService.GetString("WIMUtil_Card_SelectDirectory_Description_Default"), _fileSystemService.CombinePath(_fileSystemService.GetTempPath(), "WinOptimizerWIM"));

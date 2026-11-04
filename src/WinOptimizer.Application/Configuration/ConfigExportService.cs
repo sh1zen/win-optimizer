@@ -121,6 +121,7 @@ public class ConfigExportService : IConfigExportService
         }
     }
 
+    /// <summary>Writes the initial configuration backup and propagates failures to the startup coordinator.</summary>
     public async Task CreateUserBackupConfigAsync()
     {
         try
@@ -146,6 +147,7 @@ public class ConfigExportService : IConfigExportService
         catch (Exception ex)
         {
             _logService.Log(LogLevel.Error, $"Error creating user backup configuration: {ex.Message}");
+            throw;
         }
     }
 

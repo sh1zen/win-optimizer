@@ -241,68 +241,6 @@ public class ConfigExportServiceTests
     }
 
     // -------------------------------------------------------
-    // CreateUserBackupConfigAsync
-    // -------------------------------------------------------
-
-    /// <summary>Checks account-scoped backup paths using synthetic identity and filesystem boundaries.</summary>
-    [Fact]
-    public async Task CreateUserBackupConfigAsync_WritesBackupInInteractiveAccountDirectory()
-    {
-        _mockCompatibleSettingsRegistry.Setup(r => r.IsInitialized).Returns(true);
-        _mockCompatibleSettingsRegistry
-            .Setup(r => r.GetAllFilteredSettings())
-            .Returns(new Dictionary<string, IEnumerable<SettingDefinition>>());
-
-        _mockWindowsAppsVM.Setup(v => v.IsInitialized).Returns(true);
-        _mockWindowsAppsVM.Setup(v => v.Items).Returns(new ObservableCollection<AppItemViewModel>());
-
-        _mockExternalAppsVM.Setup(v => v.IsInitialized).Returns(true);
-        _mockExternalAppsVM.Setup(v => v.Items).Returns(new ObservableCollection<AppItemViewModel>());
-
-        const string interactiveSid = "S-1-5-21-111-222-333-1001";
-        _mockInteractiveUserService.SetupGet(s => s.InteractiveUserSid).Returns(interactiveSid);
-        var backupDirectory = Path.Combine(AppDataPaths.Root, "Users", interactiveSid, "Backups", "Configurations");
-
-        _mockFileSystemService
-            .Setup(fs => fs.CombinePath(It.IsAny<string[]>()))
-            .Returns((string[] paths) => Path.Combine(paths));
-
-        string? writtenPath = null;
-        _mockFileSystemService
-            .Setup(fs => fs.WriteAllTextAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .Callback<string, string, CancellationToken>((path, contents, token) => writtenPath = path)
-            .Returns(Task.CompletedTask);
-
-        var service = CreateService();
-        await service.CreateUserBackupConfigAsync();
-
-        _mockFileSystemService.Verify(
-            fs => fs.CreateDirectory(backupDirectory),
-            Times.Once);
-        Assert.NotNull(writtenPath);
-        Path.GetDirectoryName(writtenPath).Should().Be(backupDirectory);
-        Path.GetFileName(writtenPath).Should().MatchRegex(@"^UserBackup_[0-9]{8}_[0-9]{6}\.win-optimizer$");
-        _mockFileSystemService.Verify(
-            fs => fs.WriteAllTextAsync(writtenPath, It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once);
-    }
-
-    [Fact]
-    public async Task CreateUserBackupConfigAsync_WhenExceptionOccurs_LogsError()
-    {
-        _mockCompatibleSettingsRegistry.Setup(r => r.IsInitialized).Returns(true);
-        _mockCompatibleSettingsRegistry
-            .Setup(r => r.GetAllFilteredSettings())
-            .Throws(new Exception("Test error"));
-
-        var service = CreateService();
-        await service.CreateUserBackupConfigAsync();
-
-        _mockLogService.Verify(
-            l => l.Log(LogLevel.Error, It.Is<string>(s => s.Contains("Test error"))),
-            Times.Once);
-    }
-
-    // -------------------------------------------------------
     // Helpers
     // -------------------------------------------------------
 

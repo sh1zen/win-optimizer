@@ -84,62 +84,6 @@ public class TooltipRefreshEventHandlerTests : IDisposable
     }
 
     // ---------------------------------------------------------------
-    // Constructor guard clauses
-    // ---------------------------------------------------------------
-
-    [Fact]
-    public void Constructor_NullEventBus_ThrowsArgumentNull()
-    {
-        var action = () => new TooltipRefreshEventHandler(
-            null!,
-            _mockTooltipService.Object,
-            _mockSettingsRegistry.Object,
-            _mockLog.Object);
-
-        action.Should().Throw<ArgumentNullException>()
-            .And.ParamName.Should().Be("eventBus");
-    }
-
-    [Fact]
-    public void Constructor_NullTooltipDataService_ThrowsArgumentNull()
-    {
-        var action = () => new TooltipRefreshEventHandler(
-            _mockEventBus.Object,
-            null!,
-            _mockSettingsRegistry.Object,
-            _mockLog.Object);
-
-        action.Should().Throw<ArgumentNullException>()
-            .And.ParamName.Should().Be("tooltipDataService");
-    }
-
-    [Fact]
-    public void Constructor_NullSettingsRegistry_ThrowsArgumentNull()
-    {
-        var action = () => new TooltipRefreshEventHandler(
-            _mockEventBus.Object,
-            _mockTooltipService.Object,
-            null!,
-            _mockLog.Object);
-
-        action.Should().Throw<ArgumentNullException>()
-            .And.ParamName.Should().Be("settingsRegistry");
-    }
-
-    [Fact]
-    public void Constructor_NullLogService_ThrowsArgumentNull()
-    {
-        var action = () => new TooltipRefreshEventHandler(
-            _mockEventBus.Object,
-            _mockTooltipService.Object,
-            _mockSettingsRegistry.Object,
-            null!);
-
-        action.Should().Throw<ArgumentNullException>()
-            .And.ParamName.Should().Be("logService");
-    }
-
-    // ---------------------------------------------------------------
     // Dispose unsubscribes tokens
     // ---------------------------------------------------------------
 

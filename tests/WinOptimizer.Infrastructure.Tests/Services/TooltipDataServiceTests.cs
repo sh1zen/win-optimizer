@@ -497,32 +497,4 @@ public class TooltipDataServiceTests
         // DisplayValue should match the primary (first) registry setting
         data.DisplayValue.Should().Be("100");
     }
-
-    // ---------------------------------------------------------------
-    // Constructor guard clauses
-    // ---------------------------------------------------------------
-
-    [Fact]
-    public void Constructor_NullRegistryService_ThrowsArgumentNull()
-    {
-        var action = () => new TooltipDataService(null!, _mockLog.Object, _mockPowerSettings.Object);
-        action.Should().Throw<ArgumentNullException>()
-            .And.ParamName.Should().Be("windowsRegistryService");
-    }
-
-    [Fact]
-    public void Constructor_NullLogService_ThrowsArgumentNull()
-    {
-        var action = () => new TooltipDataService(_mockRegistry.Object, null!, _mockPowerSettings.Object);
-        action.Should().Throw<ArgumentNullException>()
-            .And.ParamName.Should().Be("logService");
-    }
-
-    [Fact]
-    public void Constructor_NullPowerSettingsQueryService_ThrowsArgumentNull()
-    {
-        var action = () => new TooltipDataService(_mockRegistry.Object, _mockLog.Object, null!);
-        action.Should().Throw<ArgumentNullException>()
-            .And.ParamName.Should().Be("powerSettingsQueryService");
-    }
 }

@@ -42,6 +42,32 @@ public class IsoServiceTests
 
     #region ValidateIsoFileAsync
 
+    [Theory]
+    [InlineData(@"C:\Media\source.iso")]
+    [InlineData(@"C:\Media\nested\source.iso")]
+    [InlineData(@"c:\media\nested\..\source.iso")]
+    public async Task ExtractionRejectsASourceInsideTheWorkspaceBeforeAnyMutation(string source)
+    {
+        Assert.False(await _service.ExtractIsoAsync(source, @"C:\Media\"));
+        _mockProcessExecutor.VerifyNoOtherCalls();
+        _mockFileSystem.VerifyNoOtherCalls();
+        _mockDismRunner.VerifyNoOtherCalls();
+        _mockLogService.Verify(log => log.LogError(It.Is<string>(message => message.Contains("outside the extraction folder")), It.IsAny<Exception>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task ExtractionAllowsASourceInASiblingWithTheSamePathPrefix()
+    {
+        const string source = @"C:\Media backup\source.iso";
+        _mockFileSystem.Setup(files => files.FileExists(source)).Returns(true);
+        _mockFileSystem.Setup(files => files.GetExtension(source)).Returns(".iso");
+        _mockFileSystem.Setup(files => files.GetFileSize(source)).Returns(5_000_000);
+        _mockProcessExecutor.Setup(process => process.ExecuteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ProcessExecutionResult());
+        Assert.False(await _service.ExtractIsoAsync(source, @"C:\Media"));
+        _mockProcessExecutor.Verify(process => process.ExecuteAsync("powershell.exe", It.Is<string>(command => command.Contains("Mount-DiskImage")), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
     [Fact]
     public async Task ExtractionQuotesApostrophesAndUsesLiteralWorkingPaths()
     {

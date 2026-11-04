@@ -61,6 +61,10 @@ Centered windows keep their title bar reachable when the saved or default size e
    and follow its progress in the shared footer. Cancellation is available where
    supported; logs and history help you review the outcome.
 
+Closing during an operation asks for confirmation before stopping work. Confirmed
+closing and update restarts wait for operation cleanup and pending saves; cancelling
+the close leaves monitoring active.
+
 Use **Back/Forward** or **Alt+Left/Right** to move between section overviews and
 subpages, including Settings categories. Selecting a sidebar destination opens its
 overview. App inventory has its own loading indicator.
@@ -92,8 +96,9 @@ Unavailable values appear as **—**. **Show hidden or inactive installed apps**
 an administrator-only opt-in for catalogued AppX packages retained on the device
 without a current-account registration; inactive entries have orange indicators.
 
-Uninstall opens a desktop program's unambiguously matched registered uninstaller
-and waits for it to finish. If none can be identified, confirm whether to use automatic removal through
+Uninstall opens a desktop program's unambiguously matched registered uninstaller,
+blocks and minimizes win-optimizer while it runs, then restores the app when it exits.
+If none can be identified, confirm whether to use automatic removal through
 the available package manager or detected installation files. Cancelling that
 prompt preserves the app. Verified removals update the cached list before leftover
 review without rescanning app inventories or icons. Failed or cancelled package
@@ -105,8 +110,12 @@ Store downloads install for that signed-in account. Interactive EXE installers
 finish before reporting success; cancellation stops further silent attempts.
 Portable-app detection and file removal resolve profile paths for that same interactive account.
 
-After uninstallation, review detected registry resources, files and folders before
-choosing **Delete selected**. Active, shared, restart-deferred and unverifiable
+After uninstallation, a review page opens. Choose **Scan** to find leftovers, then
+review **files and folders** followed by **registry entries**, one step at a time.
+Each step supports individual and group selection, **Select all**, **Deselect all**
+and confirmed **Delete selected**. Moving between steps preserves your choices;
+deletion affects only the current step's selection. Empty steps are shown too.
+Active, shared, restart-deferred and unverifiable
 resources remain protected, and coverage gaps are reported. **Scan again** refreshes
 the evidence. Every residue cleanup requires a verified backup, which you can
 restore in the review or through **Uninstall cleanup backups**.
@@ -182,10 +191,23 @@ errors. Optional-feature tools run separately from configuration presets and exp
 ### Clean junk files and reclaim disk space
 
 **Cleaner** covers privacy traces, junk files, shortcuts, registry cleanup, registry
-defragmentation and disk optimization. Scan first, expand grouped results, select
-actionable findings and confirm cleanup. Scan choices save automatically; changing
+defragmentation and disk optimization. Scan first, choose a scanned category on the
+left and select actionable findings on the right. Category counters show found and
+selected items; protected findings remain counted separately. Changing categories
+preserves item choices and group expansion. **Select all results**, **Clear selection**
+and confirmed cleanup cover the whole scan. Scan choices save automatically; changing
 options requires another scan. Failed or cancelled scans provide no cleanup plan.
+The cleanup report shows totals and a numerical breakdown for every category selected
+before scanning, including categories with no findings. It counts found, selected,
+completed, removed, failed and unprocessed items. Estimated file space freed counts
+only successfully removed files; removed registry data is shown separately, and
+maintenance operations count as completed operations. Partial and cancelled cleanup
+retain confirmed results. Scan diagnostics and cleanup errors are available under
+collapsed **Technical details**. Protected registry entries are reported while cleanup
+continues with other selected items. Choose **Scan** to refresh findings before cleaning again.
 Disk analysis displays the selected drive and the full, selectable Windows report.
+Result sizes use B/KB/MB/GB. **Selected data size** includes file lengths and estimated
+registry-value payloads; registry metadata and immediate disk-space recovery are not included.
 
 Use **Settings → Cleaner** to choose scan targets, file age, registry categories,
 deep scanning, cache locations and the drive to optimize. Privacy, junk, registry
@@ -298,7 +320,8 @@ diagnostics and maintenance:
 - **Environment variables editor:** edit user/system variables and ordered PATH
   entries, or use raw text, then **Save**. Values remain unexpanded; user edits target
   the interactive account even under alternate-account elevation. Restart existing
-  processes when needed to pick up changes.
+  processes when needed to pick up changes. Refreshing or changing scope asks before
+  discarding unsaved edits; a failed scope read preserves the current draft.
 - **Hosts File Editor:** edit IPv4/IPv6 mappings, aliases, comments and enable
   switches, or use text mode. **Save changes** validates the draft, rejects external
   changes, verifies a backup and preserves encoding and permissions. **Undo last
@@ -340,8 +363,18 @@ in Test mode and configuration review.
 
 - **WIMUtil:** customize Windows installation media, add drivers, and generate an
   answer file from current selections or select a local XML file.
+  Keep the source ISO outside the extraction folder.
   Conversion preserves the source until every edition is exported and verified.
   Adding drivers retains nested package files and existing setup commands.
+  ISO creation and tool acquisition wait for running tasks. ISO completion reflects
+  the latest attempt and resets when the input directory or destination changes.
+  A new ISO is built and checked in a temporary file before replacing the destination;
+  failed or cancelled creation preserves an existing ISO.
+  Extraction, conversion and driver commands preserve other running tasks. Changing
+  media or starting another extraction clears prior XML, driver and ISO completion;
+  failed or cancelled extraction keeps dependent steps locked.
+  Changing XML, drivers or image files requires rebuilding the ISO. Image-format
+  results follow the currently selected media.
 - **Autounattend generator:** build a Windows unattended-installation XML file
   from selected settings.
 - **System information:** collect a dated snapshot of hardware, Windows and installed
@@ -360,7 +393,7 @@ settings. Edits stay in the draft. Export typed values and app selections to a
 Closing the exit dialog discards the draft; cancelled or failed exports retain it.
 Apply runs only edited settings through the normal configuration workflow.
 System-changing actions are guarded during the session; preferences and read-only
-Cleaner scans remain available.
+Cleaner scans remain available. Power-plan deletion is blocked in Test mode.
 
 **Logs and history** groups saved sessions and change receipts by topic, newest first.
 Expand topics, search activity or filter changes, diagnostics and problems. Setting
@@ -372,17 +405,21 @@ Backup and restore options depend on the tool. Cleaner provides file/value and
 whole-hive backup options, app-residue cleanup requires a verified backup, and the
 Restore tools manage Windows restore points. Review the relevant operation's results
 and recovery options before proceeding.
+The initial configuration backup is marked complete after a successful write;
+failed attempts are logged and retried on the next launch.
 
 ## Preferences and app updates
 
 **Settings** offers searchable categories with automatic saves. Adjust language,
 theme, app color and expanded/compact navigation. **Restore configuration** resets
 the open category; **Reset all settings** resets all preferences exposed by the page.
+An unreadable preferences file blocks incremental saves so existing settings remain intact.
 
 **Settings → Info** includes manual update checks and independent automatic app and
 removal-script update switches, both enabled by default. Automatic checks start
 after a 30-second delay and run at most daily across restarts; manual checks are
-independent of those switches.
+independent of those switches. A failed check is shown as an error rather than a
+claim that the installed version is current.
 
 Application data lives under `%ProgramData%\win-optimizer`, shared across
 installations. Account-dependent data uses `Users\<SID>` folders. See the

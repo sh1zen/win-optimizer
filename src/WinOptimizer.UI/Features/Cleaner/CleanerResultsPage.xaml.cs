@@ -9,9 +9,15 @@ namespace WinOptimizer.UI.Features.Cleaner;
 /// <summary>Reviews the shared completed scan and hosts selection and confirmed cleanup.</summary>
 public sealed partial class CleanerResultsPage : Page
 {
-    public CleanerViewModel ViewModel { get; } = App.Services.GetRequiredService<CleanerViewModel>();
+    public CleanerViewModel ViewModel { get; }
 
-    public CleanerResultsPage() => InitializeComponent();
+    public CleanerResultsPage() : this(App.Services.GetRequiredService<CleanerViewModel>()) { }
+
+    public CleanerResultsPage(CleanerViewModel viewModel)
+    {
+        ViewModel = viewModel;
+        InitializeComponent();
+    }
 
     protected override void OnNavigatedTo(NavigationEventArgs e)
     {
@@ -20,7 +26,7 @@ public sealed partial class CleanerResultsPage : Page
         if (!ViewModel.HasScanned) ReturnToScan();
     }
 
-    /// <summary>Stacks review actions using page width, including sidebar and app zoom.</summary>
+    /// <summary>Sizes category navigation and review actions using the available page width.</summary>
     private void LayoutRoot_SizeChanged(object sender, SizeChangedEventArgs e)
     {
         var wide = e.NewSize.Width >= 720;

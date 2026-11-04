@@ -1,13 +1,22 @@
 using FluentAssertions;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
 using Moq;
 using WinOptimizer.Core.Features.Cleaner.Interfaces;
 using WinOptimizer.Core.Features.Cleaner.Models;
+using WinOptimizer.Core.Features.Cleaner.Services;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.UI.Features.Cleaner.ViewModels;
+using WinOptimizer.UI.Features.Cleaner;
 using WinOptimizer.UI.Features.Common.Interfaces;
 using WinOptimizer.UI.Features.Common.Models;
 using Xunit;
+using System.Runtime.InteropServices.WindowsRuntime;
+using System.Text.Json;
+using Microsoft.UI.Xaml.Media.Imaging;
+using Windows.Graphics;
+using Windows.Graphics.Imaging;
 
 namespace WinOptimizer.UI.Tests.ViewModels;
 
@@ -46,6 +55,208 @@ public sealed class CleanerViewModelTests : IDisposable
     private CleanerViewModel CreateViewModel(ITaskProgressService? tasks = null) => new(_cleaner.Object, _settings, _localization.Object,
         _dialogs.Object, tasks ?? _tasks.Object, Mock.Of<ILogService>(), _mode.Object, _preferences.Object);
     private static CleanerFinding Finding(CleanerArea area, bool actionable = true) => new(Guid.NewGuid(), area, $"Cleaner_{area}", "scan evidence", 50, actionable, new CleanerDiskTarget("C:\\"));
+
+    [Fact]
+    public async Task CategoryReportUsesTheScanSelection_IncludingEmptyCategories()
+    {
+        await _vm.InitializeAsync();
+        foreach (var area in _vm.Areas) area.IsSelected = area.Value is CleanerArea.Privacy or CleanerArea.Shortcuts;
+        var pending = new TaskCompletionSource<CleanerScanResult>();
+        _cleaner.Setup(service => service.ScanAsync(It.IsAny<CleanerOptions>(), It.IsAny<IReadOnlyCollection<CleanerArea>>(), It.IsAny<IProgress<CleanerProgress>>(), It.IsAny<CancellationToken>())).Returns(pending.Task);
+        var scanning = _vm.ScanCommand.ExecuteAsync(null);
+        foreach (var area in _vm.Areas) area.IsSelected = area.Value == CleanerArea.Registry;
+        pending.SetResult(new([Finding(CleanerArea.Privacy)], []));
+        await scanning;
+        Assert.Equal(new[] { CleanerArea.Privacy, CleanerArea.Shortcuts }, _vm.CategoryReports.Select(report => report.Area));
+        Assert.Equal(0, _vm.CategoryReports[1].FoundCount);
+        Assert.Equal(0, _vm.CategoryReports[1].SelectedCount);
+        Assert.Equal(0, _vm.CategoryReports[1].CompletedCount);
+    }
+
+    /// <summary>Exercises native category navigation, shared selections and responsive review panes.</summary>
+    [Theory]
+    [InlineData("en")]
+    [InlineData("it")]
+    public async Task CategoryReviewFiltersActionableItems_PreservesSelection_AndRendersAtBothWidths(string language)
+    {
+        var strings = JsonSerializer.Deserialize<Dictionary<string, string>>(await File.ReadAllTextAsync(Path.Combine(AppContext.BaseDirectory, "Localization", language + ".json")))!;
+        _localization.Setup(service => service.GetString(It.IsAny<string>())).Returns((string key) => strings[key]);
+        await _vm.InitializeAsync();
+        foreach (var area in _vm.Areas) area.IsSelected = area.Value is CleanerArea.Privacy or CleanerArea.JunkFiles or CleanerArea.Shortcuts or CleanerArea.Registry;
+        var privacy = Finding(CleanerArea.Privacy) with { Detail = @"C:\Example\Cache\history.tmp", Bytes = 1024 };
+        var protectedPrivacy = Finding(CleanerArea.Privacy, false) with { Detail = @"C:\Example\Cache\locked.tmp" };
+        var registry = Finding(CleanerArea.Registry) with { Detail = @"HKEY_CURRENT_USER\Software\Example\History", Bytes = 128 };
+        var fonts = Finding(CleanerArea.Registry) with { LabelKey = "Cleaner_Registry_Fonts", Detail = @"HKEY_CURRENT_USER\Software\Example\Fonts", Bytes = 256 };
+        Results(privacy, protectedPrivacy, Finding(CleanerArea.JunkFiles, false), registry, fonts);
+        await _vm.ScanCommand.ExecuteAsync(null);
+        var privacyCategory = _vm.CategoryReports.Single(category => category.Area == CleanerArea.Privacy);
+        var registryCategory = _vm.CategoryReports.Single(category => category.Area == CleanerArea.Registry);
+        Assert.Same(privacyCategory, _vm.SelectedCategory);
+        Assert.Equal(2, privacyCategory.FoundCount);
+        Assert.Equal(1, privacyCategory.ProtectedCount);
+        Assert.Equal(1, privacyCategory.SelectedCount);
+        Assert.Equal($"{1:N1} KB", privacyCategory.SelectedSize);
+        Assert.Same(_vm.Results[0], Assert.Single(Assert.Single(_vm.SelectedCategoryGroups).Items));
+        Assert.All(_vm.ResultGroups.SelectMany(group => group.Items), item => Assert.True(item.CanClean));
+
+        var page = new CleanerResultsPage(_vm) { RequestedTheme = ElementTheme.Dark };
+        var surface = new Grid { Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 32, 32, 32)), Padding = new Thickness(16) };
+        surface.Children.Add(page);
+        var window = new Window { Content = surface };
+        try
+        {
+            var loaded = new TaskCompletionSource();
+            page.Loaded += (_, _) => loaded.TrySetResult();
+            window.Activate();
+            await loaded.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var selector = Assert.IsType<ListView>(page.FindName("CategorySelector"));
+            var results = Assert.IsType<WinOptimizer.UI.Features.Common.Controls.GroupedResultsList>(page.FindName("ResultsList"));
+            Assert.Same(_vm.CategoryReports, selector.ItemsSource);
+            Assert.Same(privacyCategory, selector.SelectedItem);
+            selector.SelectedItem = registryCategory;
+            Assert.Same(registryCategory, _vm.SelectedCategory);
+            Assert.Same(registryCategory.ReviewGroups, results.ItemsSource);
+            registryCategory.ReviewGroups[0].IsExpanded = true;
+            registryCategory.ReviewGroups[0].IsSelected = true;
+            Assert.Equal(1, registryCategory.SelectedCount);
+            Assert.Equal("128 B", registryCategory.SelectedSize);
+            Assert.Equal(2, _vm.SelectedCount);
+
+            selector.SelectedItem = privacyCategory;
+            _vm.SelectedCategoryGroups[0].IsSelected = false;
+            Assert.Equal(0, privacyCategory.SelectedCount);
+            Assert.Equal(1, _vm.SelectedCount);
+            selector.SelectedItem = registryCategory;
+            Assert.True(registryCategory.ReviewGroups[0].IsExpanded);
+            Assert.True(registryCategory.ReviewGroups[0].IsSelected);
+            foreach (var area in new[] { CleanerArea.Shortcuts, CleanerArea.JunkFiles })
+            {
+                selector.SelectedItem = _vm.CategoryReports.Single(category => category.Area == area);
+                page.UpdateLayout();
+                Assert.Empty(results.ItemsSource!);
+                Assert.Equal(Visibility.Visible, Assert.IsType<Border>(page.FindName("EmptyResults")).Visibility);
+                Assert.Equal(area == CleanerArea.JunkFiles ? 1 : 0, _vm.SelectedCategory!.FoundCount);
+            }
+            _vm.SelectAllCommand.Execute(null);
+            Assert.Equal(3, _vm.SelectedCount);
+            _vm.ClearSelectionCommand.Execute(null);
+            Assert.Equal(0, _vm.SelectedCount);
+            selector.SelectedItem = registryCategory;
+            registryCategory.ReviewGroups[0].IsSelected = true;
+            foreach (var group in registryCategory.ReviewGroups) group.IsExpanded = true;
+            foreach (var width in new[] { 620, 1200 })
+            {
+                window.AppWindow.ResizeClient(new SizeInt32(width, 950));
+                await Task.Delay(200);
+                page.UpdateLayout();
+                Assert.Equal(Visibility.Visible, Assert.IsType<Grid>(page.FindName("ResultsRegion")).Visibility);
+                Assert.True(results.TransformToVisual(page).TransformPoint(default).X > selector.TransformToVisual(page).TransformPoint(default).X + selector.ActualWidth);
+                Assert.True(results.ActualWidth > 200);
+                await SavePreviewAsync(surface, $"cleaner-categories-{language}-{width}.png");
+            }
+            Results(Finding(CleanerArea.Privacy));
+            await _vm.ScanCommand.ExecuteAsync(null);
+            Assert.Same(_vm.CategoryReports[0], _vm.SelectedCategory);
+            Assert.NotSame(privacyCategory, _vm.SelectedCategory);
+            Assert.False(Assert.Single(_vm.SelectedCategoryGroups).IsExpanded);
+        }
+        finally { window.Close(); }
+    }
+
+    /// <summary>Exercises every macro category and renders actual translations with fake OS boundaries.</summary>
+    [Theory]
+    [InlineData("en")]
+    [InlineData("it")]
+    public async Task NumericReportSeparatesFilesRegistryAndMaintenance_AndRendersAtBothWidths(string language)
+    {
+        var strings = JsonSerializer.Deserialize<Dictionary<string, string>>(await File.ReadAllTextAsync(Path.Combine(AppContext.BaseDirectory, "Localization", language + ".json")))!;
+        _localization.Setup(service => service.GetString(It.IsAny<string>())).Returns((string key) => strings[key]);
+        CleanerFinding FileResult(CleanerArea area, string name, long bytes) => new(Guid.NewGuid(), area, $"Cleaner_{area}", name, bytes, true,
+            new CleanerFileTarget(@"C:\Temp", @"C:\Temp\" + name, bytes, DateTime.UnixEpoch, DateTime.UnixEpoch));
+        CleanerFinding RegistryResult(CleanerArea area, string name, long bytes, bool actionable = true) => new(Guid.NewGuid(), area, $"Cleaner_{area}", name, bytes, actionable,
+            new CleanerRegistryTarget(@"HKEY_CURRENT_USER\Software\Example", name, "data", 1, false, "missing"));
+        var privateFile = FileResult(CleanerArea.Privacy, "history.tmp", 1024);
+        var privateValue = RegistryResult(CleanerArea.Privacy, "history", 128);
+        var denied = FileResult(CleanerArea.JunkFiles, "locked.tmp", 2048);
+        var omitted = FileResult(CleanerArea.JunkFiles, "keep.tmp", 512);
+        var registry = RegistryResult(CleanerArea.Registry, "obsolete", 256);
+        var protectedValue = RegistryResult(CleanerArea.Registry, "protected", 32, false);
+        var hive = new CleanerFinding(Guid.NewGuid(), CleanerArea.RegistryDefrag, "Cleaner_RegistryDefrag", "hive", 0, true, new CleanerHiveTarget(@"HKEY_USERS\Example"));
+        var disk = new CleanerFinding(Guid.NewGuid(), CleanerArea.Disk, "Cleaner_Disk", "disk", 0, true, new CleanerDiskTarget(@"C:\"));
+        var findings = new[] { privateFile, privateValue, denied, omitted, registry, protectedValue, hive, disk };
+        _backend.Setup(backend => backend.ScanAsync(It.IsAny<CleanerArea>(), It.IsAny<CleanerOptions>(), It.IsAny<IProgress<CleanerProgress>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((CleanerArea area, CleanerOptions _, IProgress<CleanerProgress>? _, CancellationToken _) => new CleanerScanResult(findings.Where(finding => finding.Area == area).ToArray(), []));
+        _backend.Setup(backend => backend.CleanAsync(It.IsAny<CleanerFinding>(), It.IsAny<CleanerOptions>(), It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        _backend.Setup(backend => backend.CleanAsync(denied, It.IsAny<CleanerOptions>(), It.IsAny<CancellationToken>())).ThrowsAsync(new UnauthorizedAccessException(@"C:\Temp\locked.tmp: access denied"));
+        _backups.Setup(backups => backups.CreateAsync(It.IsAny<IReadOnlyList<CleanerFinding>>(), It.IsAny<CancellationToken>())).ReturnsAsync(new CleanerBackupInfo(Guid.NewGuid(), DateTime.UnixEpoch, 2, 2));
+        _dialogs.Setup(dialogs => dialogs.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>())).ReturnsAsync(new ConfirmationResponse { Confirmed = true });
+        using var vm = new CleanerViewModel(new CleanerService(_backend.Object, _backups.Object), _settings, _localization.Object, _dialogs.Object,
+            _tasks.Object, Mock.Of<ILogService>(), _mode.Object, _preferences.Object);
+        await vm.InitializeAsync();
+        foreach (var area in vm.Areas) area.IsSelected = true;
+        await vm.ScanCommand.ExecuteAsync(null);
+        vm.SelectAllCommand.Execute(null);
+        vm.Results.Single(item => item.Finding.Id == omitted.Id).IsSelected = false;
+        vm.Areas.Single(area => area.Value == CleanerArea.Shortcuts).IsSelected = false;
+        await vm.ApplyCommand.ExecuteAsync(null);
+
+        Assert.True(vm.HasCleanupReport);
+        Assert.Equal(6, vm.CategoryReports.Count);
+        Assert.Equal(3, vm.RemovedCount);
+        Assert.Equal(1, vm.ReportErrorCount);
+        Assert.Equal($"{1:N1} KB", vm.ReportSpace);
+        Assert.Equal(5, vm.CategoryReports.Sum(report => report.CompletedCount));
+        Assert.Equal(3, vm.CategoryReports.Sum(report => report.RemovedCount));
+        Assert.Equal(2, vm.CategoryReports.Single(report => report.Area == CleanerArea.Privacy).RemovedCount);
+        Assert.Equal(0, vm.CategoryReports.Single(report => report.Area == CleanerArea.Disk).RemovedCount);
+        Assert.Equal(384, vm.CategoryReports.Sum(report => report.RemovedRegistryBytes));
+        var empty = vm.CategoryReports.Single(report => report.Area == CleanerArea.Shortcuts);
+        Assert.Equal(0, empty.FoundCount);
+        Assert.Equal(0, empty.CompletedCount);
+        var junk = vm.CategoryReports.Single(report => report.Area == CleanerArea.JunkFiles);
+        Assert.Equal(1, junk.SelectedCount);
+        Assert.Equal(1, junk.FailedCount);
+        Assert.Equal(0, junk.EstimatedFreedFileBytes);
+        Assert.Equal("—", vm.CategoryReports.Single(report => report.Area == CleanerArea.Registry).FreedSize);
+        Assert.False(vm.ShowReviewItems);
+
+        var page = new CleanerResultsPage(vm) { RequestedTheme = ElementTheme.Dark };
+        var surface = new Grid { Background = new Microsoft.UI.Xaml.Media.SolidColorBrush(Windows.UI.Color.FromArgb(255, 32, 32, 32)), Padding = new Thickness(16) };
+        surface.Children.Add(page);
+        var window = new Window { Content = surface };
+        try
+        {
+            var loaded = new TaskCompletionSource();
+            page.Loaded += (_, _) => loaded.TrySetResult();
+            window.Activate();
+            await loaded.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            foreach (var width in new[] { 620, 1200 })
+            {
+                window.AppWindow.ResizeClient(new SizeInt32(width, 950));
+                await Task.Delay(200);
+                page.UpdateLayout();
+                Assert.Equal("3", Assert.IsType<TextBlock>(page.FindName("OutcomeCount")).Text);
+                Assert.False(Assert.IsType<Expander>(page.FindName("NoticeDetails")).IsExpanded);
+                Assert.Equal(Visibility.Collapsed, Assert.IsType<Border>(page.FindName("ActionBar")).Visibility);
+                await SavePreviewAsync(surface, $"cleaner-report-{language}-{width}.png");
+            }
+        }
+        finally { window.Close(); }
+    }
+
+    /// <summary>Captures the rendered native page for visual review in the standard test output.</summary>
+    private static async Task SavePreviewAsync(FrameworkElement surface, string fileName)
+    {
+        var bitmap = new RenderTargetBitmap();
+        await bitmap.RenderAsync(surface);
+        Assert.True(bitmap.PixelWidth > 0 && bitmap.PixelHeight > 0);
+        var outputDirectory = Path.Combine(AppContext.BaseDirectory, "previews");
+        Directory.CreateDirectory(outputDirectory);
+        await using var output = File.Create(Path.Combine(outputDirectory, fileName));
+        var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, output.AsRandomAccessStream());
+        encoder.SetPixelData(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied, (uint)bitmap.PixelWidth, (uint)bitmap.PixelHeight, 96, 96, (await bitmap.GetPixelsAsync()).ToArray());
+        await encoder.FlushAsync();
+    }
 
     [Fact]
     public void EventsCleanupLabelsRefreshWithLanguage()
@@ -274,6 +485,29 @@ public sealed class CleanerViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task RegistrySizesReachRowsGroupsSummaryAndCurrentSelection()
+    {
+        var first = Finding(CleanerArea.Registry) with { Bytes = 256 };
+        var second = Finding(CleanerArea.Registry) with { Bytes = 512 };
+        var diagnostic = Finding(CleanerArea.Registry, false) with { Bytes = 32 };
+        _localization.Setup(service => service.GetString("Cleaner_ScanComplete")).Returns("{0} results; {1}; {2} checks");
+        Results(first, second, diagnostic);
+        await _vm.ScanCommand.ExecuteAsync(null);
+        Assert.Equal("3 results; 800 B; 0 checks", _vm.Status);
+        Assert.Equal("256 B", _vm.Results[0].Size);
+        var group = Assert.Single(_vm.ResultGroups);
+        Assert.Equal("768 B", group.Size);
+        Assert.Equal("0 B", _vm.SelectedSize);
+        group.IsSelected = true;
+        Assert.Equal(2, _vm.SelectedCount);
+        Assert.Equal("768 B", _vm.SelectedSize);
+        _vm.Results[0].IsSelected = false;
+        Assert.Equal("512 B", _vm.SelectedSize);
+        _vm.ClearSelectionCommand.Execute(null);
+        Assert.Equal("0 B", _vm.SelectedSize);
+    }
+
+    [Fact]
     public async Task DashboardCounters_TrackSelectionAndResetForANewScan()
     {
         Results(Finding(CleanerArea.Privacy) with { Bytes = 1048576 },
@@ -338,7 +572,7 @@ public sealed class CleanerViewModelTests : IDisposable
         item.IsSelected.Should().BeFalse();
         _dialogs.Setup(dialog => dialog.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>())).ReturnsAsync(new ConfirmationResponse { Confirmed = true });
         _cleaner.Setup(cleaner => cleaner.ApplyAsync(It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<IProgress<CleanerProgress>>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new CleanerApplyResult(1, []));
+            .ReturnsAsync(new CleanerApplyResult(1, []) { Items = [new(available, null)] });
         await _vm.ApplyCommand.ExecuteAsync(null);
         _cleaner.Verify(cleaner => cleaner.ApplyAsync(It.Is<IReadOnlyCollection<Guid>>(ids => ids.Count == 1 && ids.Contains(available.Id)),
             It.IsAny<IProgress<CleanerProgress>>(), It.IsAny<CancellationToken>()), Times.Once);
@@ -352,7 +586,7 @@ public sealed class CleanerViewModelTests : IDisposable
         await _vm.ScanCommand.ExecuteAsync(null);
         var privacy = _vm.ResultGroups[0];
         var registry = _vm.ResultGroups[1];
-        var diagnostic = _vm.ResultGroups[2];
+        var diagnostic = _vm.Results[4];
         privacy.IsSelected.Should().BeTrue();
         registry.IsSelected.Should().BeFalse();
         diagnostic.CanClean.Should().BeFalse();
@@ -362,7 +596,7 @@ public sealed class CleanerViewModelTests : IDisposable
         privacy.IsSelected = true;
         privacy.IsSelected.Should().BeTrue();
         _vm.SelectedCount.Should().Be(2);
-        privacy.Items[2].IsSelected.Should().BeFalse();
+        _vm.Results[2].IsSelected.Should().BeFalse();
         privacy.IsSelected = false;
         _vm.SelectedCount.Should().Be(0);
         _vm.SelectedSize.Should().Be("0 B");
@@ -428,7 +662,7 @@ public sealed class CleanerViewModelTests : IDisposable
         _vm.ApplyCommand.CanExecute(null).Should().BeTrue();
         _dialogs.Setup(x => x.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>())).ReturnsAsync(new ConfirmationResponse { Confirmed = true });
         _cleaner.Setup(x => x.ApplyAsync(It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<IProgress<CleanerProgress>>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new CleanerApplyResult(2, []));
+            .ReturnsAsync(new CleanerApplyResult(2, []) { Items = [new(first, null), new(second, null)] });
         await _vm.ApplyCommand.ExecuteAsync(null);
         _cleaner.Verify(x => x.ApplyAsync(It.Is<IReadOnlyCollection<Guid>>(ids => ids.SequenceEqual(new[] { first.Id, second.Id })),
             It.IsAny<IProgress<CleanerProgress>>(), It.IsAny<CancellationToken>()), Times.Once);
@@ -524,10 +758,10 @@ public sealed class CleanerViewModelTests : IDisposable
         await scan;
         _vm.HasScanned.Should().BeTrue();
         _vm.HasResults.Should().BeFalse();
-        _vm.EmptyTitle.Should().Be("Cleaner_NoResults");
+        _vm.HasEmptyCategory.Should().BeTrue();
         _vm.HasNotices.Should().BeTrue();
         _vm.Notices.Should().Contain("Browser is open");
-        _vm.EmptyDescription.Should().Be("Cleaner_NoResultsDescription");
+        _vm.NoSelectableItemsLabel.Should().Be("Cleaner_NoSelectableResults");
         _vm.HasScanStatus.Should().BeFalse();
         reviewPublished.Should().BeTrue();
     }
@@ -947,10 +1181,170 @@ public sealed class CleanerViewModelTests : IDisposable
         Results(selected, omitted);
         await _vm.ScanCommand.ExecuteAsync(null);
         _dialogs.Setup(x => x.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>())).ReturnsAsync(new ConfirmationResponse { Confirmed = true });
-        _cleaner.Setup(x => x.ApplyAsync(It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<IProgress<CleanerProgress>>(), It.IsAny<CancellationToken>())).ReturnsAsync(new CleanerApplyResult(1, []));
+        _cleaner.Setup(x => x.ApplyAsync(It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<IProgress<CleanerProgress>>(), It.IsAny<CancellationToken>())).ReturnsAsync(new CleanerApplyResult(1, []) { Items = [new(selected, null)] });
         await _vm.ApplyCommand.ExecuteAsync(null);
         _cleaner.Verify(x => x.ApplyAsync(It.Is<IReadOnlyCollection<Guid>>(ids => ids.Count == 1 && ids.Contains(selected.Id)), It.IsAny<IProgress<CleanerProgress>>(), It.IsAny<CancellationToken>()), Times.Once);
         _vm.ApplyCommand.CanExecute(null).Should().BeFalse();
+    }
+
+    /// <summary>Exercises real scan/backup/apply ordering and the rendered outcome without touching Windows resources.</summary>
+    [Theory]
+    [InlineData("complete", 2, 0)]
+    [InlineData("partial", 1, 1)]
+    [InlineData("security", 1, 1)]
+    [InlineData("backup", 0, 2)]
+    [InlineData("cancelled", 0, 2)]
+    public async Task ResultsPage_ShowsCleanupOutcome_AndRescansCurrentEvidence(string outcome, int completed, int remainingCount)
+    {
+        var remaining = Enumerable.Range(0, 2).Select(index => Finding(CleanerArea.Registry) with
+        {
+            Bytes = 16,
+            Target = new CleanerRegistryTarget(@"HKEY_LOCAL_MACHINE\Software\Example", index.ToString(), "\"missing\"", 1, false, @"C:\missing")
+        }).ToList();
+        _backend.Setup(service => service.ScanAsync(CleanerArea.Registry, It.IsAny<CleanerOptions>(), It.IsAny<IProgress<CleanerProgress>>(), It.IsAny<CancellationToken>()))
+            .Returns(() => Task.FromResult(new CleanerScanResult(remaining.ToArray(), [@"HKEY_LOCAL_MACHINE\Software\Example: diagnostic details"])));
+        var fail = true;
+        var cleaned = 0;
+        var protectedId = remaining[0].Id;
+        _backend.Setup(service => service.CleanAsync(It.IsAny<CleanerFinding>(), It.IsAny<CleanerOptions>(), It.IsAny<CancellationToken>()))
+            .Callback<CleanerFinding, CleanerOptions, CancellationToken>((finding, _, _) =>
+            {
+                if (fail && outcome == "partial" && cleaned == 1) throw new IOException("Registry access denied.");
+                if (fail && outcome == "security" && finding.Id == protectedId)
+                    throw new System.Security.SecurityException("Requested registry access is not allowed.");
+                remaining.Remove(finding);
+                cleaned++;
+            }).Returns(Task.CompletedTask);
+        _backups.Setup(service => service.CreateAsync(It.IsAny<IReadOnlyList<CleanerFinding>>(), It.IsAny<CancellationToken>()))
+            .Returns(() =>
+            {
+                if (fail && outcome == "backup") throw new IOException("Backup verification failed. Nothing was deleted.");
+                if (fail && outcome == "cancelled") throw new OperationCanceledException();
+                return Task.FromResult(new CleanerBackupInfo(Guid.NewGuid(), DateTime.UtcNow, 0, remaining.Count));
+            });
+        _localization.Setup(service => service.GetString("Cleaner_ApplyComplete")).Returns("{0} operations completed, {1} errors. Run a new scan to refresh the results.");
+        _dialogs.Setup(service => service.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>())).ReturnsAsync(new ConfirmationResponse { Confirmed = true });
+        var tasks = new WinOptimizer.Infrastructure.Features.Common.Services.TaskProgressService(Mock.Of<ILogService>());
+        using var vm = new CleanerViewModel(new CleanerService(_backend.Object, _backups.Object), _settings, _localization.Object,
+            _dialogs.Object, tasks, Mock.Of<ILogService>(), _mode.Object, _preferences.Object);
+        await vm.InitializeAsync();
+        foreach (var area in vm.Areas) area.IsSelected = area.Value == CleanerArea.Registry;
+        await vm.ScanCommand.ExecuteAsync(null);
+        vm.SelectAllCommand.Execute(null);
+        Assert.Equal(2, vm.SelectedCount);
+        Assert.Equal("32 B", vm.SelectedSize);
+        Assert.True(vm.ApplyCommand.CanExecute(null));
+
+        var page = new CleanerResultsPage(vm);
+        var window = new Window { Content = page };
+        try
+        {
+            var loaded = new TaskCompletionSource();
+            page.Loaded += (_, _) => loaded.TrySetResult();
+            window.Activate();
+            await loaded.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var details = Assert.IsType<Expander>(page.FindName("NoticeDetails"));
+            Assert.False(details.IsExpanded);
+            Assert.Equal(Visibility.Visible, details.Visibility);
+            var categories = Assert.IsType<ItemsControl>(page.FindName("CategoryReportList"));
+            Assert.Equal(Visibility.Collapsed, categories.Visibility);
+            await vm.ApplyCommand.ExecuteAsync(null);
+            page.UpdateLayout();
+            Assert.Equal(Visibility.Visible, categories.Visibility);
+
+            Assert.Equal(completed, cleaned);
+            Assert.Equal(remainingCount, remaining.Count);
+            Assert.True(vm.RequiresRescan);
+            Assert.False(details.IsExpanded);
+            Assert.False(vm.CanSelectResults);
+            Assert.False(Assert.IsType<Button>(page.FindName("ApplyAction")).IsEnabled);
+            var rescan = Assert.IsType<Button>(page.FindName("RescanAction"));
+            Assert.Same(vm.ScanCommand, rescan.Command);
+            Assert.True(rescan.IsEnabled);
+            var status = Assert.IsType<TextBlock>(page.FindName("StatusText"));
+            Assert.Equal(vm.Status, status.Text);
+            Assert.Equal(Visibility.Collapsed, status.Visibility);
+            Assert.True(vm.HasCleanupReport);
+            Assert.Equal(completed, vm.RemovedCount);
+            Assert.Equal("—", vm.ReportSpace);
+            var category = Assert.Single(vm.CategoryReports);
+            Assert.Equal(CleanerArea.Registry, category.Area);
+            Assert.Equal(2, category.FoundCount);
+            Assert.Equal(2, category.SelectedCount);
+            Assert.Equal(completed, category.CompletedCount);
+            Assert.Equal(completed * 16, category.RemovedRegistryBytes);
+            Assert.Equal(outcome is "partial" or "security" ? 1 : 0, category.FailedCount);
+            Assert.Equal(outcome is "backup" or "cancelled" ? 2 : 0, category.UnprocessedCount);
+            Assert.Equal(vm.ReportState, Assert.IsType<TextBlock>(page.FindName("ReportStatus")).Text);
+            Assert.Equal(completed.ToString(), Assert.IsType<TextBlock>(page.FindName("OutcomeCount")).Text);
+            Assert.Equal(Visibility.Collapsed, Assert.IsType<Border>(page.FindName("ActionBar")).Visibility);
+            Assert.True(vm.HasReportDetails);
+            details.IsExpanded = true;
+            page.UpdateLayout();
+            var notices = Assert.IsType<TextBlock>(page.FindName("NoticesText"));
+            if (outcome == "partial") Assert.Contains("Registry access denied.", notices.Text);
+            if (outcome == "security") Assert.Contains("Requested registry access is not allowed.", notices.Text);
+            if (outcome == "backup") Assert.Contains("Backup verification failed. Nothing was deleted.", status.Text);
+            if (outcome == "cancelled") Assert.Equal("Cleaner_Cancelled", status.Text);
+            if (outcome is "partial" or "complete" or "security") Assert.StartsWith($"{completed} operations completed", status.Text);
+            Assert.Contains(@"HKEY_LOCAL_MACHINE\Software\Example: diagnostic details", notices.Text);
+            if (outcome == "backup") Assert.Contains("Backup verification failed. Nothing was deleted.", notices.Text);
+            if (outcome != "cancelled") Assert.Contains(tasks.GetTerminalOutputLines(), line => line.Contains(status.Text, StringComparison.Ordinal));
+            if (outcome == "partial") Assert.Contains(tasks.GetTerminalOutputLines(), line => line.Contains("Registry access denied.", StringComparison.Ordinal));
+
+            fail = false;
+            await vm.ScanCommand.ExecuteAsync(null);
+            Assert.Equal(remainingCount, vm.ResultCount);
+            Assert.False(vm.RequiresRescan);
+            Assert.False(details.IsExpanded);
+            if (remainingCount > 0)
+            {
+                vm.SelectAllCommand.Execute(null);
+                Assert.True(vm.ApplyCommand.CanExecute(null));
+                await vm.ApplyCommand.ExecuteAsync(null);
+                await vm.ScanCommand.ExecuteAsync(null);
+            }
+            page.UpdateLayout();
+            Assert.Empty(remaining);
+            Assert.Empty(vm.Results);
+            Assert.True(vm.HasEmptyResults);
+            Assert.Equal(Visibility.Visible, Assert.IsType<Border>(page.FindName("EmptyResults")).Visibility);
+        }
+        finally { window.Close(); }
+    }
+
+    /// <summary>A failed refresh keeps its error and scan action visible instead of showing a blank review.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ResultsPage_FailedRescanRemainsVisibleAndCanRecover(bool cancelled)
+    {
+        Results(Finding(CleanerArea.Privacy));
+        await _vm.ScanCommand.ExecuteAsync(null);
+        var page = new CleanerResultsPage(_vm);
+        var window = new Window { Content = page };
+        try
+        {
+            var loaded = new TaskCompletionSource();
+            page.Loaded += (_, _) => loaded.TrySetResult();
+            window.Activate();
+            await loaded.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            _cleaner.Setup(service => service.ScanAsync(It.IsAny<CleanerOptions>(), It.IsAny<IReadOnlyCollection<CleanerArea>>(), It.IsAny<IProgress<CleanerProgress>>(), It.IsAny<CancellationToken>()))
+                .ThrowsAsync(cancelled ? new OperationCanceledException() : new IOException("Scan failed."));
+            await _vm.ScanCommand.ExecuteAsync(null);
+            page.UpdateLayout();
+            Assert.Equal(Visibility.Visible, Assert.IsType<Grid>(page.FindName("LayoutRoot")).Visibility);
+            var status = Assert.IsType<TextBlock>(page.FindName("StatusText"));
+            Assert.Equal(cancelled ? "Cleaner_Cancelled" : "Scan failed.", status.Text);
+            Assert.Equal(Visibility.Visible, status.Visibility);
+            Assert.Equal(Visibility.Collapsed, Assert.IsType<Border>(page.FindName("EmptyResults")).Visibility);
+            Assert.True(Assert.IsType<Button>(page.FindName("RescanAction")).IsEnabled);
+            Results(Finding(CleanerArea.Privacy));
+            await _vm.ScanCommand.ExecuteAsync(null);
+            Assert.Single(_vm.Results);
+            Assert.True(_vm.CanSelectResults);
+        }
+        finally { window.Close(); }
     }
     [Fact]
     public async Task EditingSettings_InvalidatesPreviouslyScannedSelection()

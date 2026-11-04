@@ -13,6 +13,7 @@ public sealed class EnvironmentEditorViewModelTests
 {
     private readonly Mock<IEnvironmentEditorService> _service = new();
     private readonly Mock<IApplicationModeService> _mode = new();
+    private readonly Mock<IDialogService> _dialogs = new();
     private readonly EnvironmentVariableEntry _original = new("Path", @";%USERPROFILE%\bin;;C:\Tools;C:\Tools;", true);
 
     private EnvironmentEditorViewModel Create()
@@ -20,7 +21,7 @@ public sealed class EnvironmentEditorViewModelTests
         _service.Setup(service => service.ReadAsync(EnvironmentScope.User)).ReturnsAsync([_original]);
         var localization = new Mock<ILocalizationService>();
         localization.Setup(service => service.GetString(It.IsAny<string>())).Returns((string key) => key);
-        var vm = new EnvironmentEditorViewModel(_service.Object, new Mock<IDialogService>().Object,
+        var vm = new EnvironmentEditorViewModel(_service.Object, _dialogs.Object,
             localization.Object, _mode.Object, new ExtensionTestDispatcher(), new Mock<ITaskProgressService>().Object);
         return vm;
     }
@@ -40,6 +41,41 @@ public sealed class EnvironmentEditorViewModelTests
         Assert.Equal(_original.Value.Split(';'), vm.PathEntries.Select(entry => entry.Value));
         _service.Verify(service => service.SaveAsync(It.IsAny<EnvironmentScope>(), It.IsAny<EnvironmentVariableEntry>(),
             It.IsAny<EnvironmentVariableEntry>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task RefreshAndScopeChangesRequireConsentBeforeDiscardingADraft(bool changeScope, bool consent)
+    {
+        using var vm = Create(); await vm.LoadAsync();
+        vm.SelectedVariable = _original; vm.VariableValue = "Unsaved PATH";
+        _dialogs.Setup(dialog => dialog.ShowConfirmationAsync(It.IsAny<WinOptimizer.Core.Features.Common.Models.ConfirmationRequest>()))
+            .ReturnsAsync(new WinOptimizer.Core.Features.Common.Models.ConfirmationResponse { Confirmed = consent });
+        _service.Setup(service => service.ReadAsync(EnvironmentScope.System)).ReturnsAsync([]);
+        if (changeScope) { vm.ScopeIndex = 1; await vm.PendingScopeChange; }
+        else await vm.RefreshCommand.ExecuteAsync(null);
+        Assert.Equal(consent && changeScope ? 1 : 0, vm.ScopeIndex);
+        Assert.Equal(!consent, vm.HasChanges);
+        Assert.Equal(consent ? "" : "Unsaved PATH", vm.VariableValue);
+        if (!consent) Assert.Same(_original, vm.SelectedVariable);
+        _service.Verify(service => service.ReadAsync(EnvironmentScope.System), changeScope && consent ? Times.Once : Times.Never);
+        _dialogs.Verify(dialog => dialog.ShowConfirmationAsync(It.IsAny<WinOptimizer.Core.Features.Common.Models.ConfirmationRequest>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task FailedScopeReadRetainsTheOriginalScopeAndDraft()
+    {
+        using var vm = Create(); await vm.LoadAsync();
+        vm.SelectedVariable = _original; vm.VariableValue = "Unsaved PATH";
+        _dialogs.Setup(dialog => dialog.ShowConfirmationAsync(It.IsAny<WinOptimizer.Core.Features.Common.Models.ConfirmationRequest>()))
+            .ReturnsAsync(new WinOptimizer.Core.Features.Common.Models.ConfirmationResponse { Confirmed = true });
+        _service.Setup(service => service.ReadAsync(EnvironmentScope.System)).ThrowsAsync(new IOException("Read denied"));
+        vm.ScopeIndex = 1; await vm.PendingScopeChange;
+        Assert.Equal(0, vm.ScopeIndex); Assert.Equal("Unsaved PATH", vm.VariableValue);
+        Assert.Same(_original, vm.SelectedVariable); Assert.True(vm.IsError);
     }
 
     [Fact]

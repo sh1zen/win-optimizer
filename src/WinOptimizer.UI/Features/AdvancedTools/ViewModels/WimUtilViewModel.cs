@@ -137,6 +137,9 @@ public partial class WimUtilViewModel : ObservableObject, IDisposable
         Step2.PropertyChanged += OnSubViewModelPropertyChanged;
         Step3.PropertyChanged += OnSubViewModelPropertyChanged;
         Step4.PropertyChanged += OnSubViewModelPropertyChanged;
+        Step2.MediaContentChanging += OnMediaContentChanging;
+        Step3.MediaContentChanging += OnMediaContentChanging;
+        ImageFormat.MediaContentChanging += OnMediaContentChanging;
 
         // Propagate Step1's initial WorkingDirectory to sub-VMs.
         // The constructor assignment above fires before subscriptions,
@@ -313,6 +316,12 @@ public partial class WimUtilViewModel : ObservableObject, IDisposable
 
     // ── Sub-VM observation ───────────────────────────────────────────
 
+    private void OnMediaContentChanging(string directory)
+    {
+        if (string.Equals(directory, Step1.WorkingDirectory, StringComparison.OrdinalIgnoreCase))
+            Step4.ResetForMediaChange();
+    }
+
     private void OnSubViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         // Propagate working directory to sub-VMs that need it
@@ -332,6 +341,12 @@ public partial class WimUtilViewModel : ObservableObject, IDisposable
                     if (Step1.IsExtractionComplete)
                     {
                         _ = ImageFormat.SafeDetectImageFormatAsync();
+                    }
+                    else
+                    {
+                        Step2.ResetForMediaChange();
+                        Step3.ResetForMediaChange();
+                        Step4.ResetForMediaChange();
                     }
                     RefreshStepExpansion();
                     break;
@@ -390,6 +405,9 @@ public partial class WimUtilViewModel : ObservableObject, IDisposable
         Step2.PropertyChanged -= OnSubViewModelPropertyChanged;
         Step3.PropertyChanged -= OnSubViewModelPropertyChanged;
         Step4.PropertyChanged -= OnSubViewModelPropertyChanged;
+        Step2.MediaContentChanging -= OnMediaContentChanging;
+        Step3.MediaContentChanging -= OnMediaContentChanging;
+        ImageFormat.MediaContentChanging -= OnMediaContentChanging;
 
         // Dispose sub-VMs that implement IDisposable
         (Step3 as IDisposable)?.Dispose();

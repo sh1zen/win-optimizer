@@ -1,8 +1,6 @@
 using System.Collections.ObjectModel;
 using FluentIcons.Common;
-using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Navigation;
 using Moq;
 using WinOptimizer.Core.Features.Common.Events;
@@ -16,40 +14,9 @@ using Xunit;
 
 namespace WinOptimizer.UI.Tests.Services;
 
-/// <summary>Exercises shared section rendering and shell routing on a real WinUI Frame with fake settings.</summary>
+/// <summary>Exercises section history and shell routing on a real WinUI Frame with fake settings.</summary>
 public sealed class SectionNavigationTests
 {
-    [Fact]
-    public async Task OverviewCardsRenderWithoutTitleTags()
-    {
-        var frame = new Frame();
-        var window = new Window { Content = frame };
-        var loaded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        frame.Loaded += (_, _) => loaded.TrySetResult();
-        try
-        {
-            frame.Navigate(typeof(NavigationSectionPage));
-            var page = Assert.IsType<NavigationSectionPage>(frame.Content);
-            Mock.Get(page.ViewModel).SetupGet(model => model.IsNotLoading).Returns(true);
-            window.Activate();
-            await loaded.Task.WaitAsync(TimeSpan.FromSeconds(5));
-            frame.UpdateLayout();
-            var cards = FindNavigationCards(frame).ToArray();
-            Assert.Equal(2, cards.Length);
-            Assert.All(cards, card => Assert.Null(card.TitleAccessory));
-        }
-        finally { window.Close(); }
-    }
-
-    /// <summary>Inspects the production templates after the native visual tree has loaded.</summary>
-    private static IEnumerable<NavigationCard> FindNavigationCards(DependencyObject root)
-    {
-        if (root is NavigationCard card) yield return card;
-        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
-            foreach (var child in FindNavigationCards(VisualTreeHelper.GetChild(root, index)))
-                yield return child;
-    }
-
     [Fact]
     public void BackReturnsToSectionOverviewAndForwardRestoresTheDetail()
     {

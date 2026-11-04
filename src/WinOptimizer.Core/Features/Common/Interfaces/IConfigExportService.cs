@@ -5,6 +5,7 @@ namespace WinOptimizer.Core.Features.Common.Interfaces;
 public interface IConfigExportService
 {
     Task ExportConfigurationAsync();
+    /// <summary>Completes after writing the backup; discovery and write failures propagate to the caller.</summary>
     Task CreateUserBackupConfigAsync();
     Task<Models.UnifiedConfigurationFile> CreateConfigurationFromSystemAsync(bool isBackup = false);
 

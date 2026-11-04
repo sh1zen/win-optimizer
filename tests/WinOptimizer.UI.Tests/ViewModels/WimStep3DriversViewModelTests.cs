@@ -22,6 +22,7 @@ public class WimStep3DriversViewModelTests : IDisposable
     private readonly Mock<IResourceService> _mockResourceService = new();
 
     private readonly WimStep3DriversViewModel _sut;
+    private CancellationTokenSource? _currentTask;
 
     public WimStep3DriversViewModelTests()
     {
@@ -30,17 +31,13 @@ public class WimStep3DriversViewModelTests : IDisposable
             .Returns((string key) => key);
 
         _mockTaskProgressService
-            .Setup(t => t.StartTask(It.IsAny<string>(), It.IsAny<bool>()))
-            .Returns(new CancellationTokenSource());
-
-        _mockTaskProgressService
-            .Setup(t => t.CurrentTaskCancellationSource)
-            .Returns(new CancellationTokenSource());
-
-        _mockTaskProgressService
             .Setup(t => t.CreatePowerShellProgress())
             .Returns(new Progress<TaskProgressDetail>());
 
+        _mockTaskProgressService.Setup(service => service.StartTask(It.IsAny<string>(), It.IsAny<bool>()))
+            .Returns(() => _currentTask = new CancellationTokenSource());
+        _mockTaskProgressService.SetupGet(service => service.CurrentTaskCancellationSource).Returns(() => _currentTask);
+        _mockTaskProgressService.Setup(service => service.CompleteTask()).Callback(() => { _currentTask?.Dispose(); _currentTask = null; });
         _sut = new WimStep3DriversViewModel(
             _mockWimCustomizationService.Object,
             _mockTaskProgressService.Object,
@@ -55,6 +52,7 @@ public class WimStep3DriversViewModelTests : IDisposable
     public void Dispose()
     {
         _sut.Dispose();
+        _currentTask?.Dispose();
     }
 
     [Fact]

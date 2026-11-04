@@ -20,7 +20,7 @@ public sealed class AppUninstallWorkflowTests
     private readonly Mock<IApplicationModeService> _mode = new();
     private readonly List<string> _events = [];
     private readonly ItemDefinition[] _apps = [new() { Id = "one", Name = "One", Description = "First" }, new() { Id = "two", Name = "Two", Description = "Second" }];
-    private readonly UninstallResidueScan _scan = new([], [new("one", "One", UninstallVerificationState.Removed, "Verified")], [] , 3);
+    private readonly AppUninstallResult _verification = new([new("one", "One", UninstallVerificationState.Removed, "Verified")], []);
     private readonly AppUninstallWorkflow _sut;
 
     public AppUninstallWorkflowTests()
@@ -29,10 +29,10 @@ public sealed class AppUninstallWorkflowTests
         _tasks.Setup(tasks => tasks.StartTask(It.IsAny<string>(), true)).Returns(() => new CancellationTokenSource());
         _residues.Setup(service => service.CaptureAsync(It.IsAny<IReadOnlyList<ItemDefinition>>(), It.IsAny<IProgress<UninstallResidueProgress>>(), It.IsAny<CancellationToken>()))
             .Callback(() => _events.Add("capture")).ReturnsAsync(_session.Object);
-        _session.Setup(session => session.InspectAsync(It.IsAny<IReadOnlyList<UninstallNativeOutcome>>(), It.IsAny<IProgress<UninstallResidueProgress>>(), It.IsAny<CancellationToken>()))
-            .Callback(() => _events.Add("inspect")).ReturnsAsync(_scan);
+        _session.Setup(session => session.VerifyAsync(It.IsAny<IReadOnlyList<UninstallNativeOutcome>>(), It.IsAny<IProgress<UninstallResidueProgress>>(), It.IsAny<CancellationToken>()))
+            .Callback(() => _events.Add("verify")).ReturnsAsync(_verification);
         _session.Setup(session => session.DisposeAsync()).Callback(() => _events.Add("dispose")).Returns(ValueTask.CompletedTask);
-        _review.Setup(review => review.ShowAsync(_session.Object, _scan, It.IsAny<CancellationToken>()))
+        _review.Setup(review => review.ShowAsync(_session.Object, _verification, It.IsAny<CancellationToken>()))
             .Callback(() => _events.Add("review")).ReturnsAsync(UninstallReviewDisposition.Completed);
         var text = new Mock<ILocalizationService>(); text.Setup(text => text.GetString(It.IsAny<string>())).Returns((string key) => key);
         _sut = new(_residues.Object, _review.Object, _windows.Object, _external.Object, _tasks.Object, _mode.Object, text.Object);
@@ -48,17 +48,18 @@ public sealed class AppUninstallWorkflowTests
         var pending = _sut.UninstallAsync(_apps, AppUninstallKind.External, refreshInventory: result =>
         {
             published = result;
-            Assert.Same(_scan.Applications, result.Applications);
-            Assert.Same(_scan.Notices, result.Notices);
+            Assert.Same(_verification.Applications, result.Applications);
+            Assert.Same(_verification.Notices, result.Notices);
             _events.Add("refresh");
             return refreshed.Task;
         });
-        Assert.Equal(new[] { "reserve", "capture", "inspect", "refresh" }, _events);
+        Assert.Equal(new[] { "reserve", "capture", "verify", "refresh" }, _events);
         Assert.False(pending.IsCompleted);
-        _review.Verify(review => review.ShowAsync(It.IsAny<IUninstallResidueSession>(), It.IsAny<UninstallResidueScan>(), It.IsAny<CancellationToken>()), Times.Never);
+        _review.Verify(review => review.ShowAsync(It.IsAny<IUninstallResidueSession>(), It.IsAny<AppUninstallResult>(), It.IsAny<CancellationToken>()), Times.Never);
         refreshed.SetResult();
         Assert.Same(published, await pending);
-        Assert.Equal(new[] { "reserve", "capture", "inspect", "refresh", "review", "release", "dispose" }, _events);
+        Assert.Equal(new[] { "reserve", "capture", "verify", "refresh", "review", "release", "dispose" }, _events);
+        _session.Verify(session => session.ScanAsync(It.IsAny<IProgress<UninstallResidueProgress>>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -68,9 +69,9 @@ public sealed class AppUninstallWorkflowTests
         _windows.Setup(service => service.UninstallAppsWithOutcomesAsync(It.IsAny<List<ItemDefinition>>(), false))
             .Callback(() => _events.Add("native")).ReturnsAsync(OperationResult<IReadOnlyList<UninstallNativeOutcome>>.Succeeded(native));
         var result = await _sut.UninstallAsync(_apps, AppUninstallKind.Windows, false);
-        Assert.Equal(new[] { "reserve", "capture", "native", "inspect", "review", "release", "dispose" }, _events);
-        Assert.Same(_scan.Applications, result.Applications);
-        _session.Verify(session => session.InspectAsync(It.Is<IReadOnlyList<UninstallNativeOutcome>>(outcomes => outcomes.SequenceEqual(native)),
+        Assert.Equal(new[] { "reserve", "capture", "native", "verify", "review", "release", "dispose" }, _events);
+        Assert.Same(_verification.Applications, result.Applications);
+        _session.Verify(session => session.VerifyAsync(It.Is<IReadOnlyList<UninstallNativeOutcome>>(outcomes => outcomes.SequenceEqual(native)),
             It.IsAny<IProgress<UninstallResidueProgress>>(), It.IsAny<CancellationToken>()), Times.Once);
         _tasks.Verify(tasks => tasks.CompleteTask(), Times.Exactly(2));
     }
@@ -83,7 +84,7 @@ public sealed class AppUninstallWorkflowTests
         await _sut.UninstallAsync(_apps, AppUninstallKind.External);
         _tasks.Verify(tasks => tasks.UpdateDetailedProgress(It.Is<TaskProgressDetail>(detail => detail.QueueTotal == 2 && detail.QueueCurrent == 1 && detail.QueueNextItemName == "Two")), Times.Once);
         _tasks.Verify(tasks => tasks.UpdateDetailedProgress(It.Is<TaskProgressDetail>(detail => detail.QueueTotal == 2 && detail.QueueCurrent == 2 && detail.QueueNextItemName == null)), Times.Once);
-        _session.Verify(session => session.InspectAsync(It.Is<IReadOnlyList<UninstallNativeOutcome>>(outcomes =>
+        _session.Verify(session => session.VerifyAsync(It.Is<IReadOnlyList<UninstallNativeOutcome>>(outcomes =>
             outcomes.Count == 2 && !outcomes[0].Success && outcomes[0].Message == "Native failure" && outcomes[1].Success && outcomes[1].Deferred),
             It.IsAny<IProgress<UninstallResidueProgress>>(), It.IsAny<CancellationToken>()), Times.Once);
     }
@@ -94,7 +95,7 @@ public sealed class AppUninstallWorkflowTests
         _tasks.Setup(tasks => tasks.ConsumeSkipNextRequest()).Returns(true);
         await _sut.UninstallAsync(_apps, AppUninstallKind.External);
         _external.Verify(service => service.UninstallAppAsync(It.IsAny<ItemDefinition>(), It.IsAny<IProgress<TaskProgressDetail>>()), Times.Never);
-        _session.Verify(session => session.InspectAsync(It.Is<IReadOnlyList<UninstallNativeOutcome>>(outcomes => outcomes.All(outcome => !outcome.Success)),
+        _session.Verify(session => session.VerifyAsync(It.Is<IReadOnlyList<UninstallNativeOutcome>>(outcomes => outcomes.All(outcome => !outcome.Success)),
             It.IsAny<IProgress<UninstallResidueProgress>>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
@@ -102,7 +103,7 @@ public sealed class AppUninstallWorkflowTests
     public async Task DeferredReviewOwnsSessionUntilConfigurationOverlayHasClosed()
     {
         _tasks.Setup(tasks => tasks.ConsumeSkipNextRequest()).Returns(true);
-        _review.Setup(review => review.ShowAsync(_session.Object, _scan, It.IsAny<CancellationToken>())).ReturnsAsync(UninstallReviewDisposition.Deferred);
+        _review.Setup(review => review.ShowAsync(_session.Object, _verification, It.IsAny<CancellationToken>())).ReturnsAsync(UninstallReviewDisposition.Deferred);
         await _sut.UninstallAsync(_apps, AppUninstallKind.External);
         _session.Verify(session => session.DisposeAsync(), Times.Never);
     }
@@ -116,7 +117,7 @@ public sealed class AppUninstallWorkflowTests
             .ThrowsAsync(cancellation ? new OperationCanceledException() : new IOException("Native launch error"));
         await Assert.ThrowsAnyAsync<Exception>(() => _sut.UninstallAsync(_apps, AppUninstallKind.External));
         _session.Verify(session => session.DisposeAsync(), Times.Once);
-        _review.Verify(review => review.ShowAsync(It.IsAny<IUninstallResidueSession>(), It.IsAny<UninstallResidueScan>(), It.IsAny<CancellationToken>()), Times.Never);
+        _review.Verify(review => review.ShowAsync(It.IsAny<IUninstallResidueSession>(), It.IsAny<AppUninstallResult>(), It.IsAny<CancellationToken>()), Times.Never);
         Assert.Contains("release", _events);
         _tasks.Verify(tasks => tasks.CompleteTask(), Times.Exactly(2));
     }

@@ -1,9 +1,7 @@
 using System;
 using System.Globalization;
-using System.Management;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Win32;
 using WinOptimizer.Core.Features.Common.Enums;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Models;
@@ -11,33 +9,25 @@ using WinOptimizer.Core.Features.Common.Native;
 
 namespace WinOptimizer.Infrastructure.Features.Common.Services;
 
+/// <summary>Coordinates cancellable restore-point preparation and verifies native creation.</summary>
 public class SystemBackupService : ISystemBackupService
 {
     private readonly ILogService _logService;
     private readonly ILocalizationService _localization;
-    private readonly IProcessExecutor _processExecutor;
-    private readonly ISystemRestoreService _systemRestoreService;
+    private readonly ISystemBackupBackend _backend;
+    private readonly TimeProvider _clock;
 
     private const int VerificationMaxRetries = 10;
     private static readonly TimeSpan VerificationRetryDelay = TimeSpan.FromSeconds(3);
 
-    /// <summary>
-    /// Minimum percentage of shadow storage that must be free to create a restore point.
-    /// If free space drops below this threshold, the max size is doubled.
-    /// </summary>
-    private const double MinFreeStoragePercent = 15.0;
+    public SystemBackupService(ILogService logService, ILocalizationService localization,
+        IProcessExecutor processExecutor, ISystemRestoreService systemRestoreService)
+        : this(logService, localization, new WindowsSystemBackupBackend(logService, processExecutor, systemRestoreService), TimeProvider.System) { }
 
-    public SystemBackupService(
-        ILogService logService,
-        ILocalizationService localization,
-        IProcessExecutor processExecutor,
-        ISystemRestoreService systemRestoreService)
-    {
-        _logService = logService;
-        _localization = localization;
-        _processExecutor = processExecutor;
-        _systemRestoreService = systemRestoreService;
-    }
+    /// <summary>Supplies native operations and time explicitly so cancellation can be tested without Windows mutations.</summary>
+    internal SystemBackupService(ILogService logService, ILocalizationService localization,
+        ISystemBackupBackend backend, TimeProvider clock)
+    { _logService = logService; _localization = localization; _backend = backend; _clock = clock; }
 
     public async Task<BackupResult> CreateRestorePointAsync(
         string? name = null,
@@ -46,6 +36,7 @@ public class SystemBackupService : ISystemBackupService
     {
         try
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var restorePointName = name
                 ?? $"win-optimizer Restore Point - {DateTime.Now.ToString("yyyy-MM-dd HH:mm", CultureInfo.InvariantCulture)}";
 
@@ -58,7 +49,9 @@ public class SystemBackupService : ISystemBackupService
                 IsIndeterminate = true
             });
 
-            var isEnabled = _systemRestoreService.IsEnabledForC();
+            cancellationToken.ThrowIfCancellationRequested();
+            var isEnabled = _backend.IsEnabled();
+            cancellationToken.ThrowIfCancellationRequested();
             if (!isEnabled)
             {
                 _logService.Log(LogLevel.Warning, "System Restore is currently disabled, enabling...");
@@ -69,7 +62,9 @@ public class SystemBackupService : ISystemBackupService
                     IsIndeterminate = true
                 });
 
-                var enabled = await EnableSystemRestoreAsync().ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
+                var enabled = await _backend.EnableAsync(cancellationToken).ConfigureAwait(false);
+                cancellationToken.ThrowIfCancellationRequested();
                 if (!enabled)
                 {
                     _logService.Log(LogLevel.Error, "Failed to enable System Restore");
@@ -81,7 +76,9 @@ public class SystemBackupService : ISystemBackupService
             }
 
             // Ensure shadow storage has enough free space
-            await EnsureSufficientShadowStorageAsync().ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            await _backend.EnsureStorageAsync(cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
 
             // Create the restore point
             progress?.Report(new TaskProgressDetail
@@ -90,7 +87,9 @@ public class SystemBackupService : ISystemBackupService
                 IsIndeterminate = true
             });
 
-            var (apiSuccess, statusCode) = await CreateRestorePointNativeAsync(restorePointName).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            var (apiSuccess, statusCode) = await _backend.CreateAsync(restorePointName, cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
 
             if (!apiSuccess)
             {
@@ -123,6 +122,7 @@ public class SystemBackupService : ISystemBackupService
                 return BackupResult.CreateFailure("System restore point creation could not be verified");
             }
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
         catch (Exception ex)
         {
             _logService.Log(LogLevel.Error, $"Error creating restore point: {ex.Message}");
@@ -136,9 +136,10 @@ public class SystemBackupService : ISystemBackupService
         {
             cancellationToken.ThrowIfCancellationRequested();
 
-            await Task.Delay(VerificationRetryDelay, cancellationToken).ConfigureAwait(false);
+            await Task.Delay(VerificationRetryDelay, _clock, cancellationToken).ConfigureAwait(false);
 
-            var found = await FindRestorePointAsync(description).ConfigureAwait(false);
+            var found = await _backend.FindAsync(description, cancellationToken).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
             if (found != null)
             {
                 _logService.Log(LogLevel.Info, $"Restore point verified on attempt {attempt}/{VerificationMaxRetries}");
@@ -151,284 +152,4 @@ public class SystemBackupService : ISystemBackupService
         return null;
     }
 
-    private async Task<DateTime?> FindRestorePointAsync(string description)
-    {
-        return await Task.Run(() =>
-        {
-            try
-            {
-                _logService.Log(LogLevel.Info, $"Querying for restore point: '{description}'");
-
-                var escapedDescription = description.Replace("'", "\\'");
-                using var searcher = new ManagementObjectSearcher(
-                    @"root\default",
-                    $"SELECT * FROM SystemRestore WHERE Description = '{escapedDescription}'");
-                using var results = searcher.Get();
-
-                foreach (ManagementObject obj in results)
-                {
-                    using (obj)
-                    {
-                        _logService.Log(LogLevel.Info, $"Found existing restore point: '{description}'");
-
-                        var creationTimeStr = obj["CreationTime"]?.ToString();
-                        if (creationTimeStr != null)
-                        {
-                            return (DateTime?)ManagementDateTimeConverter.ToDateTime(creationTimeStr);
-                        }
-                        return (DateTime?)DateTime.Now;
-                    }
-                }
-
-                _logService.Log(LogLevel.Info, $"No restore point found with description: '{description}'");
-                return (DateTime?)null;
-            }
-            catch (Exception ex)
-            {
-                _logService.Log(LogLevel.Error, $"Error querying restore point: {ex.Message}");
-                return (DateTime?)null;
-            }
-        }).ConfigureAwait(false);
-    }
-
-    private async Task<(bool Success, int StatusCode)> CreateRestorePointNativeAsync(string description)
-    {
-        return await Task.Run(() =>
-        {
-            try
-            {
-                // Windows throttles restore point creation to once per 24 hours by default.
-                // SRSetRestorePointW silently returns success without creating a restore point
-                // if one was already created within the frequency window.
-                // Temporarily set the frequency to 0 (no limit) so our call always creates one.
-                DisableRestorePointFrequencyThrottle(out var previousValue);
-
-                try
-                {
-                    var restorePointInfo = new SrClientApi.RESTOREPOINTINFO
-                    {
-                        dwEventType = SrClientApi.BEGIN_SYSTEM_CHANGE,
-                        dwRestorePtType = SrClientApi.MODIFY_SETTINGS,
-                        llSequenceNumber = 0,
-                        szDescription = description
-                    };
-
-                    var success = SrClientApi.SRSetRestorePointW(ref restorePointInfo, out var status);
-                    if (!success)
-                    {
-                        _logService.Log(LogLevel.Error, $"Failed to create restore point. Status: {status.nStatus} ({SrClientApi.GetStatusDescription(status.nStatus)})");
-                    }
-                    return (success, status.nStatus);
-                }
-                finally
-                {
-                    RestoreRestorePointFrequencyThrottle(previousValue);
-                }
-            }
-            catch (Exception ex)
-            {
-                _logService.Log(LogLevel.Error, $"Failed to create restore point: {ex.Message}");
-                return (false, -1);
-            }
-        }).ConfigureAwait(false);
-    }
-
-    private const string SystemRestoreKeyPath = @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\SystemRestore";
-    private const string FrequencyValueName = "SystemRestorePointCreationFrequency";
-
-    private void DisableRestorePointFrequencyThrottle(out int? previousValue)
-    {
-        previousValue = null;
-        try
-        {
-            using var key = Registry.LocalMachine.OpenSubKey(SystemRestoreKeyPath, writable: true);
-            if (key == null) return;
-
-            var existing = key.GetValue(FrequencyValueName);
-            if (existing is int intVal)
-            {
-                previousValue = intVal;
-                if (intVal == 0) return; // Already disabled
-            }
-
-            key.SetValue(FrequencyValueName, 0, RegistryValueKind.DWord);
-            _logService.Log(LogLevel.Info, "Temporarily disabled restore point creation frequency throttle");
-        }
-        catch (Exception ex)
-        {
-            _logService.Log(LogLevel.Warning, $"Could not disable restore point frequency throttle: {ex.Message}");
-        }
-    }
-
-    private void RestoreRestorePointFrequencyThrottle(int? previousValue)
-    {
-        try
-        {
-            using var key = Registry.LocalMachine.OpenSubKey(SystemRestoreKeyPath, writable: true);
-            if (key == null) return;
-
-            if (previousValue.HasValue)
-            {
-                key.SetValue(FrequencyValueName, previousValue.Value, RegistryValueKind.DWord);
-            }
-            else
-            {
-                key.DeleteValue(FrequencyValueName, throwOnMissingValue: false);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logService.Log(LogLevel.Warning, $"Could not restore frequency throttle value: {ex.Message}");
-        }
-    }
-
-    /// <summary>
-    /// Checks shadow storage usage and increases MaxSize if free space is below threshold.
-    /// </summary>
-    private async Task EnsureSufficientShadowStorageAsync()
-    {
-        try
-        {
-            var systemDrive = Environment.GetEnvironmentVariable("SystemDrive") ?? "C:";
-
-            var result = await _processExecutor.ExecuteAsync(
-                "vssadmin",
-                $"list shadowstorage /For={systemDrive}\\").ConfigureAwait(false);
-
-            if (result.ExitCode != 0 || string.IsNullOrWhiteSpace(result.StandardOutput))
-            {
-                _logService.Log(LogLevel.Warning, "Could not query shadow storage usage, skipping resize check");
-                return;
-            }
-
-            var (usedBytes, maxBytes) = ParseShadowStorageOutput(result.StandardOutput);
-            if (usedBytes < 0 || maxBytes <= 0)
-            {
-                _logService.Log(LogLevel.Warning, "Could not parse shadow storage values, skipping resize check");
-                return;
-            }
-
-            var freePercent = (1.0 - (double)usedBytes / maxBytes) * 100.0;
-            _logService.Log(LogLevel.Info, $"Shadow storage: used {usedBytes / (1024 * 1024)} MB / max {maxBytes / (1024 * 1024)} MB ({freePercent:F1}% free)");
-
-            if (freePercent < MinFreeStoragePercent)
-            {
-                var newMaxBytes = maxBytes * 2;
-                var newMaxGb = newMaxBytes / (1024L * 1024 * 1024);
-                // Cap at a reasonable size and use at least 1 GB
-                newMaxGb = Math.Clamp(newMaxGb, 1, 64);
-
-                _logService.Log(LogLevel.Info, $"Shadow storage nearly full ({freePercent:F1}% free), resizing max to {newMaxGb} GB");
-
-                await _processExecutor.ExecuteAsync(
-                    "vssadmin",
-                    $"Resize ShadowStorage /For={systemDrive}\\ /On={systemDrive}\\ /MaxSize={newMaxGb}GB").ConfigureAwait(false);
-            }
-        }
-        catch (Exception ex)
-        {
-            _logService.Log(LogLevel.Warning, $"Shadow storage check failed: {ex.Message}");
-        }
-    }
-
-    /// <summary>
-    /// Parses vssadmin list shadowstorage output to extract Used and Maximum bytes.
-    /// Returns (-1, -1) if parsing fails.
-    /// </summary>
-    private static (long UsedBytes, long MaxBytes) ParseShadowStorageOutput(string output)
-    {
-        long usedBytes = -1;
-        long maxBytes = -1;
-
-        foreach (var rawLine in output.Split('\n'))
-        {
-            var line = rawLine.Trim();
-
-            if (line.StartsWith("Used Shadow Copy Storage space:", StringComparison.OrdinalIgnoreCase))
-            {
-                usedBytes = ParseByteValue(line);
-            }
-            else if (line.StartsWith("Maximum Shadow Copy Storage space:", StringComparison.OrdinalIgnoreCase))
-            {
-                maxBytes = ParseByteValue(line);
-            }
-        }
-
-        return (usedBytes, maxBytes);
-    }
-
-    /// <summary>
-    /// Parses a vssadmin line like "Used Shadow Copy Storage space: 9.25 GB (14%)"
-    /// and returns the value in bytes. Returns -1 on failure.
-    /// </summary>
-    private static long ParseByteValue(string line)
-    {
-        // Extract the part after the colon, e.g. " 9.25 GB (14%)"
-        var colonIndex = line.IndexOf(':');
-        if (colonIndex < 0) return -1;
-
-        var valuePart = line[(colonIndex + 1)..].Trim();
-
-        // Remove the parenthetical percentage if present, e.g. "(14%)"
-        var parenIndex = valuePart.IndexOf('(');
-        if (parenIndex > 0)
-            valuePart = valuePart[..parenIndex].Trim();
-
-        // Split into number and unit, e.g. ["9.25", "GB"]
-        var parts = valuePart.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-        if (parts.Length < 2) return -1;
-
-        if (!double.TryParse(parts[0], System.Globalization.NumberStyles.Float, CultureInfo.InvariantCulture, out var number))
-            return -1;
-
-        var unit = parts[1].ToUpperInvariant();
-        var multiplier = unit switch
-        {
-            "KB" => 1024L,
-            "MB" => 1024L * 1024,
-            "GB" => 1024L * 1024 * 1024,
-            "TB" => 1024L * 1024 * 1024 * 1024,
-            _ => -1L
-        };
-
-        if (multiplier < 0) return -1;
-        return (long)(number * multiplier);
-    }
-
-    private async Task<bool> EnableSystemRestoreAsync()
-    {
-        try
-        {
-            var systemDrive = Environment.GetEnvironmentVariable("SystemDrive") ?? "C:";
-
-            // Enable System Restore via WMI (blocking COM call, run on thread pool)
-            await Task.Run(() =>
-            {
-                using var restoreClass = new ManagementClass(
-                    new ManagementScope(@"\\.\root\default"),
-                    new ManagementPath("SystemRestore"),
-                    new ObjectGetOptions());
-
-                var inParams = restoreClass.GetMethodParameters("Enable");
-                inParams["Drive"] = systemDrive + "\\";
-                restoreClass.InvokeMethod("Enable", inParams, null);
-            }).ConfigureAwait(false);
-
-            _logService.Log(LogLevel.Info, "System Restore enabled via WMI");
-
-            // Resize shadow storage
-            await _processExecutor.ExecuteAsync(
-                "vssadmin",
-                $"Resize ShadowStorage /For={systemDrive}\\ /On={systemDrive}\\ /MaxSize=20GB")
-                .ConfigureAwait(false);
-
-            _logService.Log(LogLevel.Info, "Shadow storage resized");
-            return true;
-        }
-        catch (Exception ex)
-        {
-            _logService.Log(LogLevel.Error, $"Failed to enable System Restore: {ex.Message}");
-            return false;
-        }
-    }
 }

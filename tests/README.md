@@ -62,7 +62,7 @@ Native UI hosts:
 | Windows servicing | `./tests/run-windows-status-tests.ps1` |
 | Popups and technical details | `./tests/run-popup-tests.ps1` |
 | Topic journal and history | `./tests/run-journal-tests.ps1` |
-| Startup, window placement, Cleaner, navigation, saved Wi-Fi, settings and icons | `./tests/run-startup-tests.ps1` |
+| Startup, safe close/restart, update presentation, backup/task ownership, environment drafts, window placement, Cleaner, WIM, navigation, saved Wi-Fi, settings and icons | `./tests/run-startup-tests.ps1` |
 
 Windows PowerShell fixtures with fake OS boundaries:
 
@@ -105,7 +105,7 @@ Quote combined filters containing `|` in PowerShell.
 
 | Area | Filter |
 | --- | --- |
-| WIM/ISO conversion, setup commands and driver packages | `FullyQualifiedName~AdvancedTools` |
+| WIM/ISO conversion, safe ISO replacement, setup commands and driver packages | `FullyQualifiedName~AdvancedTools` |
 | Process cancellation and PowerShell validation | `FullyQualifiedName~ProcessExecutorTests\|FullyQualifiedName~PowerShellRunner` |
 | Direct/Store installer results and account deployment | `FullyQualifiedName~DirectDownloadServiceTests\|FullyQualifiedName~StoreDownloadServiceTests\|FullyQualifiedName~WindowsAppxDeploymentTests` |
 | Native uninstall ownership, WinGet deadlines and removal verification | `FullyQualifiedName~WindowsUninstallCommandSourceTests\|FullyQualifiedName~WindowsInstalledProgramSourceTests\|FullyQualifiedName~WinGetPackageInstallerTests\|FullyQualifiedName~ExternalAppUninstallServiceTests` |
@@ -120,6 +120,7 @@ Quote combined filters containing `|` in PowerShell.
 | Optimize orchestration and fake native scripts | `FullyQualifiedName~OptimizationToolsServiceTests\|FullyQualifiedName~NetworkTuningTests` |
 | Security Windows boundary | `FullyQualifiedName~WindowsSecurityBackendTests` |
 | Autoruns | `FullyQualifiedName~Autorun` |
+| Shared task ownership and queued single/parallel progress | `FullyQualifiedName~TaskProgressServiceTests` |
 
 To display the isolated 1,000-file workload timings and allocations:
 

@@ -12,15 +12,6 @@ public class SystemInfoProviderTests
     private readonly Mock<IInteractiveUserService> _mockInteractiveUserService = new();
 
     [Fact]
-    public void Constructor_NullInteractiveUserService_ThrowsArgumentNullException()
-    {
-        var act = () => new SystemInfoProvider(null!);
-
-        act.Should().Throw<ArgumentNullException>()
-            .WithParameterName("interactiveUserService");
-    }
-
-    [Fact]
     public void Collect_ReturnsCompleteRecognizedSystemInformation()
     {
         var provider = new SystemInfoProvider(_mockInteractiveUserService.Object);

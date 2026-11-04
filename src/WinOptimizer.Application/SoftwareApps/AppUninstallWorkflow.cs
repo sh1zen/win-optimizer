@@ -69,12 +69,11 @@ public sealed class AppUninstallWorkflow(IUninstallResidueService residues, IUni
                 }, ct).ConfigureAwait(false);
             }
 
-            var scan = await RunStageAsync("UninstallResidue_Verifying", token =>
-                session.InspectAsync(outcomes, CreateProgress(), token), ct).ConfigureAwait(false);
-            var verifiedResult = new AppUninstallResult(scan.Applications, scan.Notices);
+            var verifiedResult = await RunStageAsync("UninstallResidue_Verifying", token =>
+                session.VerifyAsync(outcomes, CreateProgress(), token), ct).ConfigureAwait(false);
             // Reuse the verification evidence for the list before opening a long-lived review.
             if (refreshInventory != null) await refreshInventory(verifiedResult).ConfigureAwait(false);
-            deferred = await review.ShowAsync(session, scan, ct).ConfigureAwait(false) == UninstallReviewDisposition.Deferred;
+            deferred = await review.ShowAsync(session, verifiedResult, ct).ConfigureAwait(false) == UninstallReviewDisposition.Deferred;
             return verifiedResult;
         }
         finally
