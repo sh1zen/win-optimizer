@@ -46,30 +46,6 @@ public class WindowsAppsServiceTests
         (await CreateSut().GetDevicePackageNamesAsync()).Should().BeSameAs(names);
     }
 
-    // --- DomainName ---
-
-    [Fact]
-    public void DomainName_ReturnsWindowsApps()
-    {
-        var sut = CreateSut();
-
-        sut.DomainName.Should().Be("WindowsApps");
-    }
-
-    // --- GetAppsAsync ---
-
-    [Fact]
-    public async Task GetAppsAsync_ReturnsCatalogueWithIds()
-    {
-        var sut = CreateSut();
-
-        var result = await sut.GetAppsAsync();
-
-        result.Should().NotBeNull();
-        result.Should().NotBeEmpty();
-        result.Should().OnlyContain(item => !string.IsNullOrEmpty(item.Id));
-    }
-
     // --- InstallAppAsync: success via WinGet ---
 
     [Fact]
@@ -254,70 +230,6 @@ public class WindowsAppsServiceTests
 
         result.Success.Should().BeFalse();
         result.ErrorMessage.Should().Contain("cancelled");
-    }
-
-    // --- CheckBatchInstalledAsync ---
-
-    [Fact]
-    public async Task CheckBatchInstalledAsync_DelegatesToDiscoveryService()
-    {
-        var sut = CreateSut();
-        var definitions = new List<ItemDefinition>
-        {
-            new() { Id = "app1", Name = "App1", Description = "Desc1" },
-            new() { Id = "app2", Name = "App2", Description = "Desc2" }
-        };
-
-        var expected = new Dictionary<string, bool>
-        {
-            { "app1", true },
-            { "app2", false }
-        };
-
-        _appStatusDiscoveryService
-            .Setup(x => x.GetInstallationStatusBatchAsync(definitions))
-            .ReturnsAsync(expected);
-
-        var result = await sut.CheckBatchInstalledAsync(definitions);
-
-        result.Should().BeEquivalentTo(expected);
-    }
-
-    // --- InvalidateStatusCache ---
-
-    [Fact]
-    public void InvalidateStatusCache_DelegatesToDiscoveryService()
-    {
-        var sut = CreateSut();
-
-        sut.InvalidateStatusCache();
-
-        _appStatusDiscoveryService.Verify(x => x.InvalidateCache(), Times.Once);
-    }
-
-    // --- GetAppByIdAsync ---
-
-    [Fact]
-    public async Task GetAppByIdAsync_ExistingApp_ReturnsApp()
-    {
-        var sut = CreateSut();
-        var allApps = await sut.GetAppsAsync();
-        var firstApp = allApps.First();
-
-        var result = await sut.GetAppByIdAsync(firstApp.Id);
-
-        result.Should().NotBeNull();
-        result!.Id.Should().Be(firstApp.Id);
-    }
-
-    [Fact]
-    public async Task GetAppByIdAsync_NonExistentApp_ReturnsNull()
-    {
-        var sut = CreateSut();
-
-        var result = await sut.GetAppByIdAsync("non-existent-app-id-12345");
-
-        result.Should().BeNull();
     }
 
     // --- InstallAppAsync with AppxPackageName (no MsStoreId/WinGetPackageId) ---

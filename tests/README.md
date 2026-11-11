@@ -32,6 +32,8 @@ cached NuGet restore and executable validation. Each runner owns its build locat
 and scenarios. `NUGET_PACKAGES` selects the cache; otherwise the user cache is used.
 Startup and Software & Apps share `NativeTestCases` for fact/inline-data execution
 and fixture disposal on the WinUI dispatcher.
+Their entry points run the production assembly's module initializer before WinUI;
+the application owns Windows App SDK runtime initialization for these hosts.
 
 ## Focused checks
 
@@ -62,7 +64,7 @@ Native UI hosts:
 | Windows servicing | `./tests/run-windows-status-tests.ps1` |
 | Popups and technical details | `./tests/run-popup-tests.ps1` |
 | Topic journal and history | `./tests/run-journal-tests.ps1` |
-| Startup, safe close/restart, update presentation, backup/task ownership, environment drafts, window placement, Cleaner, WIM, navigation, saved Wi-Fi, settings and icons | `./tests/run-startup-tests.ps1` |
+| Startup, safe close/restart, update presentation, support links, backup/task ownership, environment drafts, window placement, Cleaner, Drivers, WIM, navigation, saved Wi-Fi, settings and icons | `./tests/run-startup-tests.ps1` |
 
 Windows PowerShell fixtures with fake OS boundaries:
 
@@ -119,6 +121,7 @@ Quote combined filters containing `|` in PowerShell.
 | Windows servicing and cancellation | `FullyQualifiedName~WindowsServicingTests\|FullyQualifiedName~ProcessExecutorTests\|FullyQualifiedName~DismProcessRunnerTests` |
 | Optimize orchestration and fake native scripts | `FullyQualifiedName~OptimizationToolsServiceTests\|FullyQualifiedName~NetworkTuningTests` |
 | Security Windows boundary | `FullyQualifiedName~WindowsSecurityBackendTests` |
+| Driver inventory, update discovery, package verification and fake Windows Update scripts | `FullyQualifiedName~Drivers` |
 | Autoruns | `FullyQualifiedName~Autorun` |
 | Shared task ownership and queued single/parallel progress | `FullyQualifiedName~TaskProgressServiceTests` |
 

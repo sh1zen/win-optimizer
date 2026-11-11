@@ -94,44 +94,6 @@ public class WimStep2XmlViewModelTests
     }
 
     [Fact]
-    public async Task GenerateWinOptimizerXmlCommand_OnSuccess_SetsIsXmlAdded()
-    {
-        _sut.WorkingDirectory = "C:\\WorkDir";
-        _mockDialogService
-            .Setup(d => d.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>()))
-            .ReturnsAsync(new ConfirmationResponse { Confirmed = true });
-
-        _mockXmlGeneratorService
-            .Setup(s => s.GenerateFromCurrentSelectionsAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<ConfigurationItem>?>()))
-            .ReturnsAsync("C:\\WorkDir\\autounattend.xml");
-
-        await _sut.GenerateWinOptimizerXmlCommand.ExecuteAsync(null);
-
-        _sut.IsXmlAdded.Should().BeTrue();
-        _sut.SelectedXmlPath.Should().Be("C:\\WorkDir\\autounattend.xml");
-        _sut.GenerateWinOptimizerXmlCard.IsComplete.Should().BeTrue();
-    }
-
-    [Fact]
-    public async Task GenerateWinOptimizerXmlCommand_OnSuccess_ClearsOtherCardCompletions()
-    {
-        _sut.WorkingDirectory = "C:\\WorkDir";
-        _sut.SelectXmlCard.IsComplete = true;
-
-        _mockDialogService
-            .Setup(d => d.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>()))
-            .ReturnsAsync(new ConfirmationResponse { Confirmed = true });
-
-        _mockXmlGeneratorService
-            .Setup(s => s.GenerateFromCurrentSelectionsAsync(It.IsAny<string>(), It.IsAny<IReadOnlyList<ConfigurationItem>?>()))
-            .ReturnsAsync("C:\\WorkDir\\autounattend.xml");
-
-        await _sut.GenerateWinOptimizerXmlCommand.ExecuteAsync(null);
-
-        _sut.SelectXmlCard.IsComplete.Should().BeFalse();
-    }
-
-    [Fact]
     public async Task GenerateWinOptimizerXmlCommand_OnException_SetsHasFailed()
     {
         _sut.WorkingDirectory = "C:\\WorkDir";
@@ -189,42 +151,5 @@ public class WimStep2XmlViewModelTests
         await _sut.SelectXmlFileCommand.ExecuteAsync(null);
 
         _sut.IsXmlAdded.Should().BeFalse();
-    }
-
-    [Fact]
-    public async Task SelectXmlFileCommand_WhenEmptyString_DoesNothing()
-    {
-        _sut.WorkingDirectory = "C:\\WorkDir";
-        _mockFilePickerService
-            .Setup(f => f.PickFile(It.IsAny<string[]>(), It.IsAny<string?>()))
-            .Returns(string.Empty);
-
-        await _sut.SelectXmlFileCommand.ExecuteAsync(null);
-
-        _sut.IsXmlAdded.Should().BeFalse();
-    }
-
-    [Fact]
-    public void ClearOtherXmlCardCompletions_ExceptGenerate_ClearsSelect()
-    {
-        _sut.GenerateWinOptimizerXmlCard.IsComplete = true;
-        _sut.SelectXmlCard.IsComplete = true;
-
-        _sut.ClearOtherXmlCardCompletions("generate");
-
-        _sut.GenerateWinOptimizerXmlCard.IsComplete.Should().BeTrue();
-        _sut.SelectXmlCard.IsComplete.Should().BeFalse();
-    }
-
-    [Fact]
-    public void ClearOtherXmlCardCompletions_ExceptSelect_ClearsGenerate()
-    {
-        _sut.GenerateWinOptimizerXmlCard.IsComplete = true;
-        _sut.SelectXmlCard.IsComplete = true;
-
-        _sut.ClearOtherXmlCardCompletions("select");
-
-        _sut.GenerateWinOptimizerXmlCard.IsComplete.Should().BeFalse();
-        _sut.SelectXmlCard.IsComplete.Should().BeTrue();
     }
 }

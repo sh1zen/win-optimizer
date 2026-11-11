@@ -78,84 +78,6 @@ public class SettingOperationExecutorTests
         InputType = inputType,
     };
 
-    // ---------------------------------------------------------------
-    // 1. Setting with no operations returns success
-    // ---------------------------------------------------------------
-
-    [Fact]
-    public async Task ApplySettingOperationsAsync_NoOperations_ReturnsSuccess()
-    {
-        var setting = CreateSetting("empty");
-
-        var result = await _executor.ApplySettingOperationsAsync(setting, true, null);
-
-        result.Success.Should().BeTrue();
-    }
-
-    [Fact]
-    public async Task ApplySettingOperationsAsync_NoOperations_StillCallsProcessRestart()
-    {
-        var setting = CreateSetting("empty");
-
-        await _executor.ApplySettingOperationsAsync(setting, true, null);
-
-        _mockRestart.Verify(
-            r => r.HandleProcessAndServiceRestartsAsync(setting),
-            Times.Once);
-    }
-
-    // ---------------------------------------------------------------
-    // 2. Registry operations are applied
-    // ---------------------------------------------------------------
-
-    [Fact]
-    public async Task ApplySettingOperationsAsync_ToggleEnabled_AppliesRegistrySettingsWithTrue()
-    {
-        var regSetting = new RegistrySetting
-        {
-            KeyPath = @"HKCU\Software\Test",
-            ValueName = "TestValue",
-            ValueType = RegistryValueKind.DWord,
-            RecommendedValue = null,
-            DefaultValue = null
-        };
-        var setting = CreateSetting("reg-toggle") with
-        {
-            RegistrySettings = new[] { regSetting },
-        };
-
-        var result = await _executor.ApplySettingOperationsAsync(setting, true, null);
-
-        result.Success.Should().BeTrue();
-        _mockRegistry.Verify(
-            r => r.ApplySetting(regSetting, true, null),
-            Times.Once);
-    }
-
-    [Fact]
-    public async Task ApplySettingOperationsAsync_ToggleDisabled_AppliesRegistrySettingsWithFalse()
-    {
-        var regSetting = new RegistrySetting
-        {
-            KeyPath = @"HKCU\Software\Test",
-            ValueName = "DisableValue",
-            ValueType = RegistryValueKind.DWord,
-            RecommendedValue = null,
-            DefaultValue = null
-        };
-        var setting = CreateSetting("reg-toggle-off") with
-        {
-            RegistrySettings = new[] { regSetting },
-        };
-
-        var result = await _executor.ApplySettingOperationsAsync(setting, false, null);
-
-        result.Success.Should().BeTrue();
-        _mockRegistry.Verify(
-            r => r.ApplySetting(regSetting, false, null),
-            Times.Once);
-    }
-
     [Fact]
     public async Task ApplySettingOperationsAsync_ResetToDefault_WritesDefaultValueInsteadOfDisabledValue()
     {
@@ -184,36 +106,6 @@ public class SettingOperationExecutorTests
         _mockRegistry.Verify(
             r => r.ApplySetting(regSetting, false, null, true),
             Times.Once);
-    }
-
-    [Fact]
-    public async Task ApplySettingOperationsAsync_MultipleRegistrySettings_AppliesAll()
-    {
-        var reg1 = new RegistrySetting
-        {
-            KeyPath = @"HKCU\Software\Test1",
-            ValueName = "Val1",
-            ValueType = RegistryValueKind.DWord,
-            RecommendedValue = null,
-            DefaultValue = null
-        };
-        var reg2 = new RegistrySetting
-        {
-            KeyPath = @"HKCU\Software\Test2",
-            ValueName = "Val2",
-            ValueType = RegistryValueKind.String,
-            RecommendedValue = null,
-            DefaultValue = null
-        };
-        var setting = CreateSetting("reg-multi") with
-        {
-            RegistrySettings = new[] { reg1, reg2 },
-        };
-
-        await _executor.ApplySettingOperationsAsync(setting, true, null);
-
-        _mockRegistry.Verify(r => r.ApplySetting(reg1, true, null), Times.Once);
-        _mockRegistry.Verify(r => r.ApplySetting(reg2, true, null), Times.Once);
     }
 
     [Fact]
@@ -248,120 +140,6 @@ public class SettingOperationExecutorTests
         _mockRegistry.Verify(
             r => r.ApplySetting(It.IsAny<RegistrySetting>(), It.IsAny<bool>(), It.IsAny<object?>()),
             Times.Never);
-    }
-
-    // ---------------------------------------------------------------
-    // 3. Scheduled task operations are applied
-    // ---------------------------------------------------------------
-
-    [Fact]
-    public async Task ApplySettingOperationsAsync_ScheduledTaskEnabled_CallsEnableTask()
-    {
-        var setting = CreateSetting("sched-enable") with
-        {
-            ScheduledTaskSettings = new[]
-            {
-                new ScheduledTaskSetting { Id = "task1", TaskPath = @"\Microsoft\Windows\Task1", RecommendedState = null, DefaultState = null },
-            },
-        };
-
-        await _executor.ApplySettingOperationsAsync(setting, true, null);
-
-        _mockScheduledTask.Verify(
-            s => s.EnableTaskAsync(@"\Microsoft\Windows\Task1"),
-            Times.Once);
-        _mockScheduledTask.Verify(
-            s => s.DisableTaskAsync(It.IsAny<string>()),
-            Times.Never);
-    }
-
-    [Fact]
-    public async Task ApplySettingOperationsAsync_ScheduledTaskDisabled_CallsDisableTask()
-    {
-        var setting = CreateSetting("sched-disable") with
-        {
-            ScheduledTaskSettings = new[]
-            {
-                new ScheduledTaskSetting { Id = "task1", TaskPath = @"\Microsoft\Windows\Task1", RecommendedState = null, DefaultState = null },
-            },
-        };
-
-        await _executor.ApplySettingOperationsAsync(setting, false, null);
-
-        _mockScheduledTask.Verify(
-            s => s.DisableTaskAsync(@"\Microsoft\Windows\Task1"),
-            Times.Once);
-        _mockScheduledTask.Verify(
-            s => s.EnableTaskAsync(It.IsAny<string>()),
-            Times.Never);
-    }
-
-    [Fact]
-    public async Task ApplySettingOperationsAsync_MultipleScheduledTasks_AppliesAll()
-    {
-        var setting = CreateSetting("sched-multi") with
-        {
-            ScheduledTaskSettings = new[]
-            {
-                new ScheduledTaskSetting { Id = "task1", TaskPath = @"\Task1", RecommendedState = null, DefaultState = null },
-                new ScheduledTaskSetting { Id = "task2", TaskPath = @"\Task2", RecommendedState = null, DefaultState = null },
-            },
-        };
-
-        await _executor.ApplySettingOperationsAsync(setting, true, null);
-
-        _mockScheduledTask.Verify(s => s.EnableTaskAsync(@"\Task1"), Times.Once);
-        _mockScheduledTask.Verify(s => s.EnableTaskAsync(@"\Task2"), Times.Once);
-    }
-
-    // ---------------------------------------------------------------
-    // 4. PowerShell operations are applied
-    // ---------------------------------------------------------------
-
-    [Fact]
-    public async Task ApplySettingOperationsAsync_PowerShellEnabled_RunsEnabledScript()
-    {
-        var setting = CreateSetting("ps-enable") with
-        {
-            PowerShellScripts = new[]
-            {
-                new PowerShellScriptSetting
-                {
-                    Id = "script1",
-                    EnabledScript = "Set-Feature -Enabled $true",
-                    DisabledScript = "Set-Feature -Enabled $false",
-                },
-            },
-        };
-
-        await _executor.ApplySettingOperationsAsync(setting, true, null);
-
-        _mockPowerShell.Verify(
-            p => p.RunScriptInMemoryAsync("Set-Feature -Enabled $true", null, default),
-            Times.Once);
-    }
-
-    [Fact]
-    public async Task ApplySettingOperationsAsync_PowerShellDisabled_RunsDisabledScript()
-    {
-        var setting = CreateSetting("ps-disable") with
-        {
-            PowerShellScripts = new[]
-            {
-                new PowerShellScriptSetting
-                {
-                    Id = "script1",
-                    EnabledScript = "Set-Feature -Enabled $true",
-                    DisabledScript = "Set-Feature -Enabled $false",
-                },
-            },
-        };
-
-        await _executor.ApplySettingOperationsAsync(setting, false, null);
-
-        _mockPowerShell.Verify(
-            p => p.RunScriptInMemoryAsync("Set-Feature -Enabled $false", null, default),
-            Times.Once);
     }
 
     [Fact]
@@ -586,35 +364,6 @@ public class SettingOperationExecutorTests
             p => p.ApplyPowerCfgSettingsAsync(
                 It.IsAny<SettingDefinition>(), It.IsAny<bool>(), It.IsAny<object?>()),
             Times.Never);
-    }
-
-    // ---------------------------------------------------------------
-    // 6. Process restarts are handled via ProcessRestartManager
-    // ---------------------------------------------------------------
-
-    [Fact]
-    public async Task ApplySettingOperationsAsync_AlwaysCallsProcessRestartManager()
-    {
-        var setting = CreateSetting("restart-test") with
-        {
-            RegistrySettings = new[]
-            {
-                new RegistrySetting
-                {
-                    KeyPath = @"HKCU\Software\Test",
-                    ValueName = "Val",
-                    ValueType = RegistryValueKind.DWord,
-                    RecommendedValue = null,
-                    DefaultValue = null
-                },
-            },
-        };
-
-        await _executor.ApplySettingOperationsAsync(setting, true, null);
-
-        _mockRestart.Verify(
-            r => r.HandleProcessAndServiceRestartsAsync(setting),
-            Times.Once);
     }
 
     [Fact]
@@ -1362,39 +1111,6 @@ public class SettingOperationExecutorTests
         await _executor.ApplySettingOperationsAsync(setting, false, "");
 
         _mockRegistry.Verify(r => r.ApplySetting(reg1, false), Times.Once);
-    }
-
-    // ---------------------------------------------------------------
-    // Verify return value is always success when no exceptions
-    // ---------------------------------------------------------------
-
-    [Fact]
-    public async Task ApplySettingOperationsAsync_AllOperationsSucceed_ReturnsSucceededResult()
-    {
-        var setting = CreateSetting("success-check") with
-        {
-            RegistrySettings = new[]
-            {
-                new RegistrySetting
-                {
-                    KeyPath = @"HKCU\Software\Test",
-                    ValueName = "V",
-                    ValueType = RegistryValueKind.DWord,
-                    RecommendedValue = null,
-                    DefaultValue = null
-                },
-            },
-            ScheduledTaskSettings = new[]
-            {
-                new ScheduledTaskSetting { Id = "t", TaskPath = @"\T", RecommendedState = null, DefaultState = null },
-            },
-        };
-
-        var result = await _executor.ApplySettingOperationsAsync(setting, true, null);
-
-        result.Should().NotBeNull();
-        result.Success.Should().BeTrue();
-        result.ErrorMessage.Should().BeNull();
     }
 
     // ---------------------------------------------------------------

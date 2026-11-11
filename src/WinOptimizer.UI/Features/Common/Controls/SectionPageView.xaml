@@ -40,23 +40,9 @@
                                     <local:NavigationCard.Badges>
                                         <toolkit:WrapPanel HorizontalSpacing="6" VerticalSpacing="4">
                                             <ContentControl Content="{Binding}" ContentTemplate="{StaticResource ReviewBadgeTemplate}" IsTabStop="False"/>
-                                            <toolkit:WrapPanel HorizontalSpacing="4" VerticalSpacing="4" Visibility="{Binding ShowSummary, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                                <Border Style="{StaticResource BadgeRecommendedStyle}" Opacity="{Binding RecommendedOpacity}">
-                                                    <StackPanel Orientation="Horizontal" Spacing="4">
-                                                        <FontIcon Glyph="" FontSize="12" Foreground="{ThemeResource BadgeRecommendedForeground}"/>
-                                                        <TextBlock Text="{Binding RecommendedText}" Style="{StaticResource BadgeTextStyle}" Foreground="{ThemeResource BadgeRecommendedForeground}"/>
-                                                    </StackPanel>
-                                                </Border>
-                                                <Border Style="{StaticResource BadgeDefaultStyle}" Opacity="{Binding DefaultOpacity}">
-                                                    <StackPanel Orientation="Horizontal" Spacing="4">
-                                                        <PathIcon Data="{StaticResource BadgeDefaultIconPath}" Width="12" Height="12" Foreground="{ThemeResource BadgeDefaultForeground}"/>
-                                                        <TextBlock Text="{Binding DefaultText}" Style="{StaticResource BadgeTextStyle}" Foreground="{ThemeResource BadgeDefaultForeground}"/>
-                                                    </StackPanel>
-                                                </Border>
-                                                <Border Style="{StaticResource BadgeCustomStyle}" Visibility="{Binding ShowCustom, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                                    <TextBlock Text="{Binding CustomText}" Style="{StaticResource BadgeTextStyle}" Foreground="{ThemeResource BadgeCustomForeground}"/>
-                                                </Border>
-                                            </toolkit:WrapPanel>
+                                            <Border Style="{StaticResource BadgeCustomStyle}" Visibility="{Binding ShowCustom, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                                <TextBlock Text="{Binding CustomText}" Style="{StaticResource BadgeTextStyle}" Foreground="{ThemeResource BadgeCustomForeground}"/>
+                                            </Border>
                                         </toolkit:WrapPanel>
                                     </local:NavigationCard.Badges>
                                 </local:NavigationCard>

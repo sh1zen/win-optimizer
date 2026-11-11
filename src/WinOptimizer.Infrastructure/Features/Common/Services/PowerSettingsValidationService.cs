@@ -17,7 +17,7 @@ public class PowerSettingsValidationService(
 
         var bulkPowerValues = await powerSettingsQueryService.GetAllPowerSettingsACDCAsync("SCHEME_CURRENT").ConfigureAwait(false);
 
-        if (!bulkPowerValues.Any())
+        if (bulkPowerValues.Count == 0)
         {
             logService.Log(LogLevel.Warning, "Could not get bulk power settings, skipping validation");
             return settingsList;
@@ -27,7 +27,7 @@ public class PowerSettingsValidationService(
 
         foreach (var setting in settingsList)
         {
-            if (!setting.ValidateExistence || setting.PowerCfgSettings?.Any() != true)
+            if (!setting.ValidateExistence || setting.PowerCfgSettings is not { Count: > 0 })
             {
                 validatedSettings.Add(setting);
                 continue;

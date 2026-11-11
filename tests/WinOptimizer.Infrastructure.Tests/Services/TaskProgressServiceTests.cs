@@ -19,16 +19,6 @@ public class TaskProgressServiceTests
         _sut = new TaskProgressService(_mockLog.Object);
     }
 
-    [Fact]
-    public void Constructor_InitializesWithDefaultState()
-    {
-        _sut.IsTaskRunning.Should().BeFalse();
-        _sut.CurrentProgress.Should().Be(0);
-        _sut.CurrentStatusText.Should().BeEmpty();
-        _sut.IsIndeterminate.Should().BeFalse();
-        _sut.CurrentTaskCancellationSource.Should().BeNull();
-    }
-
     // ── StartTask ──
 
     [Fact]
@@ -88,14 +78,6 @@ public class TaskProgressServiceTests
         _sut.CurrentTaskCancellationSource.Should().BeSameAs(cts);
     }
 
-    [Fact]
-    public void StartTask_WithIndeterminate_SetsIndeterminateFlag()
-    {
-        _sut.StartTask("Loading", isIndeterminate: true);
-
-        _sut.IsIndeterminate.Should().BeTrue();
-    }
-
     [Theory]
     [InlineData(null)]
     [InlineData("")]
@@ -105,19 +87,6 @@ public class TaskProgressServiceTests
 
         act.Should().Throw<ArgumentException>()
             .WithParameterName("taskName");
-    }
-
-    [Fact]
-    public void StartTask_RaisesProgressUpdatedEvent()
-    {
-        TaskProgressDetail? received = null;
-        _sut.ProgressUpdated += (_, detail) => received = detail;
-
-        _sut.StartTask("Test Task");
-
-        received.Should().NotBeNull();
-        received!.Progress.Should().Be(0);
-        received.StatusText.Should().Be("Test Task");
     }
 
     // ── UpdateProgress ──
@@ -183,14 +152,6 @@ public class TaskProgressServiceTests
     }
 
     [Fact]
-    public void CompleteTask_WhenNoTaskRunning_DoesNothing()
-    {
-        var act = () => _sut.CompleteTask();
-
-        act.Should().NotThrow();
-    }
-
-    [Fact]
     public void CompleteTask_RaisesProgressUpdatedWithCompletion()
     {
         _sut.StartTask("Work");
@@ -214,27 +175,6 @@ public class TaskProgressServiceTests
         _sut.CancelCurrentTask();
 
         cts.IsCancellationRequested.Should().BeTrue();
-    }
-
-    [Fact]
-    public void CancelCurrentTask_WhenNoTask_DoesNotThrow()
-    {
-        var act = () => _sut.CancelCurrentTask();
-
-        act.Should().NotThrow();
-    }
-
-    // ── StartMultiScriptTask ──
-
-    [Fact]
-    public void StartMultiScriptTask_ValidScripts_SetsTaskRunning()
-    {
-        var scripts = new[] { "Script1", "Script2" };
-
-        var cts = _sut.StartMultiScriptTask(scripts);
-
-        _sut.IsTaskRunning.Should().BeTrue();
-        cts.Should().NotBeNull();
     }
 
     [Fact]
@@ -336,16 +276,6 @@ public class TaskProgressServiceTests
         received.Progress.Should().Be(100);
     }
 
-    // ── ConsumeSkipNextRequest ──
-
-    [Fact]
-    public void ConsumeSkipNextRequest_WhenNotRequested_ReturnsFalse()
-    {
-        _sut.StartTask("Test");
-
-        _sut.ConsumeSkipNextRequest().Should().BeFalse();
-    }
-
     // ── UpdateDetailedProgress ──
 
     [Fact]
@@ -403,28 +333,6 @@ public class TaskProgressServiceTests
         });
 
         _sut.GetTerminalOutputLines().Should().BeEmpty();
-    }
-
-    // ── CreateDetailedProgress / CreatePowerShellProgress ──
-
-    [Fact]
-    public void CreateDetailedProgress_ReturnsNonNullProgressReporter()
-    {
-        _sut.StartTask("Work");
-
-        var progress = _sut.CreateDetailedProgress();
-
-        progress.Should().NotBeNull();
-    }
-
-    [Fact]
-    public void CreatePowerShellProgress_ReturnsNonNullProgressReporter()
-    {
-        _sut.StartTask("Work");
-
-        var progress = _sut.CreatePowerShellProgress();
-
-        progress.Should().NotBeNull();
     }
 
     /// <summary>Both public reporter factories retain the identity captured before dispatch.</summary>

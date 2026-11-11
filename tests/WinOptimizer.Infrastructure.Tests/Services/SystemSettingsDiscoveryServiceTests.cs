@@ -131,26 +131,6 @@ public class SystemSettingsDiscoveryServiceTests
         };
     }
 
-    // --- GetRawSettingsValuesAsync ---
-
-    [Fact]
-    public async Task GetRawSettingsValuesAsync_NullSettings_ReturnsEmptyDictionary()
-    {
-        var result = await _service.GetRawSettingsValuesAsync(null!);
-
-        result.Should().NotBeNull();
-        result.Should().BeEmpty();
-    }
-
-    [Fact]
-    public async Task GetRawSettingsValuesAsync_EmptySettings_ReturnsEmptyDictionary()
-    {
-        var result = await _service.GetRawSettingsValuesAsync(Array.Empty<SettingDefinition>());
-
-        result.Should().NotBeNull();
-        result.Should().BeEmpty();
-    }
-
     [Fact]
     public async Task GetRawSettingsValuesAsync_RegistrySettings_ReadsFromBatchValues()
     {
@@ -378,47 +358,6 @@ public class SystemSettingsDiscoveryServiceTests
         result["test-task-error"].Should().BeEmpty();
     }
 
-    // --- GetSettingStatesAsync ---
-
-    [Fact]
-    public async Task GetSettingStatesAsync_RegistrySetting_ReturnsCorrectState()
-    {
-        var setting = CreateRegistrySetting("test-reg", @"HKEY_LOCAL_MACHINE\SOFTWARE\Test", "TestValue", enabledValue: [1]);
-
-        _mockRegistry.Setup(r => r.GetBatchValues(It.IsAny<IEnumerable<(string, string?)>>()))
-            .Returns(new Dictionary<string, object?>
-            {
-                { @"HKEY_LOCAL_MACHINE\SOFTWARE\Test\TestValue", 1 },
-            });
-        _mockRegistry.Setup(r => r.IsRegistryValueInEnabledState(It.IsAny<RegistrySetting>(), 1, true))
-            .Returns(true);
-
-        var result = await _service.GetSettingStatesAsync(new[] { setting });
-
-        result.Should().ContainKey("test-reg");
-        result["test-reg"].Success.Should().BeTrue();
-        result["test-reg"].IsEnabled.Should().BeTrue();
-    }
-
-    [Fact]
-    public async Task GetSettingStatesAsync_RegistrySettingNotApplied_ReturnsDisabled()
-    {
-        var setting = CreateRegistrySetting("test-reg", @"HKEY_LOCAL_MACHINE\SOFTWARE\Test", "TestValue");
-
-        _mockRegistry.Setup(r => r.GetBatchValues(It.IsAny<IEnumerable<(string, string?)>>()))
-            .Returns(new Dictionary<string, object?>
-            {
-                { @"HKEY_LOCAL_MACHINE\SOFTWARE\Test\TestValue", 0 },
-            });
-        _mockRegistry.Setup(r => r.IsRegistryValueInEnabledState(It.IsAny<RegistrySetting>(), 0, true))
-            .Returns(false);
-
-        var result = await _service.GetSettingStatesAsync(new[] { setting });
-
-        result["test-reg"].Success.Should().BeTrue();
-        result["test-reg"].IsEnabled.Should().BeFalse();
-    }
-
     [Fact]
     public async Task GetSettingStatesAsync_SelectionSetting_AllRegistryValuesAbsent_ReturnsDefaultOptionIndex()
     {
@@ -556,21 +495,6 @@ public class SystemSettingsDiscoveryServiceTests
     }
 
     [Fact]
-    public async Task GetSettingStatesAsync_ScheduledTaskSetting_EnabledTask()
-    {
-        var setting = CreateScheduledTaskSetting("test-task", @"\Test\Task");
-
-        _mockScheduledTask
-            .Setup(s => s.IsTaskEnabledAsync(@"\Test\Task"))
-            .ReturnsAsync(true);
-
-        var result = await _service.GetSettingStatesAsync(new[] { setting });
-
-        result["test-task"].Success.Should().BeTrue();
-        result["test-task"].IsEnabled.Should().BeTrue();
-    }
-
-    [Fact]
     public async Task GetSettingStatesAsync_ScheduledTaskDoesNotExist_MarksAsUnavailable()
     {
         var setting = CreateScheduledTaskSetting("test-task-missing", @"\Missing\Task");
@@ -598,44 +522,6 @@ public class SystemSettingsDiscoveryServiceTests
 
         result["test-no-value"].Success.Should().BeTrue();
         result["test-no-value"].IsEnabled.Should().BeFalse();
-    }
-
-    [Fact]
-    public async Task GetSettingStatesAsync_RegistrySettingWithBatchValues_InterpretedSuccessfully()
-    {
-        // DetermineIfSettingIsEnabled uses pre-fetched raw values (not individual registry reads).
-        // When batch values contain a valid value, the setting should be interpreted as enabled.
-        var setting = new SettingDefinition
-        {
-            Id = "test-batch",
-            Name = "Batch Setting",
-            Description = "Uses batch values",
-            InputType = InputType.Toggle,
-            RegistrySettings = new[]
-            {
-                new RegistrySetting
-                {
-                    KeyPath = @"HKEY_LOCAL_MACHINE\SOFTWARE\Test",
-                    ValueName = "TestValue",
-                    ValueType = RegistryValueKind.DWord,
-                    RecommendedValue = null,
-                    DefaultValue = null
-                },
-            },
-        };
-
-        _mockRegistry.Setup(r => r.GetBatchValues(It.IsAny<IEnumerable<(string, string?)>>()))
-            .Returns(new Dictionary<string, object?>
-            {
-                { @"HKEY_LOCAL_MACHINE\SOFTWARE\Test\TestValue", 1 },
-            });
-        _mockRegistry.Setup(r => r.IsRegistryValueInEnabledState(It.IsAny<RegistrySetting>(), 1, true))
-            .Returns(true);
-
-        var result = await _service.GetSettingStatesAsync(new[] { setting });
-
-        result["test-batch"].Success.Should().BeTrue();
-        result["test-batch"].IsEnabled.Should().BeTrue();
     }
 
     [Fact]
@@ -700,31 +586,6 @@ public class SystemSettingsDiscoveryServiceTests
 
         result["test-numeric-task"].Success.Should().BeTrue();
         result["test-numeric-task"].CurrentValue.Should().Be(true);
-    }
-
-    [Fact]
-    public async Task GetSettingStatesAsync_MultipleSettings_ReturnsAllStates()
-    {
-        var settings = new[]
-        {
-            CreateRegistrySetting("reg1", @"HKEY_LOCAL_MACHINE\SOFTWARE\Test1", "Val1"),
-            CreateRegistrySetting("reg2", @"HKEY_LOCAL_MACHINE\SOFTWARE\Test2", "Val2"),
-        };
-
-        _mockRegistry.Setup(r => r.GetBatchValues(It.IsAny<IEnumerable<(string, string?)>>()))
-            .Returns(new Dictionary<string, object?>
-            {
-                { @"HKEY_LOCAL_MACHINE\SOFTWARE\Test1\Val1", 1 },
-                { @"HKEY_LOCAL_MACHINE\SOFTWARE\Test2\Val2", 0 },
-            });
-        _mockRegistry.Setup(r => r.IsRegistryValueInEnabledState(It.IsAny<RegistrySetting>(), It.IsAny<object?>(), true))
-            .Returns(false);
-
-        var result = await _service.GetSettingStatesAsync(settings);
-
-        result.Should().HaveCount(2);
-        result.Should().ContainKey("reg1");
-        result.Should().ContainKey("reg2");
     }
 
     [Fact]

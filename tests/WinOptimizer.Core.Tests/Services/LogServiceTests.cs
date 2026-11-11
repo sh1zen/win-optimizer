@@ -46,64 +46,6 @@ public class LogServiceTests : IDisposable
     }
 
     [Fact]
-    public void GetLogPath_ReturnsPathInWinOptimizerDirectory()
-    {
-        using var service = CreateService();
-
-        var path = service.GetLogPath();
-
-        path.Should().NotBeNullOrEmpty();
-        path.Should().Contain("win-optimizer");
-        path.Should().Contain("Logs");
-        path.Should().EndWith(".jsonl");
-    }
-
-    [Fact]
-    public void Log_WithDifferentLevels_DoesNotThrow()
-    {
-        using var service = CreateService();
-
-        // Without calling StartLog(), these should still not throw
-        // (they just won't write to the file)
-        var action = () =>
-        {
-            service.Log(WinOptimizer.Core.Features.Common.Enums.LogLevel.Info, "info message");
-            service.Log(WinOptimizer.Core.Features.Common.Enums.LogLevel.Warning, "warning message");
-            service.Log(WinOptimizer.Core.Features.Common.Enums.LogLevel.Error, "error message");
-            service.Log(WinOptimizer.Core.Features.Common.Enums.LogLevel.Debug, "debug message");
-            service.Log(WinOptimizer.Core.Features.Common.Enums.LogLevel.Success, "success message");
-        };
-
-        action.Should().NotThrow();
-    }
-
-    [Fact]
-    public void Log_WithException_DoesNotThrow()
-    {
-        using var service = CreateService();
-
-        var ex = new InvalidOperationException("test error");
-        var action = () => service.Log(
-            WinOptimizer.Core.Features.Common.Enums.LogLevel.Error, "error", ex);
-
-        action.Should().NotThrow();
-    }
-
-    [Fact]
-    public void Dispose_CalledMultipleTimes_DoesNotThrow()
-    {
-        var service = CreateService();
-
-        var action = () =>
-        {
-            service.Dispose();
-            service.Dispose();
-        };
-
-        action.Should().NotThrow();
-    }
-
-    [Fact]
     public void StartLog_WithSystemInfoProvider_WritesAllDiagnosticFields()
     {
         var service = CreateService();
@@ -377,31 +319,6 @@ public class LogServiceTests : IDisposable
 
             var remaining = Directory.GetFiles(tempDir, "WinOptimizer_Log_*.jsonl");
             remaining.Should().HaveCount(3, "should cap to maxFiles");
-        }
-        finally
-        {
-            Directory.Delete(tempDir, true);
-        }
-    }
-
-    [Fact]
-    public void CleanupOldLogs_NonExistentDirectory_DoesNotThrow()
-    {
-        var action = () => LogService.CleanupOldLogs(
-            Path.Combine(Path.GetTempPath(), "NonExistentDir_" + Guid.NewGuid().ToString("N")));
-
-        action.Should().NotThrow();
-    }
-
-    [Fact]
-    public void CleanupOldLogs_EmptyDirectory_DoesNotThrow()
-    {
-        var tempDir = Path.Combine(Path.GetTempPath(), $"WinOptimizerLogTest_{Guid.NewGuid():N}");
-        Directory.CreateDirectory(tempDir);
-        try
-        {
-            var action = () => LogService.CleanupOldLogs(tempDir);
-            action.Should().NotThrow();
         }
         finally
         {

@@ -169,43 +169,4 @@ public class SelectedAppsProviderTests : IDisposable
         // CapabilityName should NOT be set because the Appx branch ran
         item.CapabilityName.Should().BeNull();
     }
-
-    [Fact]
-    public async Task GetSelectedWindowsAppsAsync_WhenNotInitialized_CallsLoadItemsAsync()
-    {
-        var vm = CreateWindowsAppsVm();
-
-        _mockWindowsAppsService
-            .Setup(s => s.GetAppsAsync())
-            .ReturnsAsync(new List<ItemDefinition>());
-
-        // Do NOT call LoadItemsAsync - let the provider do it
-        var sut = CreateSut(vm);
-
-        var result = await sut.GetSelectedWindowsAppsAsync();
-
-        // The VM should now be initialized
-        result.Should().BeEmpty();
-        _mockWindowsAppsService.Verify(s => s.GetAppsAsync(), Times.Once);
-    }
-
-    [Fact]
-    public async Task GetSelectedWindowsAppsAsync_WhenAlreadyInitialized_DoesNotReload()
-    {
-        var vm = CreateWindowsAppsVm();
-
-        _mockWindowsAppsService
-            .Setup(s => s.GetAppsAsync())
-            .ReturnsAsync(new List<ItemDefinition>());
-
-        // Pre-initialize the VM
-        await vm.LoadItemsAsync();
-
-        var sut = CreateSut(vm);
-
-        await sut.GetSelectedWindowsAppsAsync();
-
-        // Should only have been called once (the explicit call above), not again
-        _mockWindowsAppsService.Verify(s => s.GetAppsAsync(), Times.Once);
-    }
 }

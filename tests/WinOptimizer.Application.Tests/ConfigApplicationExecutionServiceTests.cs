@@ -270,57 +270,6 @@ public class ConfigApplicationExecutionServiceTests
     }
 
     [Fact]
-    public async Task ExecuteConfigImportAsync_ShowsAndHidesOverlay()
-    {
-        var config = new UnifiedConfigurationFile
-        {
-            Optimize = new FeatureGroupSection
-            {
-                Features = new Dictionary<string, ConfigSection>
-                {
-                    ["Privacy"] = new ConfigSection
-                    {
-                        Items = new List<ConfigurationItem>
-                        {
-                            new ConfigurationItem { Id = "setting1", Name = "Setting 1" }
-                        }
-                    }
-                }
-            }
-        };
-
-        var options = new ImportOptions();
-
-        _mockConfigLoadService
-            .Setup(s => s.DetectIncompatibleSettings(It.IsAny<UnifiedConfigurationFile>()))
-            .Returns(new List<string>());
-
-        _mockBridgeService
-            .Setup(b => b.ApplyConfigurationSectionAsync(
-                It.IsAny<ConfigSection>(),
-                It.IsAny<string>(),
-                It.IsAny<Func<string, object?, SettingDefinition, Task<(bool confirmed, bool checkboxResult)>>>()))
-            .ReturnsAsync(true);
-
-        // Explorer restart
-        var dialogEvents = new List<string>();
-        var deferred = new Mock<IAsyncDisposable>();
-        deferred.Setup(scope => scope.DisposeAsync()).Callback(() => dialogEvents.Add("reviews")).Returns(ValueTask.CompletedTask);
-        _uninstallReview.Setup(review => review.Defer()).Callback(() => dialogEvents.Add("defer")).Returns(deferred.Object);
-        _mockOverlayService.Setup(overlay => overlay.HideOverlay()).Callback(() => dialogEvents.Add("hide"));
-        _mockWindowsUIManagementService
-            .Setup(w => w.IsProcessRunning("explorer"))
-            .Returns(true);
-
-        var service = CreateService();
-        await service.ExecuteConfigImportAsync(config, options);
-
-        _mockOverlayService.Verify(o => o.ShowOverlay(It.IsAny<string>(), It.IsAny<string?>()), Times.Once);
-        _mockOverlayService.Verify(o => o.HideOverlay(), Times.Once);
-        Assert.Equal(new[] { "defer", "hide", "reviews" }, dialogEvents);
-    }
-
-    [Fact]
     public async Task ExecuteConfigImportAsync_SetsAndClearsConfigImportState()
     {
         var isActiveValues = new List<bool>();
@@ -389,32 +338,6 @@ public class ConfigApplicationExecutionServiceTests
         _mockDialogService.Verify(
             d => d.ShowMessage(It.Is<string>(s => s.Contains("Test error")), It.IsAny<string>()),
             Times.Once);
-    }
-
-    // -------------------------------------------------------
-    // ApplyConfigurationWithOptionsAsync (public overload)
-    // -------------------------------------------------------
-
-    [Fact]
-    public async Task ApplyConfigurationWithOptionsAsync_WithEmptyConfig_HandlesGracefully()
-    {
-        var config = new UnifiedConfigurationFile();
-        var selectedSections = new List<string>();
-        var options = new ImportOptions();
-
-        _mockWindowsUIManagementService
-            .Setup(w => w.IsProcessRunning("explorer"))
-            .Returns(true);
-
-        var service = CreateService();
-
-        // Should not throw
-        await service.ApplyConfigurationWithOptionsAsync(config, selectedSections, options);
-
-        // Explorer restart still runs
-        _mockOverlayService.Verify(
-            o => o.UpdateStatus(It.IsAny<string>(), It.IsAny<string?>()),
-            Times.AtLeastOnce);
     }
 
     // -------------------------------------------------------

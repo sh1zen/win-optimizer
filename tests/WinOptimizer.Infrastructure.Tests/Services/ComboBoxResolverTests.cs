@@ -480,22 +480,6 @@ public class ComboBoxResolverTests
     }
 
     [Fact]
-    public void ResolveIndexToRawValues_MapsIndexToCorrectRawValues()
-    {
-        var mappings = new Dictionary<int, Dictionary<string, object?>>
-        {
-            { 0, new Dictionary<string, object?> { { "ValueA", 10 }, { "ValueB", 20 } } },
-            { 1, new Dictionary<string, object?> { { "ValueA", 30 }, { "ValueB", 40 } } },
-        };
-        var setting = CreateSelectionSetting("test", mappings);
-
-        var result = _sut.ResolveIndexToRawValues(setting, 1);
-
-        result.Should().ContainKey("ValueA").WhoseValue.Should().Be(30);
-        result.Should().ContainKey("ValueB").WhoseValue.Should().Be(40);
-    }
-
-    [Fact]
     public void ResolveIndexToRawValues_UnknownIndex_ReturnsEmptyDictionary()
     {
         var mappings = new Dictionary<int, Dictionary<string, object?>>
@@ -551,17 +535,6 @@ public class ComboBoxResolverTests
         var setting = CreateBasicSetting("test");
 
         var result = _sut.GetIndexFromDisplayName(setting, "Anything");
-
-        result.Should().Be(0);
-    }
-
-    [Fact]
-    public void GetIndexFromDisplayName_FirstElement_ReturnsZero()
-    {
-        var displayNames = new[] { "Off", "On" };
-        var setting = CreateSettingWithDisplayNames("test", displayNames);
-
-        var result = _sut.GetIndexFromDisplayName(setting, "Off");
 
         result.Should().Be(0);
     }

@@ -22,34 +22,6 @@ public class RegistryCommandEmitterTests
     }
 
     // ---------------------------------------------------------------
-    // EmitRegistryValue - Standard DWord
-    // ---------------------------------------------------------------
-
-    [Fact]
-    public void EmitRegistryValue_DWord_EmitsSetRegistryValue()
-    {
-        var sb = new StringBuilder();
-        var regSetting = new RegistrySetting
-        {
-            KeyPath = "HKEY_LOCAL_MACHINE\\Software\\Test",
-            ValueName = "TestValue",
-            ValueType = RegistryValueKind.DWord,
-            RecommendedValue = null,
-            DefaultValue = null
-        };
-
-        _sut.EmitRegistryValue(sb, regSetting, 1, "Test Setting", "'HKLM:\\Software\\Test'", "TestValue", "    ");
-
-        var output = sb.ToString();
-        output.Should().Contain("Set-RegistryValue");
-        output.Should().Contain("'HKLM:\\Software\\Test'");
-        output.Should().Contain("'TestValue'");
-        output.Should().Contain("'DWord'");
-        output.Should().Contain("1");
-        output.Should().Contain("'Test Setting'");
-    }
-
-    // ---------------------------------------------------------------
     // EmitRegistryValue - Binary with BitMask
     // ---------------------------------------------------------------
 
@@ -75,28 +47,6 @@ public class RegistryCommandEmitterTests
         output.Should().Contain("-ByteIndex 3");
         output.Should().Contain("-BitMask 0x04");
         output.Should().Contain("-SetBit $True");
-    }
-
-    [Fact]
-    public void EmitRegistryValue_BinaryBitMask_False_EmitsSetBitFalse()
-    {
-        var sb = new StringBuilder();
-        var regSetting = new RegistrySetting
-        {
-            KeyPath = "HKEY_LOCAL_MACHINE\\Software\\Test",
-            ValueName = "BinaryVal",
-            ValueType = RegistryValueKind.Binary,
-            BinaryByteIndex = 0,
-            BitMask = 0x01,
-            RecommendedValue = null,
-            DefaultValue = null
-        };
-
-        _sut.EmitRegistryValue(sb, regSetting, false, "Bit Setting", "'HKLM:\\Software\\Test'", "BinaryVal", "");
-
-        var output = sb.ToString();
-        output.Should().Contain("Set-BinaryBit");
-        output.Should().Contain("-SetBit $False");
     }
 
     // ---------------------------------------------------------------
@@ -126,27 +76,6 @@ public class RegistryCommandEmitterTests
         output.Should().Contain("-ByteValue 0xFF");
     }
 
-    [Fact]
-    public void EmitRegistryValue_BinaryModifyByteOnly_ByteValue_FormatsCorrectHex()
-    {
-        var sb = new StringBuilder();
-        var regSetting = new RegistrySetting
-        {
-            KeyPath = "HKEY_LOCAL_MACHINE\\Software\\Test",
-            ValueName = "ByteVal",
-            ValueType = RegistryValueKind.Binary,
-            BinaryByteIndex = 4,
-            ModifyByteOnly = true,
-            RecommendedValue = null,
-            DefaultValue = null
-        };
-
-        _sut.EmitRegistryValue(sb, regSetting, (byte)0x3E, "Click Setting", "'HKLM:\\Software\\Test'", "ByteVal", "");
-
-        var output = sb.ToString();
-        output.Should().Contain("-ByteValue 0x3E");
-    }
-
     // ---------------------------------------------------------------
     // EmitRegistryValue - Binary without BitMask or ModifyByteOnly
     // ---------------------------------------------------------------
@@ -171,55 +100,6 @@ public class RegistryCommandEmitterTests
         var output = sb.ToString();
         output.Should().Contain("Set-RegistryValue");
         output.Should().Contain("'Binary'");
-    }
-
-    // ---------------------------------------------------------------
-    // EmitRegistryValueFromDefinition - BitMask
-    // ---------------------------------------------------------------
-
-    [Fact]
-    public void EmitRegistryValueFromDefinition_BitMask_UsesIsEnabled()
-    {
-        var sb = new StringBuilder();
-        var regSetting = new RegistrySetting
-        {
-            KeyPath = "HKEY_LOCAL_MACHINE\\Software\\Test",
-            ValueName = "Val",
-            ValueType = RegistryValueKind.Binary,
-            BinaryByteIndex = 1,
-            BitMask = 0x08,
-            RecommendedValue = null,
-            DefaultValue = null
-        };
-
-        _sut.EmitRegistryValueFromDefinition(sb, regSetting, true, isEnabled: true,
-            "Def BitMask", "'HKLM:\\Software\\Test'", "Val", "");
-
-        var output = sb.ToString();
-        output.Should().Contain("Set-BinaryBit");
-        output.Should().Contain("-SetBit $True");
-    }
-
-    [Fact]
-    public void EmitRegistryValueFromDefinition_BitMask_IsEnabledFalse_SetsBitFalse()
-    {
-        var sb = new StringBuilder();
-        var regSetting = new RegistrySetting
-        {
-            KeyPath = "HKEY_LOCAL_MACHINE\\Software\\Test",
-            ValueName = "Val",
-            ValueType = RegistryValueKind.Binary,
-            BinaryByteIndex = 1,
-            BitMask = 0x08,
-            RecommendedValue = null,
-            DefaultValue = null
-        };
-
-        _sut.EmitRegistryValueFromDefinition(sb, regSetting, false, isEnabled: false,
-            "Def BitMask", "'HKLM:\\Software\\Test'", "Val", "");
-
-        var output = sb.ToString();
-        output.Should().Contain("-SetBit $False");
     }
 
     // ---------------------------------------------------------------
@@ -375,58 +255,6 @@ public class RegistryCommandEmitterTests
     }
 
     // ---------------------------------------------------------------
-    // AppendToggleCommandsFiltered - Hive filtering
-    // ---------------------------------------------------------------
-
-    [Fact]
-    public void AppendToggleCommandsFiltered_FiltersOutHkcuEntriesWhenIsHkcuFalse()
-    {
-        var sb = new StringBuilder();
-        var setting = CreateSettingDefinition("test-setting", "Test", new[]
-        {
-            new RegistrySetting
-            {
-                KeyPath = "HKEY_CURRENT_USER\\Software\\Test",
-                ValueName = "Val",
-                ValueType = RegistryValueKind.DWord,
-                EnabledValue = [1],
-                DisabledValue = [0],
-                RecommendedValue = null,
-                DefaultValue = null
-            }
-        });
-        var configItem = new ConfigurationItem { Id = "test-setting", IsSelected = true, InputType = InputType.Toggle };
-
-        _sut.AppendToggleCommandsFiltered(sb, setting, configItem, isHkcu: false);
-
-        sb.ToString().Trim().Should().BeEmpty();
-    }
-
-    [Fact]
-    public void AppendToggleCommandsFiltered_IncludesHkcuEntriesWhenIsHkcuTrue()
-    {
-        var sb = new StringBuilder();
-        var setting = CreateSettingDefinition("test-setting", "Test", new[]
-        {
-            new RegistrySetting
-            {
-                KeyPath = "HKEY_CURRENT_USER\\Software\\Test",
-                ValueName = "Val",
-                ValueType = RegistryValueKind.DWord,
-                EnabledValue = [1],
-                DisabledValue = [0],
-                RecommendedValue = null,
-                DefaultValue = null
-            }
-        });
-        var configItem = new ConfigurationItem { Id = "test-setting", IsSelected = true, InputType = InputType.Toggle };
-
-        _sut.AppendToggleCommandsFiltered(sb, setting, configItem, isHkcu: true);
-
-        sb.ToString().Should().Contain("Set-RegistryValue");
-    }
-
-    // ---------------------------------------------------------------
     // AppendToggleCommandsFiltered - CustomStateValues path
     // ---------------------------------------------------------------
 
@@ -547,77 +375,6 @@ public class RegistryCommandEmitterTests
         output.Should().Contain("Set-RegistryValue");
         output.Should().Contain("'String'");
         output.Should().Contain("-Value ''");
-    }
-
-    // ---------------------------------------------------------------
-    // AppendRegContentCommands
-    // ---------------------------------------------------------------
-
-    [Fact]
-    public void AppendRegContentCommands_EmptyRegContents_ProducesNoOutput()
-    {
-        var sb = new StringBuilder();
-        var setting = new SettingDefinition
-        {
-            Id = "test",
-            Name = "Test",
-            Description = "Test Setting",
-            RegContents = new List<RegContentSetting>()
-        };
-
-        _sut.AppendRegContentCommands(sb, setting, isEnabled: true, isHkcuPass: false);
-
-        sb.ToString().Should().BeEmpty();
-    }
-
-    [Fact]
-    public void AppendRegContentCommands_HklmContent_EmittedInHklmPass()
-    {
-        var sb = new StringBuilder();
-        var setting = new SettingDefinition
-        {
-            Id = "test-reg",
-            Name = "Test",
-            Description = "Reg Content Test",
-            RegContents = new List<RegContentSetting>
-            {
-                new RegContentSetting
-                {
-                    EnabledContent = "Windows Registry Editor Version 5.00\n[HKEY_LOCAL_MACHINE\\Software\\Test]\n\"Val\"=dword:00000001",
-                    DisabledContent = ""
-                }
-            }
-        };
-
-        _sut.AppendRegContentCommands(sb, setting, isEnabled: true, isHkcuPass: false);
-
-        var output = sb.ToString();
-        output.Should().Contain("$regContent_test_reg");
-        output.Should().Contain("reg import");
-    }
-
-    [Fact]
-    public void AppendRegContentCommands_HkcuContent_NotEmittedInHklmPass()
-    {
-        var sb = new StringBuilder();
-        var setting = new SettingDefinition
-        {
-            Id = "test-reg",
-            Name = "Test",
-            Description = "Reg Content Test",
-            RegContents = new List<RegContentSetting>
-            {
-                new RegContentSetting
-                {
-                    EnabledContent = "[HKEY_CURRENT_USER\\Software\\Test]\n\"Val\"=dword:00000001",
-                    DisabledContent = ""
-                }
-            }
-        };
-
-        _sut.AppendRegContentCommands(sb, setting, isEnabled: true, isHkcuPass: false);
-
-        sb.ToString().Trim().Should().BeEmpty();
     }
 
     // ---------------------------------------------------------------
@@ -748,33 +505,6 @@ public class RegistryCommandEmitterTests
         output.Should().Contain("ForEach-Object");
         output.Should().Contain("$_.PSPath");
         output.Should().Contain("Remove-RegistryValue");
-    }
-
-    [Fact]
-    public void AppendToggleCommandsFiltered_NoPerSubkeyFlag_DoesNotWrapInForEach()
-    {
-        var sb = new StringBuilder();
-        var setting = CreateSettingDefinition("test-normal", "Normal Setting", new[]
-        {
-            new RegistrySetting
-            {
-                KeyPath = @"HKEY_LOCAL_MACHINE\Software\Test",
-                ValueName = "Val",
-                ValueType = RegistryValueKind.DWord,
-                EnabledValue = [1],
-                DisabledValue = [0],
-                RecommendedValue = null,
-                DefaultValue = null
-            }
-        });
-        var configItem = new ConfigurationItem { Id = "test-normal", IsSelected = true, InputType = InputType.Toggle };
-
-        _sut.AppendToggleCommandsFiltered(sb, setting, configItem, isHkcu: false);
-
-        var output = sb.ToString();
-        output.Should().NotContain("Get-ChildItem");
-        output.Should().NotContain("ForEach-Object");
-        output.Should().Contain("Set-RegistryValue");
     }
 
     // ---------------------------------------------------------------

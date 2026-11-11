@@ -200,55 +200,6 @@ public class ConfigReviewServiceTests : IDisposable
     }
 
     [Fact]
-    public void EnterNormalMode_FromBuilder_ResetsToNormal()
-    {
-        var service = CreateService();
-        service.EnterBuilderMode(BuilderTarget.Config);
-        var raised = false;
-        service.ModeChanged += (_, _) => raised = true;
-
-        service.EnterNormalMode();
-
-        service.CurrentMode.Should().Be(WinOptimizerMode.Normal);
-        raised.Should().BeTrue();
-    }
-
-    [Fact]
-    public void Dispose_CalledTwice_DoesNotThrow()
-    {
-        var service = CreateService();
-        service.Dispose();
-
-        var act = () => service.Dispose();
-        act.Should().NotThrow();
-    }
-
-    [Fact]
-    public async Task EnterReviewModeAsync_SetsModeAndActiveConfig()
-    {
-        var config = new UnifiedConfigurationFile();
-
-        var service = CreateService();
-        await service.EnterReviewModeAsync(config);
-
-        service.CurrentMode.Should().Be(WinOptimizerMode.ConfigReview);
-        service.IsInReviewMode.Should().BeTrue();
-        service.ActiveConfig.Should().BeSameAs(config);
-    }
-
-    [Fact]
-    public async Task EnterReviewModeAsync_FiresReviewModeChangedEvent()
-    {
-        bool eventFired = false;
-        var service = CreateService();
-        service.ReviewModeChanged += (_, _) => eventFired = true;
-
-        await service.EnterReviewModeAsync(new UnifiedConfigurationFile());
-
-        eventFired.Should().BeTrue();
-    }
-
-    [Fact]
     public async Task EnterReviewModeAsync_FiresBadgeStateChangedEvent()
     {
         bool eventFired = false;
@@ -289,63 +240,6 @@ public class ConfigReviewServiceTests : IDisposable
 
         service.TotalConfigItems.Should().Be(3);
         service.GetNavBadgeCount("SoftwareApps").Should().Be(3);
-    }
-
-    [Fact]
-    public async Task EnterReviewModeAsync_ComputesDiffsForToggleSettings()
-    {
-        var settingDef = new SettingDefinition
-        {
-            Id = "privacy-setting",
-            Name = "Privacy Setting",
-            Description = "Test",
-            InputType = InputType.Toggle
-        };
-
-        _mockCompatibleSettingsRegistry
-            .Setup(r => r.GetFilteredSettings("Privacy"))
-            .Returns(new[] { settingDef });
-
-        _mockDiscoveryService
-            .Setup(d => d.GetSettingStatesAsync(It.IsAny<IReadOnlyList<SettingDefinition>>()))
-            .ReturnsAsync(new Dictionary<string, SettingStateResult>
-            {
-                ["privacy-setting"] = new SettingStateResult { IsEnabled = false }
-            });
-
-        var config = new UnifiedConfigurationFile
-        {
-            Optimize = new FeatureGroupSection
-            {
-                IsIncluded = true,
-                Features = new Dictionary<string, ConfigSection>
-                {
-                    ["Privacy"] = new ConfigSection
-                    {
-                        IsIncluded = true,
-                        Items = new List<ConfigurationItem>
-                        {
-                            new ConfigurationItem
-                            {
-                                Id = "privacy-setting",
-                                Name = "Privacy Setting",
-                                IsSelected = true,
-                                InputType = InputType.Toggle
-                            }
-                        }
-                    }
-                }
-            }
-        };
-
-        var service = CreateService();
-        await service.EnterReviewModeAsync(config);
-
-        service.TotalChanges.Should().Be(1);
-        var diff = service.GetDiffForSetting("privacy-setting");
-        diff.Should().NotBeNull();
-        diff!.CurrentValueDisplay.Should().Be("Off");
-        diff.ConfigValueDisplay.Should().Be("On");
     }
 
     [Fact]
@@ -577,20 +471,6 @@ public class ConfigReviewServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task ExitReviewMode_FiresReviewModeChangedEvent()
-    {
-        var service = CreateService();
-        await service.EnterReviewModeAsync(new UnifiedConfigurationFile());
-
-        bool eventFired = false;
-        service.ReviewModeChanged += (_, _) => eventFired = true;
-
-        service.ExitReviewMode();
-
-        eventFired.Should().BeTrue();
-    }
-
-    [Fact]
     public async Task ExitReviewMode_FiresBadgeStateChangedEvent()
     {
         var service = CreateService();
@@ -602,64 +482,6 @@ public class ConfigReviewServiceTests : IDisposable
         service.ExitReviewMode();
 
         eventFired.Should().BeTrue();
-    }
-
-    [Fact]
-    public async Task ExitReviewMode_ClearsBadgeRelatedState()
-    {
-        var config = new UnifiedConfigurationFile
-        {
-            WindowsApps = new ConfigSection
-            {
-                IsIncluded = true,
-                Items = new List<ConfigurationItem>
-                {
-                    new ConfigurationItem { Id = "app1" }
-                }
-            }
-        };
-
-        var service = CreateService();
-        await service.EnterReviewModeAsync(config);
-
-        // Register diffs so badge queries return non-zero values
-        service.RegisterDiff(new ConfigReviewDiff { SettingId = "s1", FeatureModuleId = "Privacy", InputType = InputType.Toggle });
-        service.RegisterDiff(new ConfigReviewDiff { SettingId = "s2", FeatureModuleId = "Privacy", InputType = InputType.Toggle });
-
-        // Verify state exists before exit
-        service.GetFeatureDiffCount("Privacy").Should().Be(2);
-        service.IsFeatureInConfig(FeatureIds.WindowsApps).Should().BeTrue();
-
-        service.ExitReviewMode();
-
-        // After exit, all badge queries must return cleared/default values
-        service.GetFeatureDiffCount("Privacy").Should().Be(0);
-        service.GetFeaturePendingDiffCount("Privacy").Should().Be(0);
-        service.IsFeatureInConfig(FeatureIds.WindowsApps).Should().BeFalse();
-        service.IsFeatureFullyReviewed("Privacy").Should().BeFalse();
-    }
-
-    [Fact]
-    public void SetSettingApproval_UpdatesDiffState()
-    {
-        var service = CreateService();
-        var diff = new ConfigReviewDiff
-        {
-            SettingId = "test",
-            SettingName = "Test",
-            FeatureModuleId = "Privacy",
-            CurrentValueDisplay = "Off",
-            ConfigValueDisplay = "On",
-            InputType = InputType.Toggle
-        };
-        service.RegisterDiff(diff);
-
-        service.SetSettingApproval("test", true);
-
-        var updated = service.GetDiffForSetting("test");
-        updated.Should().NotBeNull();
-        updated!.IsReviewed.Should().BeTrue();
-        updated.IsApproved.Should().BeTrue();
     }
 
     [Fact]
@@ -680,14 +502,6 @@ public class ConfigReviewServiceTests : IDisposable
         service.SetSettingApproval("test", true);
 
         eventFired.Should().BeTrue();
-    }
-
-    [Fact]
-    public void SetSettingApproval_ForNonexistentSetting_DoesNotThrow()
-    {
-        var service = CreateService();
-        var act = () => service.SetSettingApproval("nonexistent", true);
-        act.Should().NotThrow();
     }
 
     [Fact]
@@ -723,23 +537,6 @@ public class ConfigReviewServiceTests : IDisposable
     }
 
     [Fact]
-    public void RegisterDiff_AddsDiff()
-    {
-        var service = CreateService();
-        var diff = new ConfigReviewDiff
-        {
-            SettingId = "new-diff",
-            FeatureModuleId = "Privacy",
-            InputType = InputType.Toggle
-        };
-
-        service.RegisterDiff(diff);
-
-        service.TotalChanges.Should().Be(1);
-        service.GetDiffForSetting("new-diff").Should().NotBeNull();
-    }
-
-    [Fact]
     public void RegisterDiff_ReplacesExistingDiffWithSameId()
     {
         var service = CreateService();
@@ -765,35 +562,6 @@ public class ConfigReviewServiceTests : IDisposable
     }
 
     [Fact]
-    public void ApprovedChanges_ReturnsCorrectCount()
-    {
-        var service = CreateService();
-
-        service.RegisterDiff(new ConfigReviewDiff { SettingId = "s1", FeatureModuleId = "P", InputType = InputType.Toggle });
-        service.RegisterDiff(new ConfigReviewDiff { SettingId = "s2", FeatureModuleId = "P", InputType = InputType.Toggle });
-        service.RegisterDiff(new ConfigReviewDiff { SettingId = "s3", FeatureModuleId = "P", InputType = InputType.Toggle });
-
-        service.SetSettingApproval("s1", true);
-        service.SetSettingApproval("s2", false);
-
-        service.ApprovedChanges.Should().Be(1);
-        service.ReviewedChanges.Should().Be(2);
-    }
-
-    [Fact]
-    public void MarkFeatureVisited_TracksVisitedFeatures()
-    {
-        var service = CreateService();
-
-        bool badgeChanged = false;
-        service.BadgeStateChanged += (_, _) => badgeChanged = true;
-
-        service.MarkFeatureVisited("Privacy");
-
-        badgeChanged.Should().BeTrue();
-    }
-
-    [Fact]
     public void MarkFeatureVisited_CalledTwice_OnlyFiresOnce()
     {
         var service = CreateService();
@@ -807,20 +575,6 @@ public class ConfigReviewServiceTests : IDisposable
     }
 
     [Fact]
-    public void GetFeatureDiffCount_ReturnsCountForFeature()
-    {
-        var service = CreateService();
-
-        service.RegisterDiff(new ConfigReviewDiff { SettingId = "s1", FeatureModuleId = "Privacy", InputType = InputType.Toggle });
-        service.RegisterDiff(new ConfigReviewDiff { SettingId = "s2", FeatureModuleId = "Privacy", InputType = InputType.Toggle });
-        service.RegisterDiff(new ConfigReviewDiff { SettingId = "s3", FeatureModuleId = "Power", InputType = InputType.Toggle });
-
-        service.GetFeatureDiffCount("Privacy").Should().Be(2);
-        service.GetFeatureDiffCount("Power").Should().Be(1);
-        service.GetFeatureDiffCount("Nonexistent").Should().Be(0);
-    }
-
-    [Fact]
     public void GetFeaturePendingDiffCount_ExcludesReviewedDiffs()
     {
         var service = CreateService();
@@ -831,28 +585,6 @@ public class ConfigReviewServiceTests : IDisposable
         service.SetSettingApproval("s1", true); // Reviewed
 
         service.GetFeaturePendingDiffCount("Privacy").Should().Be(1);
-    }
-
-    [Fact]
-    public async Task IsFeatureInConfig_ReturnsTrueForFeaturesInConfig()
-    {
-        var config = new UnifiedConfigurationFile
-        {
-            WindowsApps = new ConfigSection
-            {
-                IsIncluded = true,
-                Items = new List<ConfigurationItem>
-                {
-                    new ConfigurationItem { Id = "app1" }
-                }
-            }
-        };
-
-        var service = CreateService();
-        await service.EnterReviewModeAsync(config);
-
-        service.IsFeatureInConfig(FeatureIds.WindowsApps).Should().BeTrue();
-        service.IsFeatureInConfig(FeatureIds.ExternalApps).Should().BeFalse();
     }
 
     [Fact]

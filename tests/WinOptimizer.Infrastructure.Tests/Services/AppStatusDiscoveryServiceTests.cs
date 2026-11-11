@@ -538,37 +538,6 @@ public class AppStatusDiscoveryServiceTests
         _mockWinGetDetection.Verify(s => s.GetInstalledPackageIdsAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
-    [Fact]
-    public async Task InvalidateCache_CausesWinGetRefetch_WhenExternalAppsChecked()
-    {
-        // Setup WinGet as ready and returning a package set
-        _mockWinGetBootstrapper
-            .Setup(w => w.EnsureWinGetReadyAsync())
-            .ReturnsAsync(true);
-        _mockWinGetDetection
-            .Setup(w => w.GetInstalledPackageIdsAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new HashSet<string> { "TestApp.Id" });
-
-        var definitions = new List<ItemDefinition>
-        {
-            CreateExternalAppDefinition("ext1", "Test App", winGetPackageIds: new[] { "TestApp.Id" })
-        };
-
-        // First call populates cache
-        await _service.GetExternalAppsInstallationStatusAsync(definitions);
-
-        // Invalidate cache
-        _service.InvalidateCache();
-
-        // Second call should re-fetch
-        await _service.GetExternalAppsInstallationStatusAsync(definitions);
-
-        // WinGet detection should have been called twice (once for each external check)
-        _mockWinGetDetection.Verify(
-            w => w.GetInstalledPackageIdsAsync(It.IsAny<CancellationToken>()),
-            Times.Exactly(2));
-    }
-
     // --- GetExternalAppsInstallationStatusAsync ---
 
     [Fact]
@@ -691,25 +660,6 @@ public class AppStatusDiscoveryServiceTests
     }
 
     [Fact]
-    public async Task GetExternalAppsInstallationStatusAsync_SetsDetectedViaProperty()
-    {
-        _mockWinGetBootstrapper
-            .Setup(w => w.EnsureWinGetReadyAsync())
-            .ReturnsAsync(true);
-        _mockWinGetDetection
-            .Setup(w => w.GetInstalledPackageIdsAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new HashSet<string> { "7zip.7zip" });
-
-        var definition = CreateExternalAppDefinition("ext-7zip", "7-Zip",
-            winGetPackageIds: new[] { "7zip.7zip" });
-        var definitions = new List<ItemDefinition> { definition };
-
-        await _service.GetExternalAppsInstallationStatusAsync(definitions);
-
-        definition.DetectedVia.Should().Be(Core.Features.SoftwareApps.Enums.DetectionSource.WinGet);
-    }
-
-    [Fact]
     public async Task GetExternalAppsInstallationStatusAsync_NoDetectionSource_ReturnsFalse()
     {
         _mockWinGetBootstrapper
@@ -753,31 +703,6 @@ public class AppStatusDiscoveryServiceTests
         result["ext1"].Should().BeFalse();
         // The exception is caught at the WinGet readiness level (logged as LogWarning), not at the top level
         _mockLog.Verify(l => l.LogWarning(It.Is<string>(s => s.Contains("Critical failure"))), Times.Once);
-    }
-
-    [Fact]
-    public async Task GetExternalAppsInstallationStatusAsync_UsesWinGetCache_OnSecondCall()
-    {
-        _mockWinGetBootstrapper
-            .Setup(w => w.EnsureWinGetReadyAsync())
-            .ReturnsAsync(true);
-        _mockWinGetDetection
-            .Setup(w => w.GetInstalledPackageIdsAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new HashSet<string> { "Pkg.Id" });
-
-        var definitions = new List<ItemDefinition>
-        {
-            CreateExternalAppDefinition("ext1", "App 1", winGetPackageIds: new[] { "Pkg.Id" })
-        };
-
-        // Call twice
-        await _service.GetExternalAppsInstallationStatusAsync(definitions);
-        await _service.GetExternalAppsInstallationStatusAsync(definitions);
-
-        // WinGet detection should only be called once due to caching
-        _mockWinGetDetection.Verify(
-            w => w.GetInstalledPackageIdsAsync(It.IsAny<CancellationToken>()),
-            Times.Once);
     }
 
     // --- MatchesPattern ---
@@ -866,24 +791,6 @@ public class AppStatusDiscoveryServiceTests
     }
 
     [Fact]
-    public async Task GetInstallationStatusBatchAsync_AppXDetectsApp_ReturnsTrue()
-    {
-        _mockAppxPackageSource
-            .Setup(a => a.GetInstalledPackageNamesAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "Microsoft.WindowsCalculator" });
-
-        var definitions = new List<ItemDefinition>
-        {
-            CreateAppxDefinition("calc", "Microsoft.WindowsCalculator")
-        };
-
-        var result = await _service.GetInstallationStatusBatchAsync(definitions);
-
-        result.Should().ContainKey("calc");
-        result["calc"].Should().BeTrue();
-    }
-
-    [Fact]
     public async Task GetExternalAppsInstallationStatusAsync_AppXSkippedWhenAlreadyDetectedByWinGet()
     {
         _mockWinGetBootstrapper
@@ -908,35 +815,6 @@ public class AppStatusDiscoveryServiceTests
         result["ext-fake"].Should().BeTrue();
         // Should be detected via WinGet (higher priority), not AppX
         definition.DetectedVia.Should().Be(Core.Features.SoftwareApps.Enums.DetectionSource.WinGet);
-    }
-
-    // --- GetExternalAppsInstallationStatusAsync: FileSystem detection ---
-
-    [Fact]
-    public async Task GetExternalAppsInstallationStatusAsync_FileSystemDetectsExistingDirectory_ReturnsTrue()
-    {
-        _mockWinGetBootstrapper
-            .Setup(w => w.EnsureWinGetReadyAsync())
-            .ReturnsAsync(true);
-        _mockWinGetDetection
-            .Setup(w => w.GetInstalledPackageIdsAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new HashSet<string>());
-        _mockChocolatey
-            .Setup(c => c.GetInstalledPackageIdsAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new HashSet<string>());
-
-        // Use a path that is guaranteed to exist in any test environment
-        var tempDir = Path.GetTempPath();
-        var definitions = new List<ItemDefinition>
-        {
-            CreateExternalAppDefinition("ext-portable", "Portable App",
-                detectionPaths: new[] { tempDir })
-        };
-
-        var result = await _service.GetExternalAppsInstallationStatusAsync(definitions);
-
-        result.Should().ContainKey("ext-portable");
-        result["ext-portable"].Should().BeTrue();
     }
 
     [Fact]

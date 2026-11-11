@@ -4,7 +4,7 @@
 .SYNOPSIS
 Builds win-optimizer with Visual Studio MSBuild and restores NuGet packages.
 .DESCRIPTION
-Requires the .NET SDK selected by global.json, the Windows SDK, and Visual
+Requires the .NET 11 SDK, the Windows SDK, and Visual
 Studio 2026 / MSBuild 18 or later with the .NET desktop and C++ desktop
 workloads (or Build Tools).
 The executable is written to build/win-optimizer.exe; the build log is saved
@@ -69,7 +69,7 @@ if (-not $NoRestore) { $buildArguments += @('-restore', '-property:RestoreUseSta
 if ($Version) { $buildArguments += "-property:WinOptimizerVersion=$Version" }
 
 Write-Host "Building win-optimizer ($Configuration/x64) using $MSBuildPath" -ForegroundColor Cyan
-# Resolve global.json and relative project paths from the repository root.
+# Resolve relative project paths from the repository root.
 $originalPath = $env:PATH
 Push-Location -LiteralPath $PSScriptRoot
 try {
@@ -78,7 +78,7 @@ try {
         $programFiles64 = if ($env:ProgramW6432) { $env:ProgramW6432 } else { $env:ProgramFiles }
         $dotnetDirectory = Join-Path $programFiles64 'dotnet'
         if (-not (Test-Path -LiteralPath (Join-Path $dotnetDirectory 'dotnet.exe') -PathType Leaf)) {
-            throw 'dotnet.exe not found. Install the x64 .NET 10 SDK or add its directory to PATH.'
+            throw 'dotnet.exe not found. Install the x64 .NET 11 SDK or add its directory to PATH.'
         }
         $env:PATH = "$dotnetDirectory;$originalPath"
     }

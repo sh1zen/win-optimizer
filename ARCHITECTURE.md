@@ -25,8 +25,9 @@ Test hosts, boundaries and commands are in the [test guide](tests/README.md).
 
 | Owner | Responsibility |
 | --- | --- |
-| `global.json` / project manifests | SDK selection, frameworks, dependencies and x64 deployment |
-| `Directory.Build.props` | Output roots, `WinOptimizerBuildRoot` and WinRT metadata selection |
+| Project manifests | Frameworks, dependencies and x64 deployment |
+| `global.json` | Shared .NET SDK selection for local builds and CI |
+| `Directory.Build.props` | Output roots, `WinOptimizerBuildRoot`, shared Windows projection version and WinRT metadata selection |
 | `Directory.Build.targets` | Release symbol-copy policy and compiler PDB output groups |
 | `Version.props` | Shared date-version defaults, validation and application metadata |
 | `build.ps1` / `extras/Resolve-MSBuild.ps1` | Local build entry point and Visual Studio discovery |
@@ -162,6 +163,9 @@ and `ISystemSettingsDiscoveryService`.
 | `ScrollBarAutoHide` | Control-scoped idle visibility and input subscriptions |
 | `AppBranding` | UI image URI and shell icon path; [application artwork](src/WinOptimizer.UI/Assets/ICON-ATTRIBUTION.md) |
 
+The title bar and Settings support commands use `IProcessExecutor` to open the
+PayPal destination owned by UI's `SupportLinks` in the user's browser.
+
 ## App inventory and sorting
 
 `AppIconResolver` reads installed-package artwork through `IAppxIconSource` and
@@ -250,7 +254,9 @@ outcomes without enumerating leftovers. The review model scans only on request, 
 presents files/folders and registry in separate steps with retained selections and
 cleanup limited to the current step. The workflow passes outcomes to page view models,
 which reconcile only verified removals under their inventory gate before residue
-review. Provider invalidation does not trigger discovery. Configuration workflows
+review. After the uninstall workflow returns, page view models invalidate provider
+status caches and await an inventory recheck before clearing their busy state,
+including after failure or cancellation. Configuration workflows
 defer review until enclosing overlays close. Cleanup accepts current selectable IDs,
 revalidates evidence and publishes a verified backup before deletion; recovery
 preserves conflicting destination data.
@@ -334,12 +340,13 @@ receipts and active native write units finish before stopping.
 
 ## Drivers
 
-Core's `DriverScanService` owns classification, matching, deduplication, version
-comparison and WHQL filtering. `DriverRemovalService` owns selection revalidation
+Core's `DriverScanService` owns classification, matching, deduplication, comparison
+by driver class, date and version and WHQL filtering. `DriverRemovalService` owns selection revalidation
 and per-item results. `DriverSettingsViewModel` owns saved scan options.
 
 Infrastructure supplies inventory/update sources through PowerShell, DISM and
-Windows Update. `WindowsDriverInfInspector` owns INF/catalog inspection;
+Windows Update. The update source searches across deployment actions and exports
+individual bundled payloads for verification. `WindowsDriverInfInspector` owns INF/catalog inspection;
 `DriverScanWorkspace` owns private exports and paths; `WindowsDriverRemovalBackend`
 executes PnPUtil identities. UI's transient `DriversViewModel` owns tasks/selection
 and `DriverResultItem` owns row metadata. Removal rechecks exact package/device

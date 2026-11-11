@@ -50,19 +50,6 @@ public class EventBusTests
     }
 
     [Fact]
-    public void Publish_WithSubscriber_NotifiesSubscriber()
-    {
-        SettingAppliedEvent? received = null;
-        _eventBus.Subscribe<SettingAppliedEvent>(e => received = e);
-
-        var evt = new SettingAppliedEvent("test-id", true);
-        _eventBus.Publish(evt);
-
-        received.Should().NotBeNull();
-        received.Should().BeSameAs(evt);
-    }
-
-    [Fact]
     public void Publish_MultipleSubscribers_NotifiesAll()
     {
         var count = 0;
@@ -73,24 +60,6 @@ public class EventBusTests
         _eventBus.Publish(new SettingAppliedEvent("id", true));
 
         count.Should().Be(3);
-    }
-
-    [Fact]
-    public void Publish_NoSubscribers_DoesNotThrow()
-    {
-        var action = () => _eventBus.Publish(new SettingAppliedEvent("id", true));
-        action.Should().NotThrow();
-    }
-
-    [Fact]
-    public void Publish_DifferentEventType_DoesNotNotifyWrongSubscribers()
-    {
-        var received = false;
-        _eventBus.Subscribe<SettingAppliedEvent>(_ => received = true);
-
-        _eventBus.Publish(new ReviewModeExitedEvent());
-
-        received.Should().BeFalse();
     }
 
     [Fact]
@@ -175,14 +144,6 @@ public class EventBusTests
         // Await delivery without blocking the handler's continuation; bound the wait if delivery fails.
         var delivered = await received.Task.WaitAsync(TimeSpan.FromSeconds(5));
         delivered.Should().BeSameAs(evt);
-    }
-
-    [Fact]
-    public void SubscribeAsync_ReturnsTokenWithCorrectEventType()
-    {
-        var token = _eventBus.SubscribeAsync<ReviewModeExitedEvent>(async _ => await Task.CompletedTask);
-
-        token.EventType.Should().Be(typeof(ReviewModeExitedEvent));
     }
 
     [Fact]

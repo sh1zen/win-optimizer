@@ -65,7 +65,7 @@ internal class PowerSettingsScriptSection
         var activePowerPlan = await _powerSettingsQueryService.GetActivePowerPlanAsync().ConfigureAwait(false);
         var powerSettings = await ExtractPowerSettingsAsync(activePowerPlan.Guid, config, allSettings).ConfigureAwait(false);
 
-        if (powerPlanSetting == null && !powerSettings.Any())
+        if (powerPlanSetting == null && powerSettings.Count == 0)
             return false;
 
         AppendPowerSettingsSection(sb, powerPlanSetting, powerSettings, indent);
@@ -89,7 +89,7 @@ internal class PowerSettingsScriptSection
             AppendPowerPlanCreation(sb, powerPlanSetting, indent);
         }
 
-        if (powerSettings.Any())
+        if (powerSettings.Count != 0)
         {
             AppendPowerSettingsApplication(sb, powerSettings, powerPlanSetting?.PowerPlanGuid, indent);
         }
@@ -236,7 +236,7 @@ internal class PowerSettingsScriptSection
 
         foreach (var settingDef in settingDefinitions)
         {
-            if (settingDef.Id == SettingIds.PowerPlanSelection || settingDef.PowerCfgSettings?.Any() != true)
+            if (settingDef.Id == SettingIds.PowerPlanSelection || settingDef.PowerCfgSettings is not { Count: > 0 })
                 continue;
 
             if (settingDef.RequiresBattery && !hasBattery)

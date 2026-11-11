@@ -193,7 +193,6 @@ public static class InfrastructureServicesExtensions
         services.AddSingleton<ISystemRestoreService, SystemRestoreService>();
         services.AddSingleton<WinOptimizer.Infrastructure.Features.Common.Interfaces.ISystemRestorePointStore, WindowsRestorePointStore>();
         services.AddSingleton<IVersionService, VersionService>();
-        services.AddSingleton<ISponsorsService, SponsorsService>();
 
         // Script Services
         services.AddSingleton<IRemovalScriptUpdateService, RemovalScriptUpdateService>();

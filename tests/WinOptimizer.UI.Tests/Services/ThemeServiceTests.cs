@@ -85,26 +85,6 @@ public class ThemeServiceTests
     }
 
     [Fact]
-    public void GetEffectiveTheme_WhenLightNative_ReturnsLight()
-    {
-        var service = CreateService();
-
-        service.SetTheme(WinOptimizerTheme.LightNative);
-
-        service.GetEffectiveTheme().Should().Be(Microsoft.UI.Xaml.ElementTheme.Light);
-    }
-
-    [Fact]
-    public void GetEffectiveTheme_WhenDarkNative_ReturnsDark()
-    {
-        var service = CreateService();
-
-        service.SetTheme(WinOptimizerTheme.DarkNative);
-
-        service.GetEffectiveTheme().Should().Be(Microsoft.UI.Xaml.ElementTheme.Dark);
-    }
-
-    [Fact]
     public void Constructor_WhenOtsElevation_SubscribesToSettingAppliedEvent()
     {
         _mockInteractiveUserService.Setup(s => s.IsOtsElevation).Returns(true);

@@ -148,7 +148,7 @@ public class AutounattendXmlGeneratorService : IAutounattendXmlGeneratorService
         }
 
         // Keep both raw modes in the snapshot: one selection index only describes AC.
-        if (setting.PowerCfgSettings?.Any() == true && state?.RawValues != null)
+        if (setting.PowerCfgSettings?.Count > 0 && state?.RawValues != null)
         {
             var powerValues = state.RawValues
                 .Where(value => value.Key is "ACValue" or "DCValue" && value.Value != null)

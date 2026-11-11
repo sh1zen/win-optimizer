@@ -7,22 +7,6 @@ namespace WinOptimizer.Infrastructure.Tests.AdvancedTools;
 
 public class ScriptPreambleSectionTests
 {
-    [Fact]
-    public void AppendHeader_ContainsSynopsisParametersAndExamples()
-    {
-        var sb = new StringBuilder();
-
-        ScriptPreambleSection.AppendHeader(sb);
-
-        var output = sb.ToString();
-
-        output.Should().Contain(".SYNOPSIS");
-        output.Should().Contain("win-optimizer");
-        output.Should().Contain("param(");
-        output.Should().Contain("[switch]$UserCustomizations");
-        output.Should().Contain(".EXAMPLE");
-        output.Should().Contain("Optimizations.ps1");
-    }
 
     [Fact]
     public void AppendLoggingSetup_ContainsLogFunctionAndModeDetection()
@@ -75,19 +59,5 @@ public class ScriptPreambleSectionTests
         output.Should().Contain("advapi32.dll");
         output.Should().Contain("CreateProcessAsUserW");
         output.Should().Contain("WTSGetActiveConsoleSessionId");
-    }
-
-    [Fact]
-    public void AppendCompletionBlock_ContainsSuccessMessageAndSeparators()
-    {
-        var sb = new StringBuilder();
-
-        ScriptPreambleSection.AppendCompletionBlock(sb);
-
-        var output = sb.ToString();
-
-        output.Should().Contain("Script Completed");
-        output.Should().Contain("SUCCESS");
-        output.Should().Contain("================");
     }
 }

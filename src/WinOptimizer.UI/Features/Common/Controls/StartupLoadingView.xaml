@@ -8,13 +8,13 @@
           Visibility="Visible"
           AutomationProperties.LiveSetting="Polite">
         <!-- Center the content itself so a tall viewport cannot stretch the splash. -->
-        <ScrollViewer HorizontalScrollBarVisibility="Disabled"
+        <ScrollViewer MaxWidth="420"
+                      Margin="24"
+                      HorizontalScrollBarVisibility="Disabled"
                       VerticalScrollBarVisibility="Auto"
                       HorizontalContentAlignment="Stretch"
-                      VerticalContentAlignment="Center"
-                      Padding="24">
+                      VerticalContentAlignment="Center">
             <StackPanel x:Name="LoadingContent"
-                        MaxWidth="420"
                         HorizontalAlignment="Stretch"
                         VerticalAlignment="Center">
                 <Image x:Name="LoadingLogo"
@@ -56,14 +56,20 @@
                                       IsIndeterminate="True"
                                       Foreground="{ThemeResource AccentFillColorDefaultBrush}"
                                       AutomationProperties.LabeledBy="{Binding ElementName=LoadingStatusText}"/>
-                        <TextBlock x:Name="LoadingStatusText"
-                                   Grid.Column="1"
-                                   VerticalAlignment="Center"
-                                   FontSize="13"
-                                   LineHeight="20"
-                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
-                                   TextWrapping="Wrap"
-                                   AutomationProperties.LiveSetting="Polite"/>
+                        <!-- Long reports scroll within the card without moving the centered content. -->
+                        <ScrollViewer x:Name="LoadingStatusViewport"
+                                      Grid.Column="1"
+                                      HorizontalScrollBarVisibility="Disabled"
+                                      VerticalScrollBarVisibility="Auto"
+                                      HorizontalContentAlignment="Stretch"
+                                      VerticalContentAlignment="Center">
+                            <TextBlock x:Name="LoadingStatusText"
+                                       FontSize="13"
+                                       LineHeight="20"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       TextWrapping="Wrap"
+                                       AutomationProperties.LiveSetting="Polite"/>
+                        </ScrollViewer>
                     </Grid>
                 </Border>
             </StackPanel>

@@ -74,6 +74,38 @@ public class DependencyManagerTests
         result.Should().BeFalse();
     }
 
+    [Theory]
+    [InlineData(SettingDependencyType.RequiresEnabled, InputType.Toggle, null, true, null)]
+    [InlineData(SettingDependencyType.RequiresDisabled, InputType.Toggle, null, false, null)]
+    [InlineData(SettingDependencyType.RequiresSpecificValue, InputType.Selection, "2", true, "2")]
+    [InlineData(SettingDependencyType.RequiresSpecificValue, InputType.Selection, "", true, null)]
+    [InlineData(SettingDependencyType.RequiresSpecificValue, InputType.Toggle, "2", true, null)]
+    [InlineData(SettingDependencyType.RequiresValueBeforeAnyChange, InputType.Selection, "2", false, null)]
+    public async Task HandleSettingEnabled_UnsatisfiedDependency_PreservesApplicationRequest(
+        SettingDependencyType type, InputType inputType, string? requiredValue, bool enable, string? value)
+    {
+        // Failed discovery requires the normal dependency application path for every dependency kind.
+        var dependency = new SettingDependency
+        {
+            DependentSettingId = "child", RequiredSettingId = "parent",
+            DependencyType = type, RequiredValue = requiredValue
+        };
+        var parent = CreateSetting("parent") with { InputType = inputType };
+        var child = CreateSetting("child", [dependency]);
+        _mockRegistry.Setup(r => r.GetSetting("parent", null)).Returns(parent);
+        _mockDiscovery.Setup(d => d.GetSettingStatesAsync(It.IsAny<IEnumerable<SettingDefinition>>()))
+            .ReturnsAsync(new Dictionary<string, SettingStateResult>());
+        _mockSettingApp.Setup(s => s.ApplySettingAsync(It.IsAny<ApplySettingRequest>()))
+            .ReturnsAsync(OperationResult.Succeeded());
+
+        var result = await _manager.HandleSettingEnabledAsync(
+            "child", new ISettingItem[] { parent, child }, _mockSettingApp.Object, _mockDiscovery.Object);
+
+        result.Should().BeTrue();
+        _mockSettingApp.Verify(s => s.ApplySettingAsync(It.Is<ApplySettingRequest>(request =>
+            request.SettingId == "parent" && request.Enable == enable && Equals(request.Value, value))), Times.Once);
+    }
+
     [Fact]
     public async Task HandleSettingDisabled_NoDependents_DoesNotApplyAnything()
     {

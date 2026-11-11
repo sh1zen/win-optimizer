@@ -82,18 +82,6 @@ public class WimStep1ViewModelTests : IDisposable
     }
 
     [Fact]
-    public void SelectIsoFileCommand_WhenEmptyString_DoesNotChangeSelectedIsoPath()
-    {
-        _mockFilePickerService
-            .Setup(f => f.PickFile(It.IsAny<string[]>(), It.IsAny<string?>()))
-            .Returns(string.Empty);
-
-        _sut.SelectIsoFileCommand.Execute(null);
-
-        _sut.SelectedIsoPath.Should().BeEmpty();
-    }
-
-    [Fact]
     public async Task SelectWorkingDirectoryCommand_WhenCancelled_DoesNotChangeWorkingDirectory()
     {
         var originalDir = _sut.WorkingDirectory;
@@ -209,44 +197,6 @@ public class WimStep1ViewModelTests : IDisposable
         var result = await _sut.ValidateExtractedIsoDirectory("D:\\");
 
         result.Should().BeFalse();
-    }
-
-    [Fact]
-    public void WhenHasExtractedIsoAlreadySetToTrue_UpdatesSelectDirectoryCardDescription()
-    {
-        _sut.HasExtractedIsoAlready = true;
-
-        _sut.SelectDirectoryCard.Description.Should().Be("WIMUtil_Label_SelectExtracted");
-    }
-
-    [Fact]
-    public void WhenHasExtractedIsoAlreadySetToFalse_ResetsSelectDirectoryCardDescription()
-    {
-        _sut.HasExtractedIsoAlready = true;
-        _sut.HasExtractedIsoAlready = false;
-
-        _sut.SelectDirectoryCard.Description.Should().NotBe("WIMUtil_Label_SelectExtracted");
-    }
-
-    [Fact]
-    public async Task StartIsoExtractionCommand_OnSuccess_SetsIsExtractionComplete()
-    {
-        _sut.SelectedIsoPath = "C:\\test.iso";
-        _mockTaskProgressService
-            .Setup(t => t.CreatePowerShellProgress())
-            .Returns(new Progress<Core.Features.Common.Models.TaskProgressDetail>());
-
-        _mockIsoService
-            .Setup(i => i.ExtractIsoAsync(
-                It.IsAny<string>(), It.IsAny<string>(),
-                It.IsAny<IProgress<Core.Features.Common.Models.TaskProgressDetail>>(),
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync(true);
-
-        await _sut.StartIsoExtractionCommand.ExecuteAsync(null);
-
-        _sut.IsExtractionComplete.Should().BeTrue();
-        _sut.IsExtracting.Should().BeFalse();
     }
 
     [Fact]

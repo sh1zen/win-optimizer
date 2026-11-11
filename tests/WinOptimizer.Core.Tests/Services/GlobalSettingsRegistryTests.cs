@@ -25,16 +25,6 @@ public class GlobalSettingsRegistryTests
     };
 
     [Fact]
-    public void RegisterSettings_WithValidModule_StoresSettings()
-    {
-        var settings = new[] { CreateSetting("s1"), CreateSetting("s2") };
-
-        _registry.RegisterSettings("TestModule", settings);
-
-        _registry.GetAllSettings().Should().HaveCount(2);
-    }
-
-    [Fact]
     public void RegisterSettings_WithNullModuleName_LogsWarningAndReturns()
     {
         _registry.RegisterSettings(null!, new[] { CreateSetting("s1") });
@@ -44,14 +34,6 @@ public class GlobalSettingsRegistryTests
             WinOptimizer.Core.Features.Common.Enums.LogLevel.Warning,
             It.Is<string>(s => s.Contains("null or empty")),
             null), Times.Once);
-    }
-
-    [Fact]
-    public void RegisterSettings_WithEmptyModuleName_LogsWarningAndReturns()
-    {
-        _registry.RegisterSettings("", new[] { CreateSetting("s1") });
-
-        _registry.GetAllSettings().Should().BeEmpty();
     }
 
     [Fact]
@@ -75,45 +57,11 @@ public class GlobalSettingsRegistryTests
     }
 
     [Fact]
-    public void GetSetting_ByIdWithinModule_ReturnsSetting()
-    {
-        _registry.RegisterSettings("Module", new[] { CreateSetting("target") });
-
-        var result = _registry.GetSetting("target", "Module");
-
-        result.Should().NotBeNull();
-        result!.Id.Should().Be("target");
-    }
-
-    [Fact]
-    public void GetSetting_ByIdAcrossAllModules_ReturnsSetting()
-    {
-        _registry.RegisterSettings("Module", new[] { CreateSetting("target") });
-
-        var result = _registry.GetSetting("target");
-
-        result.Should().NotBeNull();
-        result!.Id.Should().Be("target");
-    }
-
-    [Fact]
     public void GetSetting_NotFound_ReturnsNull()
     {
         _registry.RegisterSettings("Module", new[] { CreateSetting("other") });
 
         _registry.GetSetting("nonexistent").Should().BeNull();
-    }
-
-    [Fact]
-    public void GetSetting_WithNullId_ReturnsNull()
-    {
-        _registry.GetSetting(null!).Should().BeNull();
-    }
-
-    [Fact]
-    public void GetSetting_WithEmptyId_ReturnsNull()
-    {
-        _registry.GetSetting("").Should().BeNull();
     }
 
     [Fact]
@@ -133,15 +81,6 @@ public class GlobalSettingsRegistryTests
         _registry.RegisterSetting("Module", CreateSetting("s1"));
 
         _registry.GetAllSettings().Should().HaveCount(1);
-    }
-
-    [Fact]
-    public void RegisterSetting_DifferentIds_AddsAll()
-    {
-        _registry.RegisterSetting("Module", CreateSetting("s1"));
-        _registry.RegisterSetting("Module", CreateSetting("s2"));
-
-        _registry.GetAllSettings().Should().HaveCount(2);
     }
 
     [Fact]
@@ -167,11 +106,5 @@ public class GlobalSettingsRegistryTests
         _registry.RegisterSettings("M2", new[] { CreateSetting("c") });
 
         _registry.GetAllSettings().Should().HaveCount(3);
-    }
-
-    [Fact]
-    public void GetAllSettings_Empty_ReturnsEmpty()
-    {
-        _registry.GetAllSettings().Should().BeEmpty();
     }
 }

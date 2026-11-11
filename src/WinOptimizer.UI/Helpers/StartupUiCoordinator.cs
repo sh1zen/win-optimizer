@@ -182,10 +182,6 @@ internal sealed class StartupUiCoordinator
         {
             StartupLogger.Log("StartupUiCoordinator", $"Startup notification failed: {ex.Message}");
         }
-
-        // Pre-warm the sponsors cache for the manually opened support dialog.
-        App.Services.GetService<ISponsorsService>()?.GetSponsorsAsync().FireAndForget(_logService!);
-
     }
 
     /// <summary>Reveals the initialized shell only after its initial layout has rendered behind the loader.</summary>

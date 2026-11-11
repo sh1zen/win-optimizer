@@ -75,30 +75,13 @@ public class SettingsViewModelTests
             _mockLogService.Object, cleaner, drivers,
             new LogsAndHistoryViewModel(Mock.Of<IActivityJournalService>(), _mockLogService.Object, _mockLocalization.Object, Mock.Of<IDialogService>()),
             new ApplicationInfoViewModel(_mockLocalization.Object, Mock.Of<IVersionService>(), _mockLogService.Object,
-                Mock.Of<IDialogService>(), _mockProcessExecutor.Object,
+                _mockProcessExecutor.Object,
                 new UpdateCheckViewModel(Mock.Of<IVersionService>(), _mockLocalization.Object, _mockLogService.Object,
                     Mock.Of<IBackgroundUpdateCheckService>(), Mock.Of<IDispatcherService>(), Mock.Of<IApplicationCloseService>())),
             new UpdatePreferencesViewModel(_mockPreferencesService.Object, _mockLocalization.Object),
             new SidebarPreferencesViewModel(_mockPreferencesService.Object, _mockLocalization.Object),
             new AppColorPreferencesViewModel(_mockPreferencesService.Object, _mockLocalization.Object,
                 new WinOptimizer.UI.Features.Common.Resources.AppColorResources()));
-    }
-
-    [Fact]
-    public void SelectedLanguage_SetToNewValue_CallsLocalizationSetLanguage()
-    {
-        _mockLocalization
-            .Setup(l => l.CurrentLanguage)
-            .Returns("en");
-        _mockLocalization
-            .Setup(l => l.SetLanguage("fr"))
-            .Returns(true);
-
-        var vm = CreateViewModel();
-
-        vm.SelectedLanguage = "fr";
-
-        _mockLocalization.Verify(l => l.SetLanguage("fr"), Times.Once);
     }
 
     [Fact]

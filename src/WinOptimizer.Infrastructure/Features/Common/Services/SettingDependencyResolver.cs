@@ -31,7 +31,7 @@ public class SettingDependencyResolver(
                 .Where(d => d.DependencyType != SettingDependencyType.RequiresValueBeforeAnyChange)
                 .ToList();
 
-            if (directionalDependencies?.Any() == true)
+            if (directionalDependencies?.Count > 0)
             {
                 logService.Log(LogLevel.Info, $"[SettingDependencyResolver] Handling dependencies for '{settingId}'");
                 var dependencyResult = await dependencyManager.HandleSettingEnabledAsync(settingId, allSettings.Cast<ISettingItem>(), settingApplicationService, discoveryService).ConfigureAwait(false);
@@ -103,7 +103,7 @@ public class SettingDependencyResolver(
         IEnumerable<SettingDefinition> allSettings,
         ISettingApplicationService settingApplicationService)
     {
-        if (setting.Dependencies?.Any() != true)
+        if (setting.Dependencies is not { Count: > 0 })
         {
             return;
         }
@@ -112,7 +112,7 @@ public class SettingDependencyResolver(
             .Where(d => d.DependencyType == SettingDependencyType.RequiresValueBeforeAnyChange)
             .ToList();
 
-        if (!valuePrerequisites.Any())
+        if (valuePrerequisites.Count == 0)
         {
             return;
         }

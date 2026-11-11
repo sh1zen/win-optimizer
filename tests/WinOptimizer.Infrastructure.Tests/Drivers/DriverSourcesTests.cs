@@ -86,9 +86,38 @@ public sealed class DriverSourcesTests
         Assert.False(Directory.Exists(root));
         Assert.Contains("$searcher.ServerSelection = 2", source);
         Assert.Contains("IsInstalled=0 and IsHidden=0 and Type='Driver'", source);
+        Assert.Contains("DeploymentAction=*", source);
         Assert.DoesNotContain("CreateUpdateInstaller", source);
         Assert.DoesNotContain("AcceptEula(", source);
         inspector.VerifyAll();
+    }
+    [Fact]
+    public async Task UpdateScript_SearchesOptionalOffers_AndExportsIndividualBundledPayloads()
+    {
+        using var workspace = new DriverScanWorkspace(Path.GetTempPath());
+        var scriptPath = Path.Combine(workspace.Root, "DriverUpdates.ps1");
+        using (var resource = typeof(DriverPowerShell).Assembly.GetManifestResourceStream("WinOptimizer.Drivers.DriverUpdates.ps1")!)
+        using (var reader = new StreamReader(resource))
+            await File.WriteAllTextAsync(scriptPath, await reader.ReadToEndAsync());
+        var root = new DirectoryInfo(AppContext.BaseDirectory);
+        while (root is not null && !File.Exists(Path.Combine(root.FullName, "tests", "driver-updates-scripts.tests.ps1"))) root = root.Parent;
+        Assert.NotNull(root);
+        var start = new System.Diagnostics.ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe"))
+        { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
+        foreach (var argument in new[] { "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File",
+            Path.Combine(root.FullName, "tests", "driver-updates-scripts.tests.ps1"), "-ScriptPath", scriptPath }) start.ArgumentList.Add(argument);
+        using var process = System.Diagnostics.Process.Start(start)!;
+        var output = process.StandardOutput.ReadToEndAsync();
+        var error = process.StandardError.ReadToEndAsync();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromMinutes(2));
+        try { await process.WaitForExitAsync(timeout.Token); }
+        catch (OperationCanceledException) when (timeout.IsCancellationRequested)
+        {
+            if (!process.HasExited) process.Kill(entireProcessTree: true);
+            await process.WaitForExitAsync();
+            throw new TimeoutException($"Driver script fixture timed out.\n{await output}\n{await error}");
+        }
+        Assert.True(process.ExitCode == 0, await output + await error);
     }
     [Fact]
     public async Task UnavailablePayload_IsExplicitlyUnverified_AndPreservesTheOffer()

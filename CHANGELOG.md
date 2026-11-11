@@ -1,5 +1,15 @@
 # Changelog
 
+## [Unreleased]
+
+- Improve optional driver discovery, bundled-package verification and upgrade comparisons; show the active WHQL filter beside results.
+- Simplify Optimize and Customize category cards to custom and configuration-review indicators.
+- Keep the loading screen centered and steady while startup progress changes.
+- Open PayPal directly from the title bar and Settings support actions.
+- Automatically refresh app inventories after uninstallation finishes, including partial or cancelled operations.
+- Use the .NET 11 SDK specified in `global.json` for development and CI.
+- Align Windows runtime references and initialization across the application and native test hosts.
+
 ## [v26.11.04] - 2026-11-04
 
 - Protect source ISOs contained in the extraction workspace and preserve preferences after read failures.

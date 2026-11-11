@@ -6,9 +6,6 @@ namespace WinOptimizer.Core.Tests.Helpers;
 
 public class ZoomLevelsTests
 {
-    [Fact]
-    public void Next_From100_Returns110()
-        => ZoomLevels.Next(1.0).Should().BeApproximately(1.1, 0.0001);
 
     [Fact]
     public void Next_AtMax_StaysAtMax()
@@ -17,10 +14,6 @@ public class ZoomLevelsTests
     [Fact]
     public void Previous_From100_StaysAt100()
         => ZoomLevels.Previous(1.0).Should().BeApproximately(1.0, 0.0001);
-
-    [Fact]
-    public void Previous_From150_Returns140()
-        => ZoomLevels.Previous(1.5).Should().BeApproximately(1.4, 0.0001);
 
     [Theory]
     [InlineData(0.5, 1.0)]

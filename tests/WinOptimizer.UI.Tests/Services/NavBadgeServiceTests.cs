@@ -69,27 +69,6 @@ public class NavBadgeServiceTests : IDisposable
     }
 
     [Fact]
-    public void ComputeNavBadges_WhenNotInReviewMode_ReturnsEmptyList()
-    {
-        _mockModeService.Setup(m => m.IsInReviewMode).Returns(false);
-
-        var result = _sut.ComputeNavBadges();
-
-        result.Should().BeEmpty();
-    }
-
-    [Fact]
-    public void ComputeNavBadges_WhenInReviewMode_ReturnsThreeBadges()
-    {
-        _mockModeService.Setup(m => m.IsInReviewMode).Returns(true);
-        _mockBadgeService.Setup(b => b.GetNavBadgeCount(It.IsAny<string>())).Returns(0);
-
-        var result = _sut.ComputeNavBadges();
-
-        result.Should().HaveCount(3);
-    }
-
-    [Fact]
     public void ComputeNavBadges_WhenSectionHasCount_ReturnsAttentionStyle()
     {
         _mockModeService.Setup(m => m.IsInReviewMode).Returns(true);

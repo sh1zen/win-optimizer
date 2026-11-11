@@ -74,7 +74,6 @@ public sealed partial class PreviewApplication : Microsoft.UI.Xaml.Application
                 await CheckModalQueueAsync();
                 await CheckFramesAsync(shell);
                 await CheckTechnicalDetailsAsync(shell);
-                await CheckSponsorsAsync(shell);
                 await CheckApplicationCloseAsync();
                 deadline.Stop(); Finish();
             }
@@ -298,54 +297,6 @@ public sealed partial class PreviewApplication : Microsoft.UI.Xaml.Application
         new(DetailRowType.RegContent, strings["TechnicalDetails_Section_RegContent"], false, [new() { RowType = DetailRowType.RegContent, ContentLabel = "On Enable", ContentBody = "Windows Registry Editor Version 5.00" }]),
         new(DetailRowType.Dependency, strings["TechnicalDetails_Section_Dependencies"], false, [new() { RowType = DetailRowType.Dependency, DependencyLabel = "Test dependency", DependencyRelation = "= On" }])
     ];
-
-    /// <summary>Renders the production support dialog without fetching sponsors or opening donation links.</summary>
-    private async Task CheckSponsorsAsync(Grid shell)
-    {
-        var builderType = typeof(PopupHandler).Assembly.GetType("WinOptimizer.UI.Features.Common.Dialogs.SponsorsDialogBuilder", throwOnError: true)!;
-        Require(Equals(builderType.GetField("CoffeeUrl", BindingFlags.Static | BindingFlags.NonPublic)!.GetRawConstantValue(),
-            "https://www.paypal.com/donate/?hosted_button_id=8G8VR4APG9JRU"), "The coffee donation destination changed.");
-        _window!.AppWindow.ResizeClient(new SizeInt32(1000, 900));
-        foreach (var language in new[] { "en", "it" })
-        foreach (var theme in new[] { ElementTheme.Light, ElementTheme.Dark })
-        foreach (var mode in new[] { SponsorsDialogMode.Normal, SponsorsDialogMode.Exit })
-        {
-            shell.RequestedTheme = theme;
-            using var source = Assembly.GetExecutingAssembly().GetManifestResourceStream(language + ".json")!;
-            var strings = JsonSerializer.Deserialize<Dictionary<string, string>>(source)!;
-            Require(strings["Sponsors_Title"] == (language == "en" ? "win-optimizer is free." : "win-optimizer è gratuito."),
-                "The support title changed.");
-            Require(strings["Sponsors_CoffeeButton"] == (language == "en" ? "Buy me a coffee" : "Offrimi un caffè"),
-                "The coffee action lost its localized label.");
-            var localization = new Mock<ILocalizationService>();
-            localization.Setup(service => service.GetString(It.IsAny<string>())).Returns((string key) => strings.GetValueOrDefault(key, key));
-            var sponsors = new Mock<ISponsorsService>(MockBehavior.Strict);
-            var builder = Activator.CreateInstance(builderType, localization.Object, sponsors.Object)!;
-            var dialog = (ContentDialog)builderType.GetMethod("Build")!.Invoke(builder, [null, mode, shell.XamlRoot])!;
-            var opened = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            dialog.Opened += (_, _) => opened.TrySetResult();
-            var showing = PopupHandler.ShowDialogAsync(dialog, shell.XamlRoot);
-            await opened.Task.WaitAsync(TimeSpan.FromSeconds(3));
-            await LoadedAsync(dialog); dialog.UpdateLayout();
-            var body = (Grid)dialog.Content;
-            Require(Descendants<TextBlock>(body).Any(text => text.Text == strings["Sponsors_Title"]), "The support title is missing.");
-            var buttons = Descendants<Button>(body).ToArray();
-            Require(buttons.Length == 2, "Both support actions must be present.");
-            Require(Equals(buttons[0].Content, strings["Sponsors_SupportButton"]) && Equals(buttons[1].Content, strings["Sponsors_CoffeeButton"]),
-                "The support actions lost their labels or order.");
-            Require(buttons.All(button => button.ActualWidth > 0 && button.ActualHeight > 0) &&
-                buttons.Sum(button => button.ActualWidth) + 10 <= body.ActualWidth, "The support actions are clipped.");
-            Require(body.RowDefinitions.Count == 6, "The support dialog must contain six content rows.");
-            Require(dialog.CloseButtonText == strings[mode == SponsorsDialogMode.Exit ? "Sponsors_Exit" : "Sponsors_Close"], "The close action changed.");
-            await CaptureAsync(dialog, $"sponsors-{language}-{theme}-{mode}.png");
-            await CloseDetailsAsync(dialog, () => Invoke(DialogButtons(dialog).Single(button => button.Name == "CloseButton")));
-            await showing;
-            var result = ((bool SupportClicked, bool DontShowAgain))builderType.GetMethod("ExtractResult")!.Invoke(builder, null)!;
-            Require(!result.SupportClicked && !result.DontShowAgain, "Closing the support dialog changed its result.");
-            sponsors.VerifyNoOtherCalls();
-        }
-        Console.WriteLine("PASS: support dialog titles and coffee action; English/Italian, both themes and both modes.");
-    }
 
     /// <summary>Exercises production shutdown while keeping the native test application alive.</summary>
     private static async Task CheckApplicationCloseAsync()

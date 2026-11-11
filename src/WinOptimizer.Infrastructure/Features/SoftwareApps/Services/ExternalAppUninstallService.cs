@@ -82,7 +82,7 @@ public class ExternalAppUninstallService(
         }
 
         // Catalogue identifiers supply automatic providers for other detection sources.
-        if (!string.IsNullOrEmpty(item.MsStoreId) || (item.WinGetPackageId != null && item.WinGetPackageId.Any()))
+        if (!string.IsNullOrEmpty(item.MsStoreId) || (item.WinGetPackageId != null && item.WinGetPackageId.Length > 0))
             return UninstallMethod.WinGet;
 
         if (!string.IsNullOrEmpty(item.ChocoPackageId))
@@ -102,7 +102,7 @@ public class ExternalAppUninstallService(
             string? packageId;
             string? source;
 
-            if (item.WinGetPackageId != null && item.WinGetPackageId.Any())
+            if (item.WinGetPackageId != null && item.WinGetPackageId.Length > 0)
             {
                 packageId = item.WinGetPackageId[0];
                 source = "winget";

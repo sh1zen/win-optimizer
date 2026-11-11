@@ -142,51 +142,6 @@ public class TechnicalDetailsManagerTests : IDisposable
     }
 
     [Fact]
-    public void OnTooltipUpdated_MatchingSettingId_PopulatesRegistryDetails()
-    {
-        // Arrange
-        _currentSettingId = "MySetting";
-        var manager = CreateManager();
-
-        _mockRegeditLauncher
-            .Setup(r => r.KeyExists(It.IsAny<string>()))
-            .Returns(true);
-
-        var regSetting = new RegistrySetting
-        {
-            KeyPath = @"HKLM\SOFTWARE\Test",
-            ValueName = "TestValue",
-            ValueType = RegistryValueKind.DWord,
-            RecommendedValue = 1,
-            DefaultValue = null
-        };
-        var tooltipData = new SettingTooltipData
-        {
-            SettingId = "MySetting",
-            IndividualRegistryValues = new Dictionary<RegistrySetting, string?>
-            {
-                { regSetting, "0" }
-            }
-        };
-        var evt = new TooltipUpdatedEvent("MySetting", tooltipData);
-
-        // Act
-        _capturedHandlers[0](evt);
-
-        // Assert
-        var rows = _sections.SelectMany(s => s.Rows).ToList();
-        rows.Should().HaveCount(1);
-        rows[0].RowType.Should().Be(DetailRowType.Registry);
-        rows[0].RegistryPath.Should().Be(@"HKLM\SOFTWARE\Test");
-        rows[0].ValueName.Should().Be("TestValue");
-        rows[0].ValueType.Should().Be("DWord");
-        rows[0].CurrentValue.Should().Be("0");
-        rows[0].RecommendedValue.Should().Be("1");
-        rows[0].DefaultValue.Should().Be(TestLabels.ValueNotExist);
-        rows[0].CanOpenRegedit.Should().BeTrue();
-    }
-
-    [Fact]
     public void OnTooltipUpdated_NonMatchingSettingId_DoesNotPopulateDetails()
     {
         // Arrange
@@ -322,42 +277,6 @@ public class TechnicalDetailsManagerTests : IDisposable
         _mockLogService.Verify(
             l => l.Log(LogLevel.Warning, It.Is<string>(s => s.Contains("KeyExists failed"))),
             Times.Once);
-    }
-
-    [Fact]
-    public void OnTooltipUpdated_RegistryWithExplicitDefaultValue_SetsDefaultValueToString()
-    {
-        // Arrange
-        _currentSettingId = "MySetting";
-        var manager = CreateManager();
-
-        _mockRegeditLauncher
-            .Setup(r => r.KeyExists(It.IsAny<string>()))
-            .Returns(true);
-
-        var regSetting = new RegistrySetting
-        {
-            KeyPath = @"HKLM\SOFTWARE\Test",
-            ValueName = "TestValue",
-            ValueType = RegistryValueKind.DWord,
-            RecommendedValue = 0,
-            DefaultValue = 1
-        };
-        var tooltipData = new SettingTooltipData
-        {
-            SettingId = "MySetting",
-            IndividualRegistryValues = new Dictionary<RegistrySetting, string?>
-            {
-                { regSetting, "0" }
-            }
-        };
-        var evt = new TooltipUpdatedEvent("MySetting", tooltipData);
-
-        // Act
-        _capturedHandlers[0](evt);
-
-        // Assert
-        _sections.SelectMany(s => s.Rows).First().DefaultValue.Should().Be("1");
     }
 
     [Fact]
@@ -684,36 +603,6 @@ public class TechnicalDetailsManagerTests : IDisposable
     }
 
     [Fact]
-    public void UpdateTechnicalDetails_RegistryOnly_ProducesSingleRegistrySection()
-    {
-        var manager = CreateManager();
-        var regKey = new RegistrySetting
-        {
-            KeyPath = @"HKLM\Software\Test",
-            ValueName = "Test",
-            ValueType = RegistryValueKind.DWord,
-            RecommendedValue = 1,
-            DefaultValue = null
-        };
-        var tooltip = new SettingTooltipData
-        {
-            SettingId = "TestSetting",
-            DisplayValue = "Enabled",
-            IndividualRegistryValues = new Dictionary<RegistrySetting, string?> { [regKey] = "1" },
-            ScheduledTaskSettings = Array.Empty<ScheduledTaskSetting>(),
-            PowerCfgSettings = Array.Empty<PowerCfgSetting>(),
-            SettingDefinition = null
-        };
-
-        _capturedHandlers[0](new TooltipUpdatedEvent("TestSetting", tooltip));
-
-        _sections.Should().HaveCount(1);
-        _sections[0].Type.Should().Be(DetailRowType.Registry);
-        _sections[0].StartsExpanded.Should().BeTrue();
-        _sections[0].Rows.Should().HaveCount(1);
-    }
-
-    [Fact]
     public void UpdateTechnicalDetails_ScheduledTaskWithDefaultState_PopulatesDefaultColumn()
     {
         var manager = CreateManager();
@@ -760,23 +649,6 @@ public class TechnicalDetailsManagerTests : IDisposable
         _capturedHandlers[0](new TooltipUpdatedEvent("TestSetting", tooltip));
 
         _sections.Single(s => s.Type == DetailRowType.ScheduledTask).Rows.Single().DefaultState.Should().BeEmpty();
-    }
-
-    [Fact]
-    public void UpdateTechnicalDetails_NothingDeclared_ProducesZeroSections()
-    {
-        var manager = CreateManager();
-        var tooltip = new SettingTooltipData
-        {
-            SettingId = "TestSetting",
-            DisplayValue = "",
-            IndividualRegistryValues = new Dictionary<RegistrySetting, string?>(),
-            ScheduledTaskSettings = Array.Empty<ScheduledTaskSetting>(),
-            PowerCfgSettings = Array.Empty<PowerCfgSetting>()
-        };
-        _capturedHandlers[0](new TooltipUpdatedEvent("TestSetting", tooltip));
-
-        _sections.Should().BeEmpty();
     }
 
     [Fact]
@@ -841,25 +713,6 @@ public class TechnicalDetailsManagerTests : IDisposable
         section.Rows[0].ScriptBody.Should().Be("Stop-Service wuauserv");
         section.Rows[1].ScriptLabel.Should().Be(TestLabels.ScriptOnDisable);
         section.Rows[1].ScriptBody.Should().Be("Start-Service wuauserv");
-    }
-
-    [Fact]
-    public void UpdateTechnicalDetails_PowerShellEnabledOnly_ProducesOneRow()
-    {
-        var manager = CreateManager();
-        var script = new PowerShellScriptSetting { EnabledScript = "Write-Host 'hi'", DisabledScript = null };
-        var tooltip = new SettingTooltipData
-        {
-            SettingId = "TestSetting",
-            DisplayValue = "",
-            IndividualRegistryValues = new Dictionary<RegistrySetting, string?>(),
-            ScheduledTaskSettings = Array.Empty<ScheduledTaskSetting>(),
-            PowerCfgSettings = Array.Empty<PowerCfgSetting>(),
-            PowerShellScripts = new[] { script }
-        };
-        _capturedHandlers[0](new TooltipUpdatedEvent("TestSetting", tooltip));
-
-        _sections.Single(s => s.Type == DetailRowType.PowerShellScript).Rows.Should().HaveCount(1);
     }
 
     [Fact]

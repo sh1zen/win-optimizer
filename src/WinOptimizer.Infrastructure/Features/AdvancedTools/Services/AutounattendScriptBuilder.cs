@@ -54,7 +54,7 @@ public class AutounattendScriptBuilder
 
         _appRemovalSection.AppendScriptsDirectorySetup(sb, "    ");
 
-        if (config.WindowsApps.Items.Any())
+        if (config.WindowsApps.Items.Count > 0)
         {
             await _appRemovalSection.AppendBloatRemovalScriptAsync(sb, config.WindowsApps.Items, "    ").ConfigureAwait(false);
         }
@@ -65,13 +65,13 @@ public class AutounattendScriptBuilder
         await _powerSettingsSection.AppendPowerSettingsSectionAsync(sb, config, allSettings, "    ").ConfigureAwait(false);
 
         // 2c. HKLM registry entries from Optimize
-        if (config.Optimize.Features.Any())
+        if (config.Optimize.Features.Count > 0)
         {
             _featureRegistrySection.AppendFeatureGroupRegistryEntries(sb, config.Optimize, allSettings, "Optimize", isHkcu: false, indent: "    ");
         }
 
         // 2d. HKLM registry entries from Customize
-        if (config.Customize.Features.Any())
+        if (config.Customize.Features.Count > 0)
         {
             _featureRegistrySection.AppendFeatureGroupRegistryEntries(sb, config.Customize, allSettings, "Customize", isHkcu: false, indent: "    ");
         }
@@ -94,13 +94,13 @@ public class AutounattendScriptBuilder
         AppendUserDetectionBridge(sb);
 
         // 3a. HKCU registry entries from Optimize
-        if (config.Optimize.Features.Any())
+        if (config.Optimize.Features.Count > 0)
         {
             _featureRegistrySection.AppendFeatureGroupRegistryEntries(sb, config.Optimize, allSettings, "Optimize", isHkcu: true, indent: "            ");
         }
 
         // 3b. HKCU registry entries from Customize
-        if (config.Customize.Features.Any())
+        if (config.Customize.Features.Count > 0)
         {
             _featureRegistrySection.AppendFeatureGroupRegistryEntries(sb, config.Customize, allSettings, "Customize", isHkcu: true, indent: "            ");
         }
@@ -154,7 +154,7 @@ public class AutounattendScriptBuilder
 
                 bool hasAutounattendFallback =
                     settingDef.RegistrySettings?.Count > 0
-                    || settingDef.PowerCfgSettings?.Any() == true
+                    || settingDef.PowerCfgSettings?.Count > 0
                     || settingDef.PowerShellScripts?.Count > 0
                     || settingDef.RegContents?.Count > 0
                     || settingDef.ScheduledTaskSettings?.Count > 0

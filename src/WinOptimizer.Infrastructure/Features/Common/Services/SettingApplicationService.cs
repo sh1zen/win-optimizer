@@ -161,14 +161,11 @@ public class SettingApplicationService(
             setting.InputType == InputType.Selection &&
             value is int selectedIndex)
         {
-            var presets = setting.SettingPresets;
-
-            if (presets.ContainsKey(selectedIndex))
+            if (setting.SettingPresets.TryGetValue(selectedIndex, out var preset))
             {
                 logService.Log(LogLevel.Info,
                     $"[SettingApplicationService] Applying preset for '{settingId}' at index {selectedIndex}");
 
-                var preset = presets[selectedIndex];
                 foreach (var (childSettingId, childValue) in preset)
                 {
                     try
@@ -321,10 +318,10 @@ public class SettingApplicationService(
 
                     // Separate AC/DC option indices (UI quick-set path). JSON sources may box these
                     // as long/double, so coerce defensively.
-                    if (dict.ContainsKey("ACValue") && dict.ContainsKey("DCValue"))
+                    if (dict.TryGetValue("ACValue", out var acValue) && dict.TryGetValue("DCValue", out var dcValue))
                     {
-                        var acInt = TryToInt(dict["ACValue"]);
-                        var dcInt = TryToInt(dict["DCValue"]);
+                        var acInt = TryToInt(acValue);
+                        var dcInt = TryToInt(dcValue);
                         if (acInt.HasValue && dcInt.HasValue)
                             return ComposeAcDc(GetOptionLabel(setting, acInt.Value), GetOptionLabel(setting, dcInt.Value), hasBattery);
                     }
@@ -339,7 +336,7 @@ public class SettingApplicationService(
                 if (value is Dictionary<string, object?> acdcNum
                     && acdcNum.TryGetValue("ACValue", out var acNum)
                     && acdcNum.TryGetValue("DCValue", out var dcNum)
-                    && setting.PowerCfgSettings?.Any() == true)
+                    && setting.PowerCfgSettings?.Count > 0)
                 {
                     var units = RecommendedSettingsResolver.GetPowerCfgDisplayUnits(setting);
                     return FormatPowerNumeric(units, acNum, dcNum, hasBattery);
@@ -371,7 +368,7 @@ public class SettingApplicationService(
     private string FormatBeforeDisplay(SettingDefinition setting, SettingStateResult state, bool hasBattery)
     {
         if (setting.InputType == InputType.NumericRange
-            && setting.PowerCfgSettings?.Any() == true
+            && setting.PowerCfgSettings?.Count > 0
             && state.RawValues is { } raw
             && raw.TryGetValue("ACValue", out var acRaw)
             && raw.TryGetValue("DCValue", out var dcRaw))
@@ -393,7 +390,7 @@ public class SettingApplicationService(
         // ACValue/DCValue here are SYSTEM PowerCfg values (e.g. an enum/code), not option indices —
         // map each to its option index via the ValueMappings["PowerCfgValue"] lookup.
         if (setting.InputType == InputType.Selection
-            && setting.PowerCfgSettings?.Any() == true
+            && setting.PowerCfgSettings?.Count > 0
             && state.RawValues is { } selRaw
             && selRaw.TryGetValue("ACValue", out var acSel)
             && selRaw.TryGetValue("DCValue", out var dcSel))

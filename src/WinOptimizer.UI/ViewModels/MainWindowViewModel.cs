@@ -7,6 +7,7 @@ using WinOptimizer.Core.Features.SoftwareApps.Interfaces;
 using WinOptimizer.UI.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Constants;
 using WinOptimizer.UI.Features.Settings.ViewModels;
+using WinOptimizer.UI.Features.Common.Helpers;
 
 namespace WinOptimizer.UI.ViewModels;
 
@@ -23,6 +24,7 @@ public partial class MainWindowViewModel : ObservableObject, IDisposable
     private readonly ILogService _logService;
     private readonly IInteractiveUserService _interactiveUserService;
     private readonly IDialogService _dialogService;
+    private readonly IProcessExecutor _processExecutor;
     private readonly IApplicationModeService _applicationModeService;
     private readonly IDispatcherService _dispatcher;
     private readonly IConfigExportService _configExportService;
@@ -125,13 +127,15 @@ public partial class MainWindowViewModel : ObservableObject, IDisposable
         IDispatcherService dispatcher,
         IConfigExportService configExportService,
         IConfigApplicationExecutionService configExecutionService,
-        SidebarPreferencesViewModel sidebarPreferences)
+        SidebarPreferencesViewModel sidebarPreferences,
+        IProcessExecutor processExecutor)
     {
         _localizationService = localizationService;
         _versionService = versionService;
         _logService = logService;
         _interactiveUserService = interactiveUserService;
         _dialogService = dialogService;
+        _processExecutor = processExecutor;
         _applicationModeService = applicationModeService;
         _dispatcher = dispatcher;
         _configExportService = configExportService;
@@ -317,18 +321,18 @@ public partial class MainWindowViewModel : ObservableObject, IDisposable
     #region Commands
 
     /// <summary>
-    /// Command to open the in-app sponsors dialog.
+    /// Opens the PayPal donation page in the user's browser.
     /// </summary>
     [RelayCommand]
     private async Task DonateAsync()
     {
         try
         {
-            await _dialogService.ShowSponsorsDialogAsync(SponsorsDialogMode.Normal);
+            await _processExecutor.ShellExecuteAsync(SupportLinks.PayPalDonation);
         }
         catch (Exception ex)
         {
-            _logService.LogDebug($"Failed to open sponsors dialog: {ex.Message}");
+            _logService.LogDebug($"Failed to open donation page: {ex.Message}");
         }
     }
 

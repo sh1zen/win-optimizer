@@ -704,30 +704,6 @@
 
   "Menu_SupportWinOptimizer": "Support win-optimizer",
 
-  "Sponsors_Close": "Close",
-
-  "Sponsors_Disclaimer": "Sponsors support win-optimizer's development. A listing recognises that support — it is not an endorsement by win-optimizer of any sponsor's products or services.",
-
-
-  "Sponsors_ExampleBadge": "Example",
-
-  "Sponsors_Exit": "Exit",
-
-  "Sponsors_GhostCompany": "Your company here",
-
-  "Sponsors_GhostName": "Your name here",
-
-  "Sponsors_RecentCount": "Showing the {0} most recent supporters.",
-
-  "Sponsors_SectionSupporters": "Recent Supporters",
-
-  "Sponsors_Subtitle": "No paywalls, no locked features — kept that way by the people and businesses below.",
-
-  "Sponsors_CoffeeButton": "Buy me a coffee",
-  "Sponsors_SupportButton": "Support win-optimizer",
-
-  "Sponsors_Title": "win-optimizer is free.",
-
   "Dialog_Update_Title": "Update Available",
 
   "Dialog_Update_Message": "Good News! A New Version of win-optimizer is available.",

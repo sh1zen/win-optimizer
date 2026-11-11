@@ -44,7 +44,7 @@ public sealed class ConfigurationAppSource(
                     InputType = InputType.Toggle
                 };
 
-                if (item.Definition.WinGetPackageId != null && item.Definition.WinGetPackageId.Any())
+                if (item.Definition.WinGetPackageId != null && item.Definition.WinGetPackageId.Length > 0)
                     configItem.WinGetPackageId = item.Definition.WinGetPackageId[0];
 
                 return configItem;

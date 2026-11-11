@@ -22,7 +22,7 @@ public class DependencyManager : IDependencyManager
     public async Task<bool> HandleSettingEnabledAsync(string settingId, IEnumerable<ISettingItem> allSettings, ISettingApplicationService settingApplicationService, ISystemSettingsDiscoveryService discoveryService)
     {
         var setting = FindSetting(settingId, allSettings);
-        if (setting?.Dependencies == null || !setting.Dependencies.Any())
+        if (setting?.Dependencies == null || setting.Dependencies.Count == 0)
             return true;
 
         bool allSucceeded = true;
@@ -148,22 +148,15 @@ public class DependencyManager : IDependencyManager
     {
         try
         {
-            if (dependency.DependencyType == SettingDependencyType.RequiresSpecificValue)
+            var value = dependency.DependencyType == SettingDependencyType.RequiresSpecificValue &&
+                requiredSetting.InputType == InputType.Selection && !string.IsNullOrEmpty(dependency.RequiredValue)
+                ? dependency.RequiredValue : null;
+            await settingApplicationService.ApplySettingAsync(new ApplySettingRequest
             {
-                if (requiredSetting.InputType == InputType.Selection && !string.IsNullOrEmpty(dependency.RequiredValue))
-                {
-                    await settingApplicationService.ApplySettingAsync(new ApplySettingRequest { SettingId = dependency.RequiredSettingId, Enable = true, Value = dependency.RequiredValue }).ConfigureAwait(false);
-                }
-                else
-                {
-                    await settingApplicationService.ApplySettingAsync(new ApplySettingRequest { SettingId = dependency.RequiredSettingId, Enable = true }).ConfigureAwait(false);
-                }
-            }
-            else
-            {
-                bool enableValue = dependency.DependencyType == SettingDependencyType.RequiresEnabled;
-                await settingApplicationService.ApplySettingAsync(new ApplySettingRequest { SettingId = dependency.RequiredSettingId, Enable = enableValue }).ConfigureAwait(false);
-            }
+                SettingId = dependency.RequiredSettingId,
+                Enable = dependency.DependencyType is SettingDependencyType.RequiresSpecificValue or SettingDependencyType.RequiresEnabled,
+                Value = value
+            }).ConfigureAwait(false);
         }
         catch (ArgumentException ex) when (ex.Message.Contains("not found"))
         {

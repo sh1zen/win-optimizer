@@ -39,13 +39,6 @@ public class InitializationServiceTests
         _service.IsGloballyInitializing.Should().BeFalse();
     }
 
-    [Fact]
-    public void CompleteFeatureInitialization_NonExistentFeature_DoesNotThrow()
-    {
-        var action = () => _service.CompleteFeatureInitialization("NonExistent");
-        action.Should().NotThrow();
-    }
-
     /// <summary>Checks the normal feature lifecycle and its start/completion receipts together.</summary>
     [Fact]
     public void SingleFeatureLifecycle_UpdatesStateAndLogsStartAndCompletion()

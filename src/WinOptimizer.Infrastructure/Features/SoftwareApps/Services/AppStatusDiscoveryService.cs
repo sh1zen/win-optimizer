@@ -47,7 +47,7 @@ public class AppStatusDiscoveryService(
         var result = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
         var definitionList = definitions.ToList();
 
-        if (!definitionList.Any()) return result;
+        if (definitionList.Count == 0) return result;
 
         try
         {
@@ -80,7 +80,7 @@ public class AppStatusDiscoveryService(
 
             int capCount = 0, featCount = 0, appxCount = 0, wingetCount = 0;
 
-            if (capabilities.Any())
+            if (capabilities.Count != 0)
             {
                 var capabilityResults = components.Capabilities;
                 foreach (var capability in capabilities)
@@ -97,7 +97,7 @@ public class AppStatusDiscoveryService(
                 }
             }
 
-            if (features.Any())
+            if (features.Count != 0)
             {
                 var featureResults = components.Features;
                 foreach (var feature in features)
@@ -114,7 +114,7 @@ public class AppStatusDiscoveryService(
                 }
             }
 
-            if (apps.Any())
+            if (apps.Count != 0)
             {
                 var installedPackageNames = await packagesTask.ConfigureAwait(false);
                 foreach (var app in apps)
@@ -129,11 +129,11 @@ public class AppStatusDiscoveryService(
 
                 // WinGet fallback for apps not found by PackageManager
                 var undetectedApps = apps
-                    .Where(a => !result.ContainsKey(a.Id) || !result[a.Id])
-                    .Where(a => (a.WinGetPackageId != null && a.WinGetPackageId.Any()) || !string.IsNullOrEmpty(a.MsStoreId))
+                    .Where(a => !result.GetValueOrDefault(a.Id))
+                    .Where(a => (a.WinGetPackageId != null && a.WinGetPackageId.Length > 0) || !string.IsNullOrEmpty(a.MsStoreId))
                     .ToList();
 
-                if (undetectedApps.Any())
+                if (undetectedApps.Count != 0)
                 {
                     var winGetIds = winGetTask is null
                         ? await GetOrFetchWinGetPackageIdsAsync().ConfigureAwait(false)
@@ -160,8 +160,7 @@ public class AppStatusDiscoveryService(
                 // Mark remaining unfound apps as not installed
                 foreach (var app in apps)
                 {
-                    if (!result.ContainsKey(app.Id))
-                        result[app.Id] = false;
+                    result.TryAdd(app.Id, false);
                 }
             }
 
@@ -284,7 +283,7 @@ public class AppStatusDiscoveryService(
         var result = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
         var definitionList = definitions.ToList();
 
-        if (!definitionList.Any())
+        if (definitionList.Count == 0)
             return result;
 
         try
@@ -296,11 +295,11 @@ public class AppStatusDiscoveryService(
 
             // Phase 1: WinGet detection for apps with WinGetPackageId or MsStoreId
             var appsWithWinGetId = definitionList
-                .Where(d => (d.WinGetPackageId != null && d.WinGetPackageId.Any()) || !string.IsNullOrEmpty(d.MsStoreId))
+                .Where(d => (d.WinGetPackageId != null && d.WinGetPackageId.Length > 0) || !string.IsNullOrEmpty(d.MsStoreId))
                 .ToList();
             Task<RegistryUninstallInfo>? registryTask = null;
 
-            if (appsWithWinGetId.Any())
+            if (appsWithWinGetId.Count != 0)
             {
                 var winGetTask = GetOrFetchWinGetPackageIdsAsync();
                 // Discovered registry-only entries always need a fresh registration
@@ -370,7 +369,7 @@ public class AppStatusDiscoveryService(
             // Phase 2: Chocolatey detection for apps not found by WinGet
             var appsForChocoCheck = definitionList
                 .Where(d => !string.IsNullOrEmpty(d.ChocoPackageId)
-                    && (!result.ContainsKey(d.Id) || !result[d.Id]))
+                    && !result.GetValueOrDefault(d.Id))
                 .ToList();
 
             // These AppX candidates must be checked regardless of Chocolatey results.
@@ -379,7 +378,7 @@ public class AppStatusDiscoveryService(
                 string.IsNullOrEmpty(d.ChocoPackageId) && !result.GetValueOrDefault(d.Id))
                 ? GetOrFetchAppxPackageNamesAsync() : null;
 
-            if (appsForChocoCheck.Any())
+            if (appsForChocoCheck.Count != 0)
             {
                 try
                 {
@@ -414,10 +413,10 @@ public class AppStatusDiscoveryService(
             // Phase 3: AppX detection for apps with AppxPackageName
             var appsWithAppxName = definitionList
                 .Where(d => d.AppxPackageName?.Length > 0)
-                .Where(d => !result.ContainsKey(d.Id) || !result[d.Id])
+                .Where(d => !result.GetValueOrDefault(d.Id))
                 .ToList();
 
-            if (appsWithAppxName.Any())
+            if (appsWithAppxName.Count != 0)
             {
                 var installedPackageNames = await (appxTask ?? GetOrFetchAppxPackageNamesAsync()).ConfigureAwait(false);
                 foreach (var def in appsWithAppxName)
@@ -434,10 +433,10 @@ public class AppStatusDiscoveryService(
 
             // Phase 4: Registry fallback for apps not detected via WinGet, Chocolatey, or AppX
             var appsForRegistryCheck = definitionList
-                .Where(d => !result.ContainsKey(d.Id) || !result[d.Id])
+                .Where(d => !result.GetValueOrDefault(d.Id))
                 .ToList();
 
-            if (appsForRegistryCheck.Any())
+            if (appsForRegistryCheck.Count != 0)
             {
                 var regInfo = sharedRegInfo ?? await (registryTask ??= GetRegistryUninstallInfoAsync()).ConfigureAwait(false);
 
@@ -454,7 +453,7 @@ public class AppStatusDiscoveryService(
                 var catalogueRegistryCheck = appsForRegistryCheck.Where(d => d.RegistryUninstallKeyPath == null).ToList();
 
                 // Pass 1: Exact def.Name match against KeyNames
-                foreach (var def in catalogueRegistryCheck.Where(d => !result.ContainsKey(d.Id) || !result[d.Id]))
+                foreach (var def in catalogueRegistryCheck.Where(d => !result.GetValueOrDefault(d.Id)))
                 {
                     if (regInfo.KeyNames.Contains(def.Name))
                     {
@@ -466,7 +465,7 @@ public class AppStatusDiscoveryService(
                 }
 
                 // Pass 2: Exact def.Name match against DisplayNames
-                foreach (var def in catalogueRegistryCheck.Where(d => !result.ContainsKey(d.Id) || !result[d.Id]))
+                foreach (var def in catalogueRegistryCheck.Where(d => !result.GetValueOrDefault(d.Id)))
                 {
                     if (regInfo.DisplayNames.Contains(def.Name))
                     {
@@ -480,7 +479,7 @@ public class AppStatusDiscoveryService(
                 // Pass 3: RegistrySubKeyName pattern match against AllKeyNames
                 foreach (var def in catalogueRegistryCheck
                     .Where(d => !string.IsNullOrEmpty(d.RegistrySubKeyName))
-                    .Where(d => !result.ContainsKey(d.Id) || !result[d.Id]))
+                    .Where(d => !result.GetValueOrDefault(d.Id)))
                 {
                     var matchedKey3 = regInfo.AllKeyNames.FirstOrDefault(k => MatchesPattern(k, def.RegistrySubKeyName!));
                     if (matchedKey3 != null)
@@ -495,7 +494,7 @@ public class AppStatusDiscoveryService(
                 // Pass 4: RegistryDisplayName pattern match against DisplayNames
                 foreach (var def in catalogueRegistryCheck
                     .Where(d => !string.IsNullOrEmpty(d.RegistryDisplayName))
-                    .Where(d => !result.ContainsKey(d.Id) || !result[d.Id]))
+                    .Where(d => !result.GetValueOrDefault(d.Id)))
                 {
                     var matchedDn4 = regInfo.DisplayNames.FirstOrDefault(dn => MatchesPattern(dn, def.RegistryDisplayName!));
                     if (matchedDn4 != null)
@@ -508,19 +507,19 @@ public class AppStatusDiscoveryService(
                 }
 
                 // Mark remaining undetected items as false
-                foreach (var def in appsForRegistryCheck.Where(d => !result.ContainsKey(d.Id)))
+                foreach (var def in appsForRegistryCheck)
                 {
-                    result[def.Id] = false;
+                    result.TryAdd(def.Id, false);
                 }
             }
 
             // Phase 5: File system path detection for portable apps
             var appsWithDetectionPaths = definitionList
                 .Where(d => d.DetectionPaths?.Length > 0)
-                .Where(d => !result.ContainsKey(d.Id) || !result[d.Id])
+                .Where(d => !result.GetValueOrDefault(d.Id))
                 .ToList();
 
-            if (appsWithDetectionPaths.Any())
+            if (appsWithDetectionPaths.Count != 0)
             {
                 foreach (var def in appsWithDetectionPaths)
                 {

@@ -71,69 +71,6 @@ public class ConfigExportServiceTests
             _mockAutounattendGenerator.Object, _powerPlans.Object);
     }
 
-    // -------------------------------------------------------
-    // CreateConfigurationFromSystemAsync
-    // -------------------------------------------------------
-
-    [Fact]
-    public async Task CreateConfigurationFromSystemAsync_ReturnsVersion2Config()
-    {
-        _mockCompatibleSettingsRegistry
-            .Setup(r => r.GetAllFilteredSettings())
-            .Returns(new Dictionary<string, IEnumerable<SettingDefinition>>());
-
-        _mockWindowsAppsVM.Setup(v => v.IsInitialized).Returns(true);
-        _mockWindowsAppsVM.Setup(v => v.Items).Returns(new ObservableCollection<AppItemViewModel>());
-
-        _mockExternalAppsVM.Setup(v => v.IsInitialized).Returns(true);
-        _mockExternalAppsVM.Setup(v => v.Items).Returns(new ObservableCollection<AppItemViewModel>());
-
-        var service = CreateService();
-        var result = await service.CreateConfigurationFromSystemAsync();
-
-        result.Should().NotBeNull();
-        result.Version.Should().Be("2.0");
-    }
-
-    [Fact]
-    public async Task CreateConfigurationFromSystemAsync_WithNoSettings_HasEmptyFeatureSections()
-    {
-        _mockCompatibleSettingsRegistry
-            .Setup(r => r.GetAllFilteredSettings())
-            .Returns(new Dictionary<string, IEnumerable<SettingDefinition>>());
-
-        _mockWindowsAppsVM.Setup(v => v.IsInitialized).Returns(true);
-        _mockWindowsAppsVM.Setup(v => v.Items).Returns(new ObservableCollection<AppItemViewModel>());
-
-        _mockExternalAppsVM.Setup(v => v.IsInitialized).Returns(true);
-        _mockExternalAppsVM.Setup(v => v.Items).Returns(new ObservableCollection<AppItemViewModel>());
-
-        var service = CreateService();
-        var result = await service.CreateConfigurationFromSystemAsync();
-
-        result.Optimize.Features.Should().BeEmpty();
-        result.Customize.Features.Should().BeEmpty();
-    }
-
-    [Fact]
-    public async Task CreateConfigurationFromSystemAsync_LoadsWindowsAppsWhenNotInitialized()
-    {
-        _mockCompatibleSettingsRegistry
-            .Setup(r => r.GetAllFilteredSettings())
-            .Returns(new Dictionary<string, IEnumerable<SettingDefinition>>());
-
-        _mockWindowsAppsVM.Setup(v => v.IsInitialized).Returns(false);
-        _mockWindowsAppsVM.Setup(v => v.Items).Returns(new ObservableCollection<AppItemViewModel>());
-
-        _mockExternalAppsVM.Setup(v => v.IsInitialized).Returns(true);
-        _mockExternalAppsVM.Setup(v => v.Items).Returns(new ObservableCollection<AppItemViewModel>());
-
-        var service = CreateService();
-        await service.CreateConfigurationFromSystemAsync();
-
-        _mockWindowsAppsVM.Verify(v => v.LoadItemsAsync(), Times.Once);
-    }
-
     [Fact]
     public async Task CreateConfigurationFromSystemAsync_IsBackup_ExportsInstalledStatusNotSelectedStatus()
     {

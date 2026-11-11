@@ -31,6 +31,8 @@ internal static class Program
     [STAThread]
     private static void Main(string[] args)
     {
+        // Load the production module's Windows App SDK runtime before invoking WinUI.
+        System.Runtime.CompilerServices.RuntimeHelpers.RunModuleConstructor(typeof(WinOptimizer.UI.App).Module.ModuleHandle);
         WinRT.ComWrappersSupport.InitializeComWrappers();
         WinUIApplication.Start(initialization =>
         {

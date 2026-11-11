@@ -22,6 +22,8 @@ internal static class Program
     [STAThread]
     private static void Main(string[] args)
     {
+        // Load the production module's Windows App SDK runtime before invoking WinUI.
+        System.Runtime.CompilerServices.RuntimeHelpers.RunModuleConstructor(typeof(WinOptimizer.UI.App).Module.ModuleHandle);
         WinRT.ComWrappersSupport.InitializeComWrappers();
         WinUIApplication.Start(initialization =>
         {
@@ -63,7 +65,7 @@ public sealed partial class StartupTestApplication(string resultPath) : WinOptim
         {
             try
             {
-                var count = await NativeTestCases.RunAsync(typeof(PowerOptimizationsViewModelTests), typeof(TaskProgressViewModelTests), typeof(UpdateCheckViewModelTests), typeof(EnvironmentEditorViewModelTests), typeof(UninstallBackupsViewModelTests), typeof(ApplicationCloseServiceTests), typeof(CustomIconTests), typeof(SettingViewModelFactoryTests), typeof(TechnicalDetailsManagerTests), typeof(StartupOrchestratorTests), typeof(StartupPresentationTests), typeof(WindowSizeManagerTests), typeof(CleanerProgressReporterTests), typeof(CleanerViewModelTests), typeof(WimStep4IsoViewModelTests), typeof(WimWorkflowRegressionTests), typeof(WimStep1ViewModelTests), typeof(WimStep2XmlViewModelTests), typeof(WimStep3DriversViewModelTests), typeof(WimImageFormatViewModelTests), typeof(WimUtilViewModelTests), typeof(SectionNavigationTests), typeof(NavigationRouterTests), typeof(SavedWifiViewModelTests), typeof(SavedWifiPageTests), typeof(SettingsPageTests));
+                var count = await NativeTestCases.RunAsync(typeof(PowerOptimizationsViewModelTests), typeof(TaskProgressViewModelTests), typeof(UpdateCheckViewModelTests), typeof(MainWindowViewModelTests), typeof(ApplicationInfoViewModelTests), typeof(SupportEntryPointTests), typeof(EnvironmentEditorViewModelTests), typeof(UninstallBackupsViewModelTests), typeof(ApplicationCloseServiceTests), typeof(CustomIconTests), typeof(SettingViewModelFactoryTests), typeof(TechnicalDetailsManagerTests), typeof(StartupOrchestratorTests), typeof(StartupPresentationTests), typeof(WindowSizeManagerTests), typeof(CleanerProgressReporterTests), typeof(CleanerViewModelTests), typeof(DriversViewModelTests), typeof(WimStep4IsoViewModelTests), typeof(WimWorkflowRegressionTests), typeof(WimStep1ViewModelTests), typeof(WimStep2XmlViewModelTests), typeof(WimStep3DriversViewModelTests), typeof(WimImageFormatViewModelTests), typeof(WimUtilViewModelTests), typeof(SectionNavigationTests), typeof(NavigationRouterTests), typeof(SavedWifiViewModelTests), typeof(SavedWifiPageTests), typeof(SettingsPageTests));
                 Finish($"PASS: {count} startup, native first-frame and navigation cases. Fake OS boundaries only.", true);
             }
             catch (Exception ex) { Finish(ex.ToString()); }

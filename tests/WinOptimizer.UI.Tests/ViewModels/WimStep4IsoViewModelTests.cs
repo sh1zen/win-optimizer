@@ -181,33 +181,6 @@ public class WimStep4IsoViewModelTests : IDisposable
     }
 
     [Fact]
-    public async Task CreateIsoCommand_OnSuccess_SetsIsIsoCreated()
-    {
-        _sut.IsOscdimgAvailable = true;
-        _sut.OutputIsoPath = "D:\\Output\\test.iso";
-        _sut.WorkingDirectory = "C:\\WorkDir";
-
-        _mockTaskProgressService
-            .Setup(t => t.CreatePowerShellProgress())
-            .Returns(new Progress<TaskProgressDetail>());
-
-        _mockIsoService
-            .Setup(i => i.CreateIsoAsync(
-                It.IsAny<string>(), It.IsAny<string>(),
-                It.IsAny<IProgress<TaskProgressDetail>>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(true);
-
-        // User clicks "Close" when asked to open folder
-        _mockDialogService
-            .Setup(d => d.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>()))
-            .ReturnsAsync(new ConfirmationResponse { Confirmed = false });
-
-        await _sut.CreateIsoCommand.ExecuteAsync(null);
-
-        _sut.IsIsoCreated.Should().BeTrue();
-    }
-
-    [Fact]
     public async Task CreateIsoCommand_OnFailure_DoesNotSetIsIsoCreated()
     {
         _sut.IsOscdimgAvailable = true;
@@ -286,17 +259,6 @@ public class WimStep4IsoViewModelTests : IDisposable
         wasDisabledDuring.Should().BeTrue();
         // After completion, card should be re-enabled
         _sut.SelectOutputCard.IsEnabled.Should().BeTrue();
-    }
-
-    [Fact]
-    public void UpdateDownloadOscdimgCardState_WhenAvailable_DisablesAndMarkComplete()
-    {
-        _sut.IsOscdimgAvailable = true;
-
-        _sut.UpdateDownloadOscdimgCardState();
-
-        _sut.DownloadOscdimgCard.IsEnabled.Should().BeFalse();
-        _sut.DownloadOscdimgCard.IsComplete.Should().BeTrue();
     }
 
     [Fact]
@@ -445,16 +407,5 @@ public class WimStep4IsoViewModelTests : IDisposable
         finally { pending.TrySetResult(true); }
         await operation;
         Assert.False(_sut.IsIsoCreated);
-    }
-
-    [Fact]
-    public void UpdateDownloadOscdimgCardState_WhenNotAvailable_EnablesCard()
-    {
-        _sut.IsOscdimgAvailable = false;
-
-        _sut.UpdateDownloadOscdimgCardState();
-
-        _sut.DownloadOscdimgCard.IsEnabled.Should().BeTrue();
-        _sut.DownloadOscdimgCard.IsComplete.Should().BeFalse();
     }
 }

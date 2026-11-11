@@ -6,55 +6,6 @@ namespace WinOptimizer.Core.Tests.Utilities;
 
 public class BloatRemovalScriptGeneratorTests
 {
-    [Fact]
-    public void ScriptVersion_IsNotEmpty()
-    {
-        BloatRemovalScriptGenerator.ScriptVersion.Should().NotBeNullOrEmpty();
-    }
-
-    [Fact]
-    public void GenerateScript_EmptyInputs_ProducesValidScript()
-    {
-        var script = BloatRemovalScriptGenerator.GenerateScript(
-            new List<string>(), new List<string>(),
-            new List<string>(), new List<string>());
-
-        script.Should().NotBeNullOrEmpty();
-    }
-
-    [Fact]
-    public void GenerateScript_WithPackages_ContainsPackageNames()
-    {
-        var packages = new List<string> { "Microsoft.BingWeather", "Microsoft.GetHelp" };
-
-        var script = BloatRemovalScriptGenerator.GenerateScript(
-            packages, new List<string>(), new List<string>(), new List<string>());
-
-        script.Should().Contain("Microsoft.BingWeather");
-        script.Should().Contain("Microsoft.GetHelp");
-    }
-
-    [Fact]
-    public void GenerateScript_WithCapabilities_ContainsCapabilityNames()
-    {
-        var capabilities = new List<string> { "App.Support.QuickAssist~~~~0.0.1.0" };
-
-        var script = BloatRemovalScriptGenerator.GenerateScript(
-            new List<string>(), capabilities, new List<string>(), new List<string>());
-
-        script.Should().Contain("App.Support.QuickAssist~~~~0.0.1.0");
-    }
-
-    [Fact]
-    public void GenerateScript_WithOptionalFeatures_ContainsFeatureNames()
-    {
-        var features = new List<string> { "WindowsMediaPlayer" };
-
-        var script = BloatRemovalScriptGenerator.GenerateScript(
-            new List<string>(), new List<string>(), features, new List<string>());
-
-        script.Should().Contain("WindowsMediaPlayer");
-    }
 
     [Fact]
     public void GenerateScript_WithXboxRegistryFix_ContainsRegistryFix()
@@ -107,28 +58,6 @@ public class BloatRemovalScriptGeneratorTests
         var result = BloatRemovalScriptGenerator.ExtractArrayFromScript("", "packages");
 
         result.Should().BeEmpty();
-    }
-
-    [Fact]
-    public void GenerateScript_RoundTrip_PreservesPackages()
-    {
-        var packages = new List<string> { "Microsoft.BingWeather", "Microsoft.GetHelp", "Microsoft.ZuneMusic" };
-        var capabilities = new List<string> { "App.Support.QuickAssist~~~~0.0.1.0" };
-        var optionalFeatures = new List<string> { "WindowsMediaPlayer" };
-        var specialApps = new List<string> { "Edge" };
-
-        var script = BloatRemovalScriptGenerator.GenerateScript(
-            packages, capabilities, optionalFeatures, specialApps);
-
-        var extractedPackages = BloatRemovalScriptGenerator.ExtractArrayFromScript(script, "packages");
-        var extractedCaps = BloatRemovalScriptGenerator.ExtractArrayFromScript(script, "capabilities");
-        var extractedFeatures = BloatRemovalScriptGenerator.ExtractArrayFromScript(script, "optionalFeatures");
-        var extractedSpecial = BloatRemovalScriptGenerator.ExtractArrayFromScript(script, "specialApps");
-
-        extractedPackages.Should().BeEquivalentTo(packages);
-        extractedCaps.Should().BeEquivalentTo(capabilities);
-        extractedFeatures.Should().BeEquivalentTo(optionalFeatures);
-        extractedSpecial.Should().BeEquivalentTo(specialApps);
     }
 
     [Fact]

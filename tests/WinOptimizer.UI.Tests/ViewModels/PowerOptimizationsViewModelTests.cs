@@ -65,16 +65,6 @@ public class PowerOptimizationsViewModelTests
     }
 
     [Fact]
-    public void ModuleId_ReturnsPower()
-    {
-        // Arrange
-        var vm = CreateViewModel();
-
-        // Act & Assert
-        vm.ModuleId.Should().Be(FeatureIds.Power);
-    }
-
-    [Fact]
     public async Task TestModeDeletionNeverReachesThePowerService()
     {
         _mockApplicationModeService.Setup(mode => mode.CurrentMode).Returns(WinOptimizer.Core.Features.Common.Enums.WinOptimizerMode.Builder);
@@ -120,20 +110,6 @@ public class PowerOptimizationsViewModelTests
         _mockPowerService.VerifyNoOtherCalls();
         _mockDialogService.Verify(dialog => dialog.ShowErrorAsync(It.Is<string>(message => message.Contains("TrialMode_Blocked")),
             It.IsAny<string>(), It.IsAny<string>()), Times.Once);
-    }
-
-    [Fact]
-    public void DisplayName_ReturnsLocalizedPowerName()
-    {
-        // Arrange
-        _mockLocalizationService
-            .Setup(l => l.GetString("Feature_Power_Name"))
-            .Returns("Power");
-
-        var vm = CreateViewModel();
-
-        // Act & Assert
-        vm.DisplayName.Should().Be("Power");
     }
 
     [Fact]

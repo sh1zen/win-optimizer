@@ -21,12 +21,7 @@ public sealed class SectionNavigationItem(
     public string Description => Feature.GroupDescriptionText;
     public string IconResourceKey => Route.Section.IconGlyphKey;
     public FeatureBadgeSummary Summary { get; private set; } = new(0, 0, 0, 0);
-    public bool ShowSummary => Summary.TotalWithBadgeData > 0;
     public bool ShowCustom => Summary.CustomCount > 0;
-    public double RecommendedOpacity => Summary.RecommendedCount > 0 ? 1 : 0.4;
-    public double DefaultOpacity => Summary.DefaultCount > 0 ? 1 : 0.4;
-    public string RecommendedText => $"{localization.GetString("InfoBadge_Recommended") ?? "Recommended"} {Summary.RecommendedCount}/{Summary.TotalWithBadgeData}";
-    public string DefaultText => $"{localization.GetString("InfoBadge_Default") ?? "Default"} {Summary.DefaultCount}/{Summary.TotalWithBadgeData}";
     public string CustomText => $"{localization.GetString("InfoBadge_Custom") ?? "Custom"} {Summary.CustomCount}/{Summary.TotalWithBadgeData}";
     public bool ShowReviewed { get; private set; }
     public bool ShowPending { get; private set; }

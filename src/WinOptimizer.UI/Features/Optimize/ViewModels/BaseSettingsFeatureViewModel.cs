@@ -218,7 +218,7 @@ public abstract partial class BaseSettingsFeatureViewModel : BaseViewModel, ISet
             _settingsLoaded = false;
 
             // Clear and reload settings
-            if (Settings?.Any() == true)
+            if (Settings?.Count > 0)
             {
                 foreach (var setting in Settings.OfType<IDisposable>())
                 {
@@ -330,7 +330,7 @@ public abstract partial class BaseSettingsFeatureViewModel : BaseViewModel, ISet
 
             IsLoading = true;
 
-            if (Settings?.Any() == true)
+            if (Settings?.Count > 0)
             {
                 foreach (var setting in Settings.OfType<IDisposable>())
                 {
@@ -416,7 +416,7 @@ public abstract partial class BaseSettingsFeatureViewModel : BaseViewModel, ISet
 
             _settingsLoaded = false;
 
-            if (Settings?.Any() == true)
+            if (Settings?.Count > 0)
             {
                 foreach (var setting in Settings.OfType<IDisposable>())
                 {
@@ -523,13 +523,14 @@ public abstract partial class BaseSettingsFeatureViewModel : BaseViewModel, ISet
 
             var groupName = string.IsNullOrEmpty(setting.GroupName) ? otherGroupName : setting.GroupName;
 
-            if (!groupedDict.ContainsKey(groupName))
+            if (!groupedDict.TryGetValue(groupName, out var groupSettings))
             {
                 groupOrder.Add(groupName);
-                groupedDict[groupName] = new List<SettingItemViewModel>();
+                groupSettings = new List<SettingItemViewModel>();
+                groupedDict.Add(groupName, groupSettings);
             }
 
-            groupedDict[groupName].Add(setting);
+            groupSettings.Add(setting);
         }
 
         foreach (var groupName in groupOrder)

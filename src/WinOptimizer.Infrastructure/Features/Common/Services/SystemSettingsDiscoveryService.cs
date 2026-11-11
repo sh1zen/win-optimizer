@@ -47,11 +47,11 @@ public class SystemSettingsDiscoveryService(
 
             results[setting.Id] = rawValues;
         }
-        else if (powerCfgSettings.Count > 1 || powerPlanSettings.Any())
+        else if (powerCfgSettings.Count > 1 || powerPlanSettings.Count != 0)
         {
             var allPowerSettingsACDC = await powerSettingsQueryService.GetAllPowerSettingsACDCAsync("SCHEME_CURRENT").ConfigureAwait(false);
 
-            if (powerPlanSettings.Any())
+            if (powerPlanSettings.Count != 0)
             {
                 availablePlans = await powerSettingsQueryService.GetAvailablePowerPlansAsync().ConfigureAwait(false);
             }
@@ -74,7 +74,7 @@ public class SystemSettingsDiscoveryService(
         }
 
         Dictionary<string, object?> batchedRegistryValues = new();
-        if (registrySettings.Any())
+        if (registrySettings.Count != 0)
         {
             var queries = registrySettings
                 .SelectMany(setting => setting.RegistrySettings)
@@ -246,7 +246,7 @@ public class SystemSettingsDiscoveryService(
 
                 foreach (var (settingId, values) in discoveredValues)
                 {
-                    if (values.Any())
+                    if (values.Count != 0)
                     {
                         results[settingId] = values;
                     }

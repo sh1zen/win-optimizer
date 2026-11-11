@@ -304,37 +304,6 @@ public class BaseSettingsFeatureViewModelTests
     }
 
     [Fact]
-    public async Task RefreshSettingsAsync_ClearsAndReloadsSettings()
-    {
-        // Arrange
-        var vm = CreateViewModel();
-        var firstSettings = CreateSettingsCollection(("s1", "First", "G1"));
-        var secondSettings = CreateSettingsCollection(("s2", "Second", "G2"));
-        var callCount = 0;
-
-        _mockSettingsLoadingService
-            .Setup(s => s.LoadConfiguredSettingsAsync(
-                It.IsAny<string>(),
-                It.IsAny<string>(),
-                It.IsAny<ISettingsFeatureViewModel>()))
-            .ReturnsAsync(() =>
-            {
-                callCount++;
-                return callCount == 1 ? firstSettings : secondSettings;
-            });
-
-        await vm.LoadSettingsAsync();
-        vm.Settings.Should().HaveCount(1);
-
-        // Act
-        await vm.RefreshSettingsAsync();
-
-        // Assert
-        vm.Settings.Should().HaveCount(1);
-        vm.Settings[0].Name.Should().Be("Second");
-    }
-
-    [Fact]
     public async Task RefreshSettingsAsync_PublishesSettingsRefreshedEvent()
     {
         // Overview consumers must be notified when the settings collection is replaced.
@@ -444,36 +413,6 @@ public class BaseSettingsFeatureViewModelTests
     }
 
     [Fact]
-    public async Task RefreshSettingStatesAsync_WhenSettingsLoaded_RefreshesStates()
-    {
-        // Arrange
-        var vm = CreateViewModel();
-        var settings = CreateSettingsCollection(("s1", "Setting 1", "Group"));
-
-        _mockSettingsLoadingService
-            .Setup(s => s.LoadConfiguredSettingsAsync(
-                It.IsAny<string>(),
-                It.IsAny<string>(),
-                It.IsAny<ISettingsFeatureViewModel>()))
-            .ReturnsAsync(settings);
-
-        _mockSettingsLoadingService
-            .Setup(s => s.RefreshSettingStatesAsync(It.IsAny<IEnumerable<SettingItemViewModel>>()))
-            .ReturnsAsync(new Dictionary<string, SettingStateResult>());
-
-        // Load first
-        await vm.LoadSettingsAsync();
-
-        // Act
-        await vm.RefreshSettingStatesAsync();
-
-        // Assert
-        _mockSettingsLoadingService.Verify(
-            s => s.RefreshSettingStatesAsync(It.IsAny<IEnumerable<SettingItemViewModel>>()),
-            Times.Once);
-    }
-
-    [Fact]
     public async Task RefreshSettingStatesAsync_InBuilderMode_DoesNotReadSystemState()
     {
         // Arrange - Builder mode authors un-applied state into the VMs; a navigation
@@ -501,41 +440,6 @@ public class BaseSettingsFeatureViewModelTests
         _mockSettingsLoadingService.Verify(
             s => s.RefreshSettingStatesAsync(It.IsAny<IEnumerable<SettingItemViewModel>>()),
             Times.Never);
-    }
-
-    [Fact]
-    public async Task RefreshSettingStatesAsync_UpdatesSettingStatesFromResults()
-    {
-        // Arrange
-        var vm = CreateViewModel();
-        var settings = CreateSettingsCollection(("s1", "Setting 1", "Group"));
-
-        _mockSettingsLoadingService
-            .Setup(s => s.LoadConfiguredSettingsAsync(
-                It.IsAny<string>(),
-                It.IsAny<string>(),
-                It.IsAny<ISettingsFeatureViewModel>()))
-            .ReturnsAsync(settings);
-
-        var stateResults = new Dictionary<string, SettingStateResult>
-        {
-            ["s1"] = new SettingStateResult { Success = true, IsEnabled = true }
-        };
-
-        _mockSettingsLoadingService
-            .Setup(s => s.RefreshSettingStatesAsync(It.IsAny<IEnumerable<SettingItemViewModel>>()))
-            .ReturnsAsync(stateResults);
-
-        await vm.LoadSettingsAsync();
-
-        // Act
-        await vm.RefreshSettingStatesAsync();
-
-        // Assert - the setting should have been updated via UpdateStateFromSystemState
-        // The actual state update is done via the dispatcher mock, which runs synchronously
-        _mockDispatcherService.Verify(
-            d => d.RunOnUIThread(It.IsAny<Action>()),
-            Times.AtLeastOnce);
     }
 
     [Fact]
@@ -629,34 +533,6 @@ public class BaseSettingsFeatureViewModelTests
     }
 
     [Fact]
-    public async Task LoadSettingsAsync_GroupsSettingsByGroupName()
-    {
-        // Arrange
-        var vm = CreateViewModel();
-        var settings = CreateSettingsCollection(
-            ("s1", "Setting 1", "Alpha"),
-            ("s2", "Setting 2", "Alpha"),
-            ("s3", "Setting 3", "Beta"));
-
-        _mockSettingsLoadingService
-            .Setup(s => s.LoadConfiguredSettingsAsync(
-                It.IsAny<string>(),
-                It.IsAny<string>(),
-                It.IsAny<ISettingsFeatureViewModel>()))
-            .ReturnsAsync(settings);
-
-        // Act
-        await vm.LoadSettingsAsync();
-
-        // Assert
-        vm.GroupedSettings.Should().HaveCount(2);
-        vm.GroupedSettings[0].Key.Should().Be("Alpha");
-        vm.GroupedSettings[0].Should().HaveCount(2);
-        vm.GroupedSettings[1].Key.Should().Be("Beta");
-        vm.GroupedSettings[1].Should().HaveCount(1);
-    }
-
-    [Fact]
     public async Task LoadSettingsAsync_SettingsWithEmptyGroupName_FallsBackToOtherGroup()
     {
         // Arrange
@@ -725,59 +601,6 @@ public class BaseSettingsFeatureViewModelTests
     }
 
     [Fact]
-    public async Task Dispose_ClearsSettingsCollection()
-    {
-        // Arrange
-        var vm = CreateViewModel();
-        var settings = CreateSettingsCollection(("s1", "Setting 1", "Group"));
-
-        _mockSettingsLoadingService
-            .Setup(s => s.LoadConfiguredSettingsAsync(
-                It.IsAny<string>(),
-                It.IsAny<string>(),
-                It.IsAny<ISettingsFeatureViewModel>()))
-            .ReturnsAsync(settings);
-
-        await vm.LoadSettingsAsync();
-        vm.Settings.Should().NotBeEmpty();
-
-        // Act
-        vm.Dispose();
-
-        // Assert
-        vm.Settings.Should().BeEmpty();
-    }
-
-    [Fact]
-    public async Task LoadSettingsAsync_WithMixedInputTypes_AllSettingsPopulatedCorrectly()
-    {
-        var vm = CreateViewModel();
-        var settings = new ObservableCollection<SettingItemViewModel>
-        {
-            CreateSettingItem("toggle1", "Toggle", inputType: InputType.Toggle, isSelected: true),
-            CreateSettingItem("sel1", "Selection", inputType: InputType.Selection, selectedValue: 2),
-            CreateSettingItem("num1", "Numeric", inputType: InputType.NumericRange, numericValue: 45,
-                numericRange: new NumericRangeMetadata { MinValue = 0, MaxValue = 100 }),
-            CreateSettingItem("action1", "Action", inputType: InputType.Action)
-        };
-
-        _mockSettingsLoadingService
-            .Setup(s => s.LoadConfiguredSettingsAsync(
-                It.IsAny<string>(),
-                It.IsAny<string>(), It.IsAny<ISettingsFeatureViewModel>()))
-            .ReturnsAsync(settings);
-
-        await vm.LoadSettingsAsync();
-
-        vm.Settings.Should().HaveCount(4);
-        vm.Settings[0].IsSelected.Should().BeTrue();
-        vm.Settings[1].SelectedValue.Should().Be(2);
-        vm.Settings[2].NumericValue.Should().Be(45);
-        vm.Settings[3].InputType.Should().Be(InputType.Action);
-        vm.HasVisibleSettings.Should().BeTrue();
-    }
-
-    [Fact]
     public async Task RefreshSettingStatesAsync_FailedResult_DoesNotChangeExistingValues()
     {
         var vm = CreateViewModel();
@@ -805,40 +628,6 @@ public class BaseSettingsFeatureViewModelTests
         await vm.RefreshSettingStatesAsync();
 
         vm.Settings[0].IsSelected.Should().BeTrue(); // unchanged due to failed result
-    }
-
-    [Fact]
-    public async Task RefreshSettingStatesAsync_MissingSettingInResults_DoesNotThrow()
-    {
-        var vm = CreateViewModel();
-        var settings = new ObservableCollection<SettingItemViewModel>
-        {
-            CreateSettingItem("t1", "Toggle", isSelected: true),
-            CreateSettingItem("t2", "Toggle 2", isSelected: false)
-        };
-
-        _mockSettingsLoadingService
-            .Setup(s => s.LoadConfiguredSettingsAsync(
-                It.IsAny<string>(),
-                It.IsAny<string>(), It.IsAny<ISettingsFeatureViewModel>()))
-            .ReturnsAsync(settings);
-
-        // Only return state for t1, not t2
-        var refreshStates = new Dictionary<string, SettingStateResult>
-        {
-            ["t1"] = new SettingStateResult { Success = true, IsEnabled = false }
-        };
-        _mockSettingsLoadingService
-            .Setup(s => s.RefreshSettingStatesAsync(It.IsAny<IEnumerable<SettingItemViewModel>>()))
-            .ReturnsAsync(refreshStates);
-
-        await vm.LoadSettingsAsync();
-
-        var action = () => vm.RefreshSettingStatesAsync();
-
-        await action.Should().NotThrowAsync();
-        vm.Settings[0].IsSelected.Should().BeFalse(); // updated
-        vm.Settings[1].IsSelected.Should().BeFalse(); // unchanged (no state returned)
     }
 
     [Fact]

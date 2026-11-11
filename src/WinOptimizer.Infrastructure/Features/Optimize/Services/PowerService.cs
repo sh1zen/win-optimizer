@@ -56,7 +56,7 @@ public class PowerService(
                 var name = planDict["Name"].ToString()!;
 
                 logService.Log(LogLevel.Info, $"[PowerService] Config import: applying power plan {name} ({guid})");
-                return await ApplyPowerPlanByGuidAsync(setting, guid, name, settingApplicationService).ConfigureAwait(false);
+                return await ApplyPowerPlanByGuidAsync(guid, name, settingApplicationService).ConfigureAwait(false);
             }
 
             if (value is int index)
@@ -70,7 +70,7 @@ public class PowerService(
                     return false;
                 }
 
-                return await ApplyPowerPlanSelectionAsync(setting, resolution.Guid, index, resolution.DisplayName, settingApplicationService).ConfigureAwait(false);
+                return await ApplyPowerPlanSelectionAsync(resolution.Guid, index, resolution.DisplayName, settingApplicationService).ConfigureAwait(false);
             }
 
             logService.Log(LogLevel.Error, $"[PowerService] Invalid power plan value type: {value?.GetType().Name}");
@@ -317,7 +317,7 @@ public class PowerService(
     /// <exception cref="ArgumentException">
     /// Thrown when <paramref name="powerPlanGuid"/> is null or empty (programmer error).
     /// </exception>
-    private async Task<bool> ApplyPowerPlanSelectionAsync(SettingDefinition setting, string powerPlanGuid, int planIndex, string planName, ISettingApplicationService? settingApplicationService)
+    private async Task<bool> ApplyPowerPlanSelectionAsync(string powerPlanGuid, int planIndex, string planName, ISettingApplicationService? settingApplicationService)
     {
         logService.Log(LogLevel.Info, $"[PowerService] Applying power plan: {planName} ({powerPlanGuid})");
 
@@ -450,7 +450,7 @@ public class PowerService(
     /// <exception cref="ArgumentException">
     /// Thrown when <paramref name="powerPlanGuid"/> is null or empty (programmer error).
     /// </exception>
-    private async Task<bool> ApplyPowerPlanByGuidAsync(SettingDefinition setting, string powerPlanGuid, string planName, ISettingApplicationService? settingApplicationService)
+    private async Task<bool> ApplyPowerPlanByGuidAsync(string powerPlanGuid, string planName, ISettingApplicationService? settingApplicationService)
     {
         logService.Log(LogLevel.Info, $"[PowerService] Applying power plan by GUID: {planName} ({powerPlanGuid})");
 
@@ -858,7 +858,7 @@ public class PowerService(
 
                     if (setting.InputType == InputType.Selection &&
                         setting.Recommendation?.RecommendedOptionAC != null &&
-                        setting.PowerCfgSettings?.Any() == true)
+                        setting.PowerCfgSettings?.Count > 0)
                     {
                         var recommendedOptionAC = setting.Recommendation.RecommendedOptionAC;
                         var recommendedOptionDC = setting.Recommendation.RecommendedOptionDC ?? recommendedOptionAC;

@@ -40,7 +40,7 @@ public sealed class SectionNavigationItemTests
         Assert.Equal(pending, item.ShowPending);
         Assert.Equal(reviewed, item.ShowReviewed);
         Assert.Equal(count, item.PendingCount);
-        Assert.False(item.ShowSummary);
+        Assert.False(item.ShowCustom);
     }
 
     [Fact]
@@ -70,7 +70,7 @@ public sealed class SectionNavigationItemTests
         Assert.Equal(string.Empty, changed);
         Assert.Equal("Localized title", item.Title);
         Assert.Equal("Localized groups", item.Description);
-        Assert.Equal("Localized 0/0", item.RecommendedText);
+        Assert.Equal("Localized 0/0", item.CustomText);
         Assert.False(item.ShowPending);
         Assert.False(item.ShowReviewed);
     }

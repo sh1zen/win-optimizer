@@ -393,7 +393,7 @@ public class ConfigExportService : IConfigExportService
             {
                 bool hasAcDcPowerSettings = false;
 
-                if (setting.PowerCfgSettings?.Any() == true &&
+                if (setting.PowerCfgSettings?.Count > 0 &&
                     setting.PowerCfgSettings[0].PowerModeSupport == PowerModeSupport.Separate &&
                     state?.RawValues != null)
                 {
@@ -426,7 +426,7 @@ public class ConfigExportService : IConfigExportService
         {
             if (state?.CurrentValue != null)
             {
-                if (setting.PowerCfgSettings?.Any() == true &&
+                if (setting.PowerCfgSettings?.Count > 0 &&
                     setting.PowerCfgSettings[0].PowerModeSupport == PowerModeSupport.Separate &&
                     state.RawValues != null)
                 {

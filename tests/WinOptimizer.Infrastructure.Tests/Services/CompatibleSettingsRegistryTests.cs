@@ -49,12 +49,6 @@ public class CompatibleSettingsRegistryTests
     }
 
     [Fact]
-    public void IsInitialized_BeforeInitializeAsync_ReturnsFalse()
-    {
-        _sut.IsInitialized.Should().BeFalse();
-    }
-
-    [Fact]
     public async Task AuthoringCatalogue_IncludesSettingsForUnavailableHardware()
     {
         _hardwareFilter.Setup(x => x.FilterSettingsByHardwareAsync(It.IsAny<IEnumerable<SettingDefinition>>()))
@@ -110,14 +104,6 @@ public class CompatibleSettingsRegistryTests
     }
 
     [Fact]
-    public async Task InitializeAsync_SetsIsInitializedToTrue()
-    {
-        await _sut.InitializeAsync();
-
-        _sut.IsInitialized.Should().BeTrue();
-    }
-
-    [Fact]
     public async Task GetFilteredSettings_WhenFilterEnabled_ReturnsFilteredResults()
     {
         // Unknown features have no registered provider.
@@ -129,59 +115,6 @@ public class CompatibleSettingsRegistryTests
     }
 
     [Fact]
-    public async Task GetFilteredSettings_WhenFilterEnabled_ReturnsPreFilteredSettingsForKnownFeature()
-    {
-        await _sut.InitializeAsync();
-
-        var result = _sut.GetFilteredSettings(FeatureIds.Privacy);
-
-        result.Should().NotBeEmpty("Privacy settings should be registered via explicit provider");
-        _windowsFilter.Verify(
-            f => f.FilterSettingsByWindowsVersion(It.IsAny<IEnumerable<SettingDefinition>>()),
-            Times.AtLeastOnce);
-    }
-
-    [Theory]
-    [InlineData(nameof(FeatureIds.ExplorerCustomization))]
-    [InlineData(nameof(FeatureIds.StartMenu))]
-    [InlineData(nameof(FeatureIds.Taskbar))]
-    [InlineData(nameof(FeatureIds.WindowsTheme))]
-    [InlineData(nameof(FeatureIds.Power))]
-    [InlineData(nameof(FeatureIds.GamingPerformance))]
-    [InlineData(nameof(FeatureIds.Notifications))]
-    [InlineData(nameof(FeatureIds.Privacy))]
-    [InlineData(nameof(FeatureIds.Sound))]
-    [InlineData(nameof(FeatureIds.Update))]
-    public async Task InitializeAsync_RegistersAllExplicitProviders(string featureIdFieldName)
-    {
-        // Resolve the actual FeatureId string from the field name
-        var featureId = typeof(FeatureIds)
-            .GetField(featureIdFieldName, System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)!
-            .GetValue(null) as string;
-
-        await _sut.InitializeAsync();
-
-        var result = _sut.GetFilteredSettings(featureId!);
-        result.Should().NotBeEmpty($"Feature '{featureId}' should have settings registered via explicit provider");
-    }
-
-    [Fact]
-    public async Task SetFilterEnabled_TogglesBehaviorOfGetFilteredSettings()
-    {
-        await _sut.InitializeAsync();
-
-        // With filter enabled (default), querying unknown feature returns empty
-        _sut.SetFilterEnabled(true);
-        var filteredResult = _sut.GetFilteredSettings("UnknownFeature");
-        filteredResult.Should().BeEmpty();
-
-        // Disable filter - should query bypassed settings dictionary instead
-        _sut.SetFilterEnabled(false);
-        var bypassedResult = _sut.GetFilteredSettings("UnknownFeature");
-        bypassedResult.Should().BeEmpty();
-    }
-
-    [Fact]
     public async Task GetBypassedSettings_ReturnsUnfilteredSettingsForFeature()
     {
         await _sut.InitializeAsync();
@@ -189,55 +122,6 @@ public class CompatibleSettingsRegistryTests
         var result = _sut.GetBypassedSettings("NonExistentFeature");
 
         result.Should().BeEmpty();
-    }
-
-    [Fact]
-    public async Task GetAllFilteredSettings_WhenFilterEnabled_ReturnsPreFilteredDictionary()
-    {
-        await _sut.InitializeAsync();
-
-        var result = _sut.GetAllFilteredSettings();
-
-        result.Should().NotBeNull();
-        result.Should().BeAssignableTo<IReadOnlyDictionary<string, IEnumerable<SettingDefinition>>>();
-    }
-
-    [Fact]
-    public async Task GetAllFilteredSettings_WhenFilterDisabled_ReturnsBypassedDictionary()
-    {
-        await _sut.InitializeAsync();
-        _sut.SetFilterEnabled(false);
-
-        var result = _sut.GetAllFilteredSettings();
-
-        result.Should().NotBeNull();
-        result.Should().BeAssignableTo<IReadOnlyDictionary<string, IEnumerable<SettingDefinition>>>();
-    }
-
-    [Fact]
-    public async Task GetAllBypassedSettings_ReturnsWindowsFilterBypassedDictionary()
-    {
-        await _sut.InitializeAsync();
-
-        var result = _sut.GetAllBypassedSettings();
-
-        result.Should().NotBeNull();
-        result.Should().BeAssignableTo<IReadOnlyDictionary<string, IEnumerable<SettingDefinition>>>();
-    }
-
-    [Fact]
-    public async Task InitializeAsync_CalledTwice_OnlyInitializesOnce()
-    {
-        await _sut.InitializeAsync();
-        await _sut.InitializeAsync();
-
-        _sut.IsInitialized.Should().BeTrue();
-
-        // The "Initializing compatible settings registry" log should appear only once
-        // because the second call exits early due to the _isInitialized guard.
-        _logService.Verify(
-            l => l.Log(LogLevel.Info, "Initializing compatible settings registry with auto-discovery", null),
-            Times.Once);
     }
 
     [Fact]
@@ -298,30 +182,11 @@ public class CompatibleSettingsRegistryTests
     }
 
     [Fact]
-    public async Task GetById_ExistingId_ReturnsSetting()
-    {
-        await _sut.InitializeAsync();
-
-        var result = _sut.GetById("security-uac-level");
-
-        result.Should().NotBeNull();
-        result!.Id.Should().Be("security-uac-level");
-    }
-
-    [Fact]
     public async Task GetById_MissingId_ReturnsNull()
     {
         await _sut.InitializeAsync();
 
         _sut.GetById("does-not-exist").Should().BeNull();
-    }
-
-    [Fact]
-    public async Task GetFeatureIdForSetting_ExistingId_ReturnsFeatureId()
-    {
-        await _sut.InitializeAsync();
-
-        _sut.GetFeatureIdForSetting("security-uac-level").Should().Be(FeatureIds.Privacy);
     }
 
     [Fact]

@@ -147,7 +147,7 @@ public class StoreDownloadService : IStoreDownloadService
             // Check for cancellation after API call
             cancellationToken.ThrowIfCancellationRequested();
 
-            if (!downloadLinks.Any())
+            if (downloadLinks.Count == 0)
             {
                 _logService?.LogError($"No download links found for {productId}");
                 return null;
@@ -160,7 +160,7 @@ public class StoreDownloadService : IStoreDownloadService
             var mainPackages = FilterPackageLinks(downloadLinks, currentArch, isDependency: false);
             var allDependencies = FilterPackageLinks(downloadLinks, currentArch, isDependency: true);
 
-            if (!mainPackages.Any())
+            if (mainPackages.Count == 0)
             {
                 _logService?.LogError($"No suitable packages found for architecture {currentArch}");
                 return null;
@@ -218,7 +218,7 @@ public class StoreDownloadService : IStoreDownloadService
                 currentRound++;
                 var missingDependencies = ParseMissingDependencies(errorMessage);
 
-                if (!missingDependencies.Any())
+                if (missingDependencies.Count == 0)
                 {
                     _logService?.LogError($"Installation failed: {errorMessage}");
                     return null;
@@ -271,7 +271,7 @@ public class StoreDownloadService : IStoreDownloadService
                         return false;
                     }).ToList();
 
-                    if (!matchingDeps.Any())
+                    if (matchingDeps.Count == 0)
                     {
                         _logService?.LogWarning($"Could not find matching dependency for: {depName}");
                         _logService?.LogInformation($"Available dependencies:");
@@ -305,7 +305,7 @@ public class StoreDownloadService : IStoreDownloadService
                     }
                 }
 
-                if (!newDependencies.Any())
+                if (newDependencies.Count == 0)
                 {
                     _logService?.LogError($"Could not download required dependencies");
                     return null;

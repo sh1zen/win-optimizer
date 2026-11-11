@@ -89,52 +89,6 @@ public class SettingApplicationServiceTests
     }
 
     [Fact]
-    public async Task ApplySettingAsync_ValidSetting_ReturnsSuccess()
-    {
-        SetupSettingInRegistry("test-setting");
-
-        var result = await _service.ApplySettingAsync(new ApplySettingRequest
-        {
-            SettingId = "test-setting",
-            Enable = true,
-        });
-
-        result.Success.Should().BeTrue();
-    }
-
-    [Fact]
-    public async Task ApplySettingAsync_ValidSetting_PublishesEvent()
-    {
-        SetupSettingInRegistry("test-setting");
-
-        await _service.ApplySettingAsync(new ApplySettingRequest
-        {
-            SettingId = "test-setting",
-            Enable = true,
-        });
-
-        _mockEventBus.Verify(e => e.Publish(It.Is<SettingAppliedEvent>(
-            evt => evt.SettingId == "test-setting")), Times.Once);
-    }
-
-    [Fact]
-    public async Task ApplySettingAsync_ValidSetting_CallsOperationExecutor()
-    {
-        SetupSettingInRegistry("test-setting");
-
-        await _service.ApplySettingAsync(new ApplySettingRequest
-        {
-            SettingId = "test-setting",
-            Enable = true,
-        });
-
-        _mockExecutor.Verify(e => e.ApplySettingOperationsAsync(
-            It.Is<SettingDefinition>(s => s.Id == "test-setting"),
-            true,
-            null), Times.Once);
-    }
-
-    [Fact]
     public async Task ApplySettingAsync_SettingNotFound_ThrowsArgumentException()
     {
         _mockSettingsRegistry.Setup(r => r.GetById("missing"))

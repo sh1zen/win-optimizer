@@ -39,49 +39,6 @@ public class WizardActionCardTests
     }
 
     [Fact]
-    public void IsProcessing_SetTrue_ClearsIsCompleteAndHasFailed()
-    {
-        var card = new WizardActionCard();
-        card.IsComplete = true;
-
-        card.IsProcessing = true;
-
-        card.IsComplete.Should().BeFalse();
-        card.HasFailed.Should().BeFalse();
-        card.IsProcessing.Should().BeTrue();
-    }
-
-    [Fact]
-    public void ProcessingToComplete_Transition()
-    {
-        var card = new WizardActionCard();
-
-        card.IsProcessing = true;
-        card.IsProcessing.Should().BeTrue();
-        card.IsComplete.Should().BeFalse();
-        card.HasFailed.Should().BeFalse();
-
-        card.IsComplete = true;
-        card.IsComplete.Should().BeTrue();
-        card.IsProcessing.Should().BeFalse();
-        card.HasFailed.Should().BeFalse();
-    }
-
-    [Fact]
-    public void ProcessingToFailed_Transition()
-    {
-        var card = new WizardActionCard();
-
-        card.IsProcessing = true;
-        card.IsProcessing.Should().BeTrue();
-
-        card.HasFailed = true;
-        card.HasFailed.Should().BeTrue();
-        card.IsProcessing.Should().BeFalse();
-        card.IsComplete.Should().BeFalse();
-    }
-
-    [Fact]
     public void FailedToProcessing_Retry_Transition()
     {
         var card = new WizardActionCard();

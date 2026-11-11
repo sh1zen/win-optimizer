@@ -470,7 +470,7 @@ public partial class ExternalAppsViewModel : BaseViewModel, IExternalAppsItemsPr
     public async Task UninstallAppsAsync()
     {
         var selectedItems = Items.Where(a => a.IsSelected).ToList();
-        if (!selectedItems.Any())
+        if (selectedItems.Count == 0)
         {
             await _dialogService.ShowWarningAsync(
                 "Please select at least one app for uninstallation.",
@@ -508,7 +508,17 @@ public partial class ExternalAppsViewModel : BaseViewModel, IExternalAppsItemsPr
         {
             _externalAppsService.InvalidateStatusCache();
             ClearSelections();
-            IsTaskRunning = false;
+            try
+            {
+                // Recheck the inventory only after the uninstall workflow has fully returned.
+                IsLoading = true;
+                await CheckInstallationStatusAsync();
+            }
+            finally
+            {
+                IsLoading = false;
+                IsTaskRunning = false;
+            }
         }
     }
 

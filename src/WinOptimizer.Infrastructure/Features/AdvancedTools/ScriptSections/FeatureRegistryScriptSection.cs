@@ -111,7 +111,7 @@ internal class FeatureRegistryScriptSection
                 }
 
                 // Skip settings that have PowerCfgSettings but no RegistrySettings (already handled in Power Settings section)
-                if (settingDef.PowerCfgSettings?.Any() == true && settingDef.RegistrySettings?.Any() != true)
+                if (settingDef.PowerCfgSettings?.Count > 0 && settingDef.RegistrySettings is not { Count: > 0 })
                     continue;
 
                 // Apply the setting, but only output registry entries that match the current hive
@@ -151,7 +151,7 @@ internal class FeatureRegistryScriptSection
 
                         // Custom state (user-entered values) always counts as "enabled" — the user
                         // picking Custom DNS is expressing intent to configure, not to reset.
-                        bool hasCustomState = configItem.CustomStateValues?.Any() == true;
+                        bool hasCustomState = configItem.CustomStateValues?.Count > 0;
                         var useEnabled = hasCustomState || configItem.IsSelected == true;
 
                         if (!hasCustomState
@@ -260,7 +260,7 @@ internal class FeatureRegistryScriptSection
                     }
                 }
 
-                if (scheduledTasksToApply.Any())
+                if (scheduledTasksToApply.Count != 0)
                 {
                     AppendScheduledTaskBatch(sb, scheduledTasksToApply, indent);
                 }

@@ -15,8 +15,6 @@ public interface IDialogService
 
     Task ShowErrorAsync(string message, string title = "Error", string buttonText = "OK");
 
-    Task<(bool SupportClicked, bool DontShowAgain)> ShowSponsorsDialogAsync(SponsorsDialogMode mode);
-
     Task<(ImportOption? Option, ImportOptions Options)> ShowConfigImportOptionsDialogAsync();
 
     Task<ConfirmationResponse> ShowConfirmationAsync(ConfirmationRequest confirmationRequest);

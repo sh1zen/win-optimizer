@@ -13,6 +13,52 @@ namespace WinOptimizer.UI.Tests.Services;
 /// <summary>Checks the production startup frame boundary on a native WinUI dispatcher.</summary>
 public sealed class StartupPresentationTests
 {
+    /// <summary>Centers the loader at each viewport size without shifting on detailed progress reports.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task LoadingContentStaysCenteredWhenResizedAndStatusChanges(bool rightToLeft)
+    {
+        var loader = new StartupLoadingView
+        {
+            FlowDirection = rightToLeft ? FlowDirection.RightToLeft : FlowDirection.LeftToRight
+        };
+        var viewport = new Grid { Children = { loader } };
+        var window = new Window { Content = viewport };
+        try
+        {
+            window.Activate();
+            foreach (var (width, height) in new[] { (1050, 720), (696, 479), (320, 600) })
+            {
+                window.AppWindow.ResizeClient(new Windows.Graphics.SizeInt32(width, height));
+                loader.StatusText.Text = "Initializing settings...";
+                await StartupUiCoordinator.RunAfterFirstRenderAsync(loader, () => Task.CompletedTask);
+                var content = Assert.IsType<StackPanel>(loader.FindName("LoadingContent"));
+                var card = Assert.IsType<Border>(loader.FindName("LoadingStatusCard"));
+                Windows.Foundation.Rect Bounds(FrameworkElement element) => element.TransformToVisual(loader)
+                    .TransformBounds(new Windows.Foundation.Rect(0, 0, element.ActualWidth, element.ActualHeight));
+                var contentBounds = Bounds(content);
+                var cardBounds = Bounds(card);
+                Assert.InRange(Math.Abs(contentBounds.X + contentBounds.Width / 2 - loader.ActualWidth / 2), 0, 1);
+                Assert.InRange(Math.Abs(contentBounds.Y + contentBounds.Height / 2 - loader.ActualHeight / 2), 0, 1);
+                Assert.InRange(Math.Abs(cardBounds.X + cardBounds.Width / 2 - loader.ActualWidth / 2), 0, 1);
+
+                loader.StatusText.Text = "Initializing settings...\nPreparing the interface...\nLoading installed applications...\nPreparing configuration backup...";
+                await StartupUiCoordinator.RunAfterFirstRenderAsync(loader, () => Task.CompletedTask);
+                Assert.Equal(contentBounds, Bounds(content));
+                Assert.Equal(cardBounds, Bounds(card));
+                var statusViewport = Assert.IsType<ScrollViewer>(loader.FindName("LoadingStatusViewport"));
+                Assert.True(statusViewport.ScrollableHeight > 0);
+                statusViewport.ChangeView(null, statusViewport.ScrollableHeight, null, disableAnimation: true);
+                await StartupUiCoordinator.RunAfterFirstRenderAsync(loader, () => Task.CompletedTask);
+                Assert.InRange(Math.Abs(statusViewport.VerticalOffset - statusViewport.ScrollableHeight), 0, 1);
+                Assert.Equal(contentBounds, Bounds(content));
+                Assert.Equal(cardBounds, Bounds(card));
+            }
+        }
+        finally { window.Close(); }
+    }
+
     /// <summary>Restores placement before rendering the loader and retains it through shell construction.</summary>
     [Theory]
     [InlineData(false)]

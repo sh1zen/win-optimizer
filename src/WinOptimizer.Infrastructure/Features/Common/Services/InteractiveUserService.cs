@@ -43,10 +43,8 @@ public class InteractiveUserService : IInteractiveUserService, IDisposable
 
         // Detect OTS elevation
         var currentSid = WindowsIdentity.GetCurrent().User?.Value;
-        string? detectedSid = null;
-
         // Fallback chain
-        detectedSid = TryGetSidFromExplorerToken();
+        var detectedSid = TryGetSidFromExplorerToken();
 
         if (detectedSid == null)
         {

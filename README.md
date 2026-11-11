@@ -35,6 +35,17 @@ some hardware tools also depend on compatible firmware or drivers.
 
 </details>
 
+## Screenshots
+
+- [Software & Apps — Windows apps and features](extras/screenshots/software-apps.jpg)
+- [Optimize — Windows optimization categories](extras/screenshots/optimize.jpg)
+- [Cleaner — Scan and cleanup options](extras/screenshots/cleaner.jpg)
+- [Drivers — Driver packages, devices and updates](extras/screenshots/drivers.jpg)
+- [Control — System management tools](extras/screenshots/control.jpg)
+- [Customize — Windows appearance and behavior](extras/screenshots/customize.jpg)
+- [Advanced Tools — Windows installation and recovery tools](extras/screenshots/advanced-tools.jpg)
+- [Settings — Language and appearance preferences](extras/screenshots/settings.jpg)
+
 ## Explore more
 
 <details>
@@ -45,6 +56,7 @@ some hardware tools also depend on compatible firmware or drivers.
 Opening the app shows a loading window while settings and the main interface initialize.
 The window reopens at its last saved size and position, including maximized state,
 and keeps that size throughout loading.
+Loading content stays centered and steady as startup messages change.
 The loading screen uses the saved language and theme from its first frame, and the
 main interface opens with the saved sidebar and app-list layout already applied.
 Centered windows keep their title bar reachable when the saved or default size exceeds the screen's work area.
@@ -101,9 +113,10 @@ blocks and minimizes win-optimizer while it runs, then restores the app when it 
 If none can be identified, confirm whether to use automatic removal through
 the available package manager or detected installation files. Cancelling that
 prompt preserves the app. Verified removals update the cached list before leftover
-review without rescanning app inventories or icons. Failed or cancelled package
-verification does not establish removal. Unverified outcomes keep their
-cached status; use **Refresh** to check Windows again.
+review. When the uninstall workflow finishes, the app automatically refreshes the
+inventory, including after partial failures or cancellation. Failed or cancelled
+package verification does not establish removal; a fresh inventory check determines
+the current status of unverified outcomes. **Refresh** also checks Windows on demand.
 AppX inventory and external-app removal follow the interactive account when the
 app runs with another administrator's credentials.
 Store downloads install for that signed-in account. Interactive EXE installers
@@ -281,10 +294,14 @@ your antivirus.
 
 **Drivers** scans unreferenced driver-store packages, disconnected device
 registrations and applicable offers from Microsoft's public Windows Update service.
+The online search includes optional offers and inspects bundled driver packages.
+Drivers available only from a hardware manufacturer's website may not be offered by Windows Update.
 **Only show WHQL-tested driver updates** defaults on in Settings → Drivers;
 verification uses matching INF/catalog evidence, rather than a trusted signature alone.
 Scanning may download packages for inspection, but does not install updates or
 automatically accept licenses. Online failures are reported separately from empty results.
+The results show the active filter; if WHQL verification hides offers, turn off the
+filter in Settings → Drivers and scan again to review their unverified status.
 
 Select unused packages or disconnected devices and confirm **Uninstall selected**.
 Removal requires elevation and a fresh inventory check; bound, changed, inbox and
@@ -446,9 +463,10 @@ cleanup, or `/DATA=keep` to retain data. An invalid data option aborts uninstall
 
 ## Development
 
-Use Windows, the .NET SDK selected by [global.json](global.json), Visual Studio
+Use Windows, the .NET SDK specified in [global.json](global.json), Visual Studio
 2026 / Build Tools with MSBuild 18+, the .NET desktop and C++ desktop workloads,
 and the Windows SDK. Open [win-optimizer.sln](win-optimizer.sln) in Visual Studio.
+CI installs the SDK specified in the same file.
 
 ```powershell
 ./build.ps1
@@ -510,8 +528,7 @@ git push origin v26.10.23
 
 [ARCHITECTURE.md](ARCHITECTURE.md) describes components, storage and execution contracts.
 [Application artwork](src/WinOptimizer.UI/Assets/ICON-ATTRIBUTION.md) covers icon
-authoring, generation and attribution; [sponsor data instructions](sponsors/README.md)
-cover online and bundled sponsor assets.
+authoring, generation and attribution.
 
 </details>
 
@@ -521,7 +538,7 @@ Found a problem or have a feature idea? Use the
 [GitHub issue tracker](https://github.com/sh1zen/win-optimizer/issues).
 
 To support development, open the heart icon in the title bar or **Settings → Info →
-Support win-optimizer**, then choose **Buy me a coffee**. You can also
+Support win-optimizer** to open PayPal. You can also
 [donate through PayPal](https://www.paypal.com/donate/?hosted_button_id=8G8VR4APG9JRU).
 
 win-optimizer is an independent project, unaffiliated with Microsoft. Windows is

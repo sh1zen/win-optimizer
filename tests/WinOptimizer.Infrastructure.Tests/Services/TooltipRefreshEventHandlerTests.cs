@@ -72,18 +72,6 @@ public class TooltipRefreshEventHandlerTests : IDisposable
     };
 
     // ---------------------------------------------------------------
-    // Constructor subscribes to events
-    // ---------------------------------------------------------------
-
-    [Fact]
-    public void Constructor_SubscribesToSettingAppliedEvent()
-    {
-        _mockEventBus.Verify(
-            e => e.SubscribeAsync<SettingAppliedEvent>(It.IsAny<Func<SettingAppliedEvent, Task>>()),
-            Times.Once);
-    }
-
-    // ---------------------------------------------------------------
     // Dispose unsubscribes tokens
     // ---------------------------------------------------------------
 

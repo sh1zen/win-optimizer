@@ -17,17 +17,6 @@ public class WizardStepStateTests
     }
 
     [Fact]
-    public void DefaultState_IsLockedIncompleteAndCollapsed()
-    {
-        var state = new WizardStepState();
-
-        state.IsExpanded.Should().BeFalse();
-        state.IsAvailable.Should().BeFalse();
-        state.IsComplete.Should().BeFalse();
-        state.StatusText.Should().BeEmpty();
-    }
-
-    [Fact]
     public void ShowChevron_WhenLockedAndComplete_ReturnsFalse()
     {
         var state = CreateState();

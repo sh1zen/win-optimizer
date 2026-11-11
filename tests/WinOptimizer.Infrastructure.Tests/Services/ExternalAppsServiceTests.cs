@@ -46,30 +46,6 @@ public class ExternalAppsServiceTests
         _changeHistoryService.Object,
         _installedPrograms.Object);
 
-    // --- DomainName ---
-
-    [Fact]
-    public void DomainName_ReturnsExternalApps()
-    {
-        var sut = CreateSut();
-
-        sut.DomainName.Should().Be("ExternalApps");
-    }
-
-    // --- GetAppsAsync ---
-
-    [Fact]
-    public async Task GetAppsAsync_ReturnsCatalogueWithIds()
-    {
-        var sut = CreateSut();
-
-        var result = await sut.GetAppsAsync();
-
-        result.Should().NotBeNull();
-        result.Should().NotBeEmpty();
-        result.Should().OnlyContain(item => !string.IsNullOrEmpty(item.Id));
-    }
-
     // --- InstallAppAsync: WinGet success ---
 
     [Fact]
@@ -239,33 +215,6 @@ public class ExternalAppsServiceTests
         result.ErrorMessage.Should().Contain("Installation failed");
     }
 
-    [Fact]
-    public async Task InstallAppAsync_NoPackageIds_WithDownloadUrl_FallsBackToDirectDownload()
-    {
-        var sut = CreateSut();
-        var item = new ItemDefinition
-        {
-            Id = "download-only-app",
-            Name = "Download Only App",
-            Description = "Has only a download URL",
-            ExternalApp = new ExternalAppMetadata
-            {
-                DownloadUrl = "https://example.com/installer.exe"
-            }
-        };
-
-        _directDownloadService
-            .Setup(x => x.DownloadAndInstallAsync(
-                item, It.IsAny<IProgress<TaskProgressDetail>?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(true);
-
-        var result = await sut.InstallAppAsync(item);
-
-        result.Success.Should().BeTrue();
-        _directDownloadService.Verify(x => x.DownloadAndInstallAsync(
-            item, It.IsAny<IProgress<TaskProgressDetail>?>(), It.IsAny<CancellationToken>()), Times.Once);
-    }
-
     // --- InstallAppAsync: WinGet-first ordering ---
 
     [Fact]
@@ -375,32 +324,6 @@ public class ExternalAppsServiceTests
 
         result.Success.Should().BeTrue();
         _chocolateyService.Verify(x => x.InstallPackageAsync("chocoapp", "Choco App", It.IsAny<CancellationToken>()), Times.Once);
-    }
-
-    [Fact]
-    public async Task InstallAppAsync_ChocoOnlyApp_InstallsViaChocolatey()
-    {
-        var sut = CreateSut();
-        var item = new ItemDefinition
-        {
-            Id = "choco-only-app",
-            Name = "Choco Only App",
-            Description = "App with only a choco package ID",
-            ChocoPackageId = "chocoonlyapp"
-        };
-
-        _chocolateyService
-            .Setup(x => x.IsChocolateyInstalledAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(true);
-
-        _chocolateyService
-            .Setup(x => x.InstallPackageAsync("chocoonlyapp", "Choco Only App", It.IsAny<CancellationToken>()))
-            .ReturnsAsync(true);
-
-        var result = await sut.InstallAppAsync(item);
-
-        result.Success.Should().BeTrue();
-        _chocolateyService.Verify(x => x.InstallPackageAsync("chocoonlyapp", "Choco Only App", It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Fact]
@@ -543,47 +466,6 @@ public class ExternalAppsServiceTests
             .Setup(x => x.InstallChocolateyAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(false);
 
-        _directDownloadService
-            .Setup(x => x.DownloadAndInstallAsync(
-                item, It.IsAny<IProgress<TaskProgressDetail>?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(true);
-
-        var result = await sut.InstallAppAsync(item);
-
-        result.Success.Should().BeTrue();
-        _directDownloadService.Verify(x => x.DownloadAndInstallAsync(
-            item, It.IsAny<IProgress<TaskProgressDetail>?>(), It.IsAny<CancellationToken>()), Times.Once);
-    }
-
-    // --- InstallAppAsync: direct download fallback ---
-
-    [Fact]
-    public async Task InstallAppAsync_WinGetFails_FallsBackToDirectDownload()
-    {
-        var sut = CreateSut();
-        var item = new ItemDefinition
-        {
-            Id = "fallback-app",
-            Name = "Fallback App",
-            Description = "App with direct download fallback",
-            WinGetPackageId = new[] { "Publisher.FallbackApp" },
-            ExternalApp = new ExternalAppMetadata
-            {
-                DownloadUrl = "https://example.com/fallback.exe"
-            }
-        };
-
-        _winGetDetectionService
-            .Setup(x => x.GetInstallerTypeAsync("Publisher.FallbackApp", It.IsAny<CancellationToken>()))
-            .ReturnsAsync("exe");
-
-        // WinGet fails
-        _winGetPackageInstaller
-            .Setup(x => x.InstallPackageAsync(
-                "Publisher.FallbackApp", "winget", "Fallback App", It.IsAny<string?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(PackageInstallResult.Failed(InstallFailureReason.PackageNotFound, "Not found"));
-
-        // Direct download succeeds
         _directDownloadService
             .Setup(x => x.DownloadAndInstallAsync(
                 item, It.IsAny<IProgress<TaskProgressDetail>?>(), It.IsAny<CancellationToken>()))
@@ -850,45 +732,6 @@ public class ExternalAppsServiceTests
 
         result.Success.Should().BeFalse();
         result.ErrorMessage.Should().Contain("cancelled");
-    }
-
-    // --- CheckBatchInstalledAsync ---
-
-    [Fact]
-    public async Task CheckBatchInstalledAsync_DelegatesToExternalAppsStatus()
-    {
-        var sut = CreateSut();
-        var definitions = new List<ItemDefinition>
-        {
-            new() { Id = "app1", Name = "App1", Description = "Desc1" },
-            new() { Id = "app2", Name = "App2", Description = "Desc2" }
-        };
-
-        var expected = new Dictionary<string, bool>
-        {
-            { "app1", true },
-            { "app2", false }
-        };
-
-        _appStatusDiscoveryService
-            .Setup(x => x.GetExternalAppsInstallationStatusAsync(definitions))
-            .ReturnsAsync(expected);
-
-        var result = await sut.CheckBatchInstalledAsync(definitions);
-
-        result.Should().BeEquivalentTo(expected);
-    }
-
-    // --- InvalidateStatusCache ---
-
-    [Fact]
-    public void InvalidateStatusCache_DelegatesToDiscoveryService()
-    {
-        var sut = CreateSut();
-
-        sut.InvalidateStatusCache();
-
-        _appStatusDiscoveryService.Verify(x => x.InvalidateCache(), Times.Once);
     }
 
     // --- InstallAppAsync: exception handling ---

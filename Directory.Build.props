@@ -3,6 +3,8 @@
   <PropertyGroup>
     <!-- Generate WinRT projections using the installed Windows SDK metadata. -->
     <CsWinRTWindowsMetadata>sdk</CsWinRTWindowsMetadata>
+    <!-- Keep Windows projections and their WinRT runtime consistent across project references. -->
+    <WindowsSdkPackageVersion>10.0.26100.48</WindowsSdkPackageVersion>
     <WinOptimizerBuildRoot>$(MSBuildThisFileDirectory)build\</WinOptimizerBuildRoot>
     <BaseIntermediateOutputPath>$(WinOptimizerBuildRoot)obj\$(MSBuildProjectName)\</BaseIntermediateOutputPath>
     <BaseOutputPath>$(WinOptimizerBuildRoot)projects\$(MSBuildProjectName)\</BaseOutputPath>

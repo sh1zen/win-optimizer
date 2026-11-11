@@ -22,7 +22,6 @@ public class DialogService : IDialogService
     private readonly ILocalizationService _localization;
     private readonly ILogService _logService;
     private readonly ITaskProgressService _taskProgressService;
-    private readonly ISponsorsService _sponsorsService;
 
     /// <summary>
     /// The XamlRoot required for showing ContentDialogs.
@@ -30,12 +29,11 @@ public class DialogService : IDialogService
     /// </summary>
     public XamlRoot? XamlRoot { get; set; }
 
-    public DialogService(ILocalizationService localization, ILogService logService, ITaskProgressService taskProgressService, ISponsorsService sponsorsService)
+    public DialogService(ILocalizationService localization, ILogService logService, ITaskProgressService taskProgressService)
     {
         _localization = localization;
         _logService = logService;
         _taskProgressService = taskProgressService;
-        _sponsorsService = sponsorsService;
     }
 
     #region Guard Helpers
@@ -123,21 +121,6 @@ public class DialogService : IDialogService
             _ => TestModeExitAction.Discard
         };
     }, TestModeExitAction.KeepEditing);
-
-    public async Task<(bool SupportClicked, bool DontShowAgain)> ShowSponsorsDialogAsync(SponsorsDialogMode mode)
-    {
-        return await ExecuteDialogAsync(async () =>
-        {
-            // GetSponsorsAsync never throws and may return null; the builder
-            // handles a null document gracefully.
-            var data = await _sponsorsService.GetSponsorsAsync();
-
-            var builder = new Dialogs.SponsorsDialogBuilder(_localization, _sponsorsService);
-            var dialog = builder.Build(data, mode, XamlRoot!);
-            await PopupHandler.ShowDialogAsync(dialog, XamlRoot!);
-            return builder.ExtractResult();
-        }, (false, false));
-    }
 
     public async Task<(ImportOption? Option, ImportOptions Options)> ShowConfigImportOptionsDialogAsync()
     {

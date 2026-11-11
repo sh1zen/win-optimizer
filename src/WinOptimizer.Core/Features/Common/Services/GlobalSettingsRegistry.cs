@@ -30,7 +30,7 @@ public class GlobalSettingsRegistry : IGlobalSettingsRegistry
         }
 
         var settingsList = settings?.ToList() ?? new List<ISettingItem>();
-        _moduleSettings.AddOrUpdate(moduleName, settingsList, (key, oldValue) => settingsList);
+        _moduleSettings[moduleName] = settingsList;
 
         _logService.Log(
             LogLevel.Debug,

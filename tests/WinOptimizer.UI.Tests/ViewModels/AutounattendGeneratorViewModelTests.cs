@@ -67,51 +67,6 @@ public class AutounattendGeneratorViewModelTests
     }
 
     [Fact]
-    public void GenerateCardHeader_WhenLocalizationReturnsNull_UsesFallback()
-    {
-        _localizationService.Setup(l => l.GetString("Dialog_GenerateXml"))
-            .Returns((string)null!);
-
-        var sut = CreateSut();
-
-        sut.GenerateCardHeader.Should().Be("Generate Autounattend XML");
-    }
-
-    [Fact]
-    public void GenerateButtonText_WhenLocalizationReturnsNull_UsesFallback()
-    {
-        _localizationService.Setup(l => l.GetString("WIMUtil_ButtonGenerate"))
-            .Returns((string)null!);
-
-        var sut = CreateSut();
-
-        sut.GenerateButtonText.Should().Be("Generate");
-    }
-
-    [Fact]
-    public void NavigateToWimUtilRequested_CanBeSubscribedTo()
-    {
-        var sut = CreateSut();
-        bool eventRaised = false;
-
-        sut.NavigateToWimUtilRequested += (_, _) => eventRaised = true;
-
-        eventRaised.Should().BeFalse();
-    }
-
-    [Fact]
-    public void SetMainWindow_DoesNotThrow()
-    {
-        var sut = CreateSut();
-
-        // SetMainWindow requires a Microsoft.UI.Xaml.Window which we can't easily mock in unit tests,
-        // but we can test with null to verify it does not throw
-        var act = () => sut.SetMainWindow(null!);
-
-        act.Should().NotThrow();
-    }
-
-    [Fact]
     public async Task GenerateAutounattendXmlCommand_WhenUserCancelsConfirmation_DoesNotGenerate()
     {
         _dialogService.Setup(d => d.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>()))

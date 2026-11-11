@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType><TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
-    <WindowsSdkPackageVersion>10.0.26100.48</WindowsSdkPackageVersion><Platforms>x64</Platforms><RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <Platforms>x64</Platforms><RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <WindowsPackageType>None</WindowsPackageType><SelfContained>true</SelfContained><WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained><UseWinUI>true</UseWinUI>
     <DefineConstants>DISABLE_XAML_GENERATED_MAIN</DefineConstants><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable><IsPackable>false</IsPackable>
   </PropertyGroup>

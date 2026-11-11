@@ -1,6 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using WinOptimizer.Core.Features.Common.Enums;
+using WinOptimizer.UI.Features.Common.Helpers;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.UI.ViewModels;
 
@@ -15,7 +15,6 @@ public partial class ApplicationInfoViewModel : ObservableObject, IDisposable
     private readonly ILocalizationService _localizationService;
     private readonly IVersionService _versionService;
     private readonly ILogService _logService;
-    private readonly IDialogService _dialogService;
     private readonly IProcessExecutor _processExecutor;
     public UpdateCheckViewModel Updates { get; }
 
@@ -26,14 +25,12 @@ public partial class ApplicationInfoViewModel : ObservableObject, IDisposable
         ILocalizationService localizationService,
         IVersionService versionService,
         ILogService logService,
-        IDialogService dialogService,
         IProcessExecutor processExecutor,
         UpdateCheckViewModel updates)
     {
         _localizationService = localizationService;
         _versionService = versionService;
         _logService = logService;
-        _dialogService = dialogService;
         _processExecutor = processExecutor;
         Updates = updates;
         VersionInfo = "win-optimizer";
@@ -123,16 +120,17 @@ public partial class ApplicationInfoViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>Opens the PayPal donation page in the user's browser.</summary>
     [RelayCommand]
     private async Task SupportWinOptimizerAsync()
     {
         try
         {
-            await _dialogService.ShowSponsorsDialogAsync(SponsorsDialogMode.Normal);
+            await _processExecutor.ShellExecuteAsync(SupportLinks.PayPalDonation);
         }
         catch (Exception ex)
         {
-            _logService.LogError($"Failed to open sponsors dialog: {ex.Message}", ex);
+            _logService.LogError($"Failed to open donation page: {ex.Message}", ex);
         }
     }
 

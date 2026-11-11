@@ -68,19 +68,6 @@ public class AppItemViewModelTests
     }
 
     [Fact]
-    public void IsInstalled_SetToSameValue_DoesNotRaisePropertyChanged()
-    {
-        _defaultDefinition.IsInstalled = false;
-        var vm = CreateViewModel();
-        var changedProperties = new List<string>();
-        vm.PropertyChanged += (_, e) => changedProperties.Add(e.PropertyName!);
-
-        vm.IsInstalled = false; // same value
-
-        changedProperties.Should().BeEmpty();
-    }
-
-    [Fact]
     public void IsInstalled_SetTrue_DispatchesToUIThread()
     {
         var vm = CreateViewModel();

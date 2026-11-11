@@ -100,7 +100,7 @@ public class ConfigReviewOrchestrationService : IConfigReviewOrchestrationServic
         {
             // Filter incompatible settings
             var incompatibleSettings = _configLoadService.DetectIncompatibleSettings(config);
-            if (incompatibleSettings.Any())
+            if (incompatibleSettings.Count != 0)
             {
                 config = _configLoadService.FilterConfigForCurrentSystem(config);
                 _logService.Log(LogLevel.Info, $"Silently filtered {incompatibleSettings.Count} incompatible settings from config");
@@ -204,7 +204,7 @@ public class ConfigReviewOrchestrationService : IConfigReviewOrchestrationServic
             // Ensure action settings add their parent feature sections even if no regular settings approved
             importOptions = ConfigActionSelection.IncludeSections(selectedSections, importOptions);
 
-            if (!selectedSections.Any())
+            if (selectedSections.Count == 0)
             {
                 _dialogService.ShowMessage(
                     _localizationService.GetString("Config_Import_Error_NoSelection") ?? "No changes to apply.",
@@ -347,7 +347,7 @@ public class ConfigReviewOrchestrationService : IConfigReviewOrchestrationServic
                 .Where(item => approvedSettingIds.Contains(item.Id))
                 .ToList();
 
-            if (approvedItems.Any())
+            if (approvedItems.Count != 0)
             {
                 filteredFeatures[feature.Key] = new ConfigSection
                 {

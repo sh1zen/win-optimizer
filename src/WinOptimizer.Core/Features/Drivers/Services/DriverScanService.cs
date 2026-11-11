@@ -1,3 +1,4 @@
+using System.Globalization;
 using WinOptimizer.Core.Features.Drivers.Interfaces;
 using WinOptimizer.Core.Features.Drivers.Models;
 
@@ -46,13 +47,26 @@ public sealed class DriverScanService(IDriverInventorySource inventorySource, ID
             if (!seen.Add(candidate.Id)) continue;
             if (options.OnlyWhqlUpdates && candidate.Certification != DriverCertification.Whql) { excluded++; continue; }
             IReadOnlyList<DriverDevice> devices = hardware.TryGetValue(candidate.HardwareId, out var matches) ? matches : [];
-            // Windows offers some optional replacements with an equal or older version; these are not upgrades.
-            if (Version.TryParse(candidate.Version, out var available) && devices.Count > 0 &&
-                devices.All(device => Version.TryParse(device.Version, out var installed) && installed >= available))
+            // Only compare the same driver class; extension offers can target another class's device.
+            if (devices.Count > 0 && devices.All(device => IsCurrentOrNewer(device, candidate)))
                 continue;
             updates.Add(new(candidate, devices));
         }
         ct.ThrowIfCancellationRequested();
         return new(inventory, unreferenced, disconnected, updates, true, excluded, notices, options);
+    }
+
+    /// <summary>Retains newer dates or versions and offers with incomplete or unrelated comparison evidence.</summary>
+    private static bool IsCurrentOrNewer(DriverDevice device, DriverUpdate candidate)
+    {
+        if (string.IsNullOrWhiteSpace(candidate.ClassName) ||
+            !candidate.ClassName.Equals(device.ClassName, StringComparison.OrdinalIgnoreCase)) return false;
+        if (DateOnly.TryParseExact(candidate.Date, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var availableDate) &&
+            DateOnly.TryParseExact(device.Date, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var installedDate) &&
+            availableDate > installedDate) return false;
+        if (!Version.TryParse(candidate.Version, out var available) || !Version.TryParse(device.Version, out var installed)) return false;
+        // Windows driver versions have four components; missing trailing components represent zero.
+        return new Version(installed.Major, installed.Minor, Math.Max(0, installed.Build), Math.Max(0, installed.Revision)) >=
+            new Version(available.Major, available.Minor, Math.Max(0, available.Build), Math.Max(0, available.Revision));
     }
 }

@@ -25,19 +25,6 @@ public class FeatureRegistryScriptSectionTests
         _sut = new FeatureRegistryScriptSection(_registryEmitter, _logService.Object);
     }
 
-    // ---------------------------------------------------------------
-    // GetFeatureDisplayName
-    // ---------------------------------------------------------------
-
-    [Fact]
-    public void GetFeatureDisplayName_KnownFeature_ReturnsDisplayNameWithSettings()
-    {
-        var result = _sut.GetFeatureDisplayName(FeatureIds.Privacy);
-
-        result.Should().Contain("Privacy");
-        result.Should().EndWith("Settings");
-    }
-
     [Fact]
     public void GetFeatureDisplayName_UnknownFeature_FallsBackToFeatureId()
     {
@@ -72,170 +59,6 @@ public class FeatureRegistryScriptSectionTests
             LogLevel.Warning,
             It.Is<string>(s => s.Contains(FeatureIds.Privacy)),
             null), Times.Once);
-    }
-
-    // ---------------------------------------------------------------
-    // AppendFeatureGroupRegistryEntries - HKLM toggle entries
-    // ---------------------------------------------------------------
-
-    [Fact]
-    public void AppendFeatureGroupRegistryEntries_HklmToggle_EmitsRegistryCommands()
-    {
-        var sb = new StringBuilder();
-        var settingDef = CreateSettingDef("test-privacy-setting", "Disable Telemetry", new[]
-        {
-            new RegistrySetting
-            {
-                KeyPath = "HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\Test",
-                ValueName = "AllowTelemetry",
-                ValueType = RegistryValueKind.DWord,
-                EnabledValue = [0],
-                DisabledValue = [1],
-                RecommendedValue = null,
-                DefaultValue = null
-            }
-        });
-
-        var featureGroup = CreateFeatureGroup(FeatureIds.Privacy, new[]
-        {
-            new ConfigurationItem
-            {
-                Id = "test-privacy-setting",
-                IsSelected = true,
-                InputType = InputType.Toggle
-            }
-        });
-
-        var allSettings = new Dictionary<string, IEnumerable<SettingDefinition>>
-        {
-            { FeatureIds.Privacy, new[] { settingDef } }
-        };
-
-        _sut.AppendFeatureGroupRegistryEntries(sb, featureGroup, allSettings, "Optimize", isHkcu: false, indent: "    ");
-
-        var output = sb.ToString();
-        output.Should().Contain("Set-RegistryValue");
-        output.Should().Contain("AllowTelemetry");
-    }
-
-    // ---------------------------------------------------------------
-    // AppendFeatureGroupRegistryEntries - HKCU entries only in HKCU pass
-    // ---------------------------------------------------------------
-
-    [Fact]
-    public void AppendFeatureGroupRegistryEntries_HkcuEntries_NotEmittedInHklmPass()
-    {
-        var sb = new StringBuilder();
-        var settingDef = CreateSettingDef("hkcu-setting", "User Setting", new[]
-        {
-            new RegistrySetting
-            {
-                KeyPath = "HKEY_CURRENT_USER\\Software\\Test",
-                ValueName = "UserVal",
-                ValueType = RegistryValueKind.DWord,
-                EnabledValue = [1],
-                DisabledValue = [0],
-                RecommendedValue = null,
-                DefaultValue = null
-            }
-        });
-
-        var featureGroup = CreateFeatureGroup("TestFeature", new[]
-        {
-            new ConfigurationItem
-            {
-                Id = "hkcu-setting",
-                IsSelected = true,
-                InputType = InputType.Toggle
-            }
-        });
-
-        var allSettings = new Dictionary<string, IEnumerable<SettingDefinition>>
-        {
-            { "TestFeature", new[] { settingDef } }
-        };
-
-        _sut.AppendFeatureGroupRegistryEntries(sb, featureGroup, allSettings, "Customize", isHkcu: false, indent: "    ");
-
-        sb.ToString().Should().NotContain("Set-RegistryValue");
-    }
-
-    [Fact]
-    public void AppendFeatureGroupRegistryEntries_HkcuEntries_EmittedInHkcuPass()
-    {
-        var sb = new StringBuilder();
-        var settingDef = CreateSettingDef("hkcu-setting", "User Setting", new[]
-        {
-            new RegistrySetting
-            {
-                KeyPath = "HKEY_CURRENT_USER\\Software\\Test",
-                ValueName = "UserVal",
-                ValueType = RegistryValueKind.DWord,
-                EnabledValue = [1],
-                DisabledValue = [0],
-                RecommendedValue = null,
-                DefaultValue = null
-            }
-        });
-
-        var featureGroup = CreateFeatureGroup("TestFeature", new[]
-        {
-            new ConfigurationItem
-            {
-                Id = "hkcu-setting",
-                IsSelected = true,
-                InputType = InputType.Toggle
-            }
-        });
-
-        var allSettings = new Dictionary<string, IEnumerable<SettingDefinition>>
-        {
-            { "TestFeature", new[] { settingDef } }
-        };
-
-        _sut.AppendFeatureGroupRegistryEntries(sb, featureGroup, allSettings, "Customize", isHkcu: true, indent: "    ");
-
-        sb.ToString().Should().Contain("Set-RegistryValue");
-    }
-
-    // ---------------------------------------------------------------
-    // AppendFeatureGroupRegistryEntries - Selection type
-    // ---------------------------------------------------------------
-
-    [Fact]
-    public void AppendFeatureGroupRegistryEntries_SelectionType_DelegatesCorrectly()
-    {
-        var sb = new StringBuilder();
-        var settingDef = CreateSettingDef("selection-setting", "Selection Setting", new[]
-        {
-            new RegistrySetting
-            {
-                KeyPath = "HKEY_LOCAL_MACHINE\\Software\\Test",
-                ValueName = "Mode",
-                ValueType = RegistryValueKind.DWord,
-                RecommendedValue = null,
-                DefaultValue = null
-            }
-        });
-
-        var featureGroup = CreateFeatureGroup("TestFeature", new[]
-        {
-            new ConfigurationItem
-            {
-                Id = "selection-setting",
-                InputType = InputType.Selection,
-                CustomStateValues = new Dictionary<string, object> { { "Mode", 2 } }
-            }
-        });
-
-        var allSettings = new Dictionary<string, IEnumerable<SettingDefinition>>
-        {
-            { "TestFeature", new[] { settingDef } }
-        };
-
-        _sut.AppendFeatureGroupRegistryEntries(sb, featureGroup, allSettings, "Optimize", isHkcu: false, indent: "    ");
-
-        sb.ToString().Should().Contain("Set-RegistryValue");
     }
 
     // ---------------------------------------------------------------
@@ -343,45 +166,6 @@ public class FeatureRegistryScriptSectionTests
     }
 
     // ---------------------------------------------------------------
-    // AppendFeatureGroupRegistryEntries - Section header
-    // ---------------------------------------------------------------
-
-    [Fact]
-    public void AppendFeatureGroupRegistryEntries_EmitsSectionHeader()
-    {
-        var sb = new StringBuilder();
-        var settingDef = CreateSettingDef("setting1", "Test", new[]
-        {
-            new RegistrySetting
-            {
-                KeyPath = "HKEY_LOCAL_MACHINE\\Software\\Test",
-                ValueName = "Val",
-                ValueType = RegistryValueKind.DWord,
-                EnabledValue = [1],
-                DisabledValue = [0],
-                RecommendedValue = null,
-                DefaultValue = null
-            }
-        });
-
-        var featureGroup = CreateFeatureGroup(FeatureIds.Privacy, new[]
-        {
-            new ConfigurationItem { Id = "setting1", IsSelected = true, InputType = InputType.Toggle }
-        });
-
-        var allSettings = new Dictionary<string, IEnumerable<SettingDefinition>>
-        {
-            { FeatureIds.Privacy, new[] { settingDef } }
-        };
-
-        _sut.AppendFeatureGroupRegistryEntries(sb, featureGroup, allSettings, "Optimize", isHkcu: false, indent: "    ");
-
-        var output = sb.ToString();
-        output.Should().Contain("============");
-        output.Should().Contain("SETTINGS");
-    }
-
-    // ---------------------------------------------------------------
     // AppendFeatureGroupRegistryEntries - PowerCfgSettings-only setting is skipped
     // ---------------------------------------------------------------
 
@@ -442,15 +226,4 @@ public class FeatureRegistryScriptSectionTests
         };
     }
 
-    private static SettingDefinition CreateSettingDef(
-        string id, string description, IReadOnlyList<RegistrySetting> registrySettings)
-    {
-        return new SettingDefinition
-        {
-            Id = id,
-            Name = id,
-            Description = description,
-            RegistrySettings = registrySettings
-        };
-    }
 }

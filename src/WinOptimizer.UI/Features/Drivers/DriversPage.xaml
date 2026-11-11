@@ -85,13 +85,16 @@
             <Border x:Name="ResultsPanel" CornerRadius="12" BorderThickness="1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" AutomationProperties.Name="{x:Bind ViewModel.Summary, Mode=OneWay}" Visibility="{x:Bind ViewModel.HasReport, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
                 <Grid>
                     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-                    <Grid Margin="12">
-                        <ListView Padding="{StaticResource BidirectionalScrollContentPadding}" x:Name="CategoryTabs" ItemsSource="{x:Bind ViewModel.ResultGroups}" SelectedItem="{x:Bind ViewModel.SelectedGroup, Mode=TwoWay}" ItemTemplate="{StaticResource DriverCategoryTemplate}" SelectionMode="Single" Visibility="Collapsed" Background="Transparent" IsEnabled="{x:Bind ViewModel.IsIdle, Mode=OneWay}" AutomationProperties.Name="{x:Bind ViewModel.ResultsLabel, Mode=OneWay}" ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Disabled">
-                            <ListView.ItemsPanel><ItemsPanelTemplate><ItemsStackPanel Orientation="Horizontal"/></ItemsPanelTemplate></ListView.ItemsPanel>
-                            <ListView.ItemContainerStyle><Style TargetType="ListViewItem"><Setter Property="Padding" Value="14,10"/><Setter Property="Margin" Value="0,0,6,0"/><Setter Property="CornerRadius" Value="8"/></Style></ListView.ItemContainerStyle>
-                        </ListView>
-                        <ComboBox x:Name="CategoryPicker" ItemsSource="{x:Bind ViewModel.ResultGroups}" SelectedItem="{x:Bind ViewModel.SelectedGroup, Mode=TwoWay}" ItemTemplate="{StaticResource DriverCategoryTemplate}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" IsEnabled="{x:Bind ViewModel.IsIdle, Mode=OneWay}" AutomationProperties.Name="{x:Bind ViewModel.ResultsLabel, Mode=OneWay}"/>
-                    </Grid>
+                    <StackPanel Margin="12" Spacing="8">
+                        <Grid>
+                            <ListView Padding="{StaticResource BidirectionalScrollContentPadding}" x:Name="CategoryTabs" ItemsSource="{x:Bind ViewModel.ResultGroups}" SelectedItem="{x:Bind ViewModel.SelectedGroup, Mode=TwoWay}" ItemTemplate="{StaticResource DriverCategoryTemplate}" SelectionMode="Single" Visibility="Collapsed" Background="Transparent" IsEnabled="{x:Bind ViewModel.IsIdle, Mode=OneWay}" AutomationProperties.Name="{x:Bind ViewModel.ResultsLabel, Mode=OneWay}" ScrollViewer.HorizontalScrollBarVisibility="Auto" ScrollViewer.VerticalScrollBarVisibility="Disabled">
+                                <ListView.ItemsPanel><ItemsPanelTemplate><ItemsStackPanel Orientation="Horizontal"/></ItemsPanelTemplate></ListView.ItemsPanel>
+                                <ListView.ItemContainerStyle><Style TargetType="ListViewItem"><Setter Property="Padding" Value="14,10"/><Setter Property="Margin" Value="0,0,6,0"/><Setter Property="CornerRadius" Value="8"/></Style></ListView.ItemContainerStyle>
+                            </ListView>
+                            <ComboBox x:Name="CategoryPicker" ItemsSource="{x:Bind ViewModel.ResultGroups}" SelectedItem="{x:Bind ViewModel.SelectedGroup, Mode=TwoWay}" ItemTemplate="{StaticResource DriverCategoryTemplate}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" IsEnabled="{x:Bind ViewModel.IsIdle, Mode=OneWay}" AutomationProperties.Name="{x:Bind ViewModel.ResultsLabel, Mode=OneWay}"/>
+                        </Grid>
+                        <TextBlock Text="{x:Bind ViewModel.FilterSummary, Mode=OneWay}" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    </StackPanel>
                     <Border Grid.Row="1" BorderThickness="0,1,0,1" BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}" Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}" Padding="16,10">
                         <Grid ColumnSpacing="12">
                             <Grid.ColumnDefinitions><ColumnDefinition Width="32"/><ColumnDefinition Width="*"/><ColumnDefinition Width="110"/><ColumnDefinition Width="86"/><ColumnDefinition Width="16"/></Grid.ColumnDefinitions>

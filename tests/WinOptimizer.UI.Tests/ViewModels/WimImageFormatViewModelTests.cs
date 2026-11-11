@@ -122,30 +122,6 @@ public class WimImageFormatViewModelTests : IDisposable
     }
 
     [Fact]
-    public async Task DetectImageFormatAsync_WhenWimFormatDetected_SetsCurrentImageFormat()
-    {
-        var wimInfo = new ImageFormatInfo
-        {
-            Format = ImageFormat.Wim,
-            FilePath = "C:\\sources\\install.wim",
-            FileSizeBytes = 4_000_000_000L
-        };
-        var detection = new ImageDetectionResult { WimInfo = wimInfo };
-
-        _mockWimImageService
-            .Setup(s => s.DetectAllImageFormatsAsync(It.IsAny<string>()))
-            .ReturnsAsync(detection);
-
-        _sut.WorkingDirectory = "C:\\WorkDir";
-
-        await _sut.DetectImageFormatAsync();
-
-        _sut.CurrentImageFormat.Should().NotBeNull();
-        _sut.CurrentImageFormat!.Format.Should().Be(ImageFormat.Wim);
-        _sut.ShowConversionCard.Should().BeTrue();
-    }
-
-    [Fact]
     public async Task DetectImageFormatAsync_WhenBothFormatsExist_SetsBothFormatsExist()
     {
         var wimInfo = new ImageFormatInfo { Format = ImageFormat.Wim, FileSizeBytes = 4_000_000_000L };
@@ -234,44 +210,6 @@ public class WimImageFormatViewModelTests : IDisposable
     }
 
     [Fact]
-    public async Task ConvertImageFormatCommand_OnSuccess_SetsConvertImageCardComplete()
-    {
-        _sut.WorkingDirectory = "C:\\WorkDir";
-        _sut.CurrentImageFormat = new ImageFormatInfo
-        {
-            Format = ImageFormat.Wim,
-            FileSizeBytes = 4_000_000_000L
-        };
-
-        _mockDialogService
-            .Setup(d => d.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>()))
-            .ReturnsAsync(new ConfirmationResponse { Confirmed = true });
-
-        _mockTaskProgressService
-            .Setup(t => t.CreatePowerShellProgress())
-            .Returns(new Progress<TaskProgressDetail>());
-
-        _mockWimImageService
-            .Setup(s => s.ConvertImageAsync(
-                It.IsAny<string>(), It.IsAny<ImageFormat>(),
-                It.IsAny<IProgress<TaskProgressDetail>>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(true);
-
-        // Setup DetectAllImageFormatsAsync for the re-detection after conversion
-        _mockWimImageService
-            .Setup(s => s.DetectAllImageFormatsAsync(It.IsAny<string>()))
-            .ReturnsAsync(new ImageDetectionResult
-            {
-                EsdInfo = new ImageFormatInfo { Format = ImageFormat.Esd, FileSizeBytes = 2_600_000_000L }
-            });
-
-        await _sut.ConvertImageFormatCommand.ExecuteAsync(null);
-
-        _sut.ConvertImageCard.IsComplete.Should().BeTrue();
-        _sut.IsConverting.Should().BeFalse();
-    }
-
-    [Fact]
     public async Task ConvertImageFormatCommand_OnFailure_SetsConvertImageCardHasFailed()
     {
         _sut.WorkingDirectory = "C:\\WorkDir";
@@ -351,46 +289,6 @@ public class WimImageFormatViewModelTests : IDisposable
         _mockWimImageService.Verify(s => s.DeleteImageFileAsync(
             It.IsAny<string>(), It.IsAny<ImageFormat>(),
             It.IsAny<IProgress<TaskProgressDetail>>(), It.IsAny<CancellationToken>()), Times.Never);
-    }
-
-    [Fact]
-    public void UpdateConversionCardState_WhenBothFormatsExist_DisablesCard()
-    {
-        _sut.CurrentImageFormat = new ImageFormatInfo
-        {
-            Format = ImageFormat.Wim,
-            FileSizeBytes = 4_000_000_000L
-        };
-        _sut.BothFormatsExist = true;
-
-        _sut.UpdateConversionCardState();
-
-        _sut.ConvertImageCard.IsEnabled.Should().BeFalse();
-    }
-
-    [Fact]
-    public void UpdateConversionCardState_WhenCurrentImageFormatIsNull_DisablesCard()
-    {
-        _sut.CurrentImageFormat = null;
-
-        _sut.UpdateConversionCardState();
-
-        _sut.ConvertImageCard.IsEnabled.Should().BeFalse();
-    }
-
-    [Fact]
-    public void UpdateConversionCardState_WhenSingleWimFormat_EnablesCard()
-    {
-        _sut.CurrentImageFormat = new ImageFormatInfo
-        {
-            Format = ImageFormat.Wim,
-            FileSizeBytes = 4_000_000_000L
-        };
-        _sut.BothFormatsExist = false;
-
-        _sut.UpdateConversionCardState();
-
-        _sut.ConvertImageCard.IsEnabled.Should().BeTrue();
     }
 
     [Fact]

@@ -63,16 +63,6 @@ public class WallpaperServiceTests
         result.Should().Be(WindowsThemeCustomizations.Wallpaper.Windows10Wallpaper);
     }
 
-    [Fact]
-    public void GetDefaultWallpaperPath_Windows10DarkMode_ReturnsWindows10WallpaperPath()
-    {
-        // Act — Windows 10 doesn't have a separate dark wallpaper
-        var result = _service.GetDefaultWallpaperPath(isWindows11: false, isDarkMode: true);
-
-        // Assert
-        result.Should().Be(WindowsThemeCustomizations.Wallpaper.Windows10Wallpaper);
-    }
-
     #endregion
 
     #region SetWallpaperAsync

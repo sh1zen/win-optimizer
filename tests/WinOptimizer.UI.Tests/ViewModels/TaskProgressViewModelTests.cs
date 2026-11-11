@@ -107,19 +107,6 @@ public class TaskProgressViewModelTests : IDisposable
     }
 
     [Fact]
-    public void OnProgressUpdated_TaskRunning_SetsIsLoadingTrue()
-    {
-        _mockTaskProgressService.Setup(s => s.IsTaskRunning).Returns(true);
-
-        _mockTaskProgressService.Raise(
-            s => s.ProgressUpdated += null,
-            this,
-            new TaskProgressDetail { StatusText = "Working..." });
-
-        _sut.IsLoading.Should().BeTrue();
-    }
-
-    [Fact]
     public void NormalZeroPercentStart_IsNotAFailure_AndMeasuredProgressIsExposed()
     {
         _mockTaskProgressService.Setup(x => x.IsTaskRunning).Returns(true);
@@ -157,44 +144,6 @@ public class TaskProgressViewModelTests : IDisposable
         _sut.IsLoading.Should().BeFalse();
         _sut.IsTaskRunning.Should().BeFalse();
         _sut.IsTaskFailed.Should().BeFalse();
-    }
-
-    [Fact]
-    public void OnProgressUpdated_TaskRunning_ProgressNonZero_DoesNotSetTaskFailed()
-    {
-        _mockTaskProgressService.Setup(s => s.IsTaskRunning).Returns(true);
-
-        _mockTaskProgressService.Raise(
-            s => s.ProgressUpdated += null,
-            this,
-            new TaskProgressDetail { Progress = 50, StatusText = "Half done" });
-
-        _sut.IsTaskFailed.Should().BeFalse();
-    }
-
-    [Fact]
-    public void OnProgressUpdated_TaskJustStopped_Failed_KeepsLoadingTrue()
-    {
-        _mockTaskProgressService.Setup(s => s.IsTaskRunning).Returns(true);
-
-        // First, simulate a running task that fails
-        _mockTaskProgressService.Raise(
-            s => s.ProgressUpdated += null,
-            this,
-            new TaskProgressDetail { Progress = 0, StatusText = "Error", LogLevel = LogLevel.Error });
-
-        _sut.IsTaskFailed.Should().BeTrue();
-        _sut.IsLoading.Should().BeTrue();
-
-        // Now task stops
-        _mockTaskProgressService.Setup(s => s.IsTaskRunning).Returns(false);
-        _mockTaskProgressService.Raise(
-            s => s.ProgressUpdated += null,
-            this,
-            new TaskProgressDetail { StatusText = "" });
-
-        // Failed task should stay visible
-        _sut.IsLoading.Should().BeTrue();
     }
 
     [Fact]

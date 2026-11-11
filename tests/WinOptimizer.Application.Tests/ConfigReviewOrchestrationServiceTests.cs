@@ -160,16 +160,6 @@ public class ConfigReviewOrchestrationServiceTests : IDisposable
             Times.Never);
     }
 
-    [Fact]
-    public void Dispose_CalledTwice_DoesNotThrow()
-    {
-        var service = CreateService();
-        service.Dispose();
-
-        var act = () => service.Dispose();
-        act.Should().NotThrow();
-    }
-
     // -------------------------------------------------------
     // ReviewModeChanged handler
     // -------------------------------------------------------

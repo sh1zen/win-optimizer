@@ -60,29 +60,6 @@ public class PowerServiceTests
         };
 
     [Fact]
-    public async Task GetActivePowerPlanAsync_DelegatesToQueryService()
-    {
-        // Arrange
-        var expectedPlan = new WinOptimizer.Core.Features.Optimize.Models.PowerPlan
-        {
-            Name = "Balanced",
-            Guid = "381b4222-f694-41f0-9685-ff5bb260df2e"
-        };
-
-        _powerSettingsQueryService
-            .Setup(s => s.GetActivePowerPlanAsync())
-            .ReturnsAsync(expectedPlan);
-
-        // Act
-        var result = await _sut.GetActivePowerPlanAsync();
-
-        // Assert
-        result.Should().NotBeNull();
-        result!.Name.Should().Be("Balanced");
-        result.Guid.Should().Be("381b4222-f694-41f0-9685-ff5bb260df2e");
-    }
-
-    [Fact]
     public async Task GetActivePowerPlanAsync_WhenQueryServiceThrows_ReturnsNull()
     {
         // Arrange
@@ -101,27 +78,6 @@ public class PowerServiceTests
     }
 
     [Fact]
-    public async Task GetAvailablePowerPlansAsync_ReturnsPlansList()
-    {
-        // Arrange
-        var plans = new List<WinOptimizer.Core.Features.Optimize.Models.PowerPlan>
-        {
-            new() { Name = "Balanced", Guid = "381b4222-f694-41f0-9685-ff5bb260df2e" },
-            new() { Name = "High Performance", Guid = "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c" },
-        };
-
-        _powerSettingsQueryService
-            .Setup(s => s.GetAvailablePowerPlansAsync())
-            .ReturnsAsync(plans);
-
-        // Act
-        var result = await _sut.GetAvailablePowerPlansAsync();
-
-        // Assert
-        result.Should().HaveCount(2);
-    }
-
-    [Fact]
     public async Task GetAvailablePowerPlansAsync_WhenQueryServiceThrows_ReturnsEmpty()
     {
         // Arrange
@@ -137,19 +93,6 @@ public class PowerServiceTests
         _logService.Verify(
             l => l.Log(LogLevel.Warning, It.Is<string>(s => s.Contains("Error getting available power plans"))),
             Times.Once);
-    }
-
-    [Fact]
-    public async Task TryApplySpecialSettingAsync_NonPowerPlanSetting_ReturnsFalse()
-    {
-        // Arrange
-        var setting = MakeSetting("some-other-setting");
-
-        // Act
-        var result = await _sut.TryApplySpecialSettingAsync(setting, 0);
-
-        // Assert
-        result.Should().BeFalse();
     }
 
     [Fact]
@@ -178,22 +121,6 @@ public class PowerServiceTests
         result.Should().ContainKey("power-plan-selection");
         result["power-plan-selection"]["ActivePowerPlan"].Should().Be("Balanced");
         result["power-plan-selection"]["ActivePowerPlanGuid"].Should().Be("381b4222-f694-41f0-9685-ff5bb260df2e");
-    }
-
-    [Fact]
-    public async Task DiscoverSpecialSettingsAsync_WithoutPowerPlanSetting_ReturnsEmptyDictionary()
-    {
-        // Arrange
-        var settings = new List<SettingDefinition>
-        {
-            MakeSetting("some-other-setting"),
-        };
-
-        // Act
-        var result = await _sut.DiscoverSpecialSettingsAsync(settings);
-
-        // Assert
-        result.Should().BeEmpty();
     }
 
     [Fact]

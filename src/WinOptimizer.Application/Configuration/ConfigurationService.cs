@@ -77,9 +77,8 @@ public class ConfigurationService : IConfigurationService
 
         if (config == null)
         {
-            if (selectedOption != ImportOption.ImportOwn)
-                return;
-            _logService.Log(LogLevel.Info, "Import canceled");
+            if (selectedOption == ImportOption.ImportOwn)
+                _logService.Log(LogLevel.Info, "Import canceled");
             return;
         }
 

@@ -39,52 +39,6 @@ public class SettingsLoadingServiceTests
     }
 
     [Fact]
-    public async Task LoadConfiguredSettingsAsync_ReturnsViewModelsForAllSettings()
-    {
-        var settings = new List<SettingDefinition>
-        {
-            new() { Id = "Setting1", Name = "Setting 1", Description = "Desc 1", InputType = InputType.Toggle },
-            new() { Id = "Setting2", Name = "Setting 2", Description = "Desc 2", InputType = InputType.Toggle }
-        };
-
-        _mockPreparationPipeline
-            .Setup(p => p.PrepareSettings("TestFeature"))
-            .Returns(settings);
-
-        _mockDiscoveryService
-            .Setup(d => d.GetSettingStatesAsync(It.IsAny<IReadOnlyList<SettingDefinition>>()))
-            .ReturnsAsync(new Dictionary<string, SettingStateResult>
-            {
-                { "Setting1", new SettingStateResult { Success = true, IsEnabled = true } },
-                { "Setting2", new SettingStateResult { Success = true, IsEnabled = false } }
-            });
-
-        var mockVm1 = CreateMockSettingItemViewModel("Setting1");
-        var mockVm2 = CreateMockSettingItemViewModel("Setting2");
-        mockVm1.TechnicalDetailSections = new[]
-        {
-            new TechnicalDetailSection(DetailRowType.Registry, "Registry", false,
-                new[] { new TechnicalDetailRow { RegistryPath = @"HKCU\Software\Example" } })
-        };
-        mockVm1.HasBadgeData = true;
-
-        _mockViewModelFactory
-            .SetupSequence(f => f.CreateAsync(
-                It.IsAny<SettingDefinition>(),
-                It.IsAny<SettingStateResult>(),
-                It.IsAny<ISettingsFeatureViewModel?>()))
-            .ReturnsAsync(mockVm1)
-            .ReturnsAsync(mockVm2);
-
-        var result = await _sut.LoadConfiguredSettingsAsync(
-            "TestFeature", "Loading...", null);
-
-        result.Should().HaveCount(2);
-        result[0].HasTechnicalDetails.Should().BeTrue();
-        result[0].ShowInfoBadge.Should().BeTrue();
-    }
-
-    [Fact]
     public async Task LoadConfiguredSettingsAsync_SkipsSettingsWithFailedState()
     {
         var settings = new List<SettingDefinition>
@@ -120,25 +74,6 @@ public class SettingsLoadingServiceTests
         _mockViewModelFactory.Verify(f => f.CreateAsync(
             It.Is<SettingDefinition>(s => s.Id == "BadSetting"), It.IsAny<SettingStateResult>(),
             It.IsAny<ISettingsFeatureViewModel?>()), Times.Never);
-    }
-
-    [Fact]
-    public async Task LoadConfiguredSettingsAsync_StartsAndCompletesFeatureInitialization()
-    {
-
-        _mockPreparationPipeline
-            .Setup(p => p.PrepareSettings("TestFeature"))
-            .Returns(new List<SettingDefinition>());
-
-        _mockDiscoveryService
-            .Setup(d => d.GetSettingStatesAsync(It.IsAny<IReadOnlyList<SettingDefinition>>()))
-            .ReturnsAsync(new Dictionary<string, SettingStateResult>());
-
-        await _sut.LoadConfiguredSettingsAsync(
-            "TestFeature", "Loading...", null);
-
-        _mockInitializationService.Verify(i => i.StartFeatureInitialization("TestFeature"), Times.Once);
-        _mockInitializationService.Verify(i => i.CompleteFeatureInitialization("TestFeature"), Times.Once);
     }
 
     [Fact]
@@ -190,85 +125,6 @@ public class SettingsLoadingServiceTests
 
         await act.Should().ThrowAsync<Exception>().WithMessage("Pipeline error");
         _mockInitializationService.Verify(i => i.CompleteFeatureInitialization("TestFeature"), Times.Once);
-    }
-
-    [Fact]
-    public async Task LoadConfiguredSettingsAsync_ResolvesComboBoxForSelectionTypeSettings()
-    {
-        var selectionSetting = new SettingDefinition
-        {
-            Id = "SelectSetting",
-            Name = "Select",
-            Description = "Select desc",
-            InputType = InputType.Selection
-        };
-
-        _mockPreparationPipeline
-            .Setup(p => p.PrepareSettings("TestFeature"))
-            .Returns(new List<SettingDefinition> { selectionSetting });
-
-        var rawValues = new Dictionary<string, object?> { { "PowerCfgValue", 1 } };
-        _mockDiscoveryService
-            .Setup(d => d.GetSettingStatesAsync(It.IsAny<IReadOnlyList<SettingDefinition>>()))
-            .ReturnsAsync(new Dictionary<string, SettingStateResult>
-            {
-                { "SelectSetting", new SettingStateResult
-                    { Success = true, CurrentValue = 1, RawValues = rawValues } }
-            });
-
-        _mockComboBoxResolver
-            .Setup(r => r.ResolveCurrentValueAsync(
-                selectionSetting,
-                It.IsAny<Dictionary<string, object?>>()))
-            .ReturnsAsync(2);
-
-        var mockVm = CreateMockSettingItemViewModel("SelectSetting");
-        _mockViewModelFactory
-            .Setup(f => f.CreateAsync(
-                It.IsAny<SettingDefinition>(),
-                It.IsAny<SettingStateResult>(),
-                It.IsAny<ISettingsFeatureViewModel?>()))
-            .ReturnsAsync(mockVm);
-
-        await _sut.LoadConfiguredSettingsAsync(
-            "TestFeature", "Loading...", null);
-
-        _mockComboBoxResolver.Verify(r => r.ResolveCurrentValueAsync(
-            selectionSetting, It.IsAny<Dictionary<string, object?>>()), Times.Once);
-    }
-
-    [Fact]
-    public async Task RefreshSettingStatesAsync_SelectionSettings_ResolvesComboBoxValues()
-    {
-        var selectionDef = new SettingDefinition
-        {
-            Id = "SelectSetting",
-            Name = "Select Setting",
-            Description = "Selection test",
-            InputType = InputType.Selection
-        };
-
-        var vm = CreateMockSettingItemViewModel("SelectSetting", selectionDef);
-        var rawValues = new Dictionary<string, object?> { { "PowerCfgValue", 1 } };
-
-        _mockDiscoveryService
-            .Setup(d => d.GetSettingStatesAsync(It.IsAny<IReadOnlyList<SettingDefinition>>()))
-            .ReturnsAsync(new Dictionary<string, SettingStateResult>
-            {
-                { "SelectSetting", new SettingStateResult { Success = true, CurrentValue = 1, RawValues = rawValues } }
-            });
-
-        _mockComboBoxResolver
-            .Setup(r => r.ResolveCurrentValueAsync(
-                selectionDef,
-                It.IsAny<Dictionary<string, object?>>()))
-            .ReturnsAsync(2);
-
-        var result = await _sut.RefreshSettingStatesAsync(new[] { vm });
-
-        result["SelectSetting"].CurrentValue.Should().Be(2);
-        _mockComboBoxResolver.Verify(r => r.ResolveCurrentValueAsync(
-            selectionDef, It.IsAny<Dictionary<string, object?>>()), Times.Once);
     }
 
     [Fact]

@@ -13,8 +13,8 @@ public sealed partial class StartupLoadingView : UserControl
     public StartupLoadingView()
     {
         InitializeComponent();
-        // Reserve two scaled text lines so ordinary status changes do not recenter the splash.
-        LoadingStatusText.MinHeight = 40 * TextScaleHelper.Factor;
+        // Reserve two scaled text lines; longer reports remain readable by scrolling.
+        LoadingStatusViewport.Height = 40 * TextScaleHelper.Factor;
         LoadingLogo.Source = new BitmapImage
         {
             DecodePixelWidth = 256,

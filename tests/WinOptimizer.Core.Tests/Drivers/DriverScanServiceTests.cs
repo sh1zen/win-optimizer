@@ -79,6 +79,27 @@ public sealed class DriverScanServiceTests
         Assert.Equal(count, (await Scan()).Updates.Count);
     }
     [Fact]
+    public async Task ExtensionOffer_IsNotComparedWithTheTargetDevicesNetworkDriverVersion()
+    {
+        var device = Device("oem1.inf", version: "30.0");
+        Inventory([device], []);
+        Updates(Update(version: "1.0") with { ClassName = "Extension" });
+        Assert.Same(device, Assert.Single(Assert.Single((await Scan()).Updates).Devices));
+    }
+    [Theory]
+    [InlineData("2026-01-02", "0.9", 1)]
+    [InlineData("2025-12-31", "2.0", 1)]
+    [InlineData("2025-12-31", "0.9", 0)]
+    [InlineData("2026-01-01", "1.0.0.0", 0)]
+    [InlineData("2026-01-01", "1.0.0.1", 1)]
+    [InlineData("unknown", "2.0", 1)]
+    public async Task DriverComparison_RetainsNewerDatesOrVersions_AndNormalizesTrailingZeros(string date, string version, int count)
+    {
+        Inventory([Device("oem1.inf") with { Date = "2026-01-01" }], []);
+        Updates(Update(version: version) with { Date = date });
+        Assert.Equal(count, (await Scan()).Updates.Count);
+    }
+    [Fact]
     public async Task OfflineUpdateFailure_PreservesLocalInventory_AndDoesNotClaimSuccessfulEmptySearch()
     {
         Inventory([Device("absent.inf", false)], [Package("unused.inf")]);

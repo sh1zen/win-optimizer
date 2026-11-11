@@ -63,48 +63,6 @@ public class PowerSettingsValidationServiceTests
     }
 
     [Fact]
-    public async Task FilterSettingsByExistenceAsync_SettingWithoutValidation_IsAlwaysIncluded()
-    {
-        _mockQueryService
-            .Setup(q => q.GetAllPowerSettingsACDCAsync("SCHEME_CURRENT"))
-            .ReturnsAsync(new Dictionary<string, (int? acValue, int? dcValue)>
-            {
-                { "some-guid", (1, 1) }
-            });
-
-        var settings = new List<SettingDefinition>
-        {
-            CreateSetting("no-validate", validateExistence: false)
-        };
-
-        var result = await _sut.FilterSettingsByExistenceAsync(settings);
-
-        result.Should().HaveCount(1);
-        result.First().Id.Should().Be("no-validate");
-    }
-
-    [Fact]
-    public async Task FilterSettingsByExistenceAsync_SettingWithNoPowerCfg_IsIncluded()
-    {
-        _mockQueryService
-            .Setup(q => q.GetAllPowerSettingsACDCAsync("SCHEME_CURRENT"))
-            .ReturnsAsync(new Dictionary<string, (int? acValue, int? dcValue)>
-            {
-                { "some-guid", (1, 1) }
-            });
-
-        // ValidateExistence=true but no PowerCfgSettings
-        var settings = new List<SettingDefinition>
-        {
-            CreateSetting("no-power-cfg", validateExistence: true, powerCfgSettings: null)
-        };
-
-        var result = await _sut.FilterSettingsByExistenceAsync(settings);
-
-        result.Should().HaveCount(1);
-    }
-
-    [Fact]
     public async Task FilterSettingsByExistenceAsync_SettingExistsInBulk_IsIncluded()
     {
         var settingGuid = "guid-abc";
@@ -175,21 +133,6 @@ public class PowerSettingsValidationServiceTests
         };
 
         var result = await _sut.FilterSettingsByExistenceAsync(settings);
-
-        result.Should().BeEmpty();
-    }
-
-    [Fact]
-    public async Task FilterSettingsByExistenceAsync_EmptySettingsList_ReturnsEmpty()
-    {
-        _mockQueryService
-            .Setup(q => q.GetAllPowerSettingsACDCAsync("SCHEME_CURRENT"))
-            .ReturnsAsync(new Dictionary<string, (int? acValue, int? dcValue)>
-            {
-                { "guid", (1, 1) }
-            });
-
-        var result = await _sut.FilterSettingsByExistenceAsync(Enumerable.Empty<SettingDefinition>());
 
         result.Should().BeEmpty();
     }

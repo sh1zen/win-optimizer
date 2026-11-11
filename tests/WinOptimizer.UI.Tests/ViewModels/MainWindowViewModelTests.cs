@@ -17,6 +17,7 @@ public class MainWindowViewModelTests : IDisposable
     private readonly Mock<IVersionService> _mockVersionService = new();
     private readonly Mock<ILogService> _mockLogService = new();
     private readonly Mock<IInteractiveUserService> _mockInteractiveUserService = new();
+    private readonly Mock<IProcessExecutor> _processExecutor = new();
 
     // Child ViewModel dependencies
     private readonly Mock<ITaskProgressService> _mockTaskProgressService = new();
@@ -89,7 +90,7 @@ public class MainWindowViewModelTests : IDisposable
             _mockDialogService.Object,
             _mockApplicationModeService.Object, _mockDispatcherService.Object,
             _mockConfigExportService.Object, _mockConfigExecutionService.Object,
-            _sidebarPreferences);
+            _sidebarPreferences, _processExecutor.Object);
     }
 
     public void Dispose()
@@ -193,14 +194,26 @@ public class MainWindowViewModelTests : IDisposable
     }
 
     [Fact]
-    public async Task DonateCommand_OpensTheNormalSponsorsDialog()
+    public async Task DonateCommand_OpensPayPal()
     {
         using var sut = CreateSut();
 
         await sut.DonateCommand.ExecuteAsync(null);
 
-        _mockDialogService.Verify(dialog => dialog.ShowSponsorsDialogAsync(
-            WinOptimizer.Core.Features.Common.Enums.SponsorsDialogMode.Normal), Times.Once);
+        _processExecutor.Verify(process => process.ShellExecuteAsync(
+            "https://www.paypal.com/donate/?hosted_button_id=8G8VR4APG9JRU", null, false, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task DonateCommand_LogsBrowserFailure()
+    {
+        _processExecutor.Setup(process => process.ShellExecuteAsync(It.IsAny<string>(), null, false, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new IOException("browser unavailable"));
+        using var sut = CreateSut();
+
+        await sut.DonateCommand.ExecuteAsync(null);
+
+        _mockLogService.Verify(log => log.LogDebug(It.Is<string>(message => message.Contains("browser unavailable"))), Times.Once);
     }
 
     [Fact]

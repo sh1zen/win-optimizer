@@ -576,7 +576,7 @@ public partial class SettingItemViewModel : BaseViewModel
         get
         {
             if (InputType != InputType.Selection) return false;
-            if (SettingDefinition?.PowerCfgSettings?.Any() != true) return false;
+            if (SettingDefinition?.PowerCfgSettings is not { Count: > 0 }) return false;
             return AcSelectionRecommendedIndex.HasValue || AcSelectionDefaultIndex.HasValue;
         }
     }

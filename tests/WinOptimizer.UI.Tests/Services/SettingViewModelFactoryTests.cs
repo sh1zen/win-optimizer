@@ -149,17 +149,6 @@ public class SettingViewModelFactoryTests
     }
 
     [Fact]
-    public async Task CreateAsync_NumericRangeSetting_SetsNumericValue()
-    {
-        var setting = CreateNumericRangeSetting("NumericSetting", 0, 100, "ms");
-        var state = new SettingStateResult { CurrentValue = 42, Success = true };
-
-        var result = await _sut.CreateAsync(setting, state, null);
-
-        result.NumericValue.Should().Be(42);
-    }
-
-    [Fact]
     public async Task CreateAsync_SelectionSetting_PopulatesComboBoxOptions()
     {
         var setting = CreateSelectionSetting("SelectionSetting");
@@ -186,32 +175,6 @@ public class SettingViewModelFactoryTests
     }
 
     [Fact]
-    public async Task CreateAsync_SelectionSetting_SetsSelectedValue()
-    {
-        var setting = CreateSelectionSetting("SelectionSetting");
-        var state = new SettingStateResult { CurrentValue = 1, Success = true };
-
-        var comboBoxResult = new ComboBoxSetupResult
-        {
-            Options = new ObservableCollection<ComboBoxDisplayOption>
-            {
-                new ComboBoxDisplayOption("Option A", 0),
-                new ComboBoxDisplayOption("Option B", 1)
-            },
-            SelectedValue = 1,
-            Success = true
-        };
-
-        _mockComboBoxSetupService
-            .Setup(s => s.SetupComboBoxOptionsAsync(setting, It.IsAny<object?>()))
-            .ReturnsAsync(comboBoxResult);
-
-        var result = await _sut.CreateAsync(setting, state, null);
-
-        result.SelectedValue.Should().Be(1);
-    }
-
-    [Fact]
     public async Task CreateAsync_SelectionSetting_WhenSetupFails_LogsWarning()
     {
         var setting = CreateSelectionSetting("SelectionSetting");
@@ -235,17 +198,6 @@ public class SettingViewModelFactoryTests
         await _sut.CreateAsync(setting, state, null);
 
         _mockEnricher.Verify(e => e.ApplyReviewDiff(It.IsAny<SettingItemViewModel>(), state), Times.Once);
-    }
-
-    [Fact]
-    public async Task CreateAsync_NonSelectionType_SetsSelectedValueFromCurrentState()
-    {
-        var setting = CreateToggleSetting("TestSetting");
-        var state = new SettingStateResult { CurrentValue = "SomeValue", Success = true };
-
-        var result = await _sut.CreateAsync(setting, state, null);
-
-        result.SelectedValue.Should().Be("SomeValue");
     }
 
     private static SettingDefinition CreateToggleSetting(

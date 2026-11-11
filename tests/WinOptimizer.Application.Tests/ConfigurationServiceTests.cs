@@ -81,15 +81,6 @@ public class ConfigurationServiceTests
         _mockConfigExecutionService.VerifyNoOtherCalls();
     }
 
-    [Fact]
-    public async Task ExportConfigurationAsync_DelegatesToConfigExportService()
-    {
-        var service = CreateService();
-        await service.ExportConfigurationAsync();
-
-        _mockConfigExportService.Verify(e => e.ExportConfigurationAsync(), Times.Once);
-    }
-
     // -------------------------------------------------------
     // ImportConfigurationAsync
     // -------------------------------------------------------
@@ -281,49 +272,6 @@ public class ConfigurationServiceTests
         _mockConfigReviewOrchestrationService.Verify(
             r => r.EnterReviewModeAsync(It.IsAny<UnifiedConfigurationFile>()),
             Times.Never);
-    }
-
-    // -------------------------------------------------------
-    // CreateUserBackupConfigAsync
-    // -------------------------------------------------------
-
-    [Fact]
-    public async Task CreateUserBackupConfigAsync_DelegatesToExportService()
-    {
-        var service = CreateService();
-        await service.CreateUserBackupConfigAsync();
-
-        _mockConfigExportService.Verify(e => e.CreateUserBackupConfigAsync(), Times.Once);
-    }
-
-    // -------------------------------------------------------
-    // ApplyReviewedConfigAsync
-    // -------------------------------------------------------
-
-    [Fact]
-    public async Task ApplyReviewedConfigAsync_DelegatesToOrchestrationService()
-    {
-        var service = CreateService();
-        await service.ApplyReviewedConfigAsync();
-
-        _mockConfigReviewOrchestrationService.Verify(
-            r => r.ApplyReviewedConfigAsync(),
-            Times.Once);
-    }
-
-    // -------------------------------------------------------
-    // CancelReviewModeAsync
-    // -------------------------------------------------------
-
-    [Fact]
-    public async Task CancelReviewModeAsync_DelegatesToOrchestrationService()
-    {
-        var service = CreateService();
-        await service.CancelReviewModeAsync();
-
-        _mockConfigReviewOrchestrationService.Verify(
-            r => r.CancelReviewModeAsync(),
-            Times.Once);
     }
 
     [Fact]

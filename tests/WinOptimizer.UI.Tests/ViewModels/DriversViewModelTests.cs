@@ -197,6 +197,22 @@ public sealed class DriversViewModelTests : IDisposable
         Assert.Single(_vm.ResultGroups[0].Items);
     }
     [Fact]
+    public async Task WhqlFilteredEmptyUpdates_ExplainTheActiveFilter_WithoutChangingOtherCategories()
+    {
+        _scanner.Setup(x => x.ScanAsync(It.IsAny<DriverScanOptions>(), It.IsAny<IProgress<DriverScanProgress>?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Report(new()) with { Updates = [], ExcludedUpdates = 2 });
+        await _vm.ScanCommand.ExecuteAsync(null);
+        _vm.SelectedGroup = _vm.ResultGroups[2];
+        Assert.True(_vm.HasEmptyCategory);
+        Assert.Equal("Drivers_FilterWhql", _vm.CategoryEmptyDescription);
+        _settings.OnlyWhqlUpdates = false;
+        await _settings.FlushAsync();
+        Assert.True(_vm.HasRescanHint);
+        Assert.Equal("Drivers_FilterWhql", _vm.CategoryEmptyDescription);
+        _vm.SelectedGroup = _vm.ResultGroups[1];
+        Assert.Equal("Drivers_CategoryEmptyDescription", _vm.CategoryEmptyDescription);
+    }
+    [Fact]
     public async Task SavedFilterChange_RequestsRescan_AndKeepsPreviousReportSnapshot()
     {
         await _vm.ScanCommand.ExecuteAsync(null);

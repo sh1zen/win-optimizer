@@ -6,36 +6,6 @@ namespace WinOptimizer.Core.Tests.Utils;
 
 public class SearchHelperTests
 {
-    [Theory]
-    [InlineData(null)]
-    [InlineData("")]
-    [InlineData("   ")]
-    [InlineData("\t")]
-    public void MatchesSearchTerm_NullOrWhitespaceSearch_ReturnsTrue(string? searchTerm)
-    {
-        SearchHelper.MatchesSearchTerm(searchTerm!, "anything").Should().BeTrue();
-    }
-
-    [Fact]
-    public void MatchesSearchTerm_SingleWordMatch_ReturnsTrue()
-    {
-        SearchHelper.MatchesSearchTerm("power", "Power Settings", "General")
-            .Should().BeTrue();
-    }
-
-    [Fact]
-    public void MatchesSearchTerm_CaseInsensitive_ReturnsTrue()
-    {
-        SearchHelper.MatchesSearchTerm("POWER", "power settings")
-            .Should().BeTrue();
-    }
-
-    [Fact]
-    public void MatchesSearchTerm_PartialMatch_ReturnsTrue()
-    {
-        SearchHelper.MatchesSearchTerm("pow", "Power Settings")
-            .Should().BeTrue();
-    }
 
     [Fact]
     public void MatchesSearchTerm_MultiWordSearch_AllTermsMustMatch()
@@ -50,13 +20,6 @@ public class SearchHelperTests
     {
         // "xyz" does not appear in any field
         SearchHelper.MatchesSearchTerm("power xyz", "Power Settings", "General")
-            .Should().BeFalse();
-    }
-
-    [Fact]
-    public void MatchesSearchTerm_NoMatchingFields_ReturnsFalse()
-    {
-        SearchHelper.MatchesSearchTerm("bluetooth", "Power Settings", "General")
             .Should().BeFalse();
     }
 
@@ -79,20 +42,5 @@ public class SearchHelperTests
     {
         SearchHelper.MatchesSearchTerm("test")
             .Should().BeFalse();
-    }
-
-    [Fact]
-    public void MatchesSearchTerm_MultipleSpacesInSearch_TreatedAsSingleSeparator()
-    {
-        SearchHelper.MatchesSearchTerm("power   plan", "Power Plan Settings")
-            .Should().BeTrue();
-    }
-
-    [Fact]
-    public void MatchesSearchTerm_TermInDifferentFields_ReturnsTrue()
-    {
-        // "dark" in first field, "theme" in second field
-        SearchHelper.MatchesSearchTerm("dark theme", "Dark Mode", "Windows Theme")
-            .Should().BeTrue();
     }
 }

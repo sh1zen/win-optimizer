@@ -376,10 +376,10 @@ public class ConfigReviewService : IConfigReviewService, IConfigReviewModeServic
             return IsSoftwareAppsReviewed;
         }
 
-        var featureIds = sectionTag switch
+        IEnumerable<string> featureIds = sectionTag switch
         {
-            "Optimize" => FeatureDefinitions.OptimizeFeatures.ToArray(),
-            "Customize" => FeatureDefinitions.CustomizeFeatures.ToArray(),
+            "Optimize" => FeatureDefinitions.OptimizeFeatures,
+            "Customize" => FeatureDefinitions.CustomizeFeatures,
             _ => Array.Empty<string>()
         };
 
@@ -395,15 +395,8 @@ public class ConfigReviewService : IConfigReviewService, IConfigReviewModeServic
         if (!IsInReviewMode) return false;
         if (!_featuresInConfig.ContainsKey(featureId)) return false;
 
-        // Features with 0 diffs that are in config = fully reviewed (nothing to change)
-        var featureDiffs = _diffs.Values.Where(d => d.FeatureModuleId == featureId).ToList();
-        if (featureDiffs.Count == 0)
-        {
-            return true; // No diffs means already matching config
-        }
-
-        // All diffs must be explicitly reviewed (accept or reject)
-        return featureDiffs.All(d => d.IsReviewed);
+        // Features with no diffs are fully reviewed; existing diffs require explicit review.
+        return _diffs.Values.All(d => d.FeatureModuleId != featureId || d.IsReviewed);
     }
 
     private void ComputeConfigItemCounts(UnifiedConfigurationFile config)
@@ -484,11 +477,11 @@ public class ConfigReviewService : IConfigReviewService, IConfigReviewModeServic
         try
         {
             // Get setting definitions for this feature
-            var settingDefinitions = _compatibleSettingsRegistry.GetFilteredSettings(featureId);
+            var settingDefinitions = _compatibleSettingsRegistry.GetFilteredSettings(featureId).ToList();
             var settingDefMap = settingDefinitions.ToDictionary(s => s.Id);
 
             // Batch-load current system states
-            var batchStates = await _discoveryService.GetSettingStatesAsync(settingDefinitions.ToList());
+            var batchStates = await _discoveryService.GetSettingStatesAsync(settingDefinitions);
 
             // Resolve combo box values for Selection-type settings
             foreach (var setting in settingDefinitions.Where(s => s.InputType == InputType.Selection))

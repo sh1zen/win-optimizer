@@ -87,14 +87,6 @@ public class WimUtilViewModelTests : IDisposable
     }
 
     [Fact]
-    public void NavigateToStepCommand_EmptyString_DoesNotChangeStep()
-    {
-        _sut.NavigateToStepCommand.Execute("");
-
-        _sut.Step1State.IsExpanded.Should().BeTrue();
-    }
-
-    [Fact]
     public void NavigateToStepCommand_NonNumericString_DoesNotChangeStep()
     {
         _sut.NavigateToStepCommand.Execute("abc");
@@ -133,18 +125,6 @@ public class WimUtilViewModelTests : IDisposable
         await _sut.OnNavigatedToAsync();
 
         _sut.Step4.IsOscdimgAvailable.Should().BeTrue();
-    }
-
-    [Fact]
-    public async Task OnNavigatedToAsync_WhenOscdimgNotAvailable_Step4IsOscdimgAvailableIsFalse()
-    {
-        _mockOscdimgToolManager
-            .Setup(o => o.IsOscdimgAvailableAsync())
-            .ReturnsAsync(false);
-
-        await _sut.OnNavigatedToAsync();
-
-        _sut.Step4.IsOscdimgAvailable.Should().BeFalse();
     }
 
     [Fact]

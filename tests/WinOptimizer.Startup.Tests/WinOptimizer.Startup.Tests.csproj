@@ -1,7 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType><TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
-    <WindowsSdkPackageVersion>10.0.26100.48</WindowsSdkPackageVersion><Platforms>x64</Platforms><RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <Platforms>x64</Platforms><RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <!-- Main explicitly runs the application's initializer before accessing WinUI. -->
+    <WindowsAppSdkUndockedRegFreeWinRTInitialize>false</WindowsAppSdkUndockedRegFreeWinRTInitialize>
     <WindowsPackageType>None</WindowsPackageType><WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained><UseWinUI>true</UseWinUI>
     <DefineConstants>DISABLE_XAML_GENERATED_MAIN</DefineConstants><ImplicitUsings>enable</ImplicitUsings><Nullable>enable</Nullable><IsPackable>false</IsPackable>
   </PropertyGroup>
@@ -18,6 +20,7 @@
     <Compile Include="..\WinOptimizer.UI.Tests\Utilities\WindowSizeManagerTests.cs" Link="WindowSizeManagerTests.cs"/>
     <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\CleanerProgressReporterTests.cs" Link="CleanerProgressReporterTests.cs"/>
     <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\CleanerViewModelTests.cs" Link="CleanerViewModelTests.cs"/>
+    <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\DriversViewModelTests.cs" Link="DriversViewModelTests.cs"/>
     <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\WimStep4IsoViewModelTests.cs" Link="WimStep4IsoViewModelTests.cs"/>
     <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\WimWorkflowRegressionTests.cs" Link="WimWorkflowRegressionTests.cs"/>
     <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\WimStep1ViewModelTests.cs" Link="WimStep1ViewModelTests.cs"/>
@@ -37,8 +40,12 @@
     <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\PowerOptimizationsViewModelTests.cs" Link="PowerOptimizationsViewModelTests.cs"/>
     <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\TaskProgressViewModelTests.cs" Link="TaskProgressViewModelTests.cs"/>
     <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\UpdateCheckViewModelTests.cs" Link="UpdateCheckViewModelTests.cs"/>
+    <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\MainWindowViewModelTests.cs" Link="MainWindowViewModelTests.cs"/>
+    <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\ApplicationInfoViewModelTests.cs" Link="ApplicationInfoViewModelTests.cs"/>
+    <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\SupportEntryPointTests.cs" Link="SupportEntryPointTests.cs"/>
     <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\EnvironmentEditorViewModelTests.cs" Link="EnvironmentEditorViewModelTests.cs"/>
     <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\UninstallBackupsViewModelTests.cs" Link="UninstallBackupsViewModelTests.cs"/>
     <Compile Include="..\WinOptimizer.UI.Tests\Services\ApplicationCloseServiceTests.cs" Link="ApplicationCloseServiceTests.cs"/>
   </ItemGroup>
+  <Import Project="..\WinOptimizer.UI.Tests\PresentationTestResources.props"/>
 </Project>

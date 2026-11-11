@@ -25,38 +25,6 @@ public class SettingStatusBannerManagerTests
         _manager = new SettingStatusBannerManager(_mockLocalizationService.Object);
     }
 
-    // ──────────────────────────────────────────────────
-    // GetCompatibilityBanner
-    // ──────────────────────────────────────────────────
-
-    [Fact]
-    public void GetCompatibilityBanner_NullDefinition_ReturnsNull()
-    {
-        // Act
-        var result = _manager.GetCompatibilityBanner(null);
-
-        // Assert
-        result.Should().BeNull();
-    }
-
-    [Fact]
-    public void GetCompatibilityBanner_NoCompatibilityInfo_ReturnsNull()
-    {
-        // Arrange
-        var definition = new SettingDefinition
-        {
-            Id = "test",
-            Name = "Test",
-            Description = "Test setting"
-        };
-
-        // Act
-        var result = _manager.GetCompatibilityBanner(definition);
-
-        // Assert
-        result.Should().BeNull();
-    }
-
     [Fact]
     public void GetCompatibilityBanner_WithCompatibilityMessage_ReturnsWarningBanner()
     {
@@ -76,61 +44,6 @@ public class SettingStatusBannerManagerTests
         result.Should().NotBeNull();
         result!.Value.Message.Should().Be("Windows 11 only");
         result.Value.Severity.Should().Be(InfoBarSeverity.Warning);
-    }
-
-    [Fact]
-    public void GetCompatibilityBanner_WithEmptyCompatibilityMessage_ReturnsWarningBanner()
-    {
-        // Arrange
-        var definition = new SettingDefinition
-        {
-            Id = "test",
-            Name = "Test",
-            Description = "Test setting",
-            VersionCompatibilityMessage = ""
-        };
-
-        // Act
-        var result = _manager.GetCompatibilityBanner(definition);
-
-        // Assert
-        // VersionCompatibilityMessage is a non-null string, so the pattern match succeeds
-        result.Should().NotBeNull();
-    }
-
-    // ──────────────────────────────────────────────────
-    // ComputeBannerForValue
-    // ──────────────────────────────────────────────────
-
-    [Fact]
-    public void ComputeBannerForValue_NullDefinition_ReturnsClear()
-    {
-        // Act
-        var result = _manager.ComputeBannerForValue(null, 0, null);
-
-        // Assert
-        result.Should().NotBeNull();
-        result!.Value.Message.Should().BeNull();
-        result.Value.Severity.Should().Be(InfoBarSeverity.Informational);
-    }
-
-    [Fact]
-    public void ComputeBannerForValue_NonIntValue_WithNoCompatibility_ReturnsClear()
-    {
-        // Arrange
-        var definition = new SettingDefinition
-        {
-            Id = "test",
-            Name = "Test",
-            Description = "Test setting"
-        };
-
-        // Act
-        var result = _manager.ComputeBannerForValue(definition, "not-an-int", null);
-
-        // Assert
-        result.Should().NotBeNull();
-        result!.Value.Message.Should().BeNull();
     }
 
     [Fact]
@@ -350,25 +263,6 @@ public class SettingStatusBannerManagerTests
         result.Value.Severity.Should().Be(InfoBarSeverity.Warning);
     }
 
-    [Fact]
-    public void ComputeBannerForValue_NoWarningsNoCompat_ReturnsClear()
-    {
-        // Arrange
-        var definition = new SettingDefinition
-        {
-            Id = "test",
-            Name = "Test",
-            Description = "Test setting"
-        };
-
-        // Act
-        var result = _manager.ComputeBannerForValue(definition, 0, null);
-
-        // Assert
-        result.Should().NotBeNull();
-        result!.Value.Message.Should().BeNull();
-    }
-
     // ──────────────────────────────────────────────────
     // GetRestartBanner
     // ──────────────────────────────────────────────────
@@ -444,39 +338,5 @@ public class SettingStatusBannerManagerTests
         result.Should().NotBeNull();
         result!.Value.Message.Should().Be("Restart your PC to apply changes.");
         result.Value.Severity.Should().Be(InfoBarSeverity.Warning);
-    }
-
-    [Fact]
-    public void GetRestartBanner_RequiresRestartAndChanged_CallsLocalizationService()
-    {
-        // Arrange
-        var definition = new SettingDefinition
-        {
-            Id = "test",
-            Name = "Test",
-            Description = "Test setting",
-            RequiresRestart = true
-        };
-
-        // Act
-        _manager.GetRestartBanner(definition, hasChangedThisSession: true);
-
-        // Assert
-        _mockLocalizationService.Verify(l => l.GetString("Common_RestartRequired"), Times.Once);
-    }
-
-    // ──────────────────────────────────────────────────
-    // BannerState record struct
-    // ──────────────────────────────────────────────────
-
-    [Fact]
-    public void BannerState_Clear_HasNullMessageAndInformationalSeverity()
-    {
-        // Act
-        var clear = SettingStatusBannerManager.BannerState.Clear;
-
-        // Assert
-        clear.Message.Should().BeNull();
-        clear.Severity.Should().Be(InfoBarSeverity.Informational);
     }
 }

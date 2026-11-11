@@ -6,7 +6,6 @@ using WinOptimizer.UI.Features.Common.ViewModels;
 using Xunit;
 using WinOptimizer.UI.ViewModels;
 using WinOptimizer.UI.Features.Common.Interfaces;
-using WinOptimizer.Core.Features.Common.Enums;
 
 namespace WinOptimizer.UI.Tests.ViewModels;
 
@@ -16,7 +15,6 @@ public class ApplicationInfoViewModelTests
     private readonly Mock<IVersionService> _mockVersionService = new();
     private readonly Mock<ILogService> _mockLogService = new();
     private readonly Mock<IProcessExecutor> _processExecutor = new();
-    private readonly Mock<IDialogService> _mockDialogService = new();
 
     public ApplicationInfoViewModelTests()
     {
@@ -31,7 +29,7 @@ public class ApplicationInfoViewModelTests
             _mockLocalization.Object,
             _mockVersionService.Object,
             _mockLogService.Object,
-            _mockDialogService.Object, _processExecutor.Object,
+            _processExecutor.Object,
             new UpdateCheckViewModel(_mockVersionService.Object, _mockLocalization.Object, _mockLogService.Object,
                 Mock.Of<IBackgroundUpdateCheckService>(), Mock.Of<IDispatcherService>(), Mock.Of<IApplicationCloseService>()));
     }
@@ -59,11 +57,24 @@ public class ApplicationInfoViewModelTests
     }
 
     [Fact]
-    public async Task SupportCommandOpensTheNormalSponsorsDialog()
+    public async Task SupportCommandOpensPayPal()
     {
         using var vm = CreateViewModel();
         await vm.SupportWinOptimizerCommand.ExecuteAsync(null);
-        _mockDialogService.Verify(dialog => dialog.ShowSponsorsDialogAsync(SponsorsDialogMode.Normal), Times.Once);
+        _processExecutor.Verify(process => process.ShellExecuteAsync(
+            "https://www.paypal.com/donate/?hosted_button_id=8G8VR4APG9JRU", null, false, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task SupportCommandFailureIsLogged()
+    {
+        _processExecutor.Setup(process => process.ShellExecuteAsync(It.IsAny<string>(), null, false, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new IOException("browser unavailable"));
+        using var vm = CreateViewModel();
+
+        await vm.SupportWinOptimizerCommand.ExecuteAsync(null);
+
+        _mockLogService.Verify(log => log.LogError(It.Is<string>(message => message.Contains("browser unavailable")), It.IsAny<IOException>()), Times.Once);
     }
 
     [Fact]

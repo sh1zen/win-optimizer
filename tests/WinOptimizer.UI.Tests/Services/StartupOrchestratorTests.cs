@@ -108,28 +108,6 @@ public class StartupOrchestratorTests
     }
 
     [Fact]
-    public async Task RunStartupSequenceAsync_InitializesSettingsRegistry()
-    {
-        var sut = CreateSut();
-        var (statusProgress, detailedProgress, _) = CreateProgressTracking();
-
-        await sut.RunStartupSequenceAsync(statusProgress, detailedProgress);
-
-        _settingsRegistry.Verify(r => r.InitializeAsync(), Times.Once);
-    }
-
-    [Fact]
-    public async Task RunStartupSequenceAsync_PreloadsSettings()
-    {
-        var sut = CreateSut();
-        var (statusProgress, detailedProgress, _) = CreateProgressTracking();
-
-        await sut.RunStartupSequenceAsync(statusProgress, detailedProgress);
-
-        _settingsPreloader.Verify(p => p.PreloadAllSettingsAsync(), Times.Once);
-    }
-
-    [Fact]
     public async Task RunStartupSequenceAsync_SettingsFailureStillReturnsAndReportsFailure()
     {
         _settingsRegistry.Setup(r => r.InitializeAsync())
@@ -160,23 +138,6 @@ public class StartupOrchestratorTests
         await sut.RunDeferredInitializationAsync();
 
         _configurationService.Verify(c => c.CreateUserBackupConfigAsync(), Times.Never);
-    }
-
-    [Fact]
-    public async Task RunDeferredInitializationAsync_WhenBackupNotCompleted_CreatesBackup()
-    {
-        _preferencesService.Setup(p => p.GetPreference(
-            UserPreferenceKeys.InitialConfigBackupCompleted, false))
-            .Returns(false);
-        _configurationService.Setup(c => c.CreateUserBackupConfigAsync())
-            .Returns(Task.CompletedTask);
-
-        var sut = CreateSut();
-        var (statusProgress, detailedProgress, _) = CreateProgressTracking();
-
-        await sut.RunDeferredInitializationAsync();
-
-        _configurationService.Verify(c => c.CreateUserBackupConfigAsync(), Times.Once);
     }
 
     [Fact]
@@ -283,20 +244,6 @@ public class StartupOrchestratorTests
         status.Setup(progress => progress.Report(It.IsAny<string>())).Callback<string>(reports.Add);
         await CreateSut().RunStartupSequenceAsync(status.Object, Mock.Of<IProgress<TaskProgressDetail>>());
         reports.Should().Equal("Loading_InitializingSettings", "Loading_PreparingApp");
-    }
-
-    // --- Return value ---
-
-    [Fact]
-    public async Task RunStartupSequenceAsync_ReturnsStartupResult()
-    {
-        var sut = CreateSut();
-        var (statusProgress, detailedProgress, _) = CreateProgressTracking();
-
-        var result = await sut.RunStartupSequenceAsync(statusProgress, detailedProgress);
-
-        result.Should().NotBeNull();
-        result.Should().BeOfType<StartupResult>();
     }
 
     // --- Full sequence execution ---

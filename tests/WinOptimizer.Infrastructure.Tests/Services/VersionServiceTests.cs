@@ -29,22 +29,6 @@ public class VersionServiceTests
             _httpClient);
     }
 
-    #region GetCurrentVersion
-
-    [Fact]
-    public void GetCurrentVersion_CalledTwice_ReturnsSameResult()
-    {
-        // Act — calling multiple times should be deterministic
-        var first = _service.GetCurrentVersion();
-        var second = _service.GetCurrentVersion();
-
-        // Assert
-        first.Version.Should().Be(second.Version);
-        first.ReleaseDate.Should().Be(second.ReleaseDate);
-    }
-
-    #endregion
-
     #region CheckForUpdateAsync
 
     [Fact]

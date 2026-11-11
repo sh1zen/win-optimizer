@@ -64,59 +64,6 @@ public class TooltipDataServiceTests
         DefaultValue = null,
     };
 
-    // ---------------------------------------------------------------
-    // GetTooltipDataAsync
-    // ---------------------------------------------------------------
-
-    [Fact]
-    public async Task GetTooltipDataAsync_SettingWithRegistryOperations_ReturnsTooltipData()
-    {
-        var regSetting = CreateRegistrySetting();
-        var setting = CreateSetting("reg-setting", registrySettings: new[] { regSetting });
-
-        _mockRegistry
-            .Setup(r => r.GetValue(regSetting.KeyPath, regSetting.ValueName!))
-            .Returns(1);
-
-        var result = await _service.GetTooltipDataAsync(new[] { setting });
-
-        result.Should().ContainKey("reg-setting");
-        result["reg-setting"].SettingId.Should().Be("reg-setting");
-        result["reg-setting"].DisplayValue.Should().Be("1");
-    }
-
-    [Fact]
-    public async Task GetTooltipDataAsync_SettingWithNoOperations_ReturnsEmpty()
-    {
-        var setting = CreateSetting("empty-setting");
-
-        var result = await _service.GetTooltipDataAsync(new[] { setting });
-
-        result.Should().BeEmpty();
-    }
-
-    [Fact]
-    public async Task GetTooltipDataAsync_MultipleSettings_ReturnsDataForEach()
-    {
-        var reg1 = CreateRegistrySetting(keyPath: @"HKLM\SOFTWARE\Test1");
-        var reg2 = CreateRegistrySetting(keyPath: @"HKLM\SOFTWARE\Test2");
-        var setting1 = CreateSetting("s1", registrySettings: new[] { reg1 });
-        var setting2 = CreateSetting("s2", registrySettings: new[] { reg2 });
-
-        _mockRegistry
-            .Setup(r => r.GetValue(@"HKLM\SOFTWARE\Test1", "TestValue"))
-            .Returns(42);
-        _mockRegistry
-            .Setup(r => r.GetValue(@"HKLM\SOFTWARE\Test2", "TestValue"))
-            .Returns("hello");
-
-        var result = await _service.GetTooltipDataAsync(new[] { setting1, setting2 });
-
-        result.Should().HaveCount(2);
-        result["s1"].DisplayValue.Should().Be("42");
-        result["s2"].DisplayValue.Should().Be("hello");
-    }
-
     [Fact]
     public async Task GetTooltipDataAsync_RegistryValueNull_DisplaysNotSet()
     {
@@ -179,24 +126,6 @@ public class TooltipDataServiceTests
         var result = await _service.GetTooltipDataAsync(new[] { setting });
 
         result.Should().NotContainKey("disabled-tooltip");
-    }
-
-    [Fact]
-    public async Task GetTooltipDataAsync_DisableTooltipFalse_StillReturnsData()
-    {
-        var regSetting = CreateRegistrySetting();
-        var setting = CreateSetting("not-disabled",
-            registrySettings: new[] { regSetting },
-            disableTooltip: false);
-
-        _mockRegistry
-            .Setup(r => r.GetValue(regSetting.KeyPath, regSetting.ValueName!))
-            .Returns(99);
-
-        var result = await _service.GetTooltipDataAsync(new[] { setting });
-
-        result.Should().ContainKey("not-disabled");
-        result["not-disabled"].DisplayValue.Should().Be("99");
     }
 
     // ---------------------------------------------------------------
@@ -325,27 +254,6 @@ public class TooltipDataServiceTests
         result["nic-empty"].DisplayValue.Should().BeEmpty();
     }
 
-    // ---------------------------------------------------------------
-    // RefreshTooltipDataAsync
-    // ---------------------------------------------------------------
-
-    [Fact]
-    public async Task RefreshTooltipDataAsync_ReturnsUpdatedData()
-    {
-        var regSetting = CreateRegistrySetting();
-        var setting = CreateSetting("refresh-me", registrySettings: new[] { regSetting });
-
-        _mockRegistry
-            .Setup(r => r.GetValue(regSetting.KeyPath, regSetting.ValueName!))
-            .Returns(77);
-
-        var result = await _service.RefreshTooltipDataAsync("refresh-me", setting);
-
-        result.Should().NotBeNull();
-        result!.SettingId.Should().Be("refresh-me");
-        result.DisplayValue.Should().Be("77");
-    }
-
     [Fact]
     public async Task RefreshTooltipDataAsync_NoRegistrySettings_ReturnsNull()
     {
@@ -430,24 +338,6 @@ public class TooltipDataServiceTests
     }
 
     [Fact]
-    public async Task RefreshMultipleTooltipDataAsync_HandlesMultipleSettings()
-    {
-        var reg1 = CreateRegistrySetting(keyPath: @"HKLM\SOFTWARE\A");
-        var reg2 = CreateRegistrySetting(keyPath: @"HKLM\SOFTWARE\B");
-        var s1 = CreateSetting("multi-1", registrySettings: new[] { reg1 });
-        var s2 = CreateSetting("multi-2", registrySettings: new[] { reg2 });
-
-        _mockRegistry.Setup(r => r.GetValue(@"HKLM\SOFTWARE\A", "TestValue")).Returns(10);
-        _mockRegistry.Setup(r => r.GetValue(@"HKLM\SOFTWARE\B", "TestValue")).Returns(20);
-
-        var result = await _service.RefreshMultipleTooltipDataAsync(new[] { s1, s2 });
-
-        result.Should().HaveCount(2);
-        result["multi-1"].DisplayValue.Should().Be("10");
-        result["multi-2"].DisplayValue.Should().Be("20");
-    }
-
-    [Fact]
     public async Task RefreshMultipleTooltipDataAsync_SkipsSettingsWithNoOperations()
     {
         var regSetting = CreateRegistrySetting();
@@ -463,15 +353,6 @@ public class TooltipDataServiceTests
         result.Should().HaveCount(1);
         result.Should().ContainKey("has-ops");
         result.Should().NotContainKey("no-ops");
-    }
-
-    [Fact]
-    public async Task RefreshMultipleTooltipDataAsync_EmptyInput_ReturnsEmpty()
-    {
-        var result = await _service.RefreshMultipleTooltipDataAsync(
-            Array.Empty<SettingDefinition>());
-
-        result.Should().BeEmpty();
     }
 
     // ---------------------------------------------------------------

@@ -78,7 +78,7 @@ public class ConfigApplicationExecutionService : IConfigApplicationExecutionServ
         {
             var incompatibleSettings = _configLoadService.DetectIncompatibleSettings(config);
 
-            if (incompatibleSettings.Any())
+            if (incompatibleSettings.Count != 0)
             {
                 config = _configLoadService.FilterConfigForCurrentSystem(config);
                 _logService.Log(LogLevel.Info, $"Silently filtered {incompatibleSettings.Count} incompatible settings from config");
@@ -95,7 +95,7 @@ public class ConfigApplicationExecutionService : IConfigApplicationExecutionServ
 
             foreach (var feature in config.Optimize.Features)
             {
-                if (feature.Value.Items.Any())
+                if (feature.Value.Items.Count > 0)
                 {
                     if (!selectedSections.Contains("Optimize")) selectedSections.Add("Optimize");
                     selectedSections.Add($"Optimize_{feature.Key}");
@@ -104,7 +104,7 @@ public class ConfigApplicationExecutionService : IConfigApplicationExecutionServ
 
             foreach (var feature in config.Customize.Features)
             {
-                if (feature.Value.Items.Any())
+                if (feature.Value.Items.Count > 0)
                 {
                     if (!selectedSections.Contains("Customize")) selectedSections.Add("Customize");
                     selectedSections.Add($"Customize_{feature.Key}");
@@ -151,7 +151,7 @@ public class ConfigApplicationExecutionService : IConfigApplicationExecutionServ
             // Add action-only subsections for Customize actions that the user enabled
             importOptions = ConfigActionSelection.IncludeSections(selectedSections, importOptions);
 
-            if (!selectedSections.Any())
+            if (selectedSections.Count == 0)
             {
                 _dialogService.ShowMessage(
                     _localizationService.GetString("Config_Import_Error_NoSelection") ?? "No changes to apply.",
@@ -189,7 +189,7 @@ public class ConfigApplicationExecutionService : IConfigApplicationExecutionServ
             }
 
             // Show success message and wait for user dismissal
-            await ShowImportSuccessMessage(selectedSections);
+            await ShowImportSuccessMessage();
 
             // Process External Apps AFTER success dialog dismissal (needs UI thread)
             if (hasExternalApps && importOptions.ProcessExternalAppsRemoval)
@@ -364,7 +364,7 @@ public class ConfigApplicationExecutionService : IConfigApplicationExecutionServ
             s.StartsWith($"{groupName}_") &&
             options.ActionOnlySubsections.Contains(s));
 
-        if ((featureGroup?.Features == null || !featureGroup.Features.Any()) && !hasActionOnlySubsections)
+        if ((featureGroup?.Features == null || featureGroup.Features.Count == 0) && !hasActionOnlySubsections)
         {
             _logService.Log(LogLevel.Warning, $"{groupName} has no features to apply");
             return false;
@@ -420,7 +420,7 @@ public class ConfigApplicationExecutionService : IConfigApplicationExecutionServ
                     bool featureSuccess = true;
 
                     // Execute action commands first if any
-                    if (actionItems.Any())
+                    if (actionItems.Count != 0)
                     {
                         var actionSection = new ConfigSection
                         {
@@ -495,7 +495,7 @@ public class ConfigApplicationExecutionService : IConfigApplicationExecutionServ
 
             featureTasks.Add(Task.Run(async () =>
             {
-                if (capturedActionItems.Any())
+                if (capturedActionItems.Count != 0)
                 {
                     var actionSection = new ConfigSection
                     {
@@ -569,7 +569,7 @@ public class ConfigApplicationExecutionService : IConfigApplicationExecutionServ
         return string.IsNullOrEmpty(source) ? label : $"{label} ({source})";
     }
 
-    private async Task ShowImportSuccessMessage(List<string> selectedSections)
+    private async Task ShowImportSuccessMessage()
     {
         await _dialogService.ShowInformationAsync(
             _localizationService.GetString("Config_Import_Success_Message") ?? "Configuration imported successfully.",

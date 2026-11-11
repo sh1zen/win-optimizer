@@ -4,8 +4,24 @@ $session.ClientApplicationID = 'win-optimizer Driver Scan'
 $searcher = $session.CreateUpdateSearcher()
 $searcher.ServerSelection = 2 # ssWindowsUpdate; never substitute a configured third-party/WSUS source.
 $searcher.Online = $true
-$search = $searcher.Search("IsInstalled=0 and IsHidden=0 and Type='Driver'")
+# Include optional offers beyond WUA's implicit DeploymentAction='Installation' restriction.
+$search = $searcher.Search("IsInstalled=0 and IsHidden=0 and Type='Driver' and DeploymentAction=*")
 if ([int]$search.ResultCode -ne 2) { throw 'Windows Update did not complete the driver search successfully.' }
+
+# WUA requires CopyFromCache on individual bundled updates, not their parent offer.
+function Export-DriverPayload {
+    param($update, [string]$destination)
+    if (-not $update.EulaAccepted) { throw 'Review this driver license in Windows Update before package verification.' }
+    [void][IO.Directory]::CreateDirectory($destination)
+    if ($update.BundledUpdates.Count -gt 0) {
+        for ($childIndex = 0; $childIndex -lt $update.BundledUpdates.Count; $childIndex++) {
+            Export-DriverPayload $update.BundledUpdates.Item($childIndex) (Join-Path $destination ([string]$childIndex))
+        }
+        return
+    }
+    $update.CopyFromCache($destination, $false)
+}
+
 $offers = [Collections.Generic.List[object]]::new()
 for ($index = 0; $index -lt $search.Updates.Count; $index++) {
     $update = $search.Updates.Item($index)
@@ -22,8 +38,7 @@ for ($index = 0; $index -lt $search.Updates.Count; $index++) {
             if ([int]$download.ResultCode -ne 2) { throw ('Driver package download failed: 0x{0:X8}' -f $download.GetUpdateResult(0).HResult) }
         }
         $destination = Join-Path $workspace $id
-        [void][IO.Directory]::CreateDirectory($destination)
-        $update.CopyFromCache($destination, $false)
+        Export-DriverPayload $update $destination
     }
     catch { $payloadError = $_.Exception.Message }
     $offers.Add(@{

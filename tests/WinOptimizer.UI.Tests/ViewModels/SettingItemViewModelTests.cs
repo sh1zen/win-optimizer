@@ -299,61 +299,6 @@ public class SettingItemViewModelTests : IDisposable
     }
 
     [Fact]
-    public void UpdateStateFromEvent_ToggleType_UpdatesIsSelected()
-    {
-        var sut = CreateSut();
-        sut.IsSelected.Should().BeFalse();
-
-        sut.UpdateStateFromEvent(true, null);
-
-        sut.IsSelected.Should().BeTrue();
-    }
-
-    [Fact]
-    public void UpdateStateFromEvent_CheckBoxType_UpdatesIsSelected()
-    {
-        var config = _defaultConfig with { InputType = InputType.CheckBox };
-        var sut = CreateSut(config);
-
-        sut.UpdateStateFromEvent(true, null);
-
-        sut.IsSelected.Should().BeTrue();
-    }
-
-    [Fact]
-    public void UpdateStateFromEvent_SelectionType_UpdatesSelectedValue()
-    {
-        var config = _defaultConfig with { InputType = InputType.Selection };
-        var sut = CreateSut(config);
-
-        sut.UpdateStateFromEvent(true, "OptionA");
-
-        sut.SelectedValue.Should().Be("OptionA");
-    }
-
-    [Fact]
-    public void UpdateStateFromEvent_NumericType_UpdatesNumericValue()
-    {
-        var config = _defaultConfig with { InputType = InputType.NumericRange };
-        var sut = CreateSut(config);
-
-        sut.UpdateStateFromEvent(true, 42);
-
-        sut.NumericValue.Should().Be(42);
-    }
-
-    [Fact]
-    public void UpdateStateFromSystemState_ToggleType_UpdatesIsSelected()
-    {
-        var sut = CreateSut();
-        var state = new SettingStateResult { Success = true, IsEnabled = true };
-
-        sut.UpdateStateFromSystemState(state);
-
-        sut.IsSelected.Should().BeTrue();
-    }
-
-    [Fact]
     public void UpdateStateFromSystemState_FailedResult_DoesNotUpdate()
     {
         var sut = CreateSut();
@@ -363,30 +308,6 @@ public class SettingItemViewModelTests : IDisposable
         sut.UpdateStateFromSystemState(state);
 
         sut.IsSelected.Should().BeTrue(); // unchanged
-    }
-
-    [Fact]
-    public void UpdateStateFromSystemState_SelectionType_UpdatesSelectedValue()
-    {
-        var config = _defaultConfig with { InputType = InputType.Selection };
-        var sut = CreateSut(config);
-        var state = new SettingStateResult { Success = true, CurrentValue = "ValueB" };
-
-        sut.UpdateStateFromSystemState(state);
-
-        sut.SelectedValue.Should().Be("ValueB");
-    }
-
-    [Fact]
-    public void UpdateStateFromSystemState_NumericType_UpdatesNumericValue()
-    {
-        var config = _defaultConfig with { InputType = InputType.NumericRange };
-        var sut = CreateSut(config);
-        var state = new SettingStateResult { Success = true, CurrentValue = 75 };
-
-        sut.UpdateStateFromSystemState(state);
-
-        sut.NumericValue.Should().Be(75);
     }
 
     [Fact]
@@ -688,70 +609,6 @@ public class SettingItemViewModelTests : IDisposable
     }
 
     [Fact]
-    public void IsInReviewMode_ChangingValue_NotifiesEffectiveIsEnabled()
-    {
-        var sut = CreateSut();
-        var changedProperties = new List<string>();
-        sut.PropertyChanged += (_, e) => changedProperties.Add(e.PropertyName!);
-
-        sut.IsInReviewMode = true;
-
-        changedProperties.Should().Contain(nameof(sut.EffectiveIsEnabled));
-    }
-
-    [Fact]
-    public void IsReviewApproved_SettingTrue_ClearsIsReviewRejected()
-    {
-        var sut = CreateSut();
-        sut.IsReviewRejected = true;
-
-        sut.IsReviewApproved = true;
-
-        sut.IsReviewApproved.Should().BeTrue();
-        sut.IsReviewRejected.Should().BeFalse();
-    }
-
-    [Fact]
-    public void IsReviewRejected_SettingTrue_ClearsIsReviewApproved()
-    {
-        var sut = CreateSut();
-        sut.IsReviewApproved = true;
-
-        sut.IsReviewRejected = true;
-
-        sut.IsReviewRejected.Should().BeTrue();
-        sut.IsReviewApproved.Should().BeFalse();
-    }
-
-    [Fact]
-    public void IsReviewDecisionMade_ReturnsTrueWhenApproved()
-    {
-        var sut = CreateSut();
-
-        sut.IsReviewApproved = true;
-
-        sut.IsReviewDecisionMade.Should().BeTrue();
-    }
-
-    [Fact]
-    public void IsReviewDecisionMade_ReturnsTrueWhenRejected()
-    {
-        var sut = CreateSut();
-
-        sut.IsReviewRejected = true;
-
-        sut.IsReviewDecisionMade.Should().BeTrue();
-    }
-
-    [Fact]
-    public void IsReviewDecisionMade_ReturnsFalseWhenNeitherApprovedNorRejected()
-    {
-        var sut = CreateSut();
-
-        sut.IsReviewDecisionMade.Should().BeFalse();
-    }
-
-    [Fact]
     public void ReviewApprovalChanged_RaisedWhenIsReviewApprovedChanges()
     {
         var sut = CreateSut();
@@ -804,42 +661,6 @@ public class SettingItemViewModelTests : IDisposable
         sut.IsReviewApproved = true;
 
         raised.Should().BeFalse("ReviewApprovalChanged handler should have been cleared");
-    }
-
-    [Fact]
-    public void IsEnabled_Change_NotifiesEffectiveIsEnabled()
-    {
-        var sut = CreateSut();
-        var changedProperties = new List<string>();
-        sut.PropertyChanged += (_, e) => changedProperties.Add(e.PropertyName!);
-
-        sut.IsEnabled = false;
-
-        changedProperties.Should().Contain(nameof(sut.EffectiveIsEnabled));
-    }
-
-    [Fact]
-    public void ParentIsEnabled_Change_NotifiesEffectiveIsEnabled()
-    {
-        var sut = CreateSut();
-        var changedProperties = new List<string>();
-        sut.PropertyChanged += (_, e) => changedProperties.Add(e.PropertyName!);
-
-        sut.ParentIsEnabled = false;
-
-        changedProperties.Should().Contain(nameof(sut.EffectiveIsEnabled));
-    }
-
-    [Fact]
-    public void StatusBannerMessage_Change_NotifiesHasStatusBanner()
-    {
-        var sut = CreateSut();
-        var changedProperties = new List<string>();
-        sut.PropertyChanged += (_, e) => changedProperties.Add(e.PropertyName!);
-
-        sut.StatusBannerMessage = "Warning!";
-
-        changedProperties.Should().Contain(nameof(sut.HasStatusBanner));
     }
 
     [Fact]

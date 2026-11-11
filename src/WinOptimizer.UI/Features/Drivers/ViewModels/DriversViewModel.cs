@@ -45,7 +45,9 @@ public partial class DriversViewModel : ObservableObject, IDisposable
     public bool HasEmptyCategory => HasReport && SelectedGroup is { Items.Count: 0 };
     private bool UpdatesUnavailable => _report is { UpdatesChecked: false } && SelectedGroup == ResultGroups.LastOrDefault();
     public string CategoryEmptyTitle => Text(UpdatesUnavailable ? "Drivers_UpdatesUnavailableTitle" : "Drivers_CategoryEmpty");
-    public string CategoryEmptyDescription => Text(UpdatesUnavailable ? "Drivers_UpdatesUnavailable" : "Drivers_CategoryEmptyDescription");
+    public string CategoryEmptyDescription => UpdatesUnavailable ? Text("Drivers_UpdatesUnavailable") :
+        _report is { ExcludedUpdates: > 0 } && SelectedGroup == ResultGroups.LastOrDefault()
+            ? Text("Drivers_FilterWhql") : Text("Drivers_CategoryEmptyDescription");
     public bool HasRescanHint => _report is not null && _report.Options != Settings.Options;
     public string Heading => Text("Nav_Drivers");
     public string IntroDescription => Text("Drivers_IntroDescription");

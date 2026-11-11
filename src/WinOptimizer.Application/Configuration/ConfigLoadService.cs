@@ -171,9 +171,7 @@ public class ConfigLoadService : IConfigLoadService
                 return null;
             }
 
-            var backupFiles = _fileSystemService.GetFiles(configDir, $"UserBackup_*{ConfigFileConstants.FileExtension}")
-                .OrderByDescending(f => f)
-                .ToArray();
+            var backupFiles = _fileSystemService.GetFiles(configDir, $"UserBackup_*{ConfigFileConstants.FileExtension}");
 
             if (backupFiles.Length == 0)
             {
