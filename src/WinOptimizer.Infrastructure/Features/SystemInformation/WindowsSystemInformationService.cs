@@ -61,26 +61,34 @@ public sealed class WindowsSystemInformationService(ISystemInformationQuery quer
 
     public async Task<SystemInformationSnapshot> ReadAsync(CancellationToken ct)
     {
-        List<SystemInformationSection> sections = [];
-        foreach (var category in Categories)
+        var sections = new List<SystemInformationSection>(Categories.Length);
+        // Each category owns its own WMI query. Bound concurrent reads and retain catalogue order.
+        foreach (var batch in Categories.Chunk(4))
         {
             ct.ThrowIfCancellationRequested();
-            try
-            {
-                var properties = category.Fields.Select(field => field.Property).Prepend(category.Title).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
-                var rows = await query.ReadAsync(category.Class, properties, ct).ConfigureAwait(false);
-                var items = rows.Select(row => new SystemInformationItem(ReadText(row, category.Title),
-                    category.Fields.Select(field => new SystemInformationProperty("SystemInfo_Field_" + field.Label,
-                        ReadValue(row, field))).ToArray())).ToArray();
-                sections.Add(new(category.Id, items, null));
-            }
-            catch (Exception ex) when (ex is SystemInformationException or FormatException or OverflowException or InvalidCastException or ArgumentOutOfRangeException)
-            { sections.Add(new(category.Id, [], ex is SystemInformationException ? ex.Message : $"{category.Class}: {ex.Message}")); }
+            sections.AddRange(await Task.WhenAll(batch.Select(category => ReadCategoryAsync(category, ct))).ConfigureAwait(false));
         }
         ct.ThrowIfCancellationRequested();
         var snapshot = new SystemInformationSnapshot(DateTimeOffset.UtcNow, sections);
         Volatile.Write(ref _cachedSnapshot, snapshot);
         return snapshot;
+    }
+
+    /// <summary>Reads and normalizes one independent WMI category, keeping unavailable-category evidence.</summary>
+    private async Task<SystemInformationSection> ReadCategoryAsync(Category category, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        try
+        {
+            var properties = category.Fields.Select(field => field.Property).Prepend(category.Title).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+            var rows = await query.ReadAsync(category.Class, properties, ct).ConfigureAwait(false);
+            var items = rows.Select(row => new SystemInformationItem(ReadText(row, category.Title),
+                category.Fields.Select(field => new SystemInformationProperty("SystemInfo_Field_" + field.Label,
+                    ReadValue(row, field))).ToArray())).ToArray();
+            return new(category.Id, items, null);
+        }
+        catch (Exception ex) when (ex is SystemInformationException or FormatException or OverflowException or InvalidCastException or ArgumentOutOfRangeException)
+        { return new(category.Id, [], ex is SystemInformationException ? ex.Message : $"{category.Class}: {ex.Message}"); }
     }
 
     private static string? ReadText(IReadOnlyDictionary<string, object?> row, string property) =>

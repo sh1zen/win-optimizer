@@ -53,13 +53,8 @@ some hardware tools also depend on compatible firmware or drivers.
 
 ## Getting started
 
-Opening the app shows a loading window while settings and the main interface initialize.
-The window reopens at its last saved size and position, including maximized state,
-and keeps that size throughout loading.
-Loading content stays centered and steady as startup messages change.
-The loading screen uses the saved language and theme from its first frame, and the
-main interface opens with the saved sidebar and app-list layout already applied.
-Centered windows keep their title bar reachable when the saved or default size exceeds the screen's work area.
+The app restores your language, theme, window placement, sidebar and app-list layout
+at startup. A loading screen shows initialization progress before the main interface opens.
 
 1. **Pick a task.** Open Software & Apps, Optimize, Cleaner or another section from
    the sidebar. Overview cards lead to individual tools; Optimize and Customize
@@ -112,16 +107,13 @@ Uninstall opens a desktop program's unambiguously matched registered uninstaller
 blocks and minimizes win-optimizer while it runs, then restores the app when it exits.
 If none can be identified, confirm whether to use automatic removal through
 the available package manager or detected installation files. Cancelling that
-prompt preserves the app. Verified removals update the cached list before leftover
-review. When the uninstall workflow finishes, the app automatically refreshes the
-inventory, including after partial failures or cancellation. Failed or cancelled
-package verification does not establish removal; a fresh inventory check determines
-the current status of unverified outcomes. **Refresh** also checks Windows on demand.
+prompt preserves the app. The inventory refreshes after the workflow finishes,
+including partial failures or cancellation. Only verified removals are confirmed;
+**Refresh** also checks Windows on demand.
 AppX inventory and external-app removal follow the interactive account when the
 app runs with another administrator's credentials.
-Store downloads install for that signed-in account. Interactive EXE installers
-finish before reporting success; cancellation stops further silent attempts.
-Portable-app detection and file removal resolve profile paths for that same interactive account.
+Store downloads and portable-app paths use that same account. Interactive EXE
+installers finish before reporting success; cancellation stops further silent attempts.
 
 After uninstallation, a review page opens. Choose **Scan** to find leftovers, then
 review **files and folders** followed by **registry entries**, one step at a time.
@@ -381,17 +373,12 @@ in Test mode and configuration review.
 - **WIMUtil:** customize Windows installation media, add drivers, and generate an
   answer file from current selections or select a local XML file.
   Keep the source ISO outside the extraction folder.
-  Conversion preserves the source until every edition is exported and verified.
-  Adding drivers retains nested package files and existing setup commands.
-  ISO creation and tool acquisition wait for running tasks. ISO completion reflects
-  the latest attempt and resets when the input directory or destination changes.
-  A new ISO is built and checked in a temporary file before replacing the destination;
-  failed or cancelled creation preserves an existing ISO.
-  Extraction, conversion and driver commands preserve other running tasks. Changing
-  media or starting another extraction clears prior XML, driver and ISO completion;
-  failed or cancelled extraction keeps dependent steps locked.
-  Changing XML, drivers or image files requires rebuilding the ISO. Image-format
-  results follow the currently selected media.
+  Conversion exports and verifies every edition before replacing the source image;
+  driver integration retains nested package files and existing setup commands.
+  Changing or re-extracting media resets dependent steps; changing XML, drivers or
+  image files requires rebuilding the ISO. Failed extraction keeps dependent steps locked.
+  ISO creation waits for running tasks, builds and checks a temporary file, then
+  replaces the destination. Failure or cancellation preserves an existing ISO.
 - **Autounattend generator:** build a Windows unattended-installation XML file
   from selected settings.
 - **System information:** collect a dated snapshot of hardware, Windows and installed
@@ -422,8 +409,8 @@ Backup and restore options depend on the tool. Cleaner provides file/value and
 whole-hive backup options, app-residue cleanup requires a verified backup, and the
 Restore tools manage Windows restore points. Review the relevant operation's results
 and recovery options before proceeding.
-The initial configuration backup is marked complete after a successful write;
-failed attempts are logged and retried on the next launch.
+Startup saves an initial configuration backup and retries failed or timed-out
+attempts on the next launch.
 
 ## Preferences and app updates
 
@@ -463,16 +450,15 @@ cleanup, or `/DATA=keep` to retain data. An invalid data option aborts uninstall
 
 ## Development
 
-Use Windows, the .NET SDK specified in [global.json](global.json), Visual Studio
+Use Windows, the .NET 11 SDK specified in [global.json](global.json), Visual Studio
 2026 / Build Tools with MSBuild 18+, the .NET desktop and C++ desktop workloads,
 and the Windows SDK. Open [win-optimizer.sln](win-optimizer.sln) in Visual Studio.
-CI installs the SDK specified in the same file.
+CI uses the same SDK. The application targets .NET 10 and includes its runtime.
 
 ```powershell
 ./build.ps1
 ./build.ps1 -Configuration Debug
 ./build.ps1 -NoRestore
-./build.ps1 -BuildRoot ./build/isolated
 ```
 
 The default is Release/x64 at `build/win-optimizer.exe`, with logs in
@@ -485,10 +471,11 @@ settings and adjacent symbols. Packaging exports matching PDBs separately to
 `build/symbols/win-optimizer-vYY.MM.DD-win-x64.zip`, outside the runtime payload.
 Keep that ZIP with its release for source-level debugging and crash analysis.
 `./extras/export-debug-symbols.ps1 -Version YY.MM.DD` exports an existing Release build.
-`-BuildRoot` redirects generated output together, useful while another build is running.
+For concurrent builds, `-BuildRoot ./build/isolated` redirects all generated output
+to a separate reusable location.
 `Version.props` is the single source for the application's `YY.MM.DD` version,
-defaulting to the build machine's local date. `./build.ps1 -Version 26.01.05`
-selects an explicit release date. Visual Studio uses the same version file.
+defaulting to the build machine's local date. `-Version` selects an explicit release
+date. Visual Studio uses the same version file.
 Product/file metadata uses `YY.MM.DD`; application update tags use `vYY.MM.DD`.
 
 Test commands, focused suites and isolation requirements are in the
@@ -514,21 +501,25 @@ if version resolution fails).
 
 Push a `vYY.MM.DD` tag to run the **Release** workflow, build that version and publish
 the validated installer with notes from [CHANGELOG.md](CHANGELOG.md).
-Keep concise changes under `## [Unreleased]`. Before a release, rename that section
-to the exact tag and release date (for example `## [v26.10.23] - 2026-10-23`) and
-add a new `Unreleased` section. Publication uses only the matching section's body,
-preserving its Markdown through a UTF-8 notes file. A missing, empty or duplicate
-tag section stops publication; `Unreleased` stays reserved for future changes.
-For example, after committing the desired sources, workflows and changelog:
+Keep concise changes under `## [Unreleased]`. Before a release, move its notes into
+`## [vYY.MM.DD] - YYYY-MM-DD` using the exact tag and release date, and leave
+`Unreleased` at the top for future changes. Publication uses only the matching
+section's body, preserving its Markdown through a UTF-8 notes file. A missing, empty or duplicate
+tag section stops publication. For a release dated today, prepare the matching
+changelog section and commit the sources, then run:
 
 ```powershell
-git tag v26.10.23
-git push origin v26.10.23
+$releaseTag = 'v' + (Get-Date -Format 'yy.MM.dd')
+git tag $releaseTag
+git push origin $releaseTag
 ```
 
 [ARCHITECTURE.md](ARCHITECTURE.md) describes components, storage and execution contracts.
 [Application artwork](src/WinOptimizer.UI/Assets/ICON-ATTRIBUTION.md) covers icon
 authoring, generation and attribution.
+[Third-party notices](THIRD-PARTY-NOTICES.txt) list resolved application dependencies,
+build tooling, bundled WinGet components and optional downloads. Review them when
+updating package references or refreshing the WinGet bundle.
 
 </details>
 
@@ -546,7 +537,6 @@ a registered trademark of Microsoft Corporation.
 
 ## License
 
-Except where otherwise stated (see [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt)),
-the content of this repository is provided under the
-[PolyForm Shield 1.0.0](https://polyformproject.org/licenses/shield/1.0.0) license by
-Andrea Frolli. See [LICENSE.txt](LICENSE.txt) for the full terms.
+This project is licensed under the [Apache License, Version 2.0](LICENSE.txt).
+Copyright © Andrea Frolli. See [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt)
+for licenses and attributions for third-party components.

@@ -35,10 +35,11 @@ internal sealed class UninstallResourceEditor(ICleanerRegistrySessions sessions,
         }
     }
 
-    public FileStream OpenBackupFile(UninstallEvidence evidence)
+    public FileStream OpenBackupFile(UninstallEvidence evidence, bool asynchronous = false)
     {
         ValidateFilePath(evidence);
-        return CleanerFileDeletion.OpenVerified(evidence.File ?? throw new IOException("File evidence is missing."), deleting: false);
+        return CleanerFileDeletion.OpenVerified(evidence.File ?? throw new IOException("File evidence is missing."),
+            deleting: false, asynchronous: asynchronous);
     }
 
     public async Task DeleteAsync(UninstallEvidence evidence, string? backupHash, CancellationToken ct)
@@ -49,7 +50,7 @@ internal sealed class UninstallResourceEditor(ICleanerRegistrySessions sessions,
             ValidateFilePath(evidence);
             if (evidence.File != null)
             {
-                using var source = CleanerFileDeletion.OpenVerified(evidence.File, deleting: true);
+                using var source = CleanerFileDeletion.OpenVerified(evidence.File, deleting: true, asynchronous: true);
                 var hash = Convert.ToHexString(await System.Security.Cryptography.SHA256.HashDataAsync(source, ct).ConfigureAwait(false));
                 if (hash != backupHash) throw new IOException("The selected file differs from its verified backup; it has been preserved.");
                 ct.ThrowIfCancellationRequested();
@@ -82,14 +83,14 @@ internal sealed class UninstallResourceEditor(ICleanerRegistrySessions sessions,
             if (evidence.File == null) { Directory.CreateDirectory(evidence.Finding.Path); return; }
             if (File.Exists(evidence.Finding.Path))
             {
-                using var current = new FileStream(evidence.Finding.Path, FileMode.Open, FileAccess.Read, FileShare.Read);
+                using var current = CleanerBackupService.OpenSequentialRead(evidence.Finding.Path);
                 if (Convert.ToHexString(await System.Security.Cryptography.SHA256.HashDataAsync(current, ct).ConfigureAwait(false)) != expectedHash)
                     throw new IOException("A different file exists at the recovery destination; it has been preserved.");
                 return;
             }
             Directory.CreateDirectory(Path.GetDirectoryName(evidence.Finding.Path)!);
             ValidateFilePath(evidence);
-            using var source = new FileStream(payload ?? throw new IOException("The backup payload is missing."), FileMode.Open, FileAccess.Read, FileShare.Read);
+            using var source = CleanerBackupService.OpenSequentialRead(payload ?? throw new IOException("The backup payload is missing."));
             using var destination = CleanerFileDeletion.CreateRestoreFile(evidence.Finding.Path);
             try
             {

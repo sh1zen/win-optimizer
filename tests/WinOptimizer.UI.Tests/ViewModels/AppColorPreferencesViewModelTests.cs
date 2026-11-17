@@ -56,6 +56,18 @@ public sealed class AppColorPreferencesViewModelTests
     }
 
     [Fact]
+    public async Task StartupSnapshotAppliesAccentWithoutASecondRead()
+    {
+        using var vm = Create();
+        var snapshot = new UserPreferencesSnapshot(new Dictionary<string, object>
+            { [UserPreferenceKeys.AppColor] = nameof(AppColor.Purple) }, Mock.Of<ILogService>());
+        Assert.True(await vm.LoadAsync(snapshot));
+        Assert.Equal(AppColor.Purple, vm.SelectedColor);
+        AssertBrush(AppColor.Purple);
+        _preferences.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public async Task RapidChoicesApplyImmediatelyAndPersistInOrder()
     {
         using var vm = Create();
@@ -139,9 +151,12 @@ public sealed class AppColorPreferencesViewModelTests
     {
         var light = (ResourceDictionary)_resources.ThemeDictionaries["Light"];
         var original = (SolidColorBrush)light["AccentFillColorDefaultBrush"];
+        var surface = (SolidColorBrush)light["AppSurfaceBrush"];
         var highContrast = (ResourceDictionary)_resources.ThemeDictionaries["HighContrast"];
-        var protectedBrush = (SolidColorBrush)highContrast["SidebarBackgroundBrush"];
+        var protectedBrush = (SolidColorBrush)highContrast["AppCanvasBrush"];
         var highContrastColor = protectedBrush.Color;
+        var highContrastSelection = (SolidColorBrush)highContrast["AccentSelectionBackgroundBrush"];
+        var highContrastSelectionColor = highContrastSelection.Color;
         var highContrastIconBackground = ((SolidColorBrush)highContrast["PageIconBackgroundBrush"]).Color;
         var highContrastIconForeground = ((SolidColorBrush)highContrast["PageIconForegroundBrush"]).Color;
         foreach (var color in Enum.GetValues<AppColor>())
@@ -150,8 +165,17 @@ public sealed class AppColorPreferencesViewModelTests
             Assert.Same(original, light["AccentFillColorDefaultBrush"]);
             Assert.Same(original, light["ToggleSwitchFillOn"]);
             Assert.Same(original, light["AccentButtonBackground"]);
+            Assert.Same(light["AccentTextFillColorPrimaryBrush"], light["AccentSelectionForegroundBrush"]);
+            var selection = ((SolidColorBrush)light["AccentSelectionBackgroundBrush"]).Color;
+            Assert.Equal(byte.MaxValue, selection.A);
+            Assert.NotEqual(surface.Color, selection);
+            Assert.InRange(selection.R, original.Color.R, surface.Color.R);
+            Assert.InRange(selection.G, original.Color.G, surface.Color.G);
+            Assert.InRange(selection.B, original.Color.B, surface.Color.B);
+            Assert.Same(surface, light["TextControlBackground"]);
             AssertBrush(color);
             Assert.Equal(highContrastColor, protectedBrush.Color);
+            Assert.Equal(highContrastSelectionColor, highContrastSelection.Color);
             Assert.Equal(highContrastIconBackground, ((SolidColorBrush)highContrast["PageIconBackgroundBrush"]).Color);
             Assert.Equal(highContrastIconForeground, ((SolidColorBrush)highContrast["PageIconForegroundBrush"]).Color);
         }

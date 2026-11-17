@@ -3,6 +3,7 @@ using Microsoft.UI.Xaml.Media;
 using WinOptimizer.Application.Preferences;
 using WinOptimizer.Core.Features.Common.Constants;
 using WinOptimizer.Core.Features.Common.Interfaces;
+using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.UI.Features.Common.Resources;
 
 namespace WinOptimizer.UI.Features.Settings.ViewModels;
@@ -44,15 +45,18 @@ public partial class AppColorPreferencesViewModel : ObservableObject, IDisposabl
     }
 
     /// <summary>Shares concurrent startup/settings reads; failed reads can be retried when Settings reopens.</summary>
-    public Task<bool> LoadAsync() => IsLoaded ? Task.FromResult(true) :
-        _loadTask is { IsCompleted: false } ? _loadTask : _loadTask = LoadCoreAsync();
+    public Task<bool> LoadAsync() => LoadAsync(snapshot: null);
 
-    private async Task<bool> LoadCoreAsync()
+    internal Task<bool> LoadAsync(UserPreferencesSnapshot? snapshot) => IsLoaded ? Task.FromResult(true) :
+        _loadTask is { IsCompleted: false } ? _loadTask : _loadTask = LoadCoreAsync(snapshot);
+
+    private async Task<bool> LoadCoreAsync(UserPreferencesSnapshot? snapshot)
     {
         IsBusy = true;
         try
         {
-            var saved = await _preferences.GetPreferenceAsync(UserPreferenceKeys.AppColor, nameof(AppColor.Blue));
+            var saved = snapshot?.Get(UserPreferenceKeys.AppColor, nameof(AppColor.Blue)) ??
+                await _preferences.GetPreferenceAsync(UserPreferenceKeys.AppColor, nameof(AppColor.Blue));
             if (!Enum.TryParse<AppColor>(saved, out var color) || !Enum.IsDefined(color))
                 throw new InvalidOperationException(_localization.GetString("Settings_AppColorInvalid"));
             ApplyPreference(color);

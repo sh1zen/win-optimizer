@@ -157,6 +157,58 @@ public sealed class ProcessMonitorViewModelTests
     }
 
     [Fact]
+    public async Task SamplesKeepOrderedRowsAndReconcileNewExitedAndReorderedProcesses()
+    {
+        var exited = new ProcessIdentity(30, 300);
+        var started = new ProcessIdentity(40, 400);
+        _metrics = [Metric(Parent, "Parent", 0, 30), Metric(Child, "Worker", 0, 20), Metric(exited, "Exited", 0, 10)];
+        using var vm = Create();
+        vm.SortMode = 1;
+        await vm.SampleAsync(default);
+        var parent = vm.Rows[0];
+        var child = vm.Rows[1];
+        await vm.SelectAsync(child);
+        var changes = new List<System.Collections.Specialized.NotifyCollectionChangedAction>();
+        vm.Rows.CollectionChanged += (_, args) => changes.Add(args.Action);
+
+        await vm.SampleAsync(default);
+        Assert.Empty(changes);
+
+        _metrics = [Metric(Parent, "Parent", 0, 10), Metric(Child, "Worker", 0, 30), Metric(started, "Started", 0, 20)];
+        await vm.SampleAsync(default);
+        Assert.Equal(new[] { Child, started, Parent }, vm.Rows.Select(row => row.Identity));
+        Assert.Same(child, vm.Rows[0]);
+        Assert.Same(parent, vm.Rows[2]);
+        Assert.Same(child, vm.SelectedRow);
+        Assert.DoesNotContain(System.Collections.Specialized.NotifyCollectionChangedAction.Reset, changes);
+    }
+
+    [Fact]
+    public async Task LargeReorderKeepsTheSameMoveSequenceAndRowInstances()
+    {
+        var ids = Enumerable.Range(1, 80).Select(index => new ProcessIdentity(index + 100, index)).ToArray();
+        _metrics = ids.Select((id, index) => Metric(id, $"Process {index}", 0, 100 - index)).ToArray();
+        using var vm = Create();
+        vm.SortMode = 1;
+        await vm.SampleAsync(default);
+        var original = vm.Rows.ToArray();
+        await vm.SelectAsync(original[10]);
+        var moves = new List<(int From, int To)>();
+        vm.Rows.CollectionChanged += (_, args) =>
+        {
+            Assert.Equal(System.Collections.Specialized.NotifyCollectionChangedAction.Move, args.Action);
+            moves.Add((args.OldStartingIndex, args.NewStartingIndex));
+        };
+
+        _metrics = ids.Select((id, index) => Metric(id, $"Process {index}", 0, index)).ToArray();
+        await vm.SampleAsync(default);
+
+        Assert.Equal(original.Reverse(), vm.Rows);
+        Assert.Equal(Enumerable.Range(0, 79).Select(index => (79, index)), moves);
+        Assert.Same(original[10], vm.SelectedRow);
+    }
+
+    [Fact]
     public async Task ColumnHeadersSortAllColumnsInBothDirectionsAndShareTheSelectorState()
     {
         _metrics = [Metric(Parent, "Zulu", 0, 2), Metric(Child, "Alpha", 10, 20, 10 * 1024 * 1024)];

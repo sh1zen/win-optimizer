@@ -5,9 +5,8 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:WinOptimizer.UI.Features.Common.Controls">
 
-    <Grid x:Name="SidebarGrid"
-          Width="{x:Bind ActualSidebarWidth, Mode=OneWay}"
-          Background="{ThemeResource SidebarBackgroundBrush}"
+    <Border Style="{StaticResource PageSurfaceStyle}">
+    <Grid Width="{x:Bind ActualSidebarWidth, Mode=OneWay}"
           AutomationProperties.LandmarkType="Navigation">
 
         <Grid.RowDefinitions>
@@ -114,4 +113,5 @@
 
         </StackPanel>
     </Grid>
+    </Border>
 </UserControl>

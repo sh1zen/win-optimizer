@@ -50,7 +50,7 @@ public class AutounattendXmlGeneratorServiceTests
             .Returns(new Dictionary<string, IEnumerable<SettingDefinition>>());
 
         _mockDiscoveryService
-            .Setup(d => d.GetSettingStatesAsync(It.IsAny<IEnumerable<SettingDefinition>>()))
+            .Setup(d => d.GetSettingStateSnapshotAsync(It.IsAny<IReadOnlyList<SettingDefinition>>()))
             .ReturnsAsync(new Dictionary<string, SettingStateResult>());
     }
 
@@ -247,7 +247,7 @@ public class AutounattendXmlGeneratorServiceTests
             });
 
         _mockDiscoveryService
-            .Setup(d => d.GetSettingStatesAsync(It.IsAny<IEnumerable<SettingDefinition>>()))
+            .Setup(d => d.GetSettingStateSnapshotAsync(It.IsAny<IReadOnlyList<SettingDefinition>>()))
             .ReturnsAsync(new Dictionary<string, SettingStateResult>
             {
                 {
@@ -274,7 +274,7 @@ public class AutounattendXmlGeneratorServiceTests
         }
 
         _mockDiscoveryService.Verify(
-            d => d.GetSettingStatesAsync(It.IsAny<IEnumerable<SettingDefinition>>()),
+            d => d.GetSettingStateSnapshotAsync(It.IsAny<IReadOnlyList<SettingDefinition>>()),
             Times.AtLeastOnce);
     }
 
@@ -369,7 +369,7 @@ public class AutounattendXmlGeneratorServiceTests
 
         // Discovery service should not be called for empty feature settings
         _mockDiscoveryService.Verify(
-            d => d.GetSettingStatesAsync(It.IsAny<IEnumerable<SettingDefinition>>()),
+            d => d.GetSettingStateSnapshotAsync(It.IsAny<IReadOnlyList<SettingDefinition>>()),
             Times.Never);
     }
 }

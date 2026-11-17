@@ -18,6 +18,14 @@
     mc:Ignorable="d">
 
     <Page.Resources>
+        <Style x:Key="InventoryTabButtonStyle" TargetType="Button">
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+            <Setter Property="HorizontalContentAlignment" Value="Center"/>
+            <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="12,10"/>
+        </Style>
+
         <!-- Reserve the same scrollbar gutter and bottom inset for both inventories. -->
         <Style x:Key="AppTableStyle" TargetType="controls:DataGrid">
             <Setter Property="VerticalScrollBarVisibility" Value="Visible"/>
@@ -106,7 +114,7 @@
              between CompactFallbackFontSize and CompactAppsIconSize). +10 keeps
              visible Apps glyph weight in line with the puzzle/gear glyphs. -->
         <x:Double x:Key="CardViewAppsIconSize">38</x:Double>
-        <CornerRadius x:Key="CardViewCornerRadius">8</CornerRadius>
+        <CornerRadius x:Key="CardViewCornerRadius">14</CornerRadius>
         <Thickness x:Key="CardViewPadding">12,10</Thickness>
 
         <!-- Card view sizing. UniformWrapPanel forces every cell to CardCellHeight
@@ -782,11 +790,9 @@
                     </StackPanel>
                 </Button>
                 <!-- View Mode Toggle -->
-                <Border CornerRadius="4"
-                        Visibility="{x:Bind ViewModel.IsInventoryTabSelected, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
-                        BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
-                        BorderThickness="1">
-                    <StackPanel Orientation="Horizontal">
+                <Border Style="{StaticResource SegmentedSurfaceStyle}"
+                        Visibility="{x:Bind ViewModel.IsInventoryTabSelected, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <StackPanel Orientation="Horizontal" Spacing="2">
                         <ToggleButton x:Name="CardViewToggle"
                                       IsChecked="{x:Bind ViewModel.IsCardView, Mode=OneWay}"
                                       Click="CardViewToggle_Click"
@@ -794,7 +800,6 @@
                                       AutomationProperties.Name="{x:Bind ViewModel.ViewModeCardTooltip}"
                                       Background="Transparent"
                                       BorderThickness="0"
-                                      CornerRadius="4,0,0,4"
                                       Padding="10,6">
                             <fluentIcons:FluentIcon Icon="Grid" IconVariant="Regular" FontSize="18"/>
                         </ToggleButton>
@@ -805,7 +810,6 @@
                                       AutomationProperties.Name="{x:Bind ViewModel.ViewModeTableTooltip}"
                                       Background="Transparent"
                                       BorderThickness="0"
-                                      CornerRadius="0"
                                       Padding="10,6">
                             <fluentIcons:FluentIcon Icon="TableSimple" IconVariant="Regular" FontSize="18"/>
                         </ToggleButton>
@@ -816,7 +820,6 @@
                                       AutomationProperties.Name="{x:Bind ViewModel.ViewModeCompactTooltip}"
                                       Background="Transparent"
                                       BorderThickness="0"
-                                      CornerRadius="0,4,4,0"
                                       Padding="10,6">
                             <fluentIcons:FluentIcon Icon="LineHorizontal3" IconVariant="Regular" FontSize="18"/>
                         </ToggleButton>
@@ -856,153 +859,106 @@
             </toolkit:WrapPanel>
         </Grid>
 
-        <!-- Row 2: Content Container with rounded corners and background -->
-        <Border
-            Grid.Row="2"
-            Background="{ThemeResource SystemFillColorNeutralBackgroundBrush}"
-            CornerRadius="8"
-            Margin="0,0,0,4">
-            <Grid>
-                <!-- Tab Navigation Container -->
-                <Border Margin="12,12,12,0"
-                        VerticalAlignment="Top"
-                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                        CornerRadius="6"
-                        Padding="4">
-                    <Grid>
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="*"/>
-                            <ColumnDefinition Width="Auto"/>
-                            <ColumnDefinition Width="*"/>
-                        </Grid.ColumnDefinitions>
+        <Grid Grid.Row="2" RowSpacing="10" Margin="0,0,0,12">
+            <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+            <Border Style="{StaticResource SegmentedSurfaceStyle}">
+                <Grid ColumnSpacing="3">
+                    <VisualStateManager.VisualStateGroups>
+                        <VisualStateGroup>
+                            <VisualState x:Name="WindowsAppsSelected">
+                                <VisualState.StateTriggers>
+                                    <StateTrigger IsActive="{x:Bind ViewModel.IsWindowsAppsTabSelected, Mode=OneWay}"/>
+                                </VisualState.StateTriggers>
+                                <VisualState.Setters>
+                                    <Setter Target="WindowsAppsTab.Background" Value="{ThemeResource AccentSelectionBackgroundBrush}"/>
+                                    <Setter Target="WindowsAppsTab.Foreground" Value="{ThemeResource AccentSelectionForegroundBrush}"/>
+                                </VisualState.Setters>
+                            </VisualState>
+                            <VisualState x:Name="ExternalAppsSelected">
+                                <VisualState.StateTriggers>
+                                    <StateTrigger IsActive="{x:Bind ViewModel.IsExternalAppsTabSelected, Mode=OneWay}"/>
+                                </VisualState.StateTriggers>
+                                <VisualState.Setters>
+                                    <Setter Target="ExternalAppsTab.Background" Value="{ThemeResource AccentSelectionBackgroundBrush}"/>
+                                    <Setter Target="ExternalAppsTab.Foreground" Value="{ThemeResource AccentSelectionForegroundBrush}"/>
+                                </VisualState.Setters>
+                            </VisualState>
+                            <VisualState x:Name="LeftoverSelected">
+                                <VisualState.StateTriggers>
+                                    <StateTrigger IsActive="{x:Bind ViewModel.IsLeftoverTabSelected, Mode=OneWay}"/>
+                                </VisualState.StateTriggers>
+                                <VisualState.Setters>
+                                    <Setter Target="LeftoverTab.Background" Value="{ThemeResource AccentSelectionBackgroundBrush}"/>
+                                    <Setter Target="LeftoverTab.Foreground" Value="{ThemeResource AccentSelectionForegroundBrush}"/>
+                                </VisualState.Setters>
+                            </VisualState>
+                        </VisualStateGroup>
+                    </VisualStateManager.VisualStateGroups>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
 
-                        <!-- Windows Apps Tab -->
-                        <Grid Grid.Column="0">
-                            <!-- Selection background (visible when selected) -->
-                            <Border CornerRadius="4"
-                                    Margin="2"
-                                    Background="{ThemeResource ControlFillColorDefaultBrush}"
-                                    BorderThickness="1"
-                                    BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
-                                    IsHitTestVisible="False"
-                                    Visibility="{x:Bind ViewModel.IsWindowsAppsTabSelected, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
-                            <!-- Accent indicator on left -->
-                            <Border Width="3"
-                                    Height="18"
-                                    CornerRadius="1.5"
-                                    HorizontalAlignment="Left"
-                                    VerticalAlignment="Center"
-                                    Margin="6,0,0,0"
-                                    Background="{ThemeResource AccentFillColorDefaultBrush}"
-                                    IsHitTestVisible="False"
-                                    Visibility="{x:Bind ViewModel.IsWindowsAppsTabSelected, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
-                            <!-- Tab button (transparent) -->
-                            <Button x:Name="WindowsAppsTab"
-                                    Command="{x:Bind ViewModel.SelectWindowsAppsTabCommand}"
-                                    AutomationProperties.Name="{x:Bind ViewModel.WindowsAppsTabText}"
-                                    HorizontalAlignment="Stretch"
-                                    HorizontalContentAlignment="Center"
-                                    Background="Transparent"
-                                    BorderThickness="0"
-                                    Padding="12,10">
-                                <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <Viewbox Width="18" Height="18">
-                                        <PathIcon Data="{StaticResource WindowsLogoIconPath}" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
-                                    </Viewbox>
-                                    <TextBlock Text="{x:Bind ViewModel.WindowsAppsTabText}" VerticalAlignment="Center"/>
-                                </StackPanel>
-                            </Button>
-                            <!-- Review mode badge -->
-                            <InfoBadge x:Name="WindowsAppsTabBadge"
-                                       Value="{x:Bind ViewModel.WindowsAppsSelectedCount, Mode=OneWay}"
-                                       HorizontalAlignment="Right"
-                                       VerticalAlignment="Top"
-                                       Margin="0,2,8,0"
-                                       Visibility="Collapsed"/>
-                        </Grid>
-
-                        <!-- Separator -->
-                        <Border Grid.Column="1"
-                                Width="1"
-                                Margin="4,8"
-                                VerticalAlignment="Stretch"
-                                Background="{ThemeResource ControlStrokeColorDefaultBrush}"/>
-
-                        <!-- External Apps Tab -->
-                        <Grid Grid.Column="2">
-                            <!-- Selection background (visible when selected) -->
-                            <Border CornerRadius="4"
-                                    Margin="2"
-                                    Background="{ThemeResource ControlFillColorDefaultBrush}"
-                                    BorderThickness="1"
-                                    BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
-                                    IsHitTestVisible="False"
-                                    Visibility="{x:Bind ViewModel.IsExternalAppsTabSelected, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
-                            <!-- Accent indicator on left -->
-                            <Border Width="3"
-                                    Height="18"
-                                    CornerRadius="1.5"
-                                    HorizontalAlignment="Left"
-                                    VerticalAlignment="Center"
-                                    Margin="6,0,0,0"
-                                    Background="{ThemeResource AccentFillColorDefaultBrush}"
-                                    IsHitTestVisible="False"
-                                    Visibility="{x:Bind ViewModel.IsExternalAppsTabSelected, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
-                            <!-- Tab button (transparent) -->
-                            <Button x:Name="ExternalAppsTab"
-                                    Command="{x:Bind ViewModel.SelectExternalAppsTabCommand}"
-                                    IsEnabled="{x:Bind ViewModel.IsExternalAppsTabEnabled, Mode=OneWay}"
-                                    AutomationProperties.Name="{x:Bind ViewModel.ExternalAppsTabText}"
-                                    HorizontalAlignment="Stretch"
-                                    HorizontalContentAlignment="Center"
-                                    Background="Transparent"
-                                    BorderThickness="0"
-                                    Padding="12,10">
-                                <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <Viewbox Width="18" Height="18">
-                                        <PathIcon Data="{StaticResource ExternalAppsIconPath}" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
-                                    </Viewbox>
-                                    <TextBlock Text="{x:Bind ViewModel.ExternalAppsTabText}" VerticalAlignment="Center"/>
-                                </StackPanel>
-                            </Button>
-                            <!-- Review mode badge -->
-                            <InfoBadge x:Name="ExternalAppsTabBadge"
-                                       Value="{x:Bind ViewModel.ExternalAppsSelectedCount, Mode=OneWay}"
-                                       HorizontalAlignment="Right"
-                                       VerticalAlignment="Top"
-                                       Margin="0,2,8,0"
-                                       Visibility="Collapsed"/>
-                            <!-- Lock overlay (Builder + Autounattend): transparent but hit-test
-                                 visible, so the tooltip fires and clicks are blocked even though
-                                 the disabled tab button beneath can swallow hover events. -->
-                            <Border x:Name="ExternalAppsTabLockOverlay"
-                                    Background="Transparent"
-                                    Visibility="{x:Bind ViewModel.IsExternalAppsTabLocked, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
-                                    ToolTipService.ToolTip="{x:Bind ViewModel.ExternalAppsTabLockedTooltip, Mode=OneWay}"/>
-                        </Grid>
-                        <Border Grid.Column="3" Width="1" Margin="4,8" Background="{ThemeResource ControlStrokeColorDefaultBrush}"/>
-                        <Grid Grid.Column="4">
-                            <Border CornerRadius="4" Margin="2" Background="{ThemeResource ControlFillColorDefaultBrush}"
-                                    BorderThickness="1" BorderBrush="{ThemeResource ControlStrokeColorDefaultBrush}"
-                                    Visibility="{x:Bind ViewModel.IsLeftoverTabSelected, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
-                            <Button x:Name="LeftoverTab" Command="{x:Bind ViewModel.SelectLeftoverTabCommand}"
-                                    IsEnabled="{x:Bind ViewModel.IsLeftoverTabEnabled, Mode=OneWay}"
-                                    AutomationProperties.Name="{x:Bind ViewModel.LeftoverTabText, Mode=OneWay}"
-                                    HorizontalAlignment="Stretch" HorizontalContentAlignment="Center"
-                                    Background="Transparent" BorderThickness="0" Padding="12,10">
-                                <StackPanel Orientation="Horizontal" Spacing="8">
-                                    <FontIcon Glyph="&#xE7AC;" FontSize="18"/>
-                                    <TextBlock Text="{x:Bind ViewModel.LeftoverTabText, Mode=OneWay}" VerticalAlignment="Center"/>
-                                </StackPanel>
-                            </Button>
-                        </Grid>
+                    <Grid Grid.Column="0">
+                        <Button x:Name="WindowsAppsTab" Style="{StaticResource InventoryTabButtonStyle}"
+                                Command="{x:Bind ViewModel.SelectWindowsAppsTabCommand}"
+                                AutomationProperties.Name="{x:Bind ViewModel.WindowsAppsTabText, Mode=OneWay}">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Viewbox Width="18" Height="18">
+                                    <PathIcon Data="{StaticResource WindowsLogoIconPath}"/>
+                                </Viewbox>
+                                <TextBlock Text="{x:Bind ViewModel.WindowsAppsTabText, Mode=OneWay}" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <InfoBadge x:Name="WindowsAppsTabBadge"
+                                   Value="{x:Bind ViewModel.WindowsAppsSelectedCount, Mode=OneWay}"
+                                   HorizontalAlignment="Right" VerticalAlignment="Top"
+                                   Margin="0,2,8,0" Visibility="Collapsed"/>
                     </Grid>
-                </Border>
 
-                <!-- Content Area (below tabs) -->
-                <Grid Margin="14,70,12,0">
+                    <Grid Grid.Column="1">
+                        <Button x:Name="ExternalAppsTab" Style="{StaticResource InventoryTabButtonStyle}"
+                                Command="{x:Bind ViewModel.SelectExternalAppsTabCommand}"
+                                IsEnabled="{x:Bind ViewModel.IsExternalAppsTabEnabled, Mode=OneWay}"
+                                AutomationProperties.Name="{x:Bind ViewModel.ExternalAppsTabText, Mode=OneWay}">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <Viewbox Width="18" Height="18">
+                                    <PathIcon Data="{StaticResource ExternalAppsIconPath}"/>
+                                </Viewbox>
+                                <TextBlock Text="{x:Bind ViewModel.ExternalAppsTabText, Mode=OneWay}" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                        <InfoBadge x:Name="ExternalAppsTabBadge"
+                                   Value="{x:Bind ViewModel.ExternalAppsSelectedCount, Mode=OneWay}"
+                                   HorizontalAlignment="Right" VerticalAlignment="Top"
+                                   Margin="0,2,8,0" Visibility="Collapsed"/>
+                        <!-- The overlay keeps the lock tooltip available when the tab is disabled. -->
+                        <Border x:Name="ExternalAppsTabLockOverlay"
+                                Background="Transparent"
+                                Visibility="{x:Bind ViewModel.IsExternalAppsTabLocked, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                ToolTipService.ToolTip="{x:Bind ViewModel.ExternalAppsTabLockedTooltip, Mode=OneWay}"/>
+                    </Grid>
+
+                    <Grid Grid.Column="2">
+                        <Button x:Name="LeftoverTab" Style="{StaticResource InventoryTabButtonStyle}"
+                                Command="{x:Bind ViewModel.SelectLeftoverTabCommand}"
+                                IsEnabled="{x:Bind ViewModel.IsLeftoverTabEnabled, Mode=OneWay}"
+                                AutomationProperties.Name="{x:Bind ViewModel.LeftoverTabText, Mode=OneWay}">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <FontIcon Glyph="&#xE7AC;" FontSize="18"/>
+                                <TextBlock Text="{x:Bind ViewModel.LeftoverTabText, Mode=OneWay}" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+                </Grid>
+            </Border>
+
+            <Border Grid.Row="1" Style="{StaticResource PageSurfaceStyle}" Padding="12,10,12,0">
+                <Grid>
                     <softwareApps:LeftoverAppsControl DataContext="{x:Bind ViewModel.LeftoverAppsViewModel}"
                         Visibility="{x:Bind ViewModel.IsLeftoverTabSelected, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
                     <!-- Windows Apps Content -->
@@ -1857,7 +1813,7 @@
                         </Grid>
                     </Grid>
                 </Grid>
-            </Grid>
-        </Border>
+            </Border>
+        </Grid>
     </Grid>
 </Page>

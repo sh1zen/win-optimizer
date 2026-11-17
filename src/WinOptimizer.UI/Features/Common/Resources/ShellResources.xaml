@@ -17,14 +17,13 @@
     </ResourceDictionary.MergedDictionaries>
 
     <!-- Title Bar Button Style -->
-    <Style x:Key="TitleBarButtonStyle" TargetType="Button">
-        <Setter Property="Background" Value="Transparent"/>
+    <Style x:Key="TitleBarButtonStyle" TargetType="Button" BasedOn="{StaticResource SubtleButtonStyle}">
         <Setter Property="BorderThickness" Value="0"/>
-        <Setter Property="Padding" Value="10,8"/>
+        <Setter Property="Padding" Value="0"/>
         <Setter Property="Width" Value="40"/>
         <Setter Property="Height" Value="32"/>
         <Setter Property="HorizontalContentAlignment" Value="Center"/>
         <Setter Property="VerticalContentAlignment" Value="Center"/>
-        <Setter Property="CornerRadius" Value="4"/>
+        <Setter Property="CornerRadius" Value="{StaticResource ControlCornerRadius}"/>
     </Style>
 </ResourceDictionary>

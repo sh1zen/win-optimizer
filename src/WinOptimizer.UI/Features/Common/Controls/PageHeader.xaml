@@ -5,7 +5,8 @@
     xmlns:fluent="using:FluentIcons.WinUI">
     <Grid ColumnSpacing="16">
         <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-        <Border Width="52" Height="52" CornerRadius="14" Background="{ThemeResource PageIconBackgroundBrush}" VerticalAlignment="Top">
+        <Border Width="52" Height="52" CornerRadius="{StaticResource PageIconCornerRadius}"
+                Background="{ThemeResource PageIconBackgroundBrush}" VerticalAlignment="Top">
             <fluent:FluentIcon Icon="{x:Bind Icon, Mode=OneWay}" IconVariant="Regular" FontSize="28"
                               Foreground="{ThemeResource PageIconForegroundBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
         </Border>

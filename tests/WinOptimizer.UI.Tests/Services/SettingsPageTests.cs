@@ -137,6 +137,14 @@ public sealed class SettingsPageTests
                 Assert.Single(Descendants<Button>(page), button => button.Command == page.ViewModel.ResetCommand && button != reset && button.Visibility == Visibility.Visible);
             }
 
+            page.ViewModel.SelectedCategory = page.ViewModel.Categories.Single(item => item.Category == SettingsCategory.Info);
+            await StartupUiCoordinator.RunAfterFirstRenderAsync(page, () => Task.CompletedTask);
+            var support = Assert.IsType<CommunityToolkit.WinUI.Controls.SettingsCard>(page.FindName("SupportCard"));
+            Assert.True(VisualStateManager.GoToState(support, "PointerOver", true));
+            await StartupUiCoordinator.RunAfterFirstRenderAsync(page, () => Task.CompletedTask);
+            var supportSurface = Assert.IsType<Grid>(VisualTreeHelper.GetChild(support, 0));
+            Assert.Equal(byte.MaxValue, Assert.IsType<SolidColorBrush>(supportSurface.Background).Color.A);
+
             // Leaving Settings ends its lifetime; history reentry gets an active, fresh view model.
             frame.Navigate(typeof(NavigationOtherPage));
             await StartupUiCoordinator.RunAfterFirstRenderAsync(frame, () => Task.CompletedTask);

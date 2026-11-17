@@ -116,10 +116,11 @@ public partial class LogsAndHistoryViewModel(IActivityJournalService journal, IL
             _session = session;
             var page = await session.ReadNextAsync(token);
             token.ThrowIfCancellationRequested();
-            foreach (var entry in page.Entries) Entries.Add(new LogDisplayEntry(entry, localization));
+            var added = page.Entries.Select(entry => new LogDisplayEntry(entry, localization)).ToArray();
+            foreach (var row in added) Entries.Add(row);
             HasMore = page.HasMore; _unreadable += page.UnreadableEntries;
             _hasIncompleteSources = page.Notices.Count > 0;
-            RebuildGroups();
+            AppendGroups(added);
             Notice = string.Join(Environment.NewLine, new[]
             {
                 _unreadable > 0 ? localization.GetString("Logs_Unreadable", _unreadable) : "",
@@ -139,17 +140,15 @@ public partial class LogsAndHistoryViewModel(IActivityJournalService journal, IL
         }
     }
 
-    /// <summary>Builds topic projections over the same rows and preserves expansion when loading another page.</summary>
-    private void RebuildGroups()
+    /// <summary>Groups new rows without replacing the groups already bound to the page.</summary>
+    private void AppendGroups(IReadOnlyList<LogDisplayEntry> added)
     {
-        var expanded = Groups.ToDictionary(group => group.Topic, group => group.IsExpanded);
-        Groups.Clear();
-        foreach (var group in Entries.GroupBy(entry => entry.Record.Topic))
+        var existing = Groups.ToDictionary(group => group.Topic);
+        foreach (var group in added.GroupBy(entry => entry.Record.Topic))
         {
-            var rows = group.ToArray();
-            Groups.Add(new LogTopicGroup(group.Key, rows, localization)
-            { IsExpanded = expanded.GetValueOrDefault(group.Key,
-                TopicIndex != 0 || FilterIndex == (int)JournalFilter.Problems || !string.IsNullOrWhiteSpace(SearchText)) });
+            if (existing.TryGetValue(group.Key, out var displayed)) displayed.Append(group);
+            else Groups.Add(new LogTopicGroup(group.Key, group.ToArray(), localization)
+            { IsExpanded = TopicIndex != 0 || FilterIndex == (int)JournalFilter.Problems || !string.IsNullOrWhiteSpace(SearchText) });
         }
     }
 

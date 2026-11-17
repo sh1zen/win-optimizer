@@ -71,9 +71,12 @@ public sealed class LogsAndHistoryViewModelTests
             .ReturnsAsync(Page(Receipt("Second")));
         using var vm = CreateViewModel();
         await vm.RefreshCommand.ExecuteAsync(null); vm.Groups[0].IsExpanded = true;
+        var group = vm.Groups[0];
         var row = vm.Entries[0];
         await vm.LoadMoreCommand.ExecuteAsync(null);
         Assert.Equal(new[] { "First", "Second" }, vm.Entries.Select(entry => entry.Message));
+        Assert.Same(group, vm.Groups[0]);
+        Assert.Equal(vm.Entries, group.Items);
         Assert.Same(row, vm.Groups[0].Items[0]); Assert.True(vm.Groups[0].IsExpanded);
         Assert.False(vm.HasMore);
         _journal.Verify(service => service.OpenAsync(It.IsAny<JournalQuery>(), It.IsAny<CancellationToken>()), Times.Once);

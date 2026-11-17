@@ -133,7 +133,8 @@ public class AppSortingTests
         items.Add(first);
         items.Add(second);
         vm.ApplySortMode(AppSortMode.Size);
-        _external.Setup(service => service.GetAppsAsync()).ReturnsAsync(new[] { first.Definition, second.Definition });
+        _external.Setup(service => service.ReadInventoryAsync())
+            .ReturnsAsync(new ExternalAppInventory([first.Definition, second.Definition], _external.Object.CheckBatchInstalledAsync));
         _windows.Setup(service => service.CheckBatchInstalledAsync(It.IsAny<IEnumerable<ItemDefinition>>()))
             .Callback(() => first.Definition.Metadata = new AppMetadata(null, 3, null))
             .ReturnsAsync(new Dictionary<string, bool> { ["a"] = true, ["b"] = true });

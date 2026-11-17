@@ -80,6 +80,18 @@ public sealed class WindowsContextMenuStoreTests : IDisposable
     }
 
     [Fact]
+    public void ChangingTheTypeOfAnUnchangedVerbValueInvalidatesTheCapturedEvidence()
+    {
+        Value(@"*\shell\Alpha\command", "", @"C:\Fixture\alpha.exe %1");
+        Value(@"*\shell\Alpha", "Other", "same text");
+        var entry = Assert.Single(_store.Read());
+        Value(@"*\shell\Alpha", "Other", "same text", RegistryValueKind.ExpandString);
+
+        Assert.Throws<InvalidOperationException>(() => _store.SetEnabled(entry, false));
+        Assert.True(Assert.Single(_store.Read()).IsEnabled);
+    }
+
+    [Fact]
     public void UserHandlerResolvesMachineClassAndTogglesOnlyItsOwnRegistration()
     {
         const string clsid = "{C64A470F-8B2D-4997-9002-F826AB744E29}";

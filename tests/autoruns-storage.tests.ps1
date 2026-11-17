@@ -51,6 +51,24 @@ function New-Active($id) {
     return $active
 }
 try {
+    $approvalKey = [pscustomobject]@{Values=@{Enabled=[byte[]](2,0); Disabled=[byte[]](7); Unknown=[byte[]](99)}}
+    $approvalKey | Add-Member ScriptMethod GetValue { param($name,$fallback) if ($this.Values.ContainsKey($name)) { return ,$this.Values[$name] }; return $fallback }
+    Assert-Equal $true (Read-Approval $approvalKey 'Enabled')
+    Assert-Equal $false (Read-Approval $approvalKey 'Disabled')
+    Assert-Equal $null (Read-Approval $approvalKey 'Unknown')
+    Assert-Equal $true (Read-Approval $approvalKey 'Missing'); $passed++
+
+    $rows = New-Object 'Collections.Generic.List[object]'
+    $fixtureXml = '<Task xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task"><Triggers><LogonTrigger /></Triggers><Actions><Exec><Command>fixture.exe</Command><Arguments>--start</Arguments></Exec></Actions></Task>'
+    $task = [pscustomobject]@{Name='Fixture'; Path='\Fixture'; SourceXml=$fixtureXml; XmlReads=0; EnabledReads=0}
+    $task | Add-Member ScriptProperty Xml { $this.XmlReads++; $this.SourceXml }
+    $task | Add-Member ScriptProperty Enabled { $this.EnabledReads++; $true }
+    Read-TaskRegistration $task
+    Assert-Equal 1 $rows.Count; Assert-Equal 1 $task.XmlReads; Assert-Equal 1 $task.EnabledReads
+    $identity = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String($rows[0].Id)) | ConvertFrom-Json
+    Assert-Equal (Get-Hash $fixtureXml) $identity.Hash; Assert-Equal 'fixture.exe --start' $rows[0].Command
+    Assert-Equal $identity.Enabled $rows[0].Enabled; $passed++
+
     $id=New-Identity; $active=New-Active $id
     $path=Join-Path $testRoot 'normal.json'
     Save-DisabledRegistryValue $active $id $path
@@ -101,6 +119,16 @@ try {
     }
     $userId=New-Identity; $machineId=New-Identity; $machineId.Hive='LocalMachine'
     if ((Get-RegistryStoragePath $userId) -eq (Get-RegistryStoragePath $machineId)) { throw 'Machine and user startup records share a path.' }; $passed++
+
+    $onceId=New-Identity; $onceId.Key+='Once'; $onceId.Name='ExampleOnce'; $onceId.Value='run-once fixture'
+    foreach ($savedId in @($userId,$onceId)) {
+        Save-DisabledRegistryValue (New-Active $savedId) $savedId (Get-RegistryStoragePath $savedId)
+    }
+    $savedByKey=Read-SavedRegistryItems 'CurrentUser' 'Registry64'
+    Assert-Equal 2 $savedByKey.Count
+    Assert-Equal $userId.Value $savedByKey[$userId.Key][0].Value
+    Assert-Equal $onceId.Value $savedByKey[$onceId.Key][0].Value
+    Assert-Equal $true $savedByKey[$onceId.Key][0].Stored; $passed++
 
     $pending=Join-Path $testRoot 'State\pending.json'
     Save-WinOptimizerJson $pending @{Version=1; Value=0}

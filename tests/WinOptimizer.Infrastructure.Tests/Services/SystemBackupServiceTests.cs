@@ -95,13 +95,41 @@ public class SystemBackupServiceTests
         Assert.Equal(new[] { "status", "storage", "create", "find" }, backend.Calls);
     }
 
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ImmediatelyVisiblePointMustMatchItsSequenceAndCreationTime(bool previousPoint)
+    {
+        var clock = new ControlledClock();
+        var date = clock.GetUtcNow().UtcDateTime.Date;
+        var backend = new FakeBackupBackend
+        {
+            CreateResult = (true, 0), SequenceNumber = 47,
+            Exact = previousPoint ? date.AddMinutes(-1) : date, Found = date
+        };
+        var service = new SystemBackupService(_mockLog.Object, _mockLocalization.Object, backend, clock);
+
+        var operation = service.CreateRestorePointAsync("Example backup");
+        Assert.Equal(new uint?[] { 47 }, backend.VerificationSequences);
+        Assert.Equal(!previousPoint, operation.IsCompletedSuccessfully);
+        if (previousPoint) clock.Advance();
+
+        var result = await operation.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(result.RestorePointCreated);
+        Assert.Equal(date, result.RestorePointDate);
+        Assert.Equal(previousPoint ? new uint?[] { 47, null } : [47], backend.VerificationSequences);
+    }
+
     /// <summary>Records the real orchestration's native boundary calls without touching restore points.</summary>
     private sealed class FakeBackupBackend : ISystemBackupBackend
     {
         public bool Enabled { get; init; } = true;
         public (bool, int) CreateResult { get; init; } = (false, 5);
+        public uint SequenceNumber { get; init; }
+        public DateTime? Exact { get; init; }
         public DateTime? Found { get; init; }
         public List<string> Calls { get; } = [];
+        public List<uint?> VerificationSequences { get; } = [];
         public Action<string>? OnCall { get; set; }
         public string? Description { get; private set; }
         public CancellationToken Token { get; private set; }
@@ -109,15 +137,21 @@ public class SystemBackupServiceTests
         public bool IsEnabled() { Record("status"); return Enabled; }
         public Task<bool> EnableAsync(CancellationToken token) { Record("enable", token); return Task.FromResult(true); }
         public Task EnsureStorageAsync(CancellationToken token) { Record("storage", token); return Task.CompletedTask; }
-        public Task<(bool Success, int StatusCode)> CreateAsync(string description, CancellationToken token)
-        { Description = description; Record("create", token); return Task.FromResult(CreateResult); }
-        public Task<DateTime?> FindAsync(string description, CancellationToken token)
-        { Assert.Equal(Description, description); Record("find", token); return Task.FromResult(Found); }
+        public Task<(bool Success, int StatusCode, uint SequenceNumber)> CreateAsync(string description, CancellationToken token)
+        { Description = description; Record("create", token); return Task.FromResult((CreateResult.Item1, CreateResult.Item2, SequenceNumber)); }
+        public Task<DateTime?> FindAsync(string description, CancellationToken token, uint? sequenceNumber = null)
+        {
+            Assert.Equal(Description, description);
+            Record("find", token);
+            VerificationSequences.Add(sequenceNumber);
+            return Task.FromResult(sequenceNumber.HasValue ? Exact : Found);
+        }
     }
 
     private sealed class ControlledClock : TimeProvider
     {
         private readonly List<DelayTimer> _timers = [];
+        public override DateTimeOffset GetUtcNow() => new(2026, 10, 1, 0, 0, 0, 500, TimeSpan.Zero);
         public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
         { var timer = new DelayTimer(callback, state); _timers.Add(timer); return timer; }
         public void Advance() { foreach (var timer in _timers.ToArray()) timer.Fire(); }

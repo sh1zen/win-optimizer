@@ -23,9 +23,12 @@ public sealed partial class SystemMonitorMetricChart : UserControl
 
     private readonly Canvas _plot = new() { Height = 64 };
     private readonly UniformWrapPanel _legend = new() { ItemWidth = 92, ItemHeight = 22, ColumnSpacing = 6, MaxColumns = 2, StretchItems = true };
+    private readonly List<LegendEntry> _legendEntries = [];
     private readonly TextBlock _maximum = new() { FontSize = 8, HorizontalAlignment = HorizontalAlignment.Right, Opacity = 0.75 };
     private readonly TextBlock _minimum = new() { FontSize = 8, HorizontalAlignment = HorizontalAlignment.Right, Opacity = 0.75 };
     private MonitorMetricSection? _subscribed;
+    private SolidColorBrush[]? _lightBrushes;
+    private SolidColorBrush[]? _darkBrushes;
     private bool _loaded;
     private static readonly Color[] LightPalette = [Color.FromArgb(255, 0, 115, 125), Color.FromArgb(255, 25, 96, 175),
         Color.FromArgb(255, 167, 67, 26), Color.FromArgb(255, 111, 61, 166), Color.FromArgb(255, 119, 97, 0), Color.FromArgb(255, 163, 44, 91)];
@@ -65,30 +68,31 @@ public sealed partial class SystemMonitorMetricChart : UserControl
     /// <summary>Keeps current values and trace colors paired while preserving full device identity for assistive tools.</summary>
     private void Refresh()
     {
-        _legend.Children.Clear();
-        Visibility = Section is { IsEmpty: false } ? Visibility.Visible : Visibility.Collapsed;
-        _maximum.Text = Section?.MaximumLabel ?? "";
-        _minimum.Text = Section?.MinimumLabel ?? "";
-        if (Section is not { } section) return;
-        AutomationProperties.SetName(this, section.Label);
-        ToolTipService.SetToolTip(_plot, section.HistoryLabel);
-        foreach (var series in section.Readings)
+        var section = Section;
+        Visibility = section is { IsEmpty: false } ? Visibility.Visible : Visibility.Collapsed;
+        _maximum.Text = section?.MaximumLabel ?? "";
+        _minimum.Text = section?.MinimumLabel ?? "";
+        var count = section?.Readings.Count ?? 0;
+        while (_legendEntries.Count > count)
         {
-            var entry = new Grid { ColumnSpacing = 4 };
-            entry.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
-            entry.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
-            entry.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
-            entry.Children.Add(new Ellipse { Width = 4, Height = 4, Fill = SeriesBrush(series.ColorIndex), VerticalAlignment = VerticalAlignment.Center });
-            var label = new TextBlock { Text = series.ShortName, FontSize = 8, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center, Opacity = 0.8 };
-            Grid.SetColumn(label, 1);
-            entry.Children.Add(label);
-            var value = new TextBlock { Text = series.Value, FontSize = 9, VerticalAlignment = VerticalAlignment.Center };
-            Grid.SetColumn(value, 2);
-            entry.Children.Add(value);
-            ToolTipService.SetToolTip(entry, $"{series.Name}\n{series.Value}");
-            AutomationProperties.SetName(entry, series.Name);
-            AutomationProperties.SetHelpText(entry, series.Value);
-            _legend.Children.Add(entry);
+            _legend.Children.RemoveAt(_legendEntries.Count - 1);
+            _legendEntries.RemoveAt(_legendEntries.Count - 1);
+        }
+        if (section is not null)
+        {
+            AutomationProperties.SetName(this, section.Label);
+            ToolTipService.SetToolTip(_plot, section.HistoryLabel);
+            for (var index = 0; index < count; index++)
+            {
+                if (index == _legendEntries.Count)
+                {
+                    var entry = new LegendEntry();
+                    _legendEntries.Add(entry);
+                    _legend.Children.Add(entry.Root);
+                }
+                var series = section.Readings[index];
+                _legendEntries[index].Update(series, SeriesBrush(series.ColorIndex));
+            }
         }
         Draw();
     }
@@ -96,12 +100,21 @@ public sealed partial class SystemMonitorMetricChart : UserControl
     /// <summary>Right-aligns 60 real samples, breaks missing segments and marks the latest point even at first sampling.</summary>
     private void Draw()
     {
-        _plot.Children.Clear();
-        if (Section is not { IsEmpty: false } section || _plot.ActualWidth <= 0) return;
+        if (Section is not { IsEmpty: false } section || _plot.ActualWidth <= 0)
+        {
+            _plot.Children.Clear();
+            return;
+        }
+        var shapeIndex = 0;
         for (var index = 0; index <= 2; index++)
         {
             var y = 1 + index * (_plot.Height - 2) / 2;
-            _plot.Children.Add(new Line { X1 = 0, X2 = _plot.ActualWidth, Y1 = y, Y2 = y, Stroke = Foreground, Opacity = 0.12, StrokeThickness = 0.5 });
+            var line = TakeShape<Line>(ref shapeIndex);
+            line.X2 = _plot.ActualWidth;
+            line.Y1 = line.Y2 = y;
+            line.Stroke = Foreground;
+            line.Opacity = 0.12;
+            line.StrokeThickness = 0.5;
         }
         foreach (var series in section.Readings)
         {
@@ -116,24 +129,75 @@ public sealed partial class SystemMonitorMetricChart : UserControl
                 var point = new Point(x, 2 + (_plot.Height - 4) * (1 - (value - section.Minimum) / (section.Maximum - section.Minimum)));
                 if (segment is null)
                 {
-                    segment = new Polyline { Stroke = brush, StrokeThickness = 1.25, StrokeLineJoin = PenLineJoin.Round };
-                    _plot.Children.Add(segment);
+                    segment = TakeShape<Polyline>(ref shapeIndex);
+                    segment.Points.Clear();
+                    segment.Stroke = brush;
+                    segment.StrokeThickness = 1.25;
+                    segment.StrokeLineJoin = PenLineJoin.Round;
                 }
                 segment.Points.Add(point);
                 latest = point;
             }
             if (latest is not { } last) continue;
-            var dot = new Ellipse { Width = 4, Height = 4, Fill = brush };
+            var dot = TakeShape<Ellipse>(ref shapeIndex);
+            dot.Width = dot.Height = 4;
+            dot.Fill = brush;
             Canvas.SetLeft(dot, last.X - 2);
             Canvas.SetTop(dot, last.Y - 2);
-            _plot.Children.Add(dot);
         }
+        while (_plot.Children.Count > shapeIndex) _plot.Children.RemoveAt(_plot.Children.Count - 1);
+    }
+
+    /// <summary>Reuses shapes in drawing order and replaces a slot when the sensor's gap pattern changes.</summary>
+    private T TakeShape<T>(ref int index) where T : Shape, new()
+    {
+        var children = _plot.Children;
+        var slot = index++;
+        if (slot < children.Count && children[slot] is T existing) return existing;
+        var shape = new T();
+        if (slot < children.Count) children[slot] = shape;
+        else children.Add(shape);
+        return shape;
     }
 
     /// <summary>Uses stable sensor slots with contrasting palettes for each widget theme.</summary>
     private SolidColorBrush SeriesBrush(int index)
     {
-        var colors = ActualTheme == ElementTheme.Light ? LightPalette : DarkPalette;
-        return new(colors[index % colors.Length]);
+        var brushes = ActualTheme == ElementTheme.Light
+            ? (_lightBrushes ??= LightPalette.Select(color => new SolidColorBrush(color)).ToArray())
+            : (_darkBrushes ??= DarkPalette.Select(color => new SolidColorBrush(color)).ToArray());
+        return brushes[index % brushes.Length];
+    }
+
+    /// <summary>Owns the reusable row controls for a chart legend slot.</summary>
+    private sealed class LegendEntry
+    {
+        public Grid Root { get; } = new() { ColumnSpacing = 4 };
+        private readonly Ellipse _dot = new() { Width = 4, Height = 4, VerticalAlignment = VerticalAlignment.Center };
+        private readonly TextBlock _label = new() { FontSize = 8, TextTrimming = TextTrimming.CharacterEllipsis,
+            VerticalAlignment = VerticalAlignment.Center, Opacity = 0.8 };
+        private readonly TextBlock _value = new() { FontSize = 9, VerticalAlignment = VerticalAlignment.Center };
+
+        public LegendEntry()
+        {
+            Root.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+            Root.ColumnDefinitions.Add(new() { Width = new GridLength(1, GridUnitType.Star) });
+            Root.ColumnDefinitions.Add(new() { Width = GridLength.Auto });
+            Grid.SetColumn(_label, 1);
+            Grid.SetColumn(_value, 2);
+            Root.Children.Add(_dot);
+            Root.Children.Add(_label);
+            Root.Children.Add(_value);
+        }
+
+        public void Update(MonitorMetricSeries series, SolidColorBrush brush)
+        {
+            _dot.Fill = brush;
+            _label.Text = series.ShortName;
+            _value.Text = series.Value;
+            ToolTipService.SetToolTip(Root, $"{series.Name}\n{series.Value}");
+            AutomationProperties.SetName(Root, series.Name);
+            AutomationProperties.SetHelpText(Root, series.Value);
+        }
     }
 }

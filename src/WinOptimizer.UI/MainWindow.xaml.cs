@@ -1,5 +1,4 @@
 using Microsoft.Extensions.DependencyInjection;
-using Microsoft.UI.Composition.SystemBackdrops;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
@@ -7,9 +6,11 @@ using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
 using Windows.System;
+using Windows.UI.ViewManagement;
 using WinOptimizer.Core.Features.Common.Enums;
 using WinOptimizer.Core.Features.Common.Extensions;
 using WinOptimizer.Core.Features.Common.Interfaces;
+using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.Core.Features.Common.Services;
 using WinOptimizer.UI.Features.Common.Controls;
 using WinOptimizer.UI.Features.Common.Interfaces;
@@ -52,6 +53,8 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
     private TaskProgressCoordinator? _taskProgressCoordinator;
     private NavigationRouter? _navigationRouter;
     private StartupUiCoordinator? _startupUiCoordinator;
+    private PageBlurTransition? _pageBlurTransition;
+    private UISettings? _uiSettings;
     private TitleBarManager? _titleBarManager;
 
     /// <summary>
@@ -107,7 +110,12 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
         _loadingView.ActualThemeChanged += (_, _) => _titleBarManager?.ApplyThemeToCaptionButtons(_loadingView.ActualTheme);
         _loadingView.Loaded += (_, _) => _titleBarManager?.ApplyThemeToCaptionButtons(_loadingView.ActualTheme);
         AppWindow.SetIcon(System.IO.Path.Combine(AppContext.BaseDirectory, AppBranding.IconRelativePath));
-        Closed += (_, _) => { IsClosed = true; ViewModel?.UpdateCheck.Dispose(); };
+        Closed += (_, _) =>
+        {
+            IsClosed = true;
+            _pageBlurTransition?.Dispose();
+            ViewModel?.UpdateCheck.Dispose();
+        };
     }
 
     /// <summary>Builds the shell in the existing window after storage and preferences are available.</summary>
@@ -117,6 +125,7 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
         var requestedTheme = _loadingView.RequestedTheme;
         Content = null;
         this.InitializeComponent();
+        _pageBlurTransition = new PageBlurTransition(PageTransitionOverlay, _logService);
         RootGrid.RequestedTheme = requestedTheme;
         _loadingView.RequestedTheme = ElementTheme.Default;
         LoadingOverlay.Children.Add(_loadingView);
@@ -133,9 +142,6 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
 
         // Initialize app-local UI zoom (Ctrl +/-/0, Ctrl+MouseWheel)
         InitializeUiZoom();
-
-        // Apply Mica backdrop (Windows 11) with fallback to DesktopAcrylic (Windows 10)
-        TrySetMicaBackdrop();
 
         // Initialize DispatcherService - MUST be done before any service uses it
         InitializeDispatcherService();
@@ -160,12 +166,13 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
     internal void InitializeLoadingPresentation(ILocalizationService localization) => _loadingView.ApplyLocalization(localization);
 
     /// <summary>Restores placement once, before the loader's first visible frame.</summary>
-    internal Task InitializeWindowPlacementAsync(IUserPreferencesService preferences, ILogService logService)
+    internal Task InitializeWindowPlacementAsync(IUserPreferencesService preferences, ILogService logService,
+        UserPreferencesSnapshot? snapshot = null)
     {
         _logService = logService;
         _titleBarManager ??= new TitleBarManager(AppWindow, logService);
         _windowSizeManager ??= new WindowSizeManager(AppWindow, preferences, logService);
-        return _windowPlacementInitialization ??= _windowSizeManager.InitializeAsync();
+        return _windowPlacementInitialization ??= _windowSizeManager.InitializeAsync(snapshot);
     }
 
     #region Startup & Initialization
@@ -336,29 +343,6 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
         var accelerator = new KeyboardAccelerator { Key = key, Modifiers = VirtualKeyModifiers.Control };
         accelerator.Invoked += handler;
         return accelerator;
-    }
-
-    /// <summary>
-    /// Attempts to set Mica backdrop for Windows 11, falls back to DesktopAcrylic for Windows 10.
-    /// </summary>
-    private void TrySetMicaBackdrop()
-    {
-        try
-        {
-            if (MicaController.IsSupported())
-            {
-                SystemBackdrop = new MicaBackdrop { Kind = MicaKind.Base };
-                return;
-            }
-            if (DesktopAcrylicController.IsSupported())
-            {
-                SystemBackdrop = new DesktopAcrylicBackdrop();
-            }
-        }
-        catch (Exception ex)
-        {
-            _logService?.LogDebug($"Failed to set backdrop: {ex.Message}");
-        }
     }
 
     /// <summary>
@@ -626,6 +610,11 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
         _navigationRouter?.OnNavigated(e.SourcePageType, ApplyNavBadges);
         UpdateTrialToolsState();
         UpdateNavigationState();
+        if (!_isStartupLoading)
+        {
+            _uiSettings ??= new UISettings();
+            _pageBlurTransition?.Play(TrialToolsOverlay.Visibility == Visibility.Collapsed && _uiSettings.AnimationsEnabled);
+        }
     }
 
     private void UpdateNavigationState()

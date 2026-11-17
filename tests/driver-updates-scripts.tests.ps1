@@ -16,6 +16,7 @@ function New-TestUpdate([string]$id, [object[]]$children = @(), [bool]$license =
         Title = 'Official test driver'; DriverProvider = 'Test'; DriverClass = 'Net'
         DriverHardwareID = 'PCI\TEST'; DriverVerDate = [datetime]'2026-01-01'; MaxDownloadSize = 4096
         EulaAccepted = $license; IsDownloaded = $true; BundledUpdates = (New-TestCollection $children)
+        DownloadCode = 2; DownloadHResult = 0
     }
     $offer | Add-Member ScriptMethod CopyFromCache {
         param($destination, $extract)
@@ -28,8 +29,8 @@ function New-Object {
     param([string]$ComObject)
     if ($ComObject -eq 'Microsoft.Update.Session') { return $script:testSession }
     if ($ComObject -eq 'Microsoft.Update.UpdateColl') {
-        $collection = [pscustomobject]@{}
-        $collection | Add-Member ScriptMethod Add { param($update) $script:testDownloadOffer = $update; return 0 }
+        $collection = [pscustomobject]@{ Values = [Collections.Generic.List[object]]::new() }
+        $collection | Add-Member ScriptMethod Add { param($update) $this.Values.Add($update); return $this.Values.Count - 1 }
         return $collection
     }
     throw "Unexpected COM request: $ComObject"
@@ -47,8 +48,16 @@ $script:testSession | Add-Member ScriptMethod CreateUpdateSearcher { return $scr
 $script:testSession | Add-Member ScriptMethod CreateUpdateDownloader {
     $downloader = [pscustomobject]@{ Updates = $null }
     $downloader | Add-Member ScriptMethod Download {
-        $script:testDownloadOffer.IsDownloaded = $true
-        return [pscustomobject]@{ ResultCode = 2 }
+        $script:testDownloadJobs.Add($this.Updates.Values.Count)
+        if ($script:testRejectBatch -and $this.Updates.Values.Count -gt 1) { throw 'Test download job rejected.' }
+        $results = foreach ($offer in $this.Updates.Values) {
+            Assert-True ($offer.EulaAccepted -and -not $offer.IsDownloaded) 'Only uncached, licensed offers belong in a download job.'
+            if ($offer.DownloadCode -eq 2) { $offer.IsDownloaded = $true }
+            [pscustomobject]@{ ResultCode = $offer.DownloadCode; HResult = $offer.DownloadHResult }
+        }
+        $download = [pscustomobject]@{ Results = @($results) }
+        $download | Add-Member ScriptMethod GetUpdateResult { param($position) $this.Results[$position] }
+        return $download
     }
     return $downloader
 }
@@ -56,6 +65,7 @@ $testId = 'd4335ba6-fd4e-4081-9bb5-379f7fa346bc'
 $testChildId = '5de1ae26-a3c1-4100-b126-35fa00000001'
 $testOtherId = '5de1ae26-a3c1-4100-b126-35fa00000002'
 $workspace = Join-Path (Split-Path -Parent $ScriptPath) 'payloads'
+$script:testDownloadJobs = [Collections.Generic.List[int]]::new()
 
 # Flat, nested and sibling bundles retain distinct payloads even with identical file names.
 $script:testOffers = @(New-TestUpdate $testId @(
@@ -73,6 +83,28 @@ Assert-True ($result.Updates.Count -eq 2) 'A license restriction must preserve d
 Assert-True (Test-Path -LiteralPath (Join-Path $workspace "$testChildId\driver.inf")) 'Flat payload missing.'
 Assert-True ($result.Updates[1].PayloadError -like '*license*') 'License restriction must be reported.'
 Assert-True (-not (Test-Path -LiteralPath (Join-Path $workspace "$testOtherId\driver.inf"))) 'Unaccepted license must not export payloads.'
+
+$workspace = Join-Path $workspace 'multiple-offers'
+$script:testDownloadJobs.Clear()
+$script:testOffers = @((New-TestUpdate $testChildId), (New-TestUpdate $testOtherId), (New-TestUpdate $testId -license $false))
+foreach ($offer in $script:testOffers) { $offer.IsDownloaded = $false }
+$script:testOffers[1].DownloadCode = 4
+$script:testOffers[1].DownloadHResult = 0x80240022
+$result = (. $ScriptPath) | ConvertFrom-Json
+Assert-True (($script:testDownloadJobs -join ',') -eq '2') 'Uncached licensed offers should share one download job.'
+Assert-True ($result.Updates[0].Id -eq $testChildId -and $result.Updates[0].PayloadError -eq '') 'A successful offer must retain its position and be exported.'
+Assert-True ($result.Updates[1].Id -eq $testOtherId -and $result.Updates[1].PayloadError -like '*80240022*') 'A failed offer must retain its own HRESULT.'
+Assert-True (Test-Path -LiteralPath (Join-Path $workspace "$testChildId\driver.inf")) 'Successful payload missing from partial batch.'
+Assert-True (-not (Test-Path -LiteralPath (Join-Path $workspace "$testOtherId\driver.inf"))) 'Failed payload must not be exported.'
+Assert-True ($result.Updates[2].PayloadError -like '*license*') 'An unlicensed offer must keep its original diagnostic.'
+
+$workspace = Join-Path $workspace 'isolated-jobs'
+$script:testDownloadJobs.Clear()
+$script:testRejectBatch = $true
+foreach ($offer in $script:testOffers) { $offer.IsDownloaded = $false }
+$result = (. $ScriptPath) | ConvertFrom-Json
+Assert-True (($script:testDownloadJobs -join ',') -eq '2,1,1') 'A rejected job must isolate each eligible offer.'
+Assert-True ($result.Updates[0].PayloadError -eq '' -and $result.Updates[1].PayloadError -like '*80240022*') 'Isolated jobs must report individual results.'
 
 $script:testOffers = @()
 $result = (. $ScriptPath) | ConvertFrom-Json

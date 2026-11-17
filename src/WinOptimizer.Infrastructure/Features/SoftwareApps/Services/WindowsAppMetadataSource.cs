@@ -19,43 +19,94 @@ public sealed class WindowsAppMetadataSource(IInteractiveUserService user, ILogS
     internal sealed record PackageMetadata(string Name, string Family, DateTimeOffset Installed, long? Bytes);
     private readonly ConcurrentDictionary<(string FullName, string Path), Lazy<long?>> _packageSizes = new();
 
+    public Task<IReadOnlyDictionary<string, AppMetadata>> ReadAsync(IReadOnlyList<ItemDefinition> definitions) =>
+        ReadMetadataAsync(definitions, null);
+
+    public Task<IReadOnlyDictionary<string, AppMetadata>> ReadAsync(IReadOnlyList<ItemDefinition> definitions,
+        IReadOnlyList<AppxRegistration> registrations) => ReadMetadataAsync(definitions, registrations);
+
     /// <summary>Overlaps independent registry, usage and package reads before matching their snapshots.</summary>
-    public async Task<IReadOnlyDictionary<string, AppMetadata>> ReadAsync(IReadOnlyList<ItemDefinition> definitions)
+    private async Task<IReadOnlyDictionary<string, AppMetadata>> ReadMetadataAsync(IReadOnlyList<ItemDefinition> definitions,
+        IReadOnlyList<AppxRegistration>? appxRegistrations)
     {
         if (definitions.Count == 0)
             return new Dictionary<string, AppMetadata>();
         var registrationsTask = Task.Run(ReadRegistrations);
         var usageTask = Task.Run(ReadUsage);
-        var packagesTask = Task.Run(() => ReadPackages(definitions));
+        var packagesTask = Task.Run(() => ReadPackages(definitions, appxRegistrations));
         await Task.WhenAll(registrationsTask, usageTask, packagesTask).ConfigureAwait(false);
-        var registrations = await registrationsTask.ConfigureAwait(false);
-        var usage = await usageTask.ConfigureAwait(false);
-        var packages = await packagesTask.ConfigureAwait(false);
+        var snapshot = new MetadataSnapshot(await registrationsTask.ConfigureAwait(false),
+            await packagesTask.ConfigureAwait(false), await usageTask.ConfigureAwait(false));
         return definitions.ToDictionary(item => item.Id,
-            item => Match(item, registrations, packages, usage, path => AppPaths.Expand(path, ResolveFolder)), StringComparer.OrdinalIgnoreCase);
+            item => snapshot.Match(item, path => AppPaths.Expand(path, ResolveFolder)), StringComparer.OrdinalIgnoreCase);
     }
 
-    /// <summary>Associates evidence only with explicit fingerprints, exact names, package families or executable paths.</summary>
-    internal static AppMetadata Match(ItemDefinition item, IReadOnlyList<Registration> registrations,
-        IReadOnlyList<PackageMetadata> packages, IReadOnlyDictionary<string, DateTimeOffset> usage, Func<string, string> expandPath)
+    /// <summary>Indexes one refresh's exact identities and usage evidence for all installed definitions.</summary>
+    internal sealed class MetadataSnapshot
     {
-        var matches = registrations.Where(entry =>
-            item.RegistryUninstallKeyPath is { } keyPath ? string.Equals(entry.KeyPath, keyPath, StringComparison.OrdinalIgnoreCase) :
-            (!string.IsNullOrEmpty(item.RegistrySubKeyName) && AppStatusDiscoveryService.MatchesPattern(entry.Key, item.RegistrySubKeyName)) ||
-            (!string.IsNullOrEmpty(item.RegistryDisplayName) && AppStatusDiscoveryService.MatchesPattern(entry.Name, item.RegistryDisplayName)) ||
-            (string.IsNullOrEmpty(item.RegistrySubKeyName) && string.IsNullOrEmpty(item.RegistryDisplayName) &&
-                string.Equals(entry.Name, item.Name, StringComparison.OrdinalIgnoreCase))).ToList();
-        var packageMatches = packages.Where(package => item.AppxPackageName?.Contains(package.Name,
-            StringComparer.OrdinalIgnoreCase) == true).ToList();
-        var dates = matches.Select(entry => entry.Installed).Concat(packageMatches.Select(package => (DateTimeOffset?)package.Installed));
-        // Multiple registrations can describe the same product. Use the largest reported footprint instead of double counting it.
-        var sizes = matches.Select(entry => entry.Bytes).Concat(packageMatches.Select(package => package.Bytes));
-        var paths = matches.Select(entry => entry.Executable).Concat(item.DetectionPaths ?? [])
-            .Where(path => !string.IsNullOrWhiteSpace(path)).Select(path => expandPath(path!)).ToList();
-        var lastUse = usage.Where(entry => paths.Contains(entry.Key, StringComparer.OrdinalIgnoreCase) ||
-            packageMatches.Any(package => entry.Key.StartsWith(package.Family + "!", StringComparison.OrdinalIgnoreCase)))
-            .Select(entry => (DateTimeOffset?)entry.Value).Max();
-        return new AppMetadata(dates.Max(), sizes.Max(), lastUse);
+        private readonly IReadOnlyList<Registration> _registrations;
+        private readonly ILookup<string?, Registration> _registrationPaths;
+        private readonly ILookup<string, Registration> _registrationNames;
+        private readonly ILookup<string, PackageMetadata> _packageNames;
+        private readonly Dictionary<string, DateTimeOffset> _pathUsage = new(StringComparer.OrdinalIgnoreCase);
+        private readonly Dictionary<string, DateTimeOffset> _familyUsage = new(StringComparer.OrdinalIgnoreCase);
+
+        public MetadataSnapshot(IReadOnlyList<Registration> registrations, IReadOnlyList<PackageMetadata> packages,
+            IReadOnlyDictionary<string, DateTimeOffset> usage)
+        {
+            _registrations = registrations;
+            _registrationPaths = registrations.ToLookup(entry => entry.KeyPath, StringComparer.OrdinalIgnoreCase);
+            _registrationNames = registrations.ToLookup(entry => entry.Name, StringComparer.OrdinalIgnoreCase);
+            _packageNames = packages.ToLookup(entry => entry.Name, StringComparer.OrdinalIgnoreCase);
+            foreach (var (identity, time) in usage)
+            {
+                RecordUsage(_pathUsage, identity, time);
+                var separator = identity.IndexOf('!');
+                if (separator >= 0) RecordUsage(_familyUsage, identity[..separator], time);
+            }
+        }
+
+        /// <summary>Associates evidence only with explicit fingerprints, exact names, package families or executable paths.</summary>
+        public AppMetadata Match(ItemDefinition item, Func<string, string> expandPath)
+        {
+            IEnumerable<Registration> registrations;
+            if (item.RegistryUninstallKeyPath is { } keyPath) registrations = _registrationPaths[keyPath];
+            else if (string.IsNullOrEmpty(item.RegistrySubKeyName) && string.IsNullOrEmpty(item.RegistryDisplayName))
+                registrations = _registrationNames[item.Name];
+            else registrations = _registrations.Where(entry =>
+                (item.RegistrySubKeyName is { Length: > 0 } key && AppStatusDiscoveryService.MatchesPattern(entry.Key, key)) ||
+                (item.RegistryDisplayName is { Length: > 0 } name && AppStatusDiscoveryService.MatchesPattern(entry.Name, name)));
+
+            DateTimeOffset? installed = null, used = null;
+            long? bytes = null;
+            foreach (var registration in registrations)
+            {
+                if (installed is null || registration.Installed > installed) installed = registration.Installed;
+                // Multiple registrations can describe the same product. Keep the largest reported footprint.
+                if (bytes is null || registration.Bytes > bytes) bytes = registration.Bytes;
+                ReadPathUsage(registration.Executable);
+            }
+            foreach (var path in item.DetectionPaths ?? []) ReadPathUsage(path);
+            foreach (var name in item.AppxPackageName ?? [])
+            foreach (var package in _packageNames[name])
+            {
+                if (installed is null || package.Installed > installed) installed = package.Installed;
+                if (bytes is null || package.Bytes > bytes) bytes = package.Bytes;
+                if (_familyUsage.TryGetValue(package.Family, out var time) && (used is null || time > used)) used = time;
+            }
+            return new AppMetadata(installed, bytes, used);
+
+            void ReadPathUsage(string? path)
+            {
+                if (!string.IsNullOrWhiteSpace(path) && _pathUsage.TryGetValue(expandPath(path), out var time) &&
+                    (used is null || time > used)) used = time;
+            }
+        }
+
+        private static void RecordUsage(Dictionary<string, DateTimeOffset> usage, string identity, DateTimeOffset time)
+        {
+            if (!usage.TryGetValue(identity, out var previous) || time > previous) usage[identity] = time;
+        }
     }
 
     /// <summary>Reads both machine registry views and the interactive user's registrations once per refresh.</summary>
@@ -169,20 +220,30 @@ public sealed class WindowsAppMetadataSource(IInteractiveUserService user, ILogS
     }
 
     /// <summary>Collects only matching package metadata; package size counts regular files without following reparse points.</summary>
-    private List<PackageMetadata> ReadPackages(IReadOnlyList<ItemDefinition> definitions)
+    internal List<PackageMetadata> ReadPackages(IReadOnlyList<ItemDefinition> definitions, IReadOnlyList<AppxRegistration>? registrations)
     {
         var result = new List<PackageMetadata>();
         var names = definitions.SelectMany(item => item.AppxPackageName ?? []).ToHashSet(StringComparer.OrdinalIgnoreCase);
         if (names.Count == 0) return result;
+        if (registrations is not null)
+        {
+            foreach (var registration in registrations)
+            {
+                if (!names.Contains(registration.Name)) continue;
+                try { result.Add(MeasurePackage(registration.Name, registration.ReadDetails())); }
+                catch (Exception ex) when (IsReadFailure(ex)) { log.LogWarning($"App package metadata unavailable: {ex.Message}"); }
+            }
+            return result;
+        }
         try
         {
             foreach (var package in new PackageManager().FindPackagesForUser(user.IsOtsElevation ? user.InteractiveUserSid! : ""))
             {
-                if (!names.Contains(package.Id.Name)) continue;
+                var name = package.Id.Name;
+                if (!names.Contains(name)) continue;
                 try
                 {
-                    result.Add(new PackageMetadata(package.Id.Name, package.Id.FamilyName, package.InstalledDate,
-                        GetPackageSize(package.Id.FullName, package.InstalledLocation.Path, package.IsDevelopmentMode)));
+                    result.Add(MeasurePackage(name, WindowsAppxDeployment.ReadRegistrationDetails(package)));
                 }
                 catch (Exception ex) when (IsReadFailure(ex)) { log.LogWarning($"App package metadata unavailable: {ex.Message}"); }
             }
@@ -190,6 +251,9 @@ public sealed class WindowsAppMetadataSource(IInteractiveUserService user, ILogS
         catch (Exception ex) when (IsReadFailure(ex)) { log.LogWarning($"App package metadata inventory unavailable: {ex.Message}"); }
         return result;
     }
+
+    private PackageMetadata MeasurePackage(string name, AppxRegistrationDetails details) =>
+        new(name, details.Family, details.Installed, GetPackageSize(details.FullName, details.Path, details.IsDevelopmentMode));
 
     /// <summary>Reuses immutable installed-package measurements; development files and failures stay fresh.</summary>
     internal long? GetPackageSize(string fullName, string path, bool isDevelopmentMode)

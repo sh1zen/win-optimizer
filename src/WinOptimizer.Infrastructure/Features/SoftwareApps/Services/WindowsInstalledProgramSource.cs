@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using WinOptimizer.Core.Features.Common.Interfaces;
+using WinOptimizer.Core.Features.SoftwareApps.Interfaces;
 using WinOptimizer.Core.Features.SoftwareApps.Models;
 
 namespace WinOptimizer.Infrastructure.Features.SoftwareApps.Services;
@@ -8,7 +9,7 @@ namespace WinOptimizer.Infrastructure.Features.SoftwareApps.Services;
 /// <summary>Uninstall registration evidence, including hidden records used by catalogue fingerprints.</summary>
 public sealed record InstalledProgram(string KeyPath, string Name, string? UninstallCommand,
     bool IsSystemComponent = false, string? ParentKeyName = null, string? ReleaseType = null, string? WebsiteUrl = null,
-    string? DisplayIcon = null)
+    string? DisplayIcon = null) : IRegisteredDesktopIcon
 {
     public string KeyName => KeyPath[(KeyPath.LastIndexOf('\\') + 1)..];
     public bool IsVisible => !string.IsNullOrWhiteSpace(Name) && !IsSystemComponent &&
@@ -47,6 +48,9 @@ public interface IInstalledProgramSource
 /// <summary>Reads both registry views for the machine and interactive user through the shared registry boundary.</summary>
 public sealed class WindowsInstalledProgramSource(IWindowsRegistryService registry) : IInstalledProgramSource
 {
+    private static readonly string[] RegistrationValues =
+        ["DisplayName", "UninstallString", "SystemComponent", "ParentKeyName", "ReleaseType", "URLInfoAbout", "DisplayIcon"];
+
     internal static readonly string[] Roots =
     [
         @"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall",
@@ -59,17 +63,21 @@ public sealed class WindowsInstalledProgramSource(IWindowsRegistryService regist
     {
         var result = new List<InstalledProgram>();
         foreach (var root in Roots)
-        foreach (var name in registry.GetSubKeyNames(root))
         {
-            var path = root + "\\" + name;
-            if (!IsProgramKey(path)) continue;
-            result.Add(new InstalledProgram(path, registry.GetValue(path, "DisplayName") as string ?? "",
-                registry.GetValue(path, "UninstallString") as string,
-                registry.GetValue(path, "SystemComponent") is int component && component == 1,
-                registry.GetValue(path, "ParentKeyName") as string,
-                registry.GetValue(path, "ReleaseType") as string,
-                registry.GetValue(path, "URLInfoAbout") as string,
-                registry.GetValue(path, "DisplayIcon") as string));
+            var paths = registry.GetSubKeyNames(root).Select(name => root + "\\" + name).Where(IsProgramKey).ToArray();
+            if (paths.Length == 0) continue;
+            var values = registry.GetBatchValues(paths.SelectMany(path => RegistrationValues.Select(name => (path, (string?)name))));
+            foreach (var path in paths)
+            {
+                var prefix = path + "\\";
+                result.Add(new InstalledProgram(path, values.GetValueOrDefault(prefix + "DisplayName") as string ?? "",
+                    values.GetValueOrDefault(prefix + "UninstallString") as string,
+                    values.GetValueOrDefault(prefix + "SystemComponent") is int component && component == 1,
+                    values.GetValueOrDefault(prefix + "ParentKeyName") as string,
+                    values.GetValueOrDefault(prefix + "ReleaseType") as string,
+                    values.GetValueOrDefault(prefix + "URLInfoAbout") as string,
+                    values.GetValueOrDefault(prefix + "DisplayIcon") as string));
+            }
         }
         return result;
     });

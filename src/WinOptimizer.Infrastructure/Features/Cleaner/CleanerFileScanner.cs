@@ -356,42 +356,38 @@ public sealed class CleanerFileScanner(ICleanerRegistrySessions accounts, IAppxP
             { notices.Add($"{root.Path}: {ex.Message}"); }
         }
         progress?.Report(new($"Cleaner_{area}", 0, candidates.Count));
-        var inspections = new (CleanerFinding? Finding, string? Notice, ExceptionDispatchInfo? Failure, bool SharingConflict)[candidates.Count];
+        const int batchSize = 64;
+        var inspections = new (CleanerFinding? Finding, string? Notice, ExceptionDispatchInfo? Failure, bool SharingConflict)[Math.Min(batchSize, candidates.Count)];
         // Bound independent read/lock checks, then publish each batch in discovery order.
-        for (int start = 0; start < candidates.Count; start += 64)
+        for (int start = 0; start < candidates.Count; start += batchSize)
         {
             ct.ThrowIfCancellationRequested();
-            int end = Math.Min(start + 64, candidates.Count);
+            Array.Clear(inspections);
+            int end = Math.Min(start + batchSize, candidates.Count);
             if (area != CleanerArea.Shortcuts)
                 Parallel.For(start, end, new ParallelOptions { MaxDegreeOfParallelism = 4, CancellationToken = ct }, InspectCandidate);
             for (int index = start; index < end; index++)
             {
-                if (area == CleanerArea.Shortcuts || inspections[index].SharingConflict)
+                ref var inspection = ref inspections[index - start];
+                if (area == CleanerArea.Shortcuts || inspection.SharingConflict)
                 {
                     // Shortcut checks stay serial; hard-link conflicts are retried
                     // after all parallel checks have released their exclusive handles.
-                    inspections[index].SharingConflict = false;
-                    inspections[index].Notice = null;
-                    inspections[index].Finding = null;
+                    inspection = default;
                     InspectCandidate(index);
                 }
-                Publish(index);
+                inspection.Failure?.Throw();
+                if (inspection.Notice is { } notice) notices.Add(notice);
+                if (inspection.Finding is { } finding) findings.Add(finding);
             }
             progress?.Report(new($"Cleaner_{area}", end, candidates.Count));
         }
         return new(findings.AsReadOnly(), notices.AsReadOnly()) { CheckedItems = candidates.Count };
 
-        // Only the coordinating worker mutates result lists and posts progress.
-        void Publish(int index)
-        {
-            inspections[index].Failure?.Throw();
-            if (inspections[index].Notice is { } notice) notices.Add(notice);
-            if (inspections[index].Finding is { } finding) findings.Add(finding);
-        }
-
         void InspectCandidate(int index)
         {
             ct.ThrowIfCancellationRequested();
+            ref var inspection = ref inspections[index % batchSize];
             var candidate = candidates[index];
             var path = candidate.Path;
             try
@@ -423,16 +419,16 @@ public sealed class CleanerFileScanner(ICleanerRegistrySessions accounts, IAppxP
                     catch (Exception ex) when (area is CleanerArea.Privacy or CleanerArea.JunkFiles && ex is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
                     {
                         unavailableReason = ex.Message;
-                        inspections[index].SharingConflict = ex is System.ComponentModel.Win32Exception { NativeErrorCode: 32 };
-                        inspections[index].Notice = $"{path}: {ex.Message}";
+                        inspection.SharingConflict = ex is System.ComponentModel.Win32Exception { NativeErrorCode: 32 };
+                        inspection.Notice = $"{path}: {ex.Message}";
                     }
                 }
-                inspections[index].Finding = new(Guid.NewGuid(), area, candidate.Source.LabelKey, path, info.Length, unavailableReason is null, evidence)
+                inspection.Finding = new(Guid.NewGuid(), area, candidate.Source.LabelKey, path, info.Length, unavailableReason is null, evidence)
                     { UnavailableReason = unavailableReason };
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or COMException or System.ComponentModel.Win32Exception)
-            { inspections[index].Notice = $"{path}: {ex.Message}"; }
-            catch (Exception ex) { inspections[index].Failure = ExceptionDispatchInfo.Capture(ex); }
+            { inspection.Notice = $"{path}: {ex.Message}"; }
+            catch (Exception ex) { inspection.Failure = ExceptionDispatchInfo.Capture(ex); }
         }
     }
 

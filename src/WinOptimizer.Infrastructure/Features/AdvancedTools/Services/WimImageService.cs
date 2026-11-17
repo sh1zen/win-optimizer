@@ -192,7 +192,8 @@ public class WimImageService : IWimImageService
                 }
             }
 
-            await Task.Delay(2000, cancellationToken).ConfigureAwait(false);
+            // Each export has exited and drained its output. Check the completed image now.
+            cancellationToken.ThrowIfCancellationRequested();
 
             if (!_fileSystemService.FileExists(targetFile))
             {

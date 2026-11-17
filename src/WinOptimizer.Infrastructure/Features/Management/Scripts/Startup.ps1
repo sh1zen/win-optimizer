@@ -20,20 +20,26 @@ function Add-Row($identity, [string]$name, [string]$category, [string]$location,
         Command=$command; ImagePath=$image; Publisher=$publisher; Signer=''; Profile=$profile;
         Enabled=$enabled; CanToggle=$editable; Details=$details })
 }
-function Get-Approval($root, [string]$branch, [string]$name) {
+function Open-ApprovalKey($root, [string]$branch) {
     # StartupApproved belongs to the native Explorer registry view, including Run32 records.
     $hive = if ($root.Name -eq 'HKEY_LOCAL_MACHINE') { [Microsoft.Win32.RegistryHive]::LocalMachine } else { [Microsoft.Win32.RegistryHive]::CurrentUser }
     $view = if ([Environment]::Is64BitOperatingSystem) { [Microsoft.Win32.RegistryView]::Registry64 } else { [Microsoft.Win32.RegistryView]::Registry32 }
     $approvalRoot=[Microsoft.Win32.RegistryKey]::OpenBaseKey($hive,$view)
-    $key=$null
     try {
-        $key = $approvalRoot.OpenSubKey('SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\' + $branch)
-        if ($null -eq $key) { return $true }
-        $value = $key.GetValue($name, $null)
-        if ($null -eq $value) { return $true }
-        if ($value -isnot [byte[]] -or $value.Length -lt 1) { return $null }
-        switch ($value[0]) { 2 { return $true }; 6 { return $true }; 3 { return $false }; 7 { return $false }; default { return $null } }
-    } finally { if ($key) { $key.Dispose() }; $approvalRoot.Dispose() }
+        return $approvalRoot.OpenSubKey('SOFTWARE\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\' + $branch)
+    } finally { $approvalRoot.Dispose() }
+}
+function Read-Approval($key, [string]$name) {
+    if ($null -eq $key) { return $true }
+    $value = $key.GetValue($name, $null)
+    if ($null -eq $value) { return $true }
+    if ($value -isnot [byte[]] -or $value.Length -lt 1) { return $null }
+    switch ($value[0]) { 2 { return $true }; 6 { return $true }; 3 { return $false }; 7 { return $false }; default { return $null } }
+}
+function Get-Approval($root, [string]$branch, [string]$name) {
+    $key = Open-ApprovalKey $root $branch
+    try { Read-Approval $key $name }
+    finally { if ($key) { $key.Dispose() } }
 }
 # Storage names hash the complete source identity; registry value names never become filesystem paths.
 function Get-StorageName([string]$identity) {
@@ -90,38 +96,51 @@ function Restore-DisabledRegistryValue($destination,$id,[string]$path) {
     Assert-SavedRegistrySnapshot (Read-WinOptimizerJson $path) $id
     [IO.File]::Delete($path)
 }
+# Validates each saved record once and groups it under its original registry key.
+function Read-SavedRegistryItems($hive,$view) {
+    $saved=@{}
+    $storage=Join-Path (Get-AutorunStorage ($hive -eq 'LocalMachine')) ('Registry\' + $view)
+    Assert-WinOptimizerStoragePath $storage
+    if ([IO.Directory]::Exists($storage)) {
+        foreach ($file in [IO.Directory]::EnumerateFiles($storage,'*.json')) {
+            $record=Read-WinOptimizerJson $file
+            Assert-RegistryIdentity $record
+            if ((Get-RegistryStoragePath $record) -ine $file) { throw 'A saved startup record has an invalid identity.' }
+            if ($record.Hive -eq [string]$hive -and $record.View -eq [string]$view) {
+                if (-not $saved.ContainsKey($record.Key)) { $saved[$record.Key]=[Collections.Generic.List[object]]::new() }
+                $saved[$record.Key].Add($record)
+            }
+        }
+    }
+    return $saved
+}
 function Read-Registry($hive,$view) {
     $root=[Microsoft.Win32.RegistryKey]::OpenBaseKey($hive,$view)
     try {
+        $saved=Read-SavedRegistryItems $hive $view
         foreach ($leaf in @('Run','RunOnce')) {
             $path='SOFTWARE\Microsoft\Windows\CurrentVersion\' + $leaf
             $active=$root.OpenSubKey($path)
+            $approvalKey=$null
             try {
                 $records=New-Object 'Collections.Generic.List[object]'
+                $activeNames=@()
                 if ($active) {
-                    foreach ($name in $active.GetValueNames()) {
+                    $activeNames=$active.GetValueNames()
+                    foreach ($name in $activeNames) {
                         $records.Add([pscustomobject]@{Type='Registry'; Hive=[string]$hive; View=[string]$view; Key=$path; Name=$name;
                             Stored=$false; Value=$active.GetValue($name,$null,[Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames); Kind=[string]$active.GetValueKind($name)})
                     }
                 }
-                $storage=Join-Path (Get-AutorunStorage ($hive -eq 'LocalMachine')) ('Registry\' + $view)
-                Assert-WinOptimizerStoragePath $storage
-                if ([IO.Directory]::Exists($storage)) {
-                    foreach ($file in [IO.Directory]::EnumerateFiles($storage,'*.json')) {
-                        $record=Read-WinOptimizerJson $file
-                        Assert-RegistryIdentity $record
-                        if ((Get-RegistryStoragePath $record) -ine $file) { throw 'A saved startup record has an invalid identity.' }
-                        if ($record.Hive -eq [string]$hive -and $record.View -eq [string]$view -and $record.Key -eq $path) { $records.Add($record) }
-                    }
+                if ($saved.ContainsKey($path)) { $records.AddRange($saved[$path]) }
+                if ($leaf -eq 'Run' -and $records.Count -gt 0) {
+                    $branch=if ($view -eq 'Registry32' -and [Environment]::Is64BitOperatingSystem) { 'Run32' } else { 'Run' }
+                    $approvalKey=Open-ApprovalKey $root $branch
                 }
                 foreach ($id in $records) {
                     $supported=$id.Kind -in @('String','ExpandString')
-                    $approval=$true
-                    if ($leaf -eq 'Run') {
-                        $branch=if ($view -eq 'Registry32' -and [Environment]::Is64BitOperatingSystem) { 'Run32' } else { 'Run' }
-                        $approval=Get-Approval $root $branch $id.Name
-                    }
-                    $conflict=if ($id.Stored) { $active -and $active.GetValueNames() -contains $id.Name }
+                    $approval=Read-Approval $approvalKey $id.Name
+                    $conflict=if ($id.Stored) { $active -and $activeNames -contains $id.Name }
                         else { $supported -and $id.Name.Length -gt 0 -and [IO.File]::Exists((Get-RegistryStoragePath $id)) }
                     $details=if ($conflict) { 'Both an active entry and a saved entry exist. Resolve the conflict before changing this entry.' }
                         elseif ($approval -ne $true) { 'Windows controls this startup state. Use Windows Startup settings.' }
@@ -131,7 +150,10 @@ function Read-Registry($hive,$view) {
                     Add-Row $id $id.Name 'Logon' ("{0} ({1})\{2}" -f $hive,$view,$path) ([string]$id.Value) '' '' ([string]$hive) $enabled `
                         ($supported -and $id.Name.Length -gt 0 -and -not $conflict -and $approval -eq $true) $details
                 }
-            } finally { if ($active) { $active.Dispose() } }
+            } finally {
+                if ($approvalKey) { $approvalKey.Dispose() }
+                if ($active) { $active.Dispose() }
+            }
         }
     } finally { $root.Dispose() }
 }
@@ -170,49 +192,58 @@ function Read-StartupFolder([string]$folder,[string]$scope) {
             if ($id.Folder -eq $folder) { $records.Add($id) }
         }
     }
-    foreach ($id in $records) {
-        $paths=Get-StartupStoragePaths $folder $id.Name
-        $original=Join-Path $folder $id.Name
-        $file=if ($id.Stored) { $paths.Payload } else { $original }
-        Assert-WinOptimizerStoragePath $paths.Payload
-        $plain=[IO.File]::Exists($file) -and (Test-PlainPath $file)
-        $unchanged=$plain -and (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash -ceq $id.Hash
-        $conflict=if ($id.Stored) { [IO.File]::Exists($original) } else { [IO.File]::Exists($paths.Record) }
-        $command=$original; $image=$original
-        if ($plain -and [IO.Path]::GetExtension($id.Name) -ieq '.lnk') {
-            $shell=$null; $shortcut=$null
-            try {
-                $shell=New-Object -ComObject WScript.Shell; $shortcut=$shell.CreateShortcut($file)
-                $image=[string]$shortcut.TargetPath; $command=($image + ' ' + $shortcut.Arguments).Trim()
-            } catch { $warnings.Add("Shortcut ${file}: $($_.Exception.Message)") }
-            finally { if ($shortcut) { [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($shortcut) }; if ($shell) { [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($shell) } }
+    if ($records.Count -eq 0) { return }
+    $root=if ($folder -eq [Environment]::GetFolderPath('CommonStartup')) { [Microsoft.Win32.Registry]::LocalMachine } else { [Microsoft.Win32.Registry]::CurrentUser }
+    $approvalKey=Open-ApprovalKey $root 'StartupFolder'
+    try {
+        foreach ($id in $records) {
+            $paths=Get-StartupStoragePaths $folder $id.Name
+            $original=Join-Path $folder $id.Name
+            $file=if ($id.Stored) { $paths.Payload } else { $original }
+            Assert-WinOptimizerStoragePath $paths.Payload
+            $plain=[IO.File]::Exists($file) -and (Test-PlainPath $file)
+            $unchanged=$plain -and (Get-FileHash -LiteralPath $file -Algorithm SHA256).Hash -ceq $id.Hash
+            $conflict=if ($id.Stored) { [IO.File]::Exists($original) } else { [IO.File]::Exists($paths.Record) }
+            $command=$original; $image=$original
+            if ($plain -and [IO.Path]::GetExtension($id.Name) -ieq '.lnk') {
+                $shell=$null; $shortcut=$null
+                try {
+                    $shell=New-Object -ComObject WScript.Shell; $shortcut=$shell.CreateShortcut($file)
+                    $image=[string]$shortcut.TargetPath; $command=($image + ' ' + $shortcut.Arguments).Trim()
+                } catch { $warnings.Add("Shortcut ${file}: $($_.Exception.Message)") }
+                finally { if ($shortcut) { [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($shortcut) }; if ($shell) { [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($shell) } }
+            }
+            $approval=Read-Approval $approvalKey $id.Name
+            $enabled=if ($id.Stored) { $false } else { $approval }
+            $details=if ($conflict) { 'An active file and a saved file have the same source. Resolve the conflict before changing it.' }
+                elseif (-not $unchanged) { 'The startup file is missing, changed or redirected. Inspect the saved data.' }
+                elseif ($approval -ne $true) { 'Windows controls this startup state. Use Windows Startup settings.' }
+                elseif ($id.Stored) { 'The original startup file is preserved in application data.' }
+                else { 'Disabling preserves this file in application data.' }
+            Add-Row $id $id.Name 'Startup folders' $folder $command $image '' $scope $enabled `
+                ($unchanged -and -not $conflict -and $approval -eq $true) $details
         }
-        $root=if ($folder -eq [Environment]::GetFolderPath('CommonStartup')) { [Microsoft.Win32.Registry]::LocalMachine } else { [Microsoft.Win32.Registry]::CurrentUser }
-        $approval=Get-Approval $root 'StartupFolder' $id.Name
-        $enabled=if ($id.Stored) { $false } else { $approval }
-        $details=if ($conflict) { 'An active file and a saved file have the same source. Resolve the conflict before changing it.' }
-            elseif (-not $unchanged) { 'The startup file is missing, changed or redirected. Inspect the saved data.' }
-            elseif ($approval -ne $true) { 'Windows controls this startup state. Use Windows Startup settings.' }
-            elseif ($id.Stored) { 'The original startup file is preserved in application data.' }
-            else { 'Disabling preserves this file in application data.' }
-        Add-Row $id $id.Name 'Startup folders' $folder $command $image '' $scope $enabled `
-            ($unchanged -and -not $conflict -and $approval -eq $true) $details
-    }
+    } finally { if ($approvalKey) { $approvalKey.Dispose() } }
+}
+function Read-TaskRegistration($task) {
+    # Hash the same XML used to select and describe the task.
+    $xmlText = [string]$task.Xml
+    $definition = [xml]$xmlText
+    if ($null -eq $definition.SelectSingleNode("//*[local-name()='BootTrigger' or local-name()='LogonTrigger']")) { return }
+    $commands = @($definition.SelectNodes("//*[local-name()='Exec']") | ForEach-Object { ([string]$_.Command + ' ' + [string]$_.Arguments).Trim() })
+    $command = $commands -join "`n"
+    $path = [string]$task.Path
+    $enabled = [bool]$task.Enabled
+    $system = $path.StartsWith('\Microsoft\', [StringComparison]::OrdinalIgnoreCase)
+    $identity = @{Type='Task'; Path=$path; Hash=(Get-Hash $xmlText); Enabled=$enabled}
+    Add-Row $identity $task.Name 'Scheduled tasks' $path $command '' ([string]$definition.Task.RegistrationInfo.Author) `
+        ([string]$definition.Task.Principals.Principal.UserId) $enabled (-not $system) `
+        ($(if ($system) { 'System task: inspect only.' } else { 'Boot/logon task. Disabling changes the whole task, including any other triggers.' }))
 }
 function Read-Tasks($folder) {
     foreach ($task in $folder.GetTasks(1)) {
-        try {
-            $definition = [xml]$task.Xml
-            $startup = $null -ne $definition.SelectSingleNode("//*[local-name()='BootTrigger' or local-name()='LogonTrigger']")
-            if (-not $startup) { continue }
-            $commands = @($definition.SelectNodes("//*[local-name()='Exec']") | ForEach-Object { ([string]$_.Command + ' ' + [string]$_.Arguments).Trim() })
-            $command = $commands -join "`n"
-            $system = $task.Path.StartsWith('\Microsoft\', [StringComparison]::OrdinalIgnoreCase)
-            $identity = @{Type='Task'; Path=[string]$task.Path; Hash=(Get-Hash $task.Xml); Enabled=[bool]$task.Enabled}
-            Add-Row $identity $task.Name 'Scheduled tasks' $task.Path $command '' ([string]$definition.Task.RegistrationInfo.Author) `
-                ([string]$definition.Task.Principals.Principal.UserId) ([bool]$task.Enabled) (-not $system) `
-                ($(if ($system) { 'System task: inspect only.' } else { 'Boot/logon task. Disabling changes the whole task, including any other triggers.' }))
-        } catch { $warnings.Add("Task $($task.Path): $($_.Exception.Message)") }
+        try { Read-TaskRegistration $task }
+        catch { $warnings.Add("Task $($task.Path): $($_.Exception.Message)") }
         finally { [void][Runtime.InteropServices.Marshal]::FinalReleaseComObject($task) }
     }
     foreach ($child in $folder.GetFolders(0)) {

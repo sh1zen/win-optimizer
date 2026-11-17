@@ -17,7 +17,9 @@ public sealed class DriverRemovalService(IDriverInventorySource inventorySource,
         if (targets.Length == 0 || targets.Any(target => !IsScanCandidate(report, target)))
             throw new DriverScanException("Select driver packages or disconnected devices from the current scan.");
 
-        var current = await inventorySource.ReadAsync(ct).ConfigureAwait(false);
+        var packagesToMeasure = targets.Where(target => target.Kind == DriverRemovalKind.Package)
+            .Select(target => target.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var current = await inventorySource.ReadForRemovalAsync(packagesToMeasure, ct).ConfigureAwait(false);
         ct.ThrowIfCancellationRequested();
         List<DriverRemovalOutcome> outcomes = [];
         // Remove device registrations first; package deletion never uninstalls dependent devices.

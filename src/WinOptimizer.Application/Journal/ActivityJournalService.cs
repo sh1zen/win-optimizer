@@ -47,54 +47,71 @@ public sealed class ActivityJournalService(ILogService logs, IChangeHistoryServi
                 List<JournalRecord> result = [];
                 var unreadable = 0;
                 var scanned = 0;
+                var ready = new PriorityQueue<int, (long Timestamp, int Order)>();
                 // Bound both UI output and work for sparse filters; HasMore offers continuation.
-                while (result.Count < 200 && scanned < 2000)
+                var allPrimed = true;
+                for (var index = 0; index < sources.Length; index++)
                 {
-                    foreach (var source in sources)
+                    if (!await PrimeAsync(index).ConfigureAwait(false))
                     {
-                        while (source.Buffer.Count == 0 && source.HasMore && scanned < 2000)
-                        {
-                            cancellationToken.ThrowIfCancellationRequested();
-                            try
-                            {
-                                var oldOffset = source.Offset;
-                                int count;
-                                int invalid;
-                                if (source.Diagnostic)
-                                {
-                                    var page = await logs.ReadRecentAsync(source.File.FileName, source.Offset, 32, cancellationToken).ConfigureAwait(false);
-                                    foreach (var entry in page.Entries) source.Buffer.Enqueue(JournalRecord.From(source.File.FileName, entry));
-                                    source.Offset = page.NextOffset; source.HasMore = page.HasMore;
-                                    count = page.Entries.Count; invalid = page.UnreadableEntries;
-                                }
-                                else
-                                {
-                                    var page = await history.ReadRecentAsync(source.File.FileName, source.Offset, 32, cancellationToken).ConfigureAwait(false);
-                                    foreach (var entry in page.Entries) source.Buffer.Enqueue(JournalRecord.From(source.File.FileName, entry));
-                                    source.Offset = page.NextOffset; source.HasMore = page.HasMore;
-                                    count = page.Entries.Count; invalid = page.UnreadableEntries;
-                                }
-                                if (oldOffset.HasValue && source.HasMore && source.Offset >= oldOffset)
-                                    throw new InvalidOperationException("The journal cursor did not advance. Refresh the activity list.");
-                                scanned += Math.Max(1, count + invalid);
-                                unreadable += invalid;
-                            }
-                            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException)
-                            {
-                                source.HasMore = false;
-                                _notices.Add($"{source.File.FileName}: {ex.Message}");
-                            }
-                        }
+                        allPrimed = false;
+                        break;
                     }
-                    cancellationToken.ThrowIfCancellationRequested();
-                    if (sources.Any(source => source.Buffer.Count == 0 && source.HasMore)) break;
-                    var next = sources.Where(source => source.Buffer.Count > 0)
-                        .OrderByDescending(source => source.Buffer.Peek().Timestamp ?? DateTimeOffset.MinValue).FirstOrDefault();
-                    if (next is null) break;
-                    var record = next.Buffer.Dequeue();
+                }
+                cancellationToken.ThrowIfCancellationRequested();
+                while (allPrimed && ready.TryDequeue(out var next, out _))
+                {
+                    var record = sources[next].Buffer.Dequeue();
                     if (record.Matches(query)) result.Add(record);
+                    if (result.Count == 200 || scanned >= 2000) break;
+
+                    // Only the source just consumed can need refilling or have a new head.
+                    allPrimed = await PrimeAsync(next).ConfigureAwait(false);
+                    cancellationToken.ThrowIfCancellationRequested();
                 }
                 return new(result, sources.Any(source => source.Buffer.Count > 0 || source.HasMore), unreadable, _notices.ToArray());
+
+                async Task<bool> PrimeAsync(int index)
+                {
+                    var source = sources[index];
+                    while (source.Buffer.Count == 0 && source.HasMore && scanned < 2000)
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        try
+                        {
+                            var oldOffset = source.Offset;
+                            int count;
+                            int invalid;
+                            if (source.Diagnostic)
+                            {
+                                var page = await logs.ReadRecentAsync(source.File.FileName, source.Offset, 32, cancellationToken).ConfigureAwait(false);
+                                foreach (var entry in page.Entries) source.Buffer.Enqueue(JournalRecord.From(source.File.FileName, entry));
+                                source.Offset = page.NextOffset; source.HasMore = page.HasMore;
+                                count = page.Entries.Count; invalid = page.UnreadableEntries;
+                            }
+                            else
+                            {
+                                var page = await history.ReadRecentAsync(source.File.FileName, source.Offset, 32, cancellationToken).ConfigureAwait(false);
+                                foreach (var entry in page.Entries) source.Buffer.Enqueue(JournalRecord.From(source.File.FileName, entry));
+                                source.Offset = page.NextOffset; source.HasMore = page.HasMore;
+                                count = page.Entries.Count; invalid = page.UnreadableEntries;
+                            }
+                            if (oldOffset.HasValue && source.HasMore && source.Offset >= oldOffset)
+                                throw new InvalidOperationException("The journal cursor did not advance. Refresh the activity list.");
+                            scanned += Math.Max(1, count + invalid);
+                            unreadable += invalid;
+                        }
+                        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException or InvalidOperationException)
+                        {
+                            source.HasMore = false;
+                            _notices.Add($"{source.File.FileName}: {ex.Message}");
+                        }
+                    }
+                    if (!source.Buffer.TryPeek(out var head)) return !source.HasMore;
+                    // Retain the existing source order whenever timestamps are equal or absent.
+                    ready.Enqueue(index, (-(head.Timestamp?.UtcTicks ?? 0), index));
+                    return true;
+                }
             }
             finally { _gate.Release(); }
         }

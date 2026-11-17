@@ -2,8 +2,8 @@
 
 Optimize → Network exposes 25 individually confirmed controls. Core's
 `NetworkTuningCatalog` is the allowlist; `OptimizationToolsService` owns
-batched discovery, baseline comparisons, writes and readback. The existing quick
-enhancement applies normal TCP auto-tuning and enabled RSS only.
+batched discovery, baseline comparisons, writes and readback.
+**Enhance network performance** applies normal TCP auto-tuning and enabled RSS.
 
 | Group | Controls |
 | --- | --- |
@@ -21,8 +21,7 @@ limits accept positive UInt32 values. The getter properties `InitialRto`,
 
 The four legacy priorities are DWORD overrides under
 `HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\ServiceProvider`. Lower numbers have
-higher priority; edits accept 0–65535. The example values 4/5/6/7 are available as explicit numeric edits;
-they are not applied automatically. Missing values show **No override**;
+higher priority; edits accept 0–65535. Missing values show **No override**;
 **Clear override** deletes only the selected value. Restart Windows after changes.
 Registry readback confirms the stored value, not that a modern resolver uses it.
 These entries do not select a DNS server or promise throughput/latency improvements.

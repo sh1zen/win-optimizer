@@ -28,6 +28,7 @@ public class SettingsLoadingServiceTests
 
     public SettingsLoadingServiceTests()
     {
+        _mockViewModelFactory.Setup(factory => factory.BeginPageLoad()).CallBase();
         _sut = new SettingsLoadingService(
             _mockDiscoveryService.Object,
             _mockEventBus.Object,

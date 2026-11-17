@@ -25,6 +25,10 @@ public interface IAppxIconSource
     Task<IReadOnlyDictionary<string, string>> GetInstalledPackageMapAsync(
         CancellationToken ct = default);
 
+    /// <summary>Resolves requested names using the same account and provisioning precedence as a complete inventory.</summary>
+    Task<IReadOnlyDictionary<string, string>> GetInstalledPackageMapAsync(IReadOnlySet<string> requested,
+        CancellationToken ct = default) => GetInstalledPackageMapAsync(ct);
+
     /// <summary>
     /// Returns a stream containing the package's primary app logo PNG at the requested size,
     /// or null if the package is not found, has no app list entry, or logo extraction fails.

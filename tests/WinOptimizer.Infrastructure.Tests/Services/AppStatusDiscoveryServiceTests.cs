@@ -30,6 +30,7 @@ public class AppStatusDiscoveryServiceTests
         _mockAppxPackageSource
             .Setup(a => a.GetInstalledPackageNamesAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(new HashSet<string>());
+        _mockAppxPackageSource.Setup(source => source.ReadInstalledInventoryAsync(It.IsAny<CancellationToken>())).CallBase();
 
         _service = new AppStatusDiscoveryService(
             _mockLog.Object,
@@ -41,6 +42,32 @@ public class AppStatusDiscoveryServiceTests
             _mockComponents.Object,
             _mockMetadata.Object,
             Mock.Of<IInteractiveUserService>());
+    }
+
+    [Fact]
+    public async Task OnlyTheRefreshThatReadsAppxRegistrationsSharesThemWithMetadata()
+    {
+        var item = new ItemDefinition { Id = "app", Name = "App", Description = "", AppxPackageName = ["Test.App"] };
+        var names = new HashSet<string>(["test.app"], StringComparer.OrdinalIgnoreCase);
+        IReadOnlyList<AppxRegistration> registrations = [new("Test.App", () => throw new InvalidOperationException("Metadata boundary is mocked."))];
+        var shared = new AppMetadata(null, 30, null);
+        var fresh = new AppMetadata(null, 60, null);
+        _mockAppxPackageSource.Setup(source => source.ReadInstalledInventoryAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AppxInventorySnapshot(names, registrations));
+        _mockMetadata.Setup(source => source.ReadAsync(It.IsAny<IReadOnlyList<ItemDefinition>>(), registrations))
+            .ReturnsAsync(new Dictionary<string, AppMetadata> { [item.Id] = shared });
+        _mockMetadata.Setup(source => source.ReadAsync(It.IsAny<IReadOnlyList<ItemDefinition>>()))
+            .ReturnsAsync(new Dictionary<string, AppMetadata> { [item.Id] = fresh });
+
+        Assert.True((await _service.GetInstallationStatusBatchAsync([item]))[item.Id]);
+        Assert.Same(shared, item.Metadata);
+        Assert.True((await _service.GetInstallationStatusBatchAsync([item]))[item.Id]);
+        Assert.Same(fresh, item.Metadata);
+
+        _service.InvalidateCache();
+        Assert.True((await _service.GetInstallationStatusBatchAsync([item]))[item.Id]);
+        Assert.Same(shared, item.Metadata);
+        _mockAppxPackageSource.Verify(source => source.ReadInstalledInventoryAsync(It.IsAny<CancellationToken>()), Times.Exactly(2));
     }
 
     [Fact]

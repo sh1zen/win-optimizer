@@ -54,8 +54,8 @@
                 <Setter Property="Background" Value="{ThemeResource MonitorCard}"/><Setter Property="CornerRadius" Value="6"/>
                 <Setter Property="Padding" Value="10,9"/><Setter Property="BorderThickness" Value="0"/>
             </Style>
-            <Style x:Key="MonitorIconButton" TargetType="Button">
-                <Setter Property="Background" Value="Transparent"/><Setter Property="BorderThickness" Value="0"/>
+            <Style x:Key="MonitorIconButton" TargetType="Button" BasedOn="{StaticResource SubtleButtonStyle}">
+                <Setter Property="BorderThickness" Value="0"/>
                 <Setter Property="MinWidth" Value="24"/><Setter Property="MinHeight" Value="22"/>
                 <Setter Property="Padding" Value="4"/><Setter Property="CornerRadius" Value="5"/>
                 <Setter Property="Foreground" Value="{ThemeResource MonitorInk}"/>

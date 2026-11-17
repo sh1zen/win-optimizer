@@ -78,20 +78,10 @@ directories. Active command references also protect installation folders.
 Exact command targets protect their files or named directory, without protecting
 unrelated siblings elsewhere in the same cache.
 
-## Recognition guidance
-
-Folder age, similar names and absent executables are supporting signals. Ownership
-evidence, current installations and shared dependencies determine eligibility.
-Settings and user-created content are not automatically disposable app data.
-Install-time traces and captured pre-uninstall identities provide stronger evidence
-for targeted residue review than a standalone filesystem scan.
-
-These distinctions follow [BCU's orphan-folder scanner](https://github.com/BCUninstaller/Bulk-Crap-Uninstaller/blob/master/source/UninstallTools/Junk/ProgramFilesOrphans.cs),
-its [confidence evidence](https://github.com/BCUninstaller/Bulk-Crap-Uninstaller/blob/master/source/UninstallTools/Junk/Confidence/ConfidenceRecords.cs),
-and [Revo's review workflow](https://www.revouninstaller.com/online-manual/uninstaller/).
-Older version folders can be intentional: [Squirrel preserves current and previous releases](https://github.com/Squirrel/Squirrel.Windows/blob/develop/src/Squirrel/UpdateManager.ApplyReleases.cs).
-Windows Installer cache ownership uses [native all-user product enumeration](https://learn.microsoft.com/en-us/windows/win32/api/msi/nf-msi-msienumproductsexw)
-and patch/source references; [Microsoft documents why required cached packages must be retained](https://learn.microsoft.com/en-us/troubleshoot/windows-client/application-management/missing-windows-installer-cache).
+Ownership evidence, current installations and shared dependencies determine
+eligibility. Folder age, similar names and absent executables alone do not qualify
+user data for deletion. Windows Installer cache protection uses native all-user
+product, patch and source references.
 
 ## Cleanup and recovery
 

@@ -8,134 +8,93 @@ using WinOptimizer.Infrastructure.Features.Common.Utilities;
 namespace WinOptimizer.Infrastructure.Features.SoftwareApps.Services;
 
 /// <summary>Reads Windows servicing status with serialized, bounded DISM queries.</summary>
-public sealed class WindowsComponentStatusSource(ILogService logService) : IWindowsComponentStatusSource
+public sealed class WindowsComponentStatusSource : IWindowsComponentStatusSource
 {
+    private readonly ILogService _log;
+    private readonly DismSessionManager _sessions;
+    private readonly Func<uint, HashSet<string>> _readCapabilities;
+    private readonly Func<uint, HashSet<string>> _readFeatures;
+
+    public WindowsComponentStatusSource(ILogService log)
+    {
+        _log = log;
+        _sessions = DismSessionManager.Shared;
+        _readCapabilities = ReadInstalledCapabilities;
+        _readFeatures = ReadEnabledFeatures;
+    }
+
+    internal WindowsComponentStatusSource(ILogService log, DismSessionManager sessions,
+        Func<uint, HashSet<string>> readCapabilities, Func<uint, HashSet<string>> readFeatures)
+    {
+        _log = log;
+        _sessions = sessions;
+        _readCapabilities = readCapabilities;
+        _readFeatures = readFeatures;
+    }
+
     /// <inheritdoc />
     public async Task<WindowsComponentStatus> GetStatusAsync(
         IReadOnlyList<string> capabilities, IReadOnlyList<string> features)
     {
-        var capabilityStatus = capabilities.Count > 0
-            ? await CheckCapabilitiesAsync(capabilities).ConfigureAwait(false)
-            : new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
-        var featureStatus = features.Count > 0
-            ? await CheckFeaturesAsync(features).ConfigureAwait(false)
-            : new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
-        return new WindowsComponentStatus(capabilityStatus, featureStatus);
+        var queries = new List<Func<uint, HashSet<string>>>(2);
+        if (capabilities.Count > 0) queries.Add(_readCapabilities);
+        if (features.Count > 0) queries.Add(_readFeatures);
+        var results = await _sessions.ExecuteAsync(queries, _log.LogDebug).ConfigureAwait(false);
+        var capabilityResult = capabilities.Count == 0 ? null : results[0];
+        var featureResult = features.Count == 0 ? null : results[^1];
+        return new(Match(capabilities, capabilityResult, isCapability: true),
+            Match(features, featureResult, isCapability: false));
     }
 
-    /// <summary>Matches requested capability prefixes against installed DISM entries.</summary>
-    private async Task<Dictionary<string, bool>> CheckCapabilitiesAsync(IReadOnlyList<string> capabilities)
+    private Dictionary<string, bool> Match(IReadOnlyList<string> names,
+        DismSessionManager.QueryResult<HashSet<string>>? read, bool isCapability)
     {
         var result = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        var kind = isCapability ? "Capability" : "Feature";
+        if (read?.Error is OperationCanceledException)
+            _log.LogWarning($"[DISM-Detect] {kind} query timed out after 30s. Marking requested entries as unknown.");
+        else if (read?.Error is { } error)
+            _log.LogError($"[DISM-Detect] Error checking {kind} status: {error.GetType().Name}: {error.Message}", error);
 
-        try
+        foreach (var name in names)
         {
-            logService.LogInformation($"[DISM-Detect] CheckCapabilitiesAsync: checking {capabilities.Count} capabilities: [{string.Join(", ", capabilities)}]");
-
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-            var installedCapabilities = await DismSessionManager.ExecuteAsync<HashSet<string>>(session =>
-            {
-                DismApi.ThrowIfFailed(
-                    DismApi.DismGetCapabilities(session, out IntPtr capPtr, out uint count),
-                    "GetCapabilities");
-                try
-                {
-                    var allCaps = DismApi.MarshalArray<DismApi.DISM_CAPABILITY>(capPtr, count);
-
-                    var installed = new HashSet<string>(
-                        allCaps.Where(c => c.State == DismApi.DismStateInstalled)
-                               .Select(c => Marshal.PtrToStringUni(c.Name)!)
-                               .Where(n => n != null),
-                        StringComparer.OrdinalIgnoreCase);
-
-                    logService.LogInformation($"[DISM-Detect] DismGetCapabilities: {installed.Count} installed out of {count} total");
-                    return installed;
-                }
-                finally
-                {
-                    DismApi.DismDelete(capPtr);
-                }
-            }, cts.Token, msg => logService.LogDebug(msg)).ConfigureAwait(false);
-
-            foreach (var capability in capabilities)
-            {
-                var match = installedCapabilities.Any(c =>
-                    c.StartsWith(capability, StringComparison.OrdinalIgnoreCase));
-                result[capability] = match;
-                logService.LogInformation($"[DISM-Detect] Capability match: '{capability}' => {match}");
-            }
+            var match = read?.Value is { } installed && (isCapability
+                ? installed.Any(entry => entry.StartsWith(name, StringComparison.OrdinalIgnoreCase))
+                : installed.Contains(name));
+            result[name] = match;
+            if (read?.Value is not null) _log.LogInformation($"[DISM-Detect] {kind} match: '{name}' => {match}");
         }
-        catch (OperationCanceledException)
-        {
-            logService.LogWarning("[DISM-Detect] CheckCapabilitiesAsync timed out after 30s — DISM may be unresponsive on this system. Marking all capabilities as unknown.");
-            foreach (var capability in capabilities)
-                result[capability] = false;
-        }
-        catch (Exception ex)
-        {
-            logService.LogError($"[DISM-Detect] Error checking capabilities status: {ex.GetType().Name}: {ex.Message}", ex);
-            foreach (var capability in capabilities)
-                result[capability] = false;
-        }
-
         return result;
     }
 
-    /// <summary>Matches requested feature names against enabled DISM entries.</summary>
-    private async Task<Dictionary<string, bool>> CheckFeaturesAsync(IReadOnlyList<string> features)
+    private HashSet<string> ReadInstalledCapabilities(uint session)
     {
-        var result = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
-
+        DismApi.ThrowIfFailed(DismApi.DismGetCapabilities(session, out var buffer, out var count), "GetCapabilities");
         try
         {
-            logService.LogInformation($"[DISM-Detect] CheckFeaturesAsync: checking {features.Count} features: [{string.Join(", ", features)}]");
-
-            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-            var enabledFeatures = await DismSessionManager.ExecuteAsync<HashSet<string>>(session =>
-            {
-                DismApi.ThrowIfFailed(
-                    DismApi.DismGetFeatures(session, null, 0, out IntPtr featPtr, out uint count),
-                    "GetFeatures");
-                try
-                {
-                    var allFeatures = DismApi.MarshalArray<DismApi.DISM_FEATURE>(featPtr, count);
-
-                    var enabled = new HashSet<string>(
-                        allFeatures.Where(f => f.State == DismApi.DismStateInstalled)
-                                   .Select(f => Marshal.PtrToStringUni(f.FeatureName)!)
-                                   .Where(n => n != null),
-                        StringComparer.OrdinalIgnoreCase);
-
-                    logService.LogInformation($"[DISM-Detect] DismGetFeatures: {enabled.Count} enabled out of {count} total");
-                    return enabled;
-                }
-                finally
-                {
-                    DismApi.DismDelete(featPtr);
-                }
-            }, cts.Token, msg => logService.LogDebug(msg)).ConfigureAwait(false);
-
-            foreach (var feature in features)
-            {
-                var match = enabledFeatures.Contains(feature);
-                result[feature] = match;
-                logService.LogInformation($"[DISM-Detect] Feature match: '{feature}' => {match}");
-            }
+            var installed = DismApi.MarshalArray<DismApi.DISM_CAPABILITY>(buffer, count)
+                .Where(entry => entry.State == DismApi.DismStateInstalled)
+                .Select(entry => Marshal.PtrToStringUni(entry.Name)).OfType<string>()
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            _log.LogInformation($"[DISM-Detect] DismGetCapabilities: {installed.Count} installed out of {count} total");
+            return installed;
         }
-        catch (OperationCanceledException)
+        finally { DismApi.DismDelete(buffer); }
+    }
+
+    private HashSet<string> ReadEnabledFeatures(uint session)
+    {
+        DismApi.ThrowIfFailed(DismApi.DismGetFeatures(session, null, 0, out var buffer, out var count), "GetFeatures");
+        try
         {
-            logService.LogWarning("[DISM-Detect] CheckFeaturesAsync timed out after 30s — DISM may be unresponsive on this system. Marking all features as unknown.");
-            foreach (var feature in features)
-                result[feature] = false;
+            var enabled = DismApi.MarshalArray<DismApi.DISM_FEATURE>(buffer, count)
+                .Where(entry => entry.State == DismApi.DismStateInstalled)
+                .Select(entry => Marshal.PtrToStringUni(entry.FeatureName)).OfType<string>()
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            _log.LogInformation($"[DISM-Detect] DismGetFeatures: {enabled.Count} enabled out of {count} total");
+            return enabled;
         }
-        catch (Exception ex)
-        {
-            logService.LogError($"[DISM-Detect] Error checking features status: {ex.GetType().Name}: {ex.Message}", ex);
-            foreach (var feature in features)
-                result[feature] = false;
-        }
-
-        return result;
+        finally { DismApi.DismDelete(buffer); }
     }
 }
 

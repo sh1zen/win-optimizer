@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -36,6 +37,13 @@ public interface IFileSystemService
     void DeleteDirectory(string path, bool recursive = false);
     string[] GetFiles(string path, string searchPattern = "*", System.IO.SearchOption searchOption = System.IO.SearchOption.TopDirectoryOnly);
     string[] GetDirectories(string path, string searchPattern = "*", System.IO.SearchOption searchOption = System.IO.SearchOption.TopDirectoryOnly);
+    /// <summary>Gets the combined length of the files under a directory, including its subdirectories.</summary>
+    long GetDirectoryFileSize(string path) =>
+        GetFiles(path, "*", System.IO.SearchOption.AllDirectories).Sum(GetFileSize);
+
+    /// <summary>Gets immediate directories and files in their enumeration order.</summary>
+    (IReadOnlyList<string> Directories, IReadOnlyList<string> Files) ReadDirectoryContents(string path) =>
+        (GetDirectories(path), GetFiles(path));
 
     // Path operations
     string GetTempPath();

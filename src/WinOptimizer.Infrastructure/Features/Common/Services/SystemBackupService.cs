@@ -88,7 +88,8 @@ public class SystemBackupService : ISystemBackupService
             });
 
             cancellationToken.ThrowIfCancellationRequested();
-            var (apiSuccess, statusCode) = await _backend.CreateAsync(restorePointName, cancellationToken).ConfigureAwait(false);
+            var started = _clock.GetUtcNow();
+            var (apiSuccess, statusCode, sequenceNumber) = await _backend.CreateAsync(restorePointName, cancellationToken).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
 
             if (!apiSuccess)
@@ -107,7 +108,8 @@ public class SystemBackupService : ISystemBackupService
             // Verify creation
             _logService.Log(LogLevel.Info, "Restore point API call succeeded, verifying creation...");
 
-            var verifiedDate = await VerifyRestorePointCreatedAsync(restorePointName, cancellationToken).ConfigureAwait(false);
+            var verifiedDate = await VerifyRestorePointCreatedAsync(restorePointName,
+                statusCode == SrClientApi.ERROR_SUCCESS ? sequenceNumber : 0, started, cancellationToken).ConfigureAwait(false);
 
             if (verifiedDate != null)
             {
@@ -130,8 +132,20 @@ public class SystemBackupService : ISystemBackupService
         }
     }
 
-    private async Task<DateTime?> VerifyRestorePointCreatedAsync(string description, CancellationToken cancellationToken)
+    /// <summary>Accepts an immediately visible new point by identity and keeps the delayed inventory checks for late visibility.</summary>
+    private async Task<DateTime?> VerifyRestorePointCreatedAsync(string description, uint sequenceNumber,
+        DateTimeOffset started, CancellationToken cancellationToken)
     {
+        if (sequenceNumber != 0)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var exact = await _backend.FindAsync(description, cancellationToken, sequenceNumber).ConfigureAwait(false);
+            cancellationToken.ThrowIfCancellationRequested();
+            // WMI can report creation time at second resolution; the API can return a previous point when throttled.
+            var firstSecond = started.UtcDateTime.AddTicks(-(started.Ticks % TimeSpan.TicksPerSecond));
+            if (exact is DateTime created && created.ToUniversalTime() >= firstSecond) return created;
+        }
+
         for (int attempt = 1; attempt <= VerificationMaxRetries; attempt++)
         {
             cancellationToken.ThrowIfCancellationRequested();

@@ -11,6 +11,8 @@ namespace WinOptimizer.Infrastructure.Features.Extensions;
 /// <summary>Reads native counters and built-in hardware sensors, supplementing missing types from local WMI providers.</summary>
 public sealed class WindowsSystemMonitorProbe(HardwareMonitorSensors sensors) : ISystemMonitorProbe
 {
+    private readonly SensorQueries _queries = new(provider => new WmiSensorQuery(provider));
+
     public SystemMonitorCounters Read(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -50,7 +52,8 @@ public sealed class WindowsSystemMonitorProbe(HardwareMonitorSensors sensors) : 
         if (temperatures.Count == 0 || fans.Count == 0)
         {
             var (providerTemperatures, providerFans) = ReadSensors(
-                provider => ReadProvider(provider, cancellationToken, notices), cancellationToken, notices);
+                provider => _queries.Read(provider, cancellationToken, notices), cancellationToken, notices,
+                needTemperatures: temperatures.Count == 0, needFans: fans.Count == 0);
             if (temperatures.Count == 0) temperatures = providerTemperatures;
             if (fans.Count == 0) fans = providerFans;
         }
@@ -63,7 +66,7 @@ public sealed class WindowsSystemMonitorProbe(HardwareMonitorSensors sensors) : 
     /// <summary>Uses an already-running hardware WMI provider; missing providers leave sensors unavailable.</summary>
     internal static (IReadOnlyList<SystemMonitorSensor> Temperatures, IReadOnlyList<SystemMonitorSensor> Fans) ReadSensors(
         Func<string, (IReadOnlyList<SystemMonitorSensor> Temperatures, IReadOnlyList<SystemMonitorSensor> Fans)> readProvider,
-        CancellationToken cancellationToken, List<string> notices)
+        CancellationToken cancellationToken, List<string> notices, bool needTemperatures = true, bool needFans = true)
     {
         IReadOnlyList<SystemMonitorSensor> temperatures = [], fans = [];
         foreach (var provider in new[] { "LibreHardwareMonitor", "OpenHardwareMonitor" })
@@ -72,9 +75,9 @@ public sealed class WindowsSystemMonitorProbe(HardwareMonitorSensors sensors) : 
             try
             {
                 var (providerTemperatures, providerFans) = readProvider(provider);
-                if (temperatures.Count == 0) temperatures = providerTemperatures;
-                if (fans.Count == 0) fans = providerFans;
-                if (temperatures.Count > 0 && fans.Count > 0) break;
+                if (needTemperatures && temperatures.Count == 0) temperatures = providerTemperatures;
+                if (needFans && fans.Count == 0) fans = providerFans;
+                if ((!needTemperatures || temperatures.Count > 0) && (!needFans || fans.Count > 0)) break;
             }
             catch (ManagementException ex) when (ex.ErrorCode is ManagementStatus.InvalidNamespace or ManagementStatus.InvalidClass)
             { /* An optional provider is absent; try the other supported local provider. */ }
@@ -84,35 +87,100 @@ public sealed class WindowsSystemMonitorProbe(HardwareMonitorSensors sensors) : 
         return (temperatures, fans);
     }
 
-    /// <summary>Queries one local provider with bounded waits and releases every native WMI object.</summary>
-    private static (IReadOnlyList<SystemMonitorSensor>, IReadOnlyList<SystemMonitorSensor>) ReadProvider(
-        string provider, CancellationToken cancellationToken, List<string> notices)
+    internal interface ISensorQuery : IDisposable
     {
-        using var searcher = new ManagementObjectSearcher(new ManagementScope($@"root\{provider}"),
-            new ObjectQuery("SELECT Name, SensorType, Value FROM Sensor WHERE SensorType='Temperature' OR SensorType='Fan'"),
-            new System.Management.EnumerationOptions { ReturnImmediately = true, Rewindable = false, Timeout = TimeSpan.FromSeconds(2) });
-        using var entries = searcher.Get();
-        List<SystemMonitorSensor> temperatures = [], fans = [];
-        foreach (ManagementObject entry in entries)
+        (IReadOnlyList<SystemMonitorSensor> Temperatures, IReadOnlyList<SystemMonitorSensor> Fans) Read(
+            CancellationToken token, List<string> notices);
+    }
+
+    /// <summary>Retains working WMI connections while reading fresh values and reconnecting if a connection goes stale.</summary>
+    internal sealed class SensorQueries(Func<string, ISensorQuery> open) : IDisposable
+    {
+        private readonly Dictionary<string, ISensorQuery> _working = new();
+
+        public (IReadOnlyList<SystemMonitorSensor> Temperatures, IReadOnlyList<SystemMonitorSensor> Fans) Read(
+            string provider, CancellationToken token, List<string> notices)
         {
-            using (entry)
+            lock (_working)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                if (entry["Value"] is not { } raw || entry["Name"] is not string name) continue;
-                if (!double.TryParse(Convert.ToString(raw, CultureInfo.InvariantCulture), NumberStyles.Float,
-                    CultureInfo.InvariantCulture, out var value) || !double.IsFinite(value))
-                { notices.Add($"{provider}: {name}: invalid sensor value."); continue; }
-                if (entry["SensorType"] is "Temperature" && value is >= -50 and <= 200)
-                    temperatures.Add(new(name, value));
-                else if (entry["SensorType"] is "Fan" && value is >= 0 and <= 100000)
-                    fans.Add(new(name, value));
+                token.ThrowIfCancellationRequested();
+                if (_working.TryGetValue(provider, out var existing))
+                {
+                    var firstNotice = notices.Count;
+                    try { return existing.Read(token, notices); }
+                    catch (Exception ex) when (ex is ManagementException or COMException or UnauthorizedAccessException)
+                    {
+                        _working.Remove(provider);
+                        existing.Dispose();
+                        notices.RemoveRange(firstNotice, notices.Count - firstNotice);
+                    }
+                }
+
+                token.ThrowIfCancellationRequested();
+                var query = open(provider);
+                try
+                {
+                    var result = query.Read(token, notices);
+                    _working.Add(provider, query);
+                    return result;
+                }
+                catch
+                {
+                    query.Dispose();
+                    throw;
+                }
             }
         }
-        return (temperatures, fans);
+
+        public void Dispose()
+        {
+            lock (_working)
+            {
+                foreach (var query in _working.Values) query.Dispose();
+                _working.Clear();
+            }
+        }
+    }
+
+    /// <summary>Runs fresh bounded queries over one provider connection and releases each result set.</summary>
+    private sealed class WmiSensorQuery(string provider) : ISensorQuery
+    {
+        private readonly ManagementObjectSearcher _searcher = new(new ManagementScope($@"root\{provider}"),
+            new ObjectQuery("SELECT Name, SensorType, Value FROM Sensor WHERE SensorType='Temperature' OR SensorType='Fan'"),
+            new System.Management.EnumerationOptions { ReturnImmediately = true, Rewindable = false, Timeout = TimeSpan.FromSeconds(2) });
+
+        public (IReadOnlyList<SystemMonitorSensor> Temperatures, IReadOnlyList<SystemMonitorSensor> Fans) Read(
+            CancellationToken cancellationToken, List<string> notices)
+        {
+            using var entries = _searcher.Get();
+            List<SystemMonitorSensor> temperatures = [], fans = [];
+            foreach (ManagementObject entry in entries)
+            {
+                using (entry)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (entry["Value"] is not { } raw || entry["Name"] is not string name) continue;
+                    if (!double.TryParse(Convert.ToString(raw, CultureInfo.InvariantCulture), NumberStyles.Float,
+                        CultureInfo.InvariantCulture, out var value) || !double.IsFinite(value))
+                    { notices.Add($"{provider}: {name}: invalid sensor value."); continue; }
+                    if (entry["SensorType"] is "Temperature" && value is >= -50 and <= 200)
+                        temperatures.Add(new(name, value));
+                    else if (entry["SensorType"] is "Fan" && value is >= 0 and <= 100000)
+                        fans.Add(new(name, value));
+                }
+            }
+            return (temperatures, fans);
+        }
+
+        public void Dispose() => _searcher.Dispose();
     }
 
     /// <summary>Releases the built-in hardware session after the current sample finishes.</summary>
-    public void Close() => sensors.Dispose();
+    public void Close()
+    {
+        _queries.Dispose();
+        sensors.Dispose();
+    }
 
     [StructLayout(LayoutKind.Sequential)]
     private struct MemoryStatus

@@ -1,6 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Navigation;
 using WinOptimizer.UI.Features.AdvancedTools.ViewModels;
 using WinOptimizer.UI.Features.Common.Helpers;
@@ -53,7 +54,7 @@ public sealed partial class AdvancedToolsPage : Page, ISectionNavigationPage
 
         if (pageType != null)
         {
-            InnerContentFrame.Navigate(pageType);
+            InnerContentFrame.Navigate(pageType, null, new SuppressNavigationTransitionInfo());
         }
         else
         {

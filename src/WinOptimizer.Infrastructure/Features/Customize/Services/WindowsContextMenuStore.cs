@@ -59,7 +59,7 @@ public sealed class WindowsContextMenuStore : IContextMenuStore
             foreach (var name in key.GetSubKeyNames())
             {
                 var path = parent + "\\" + name;
-                using var verb = root.Key.OpenSubKey(path);
+                using var verb = key.OpenSubKey(name);
                 if (verb == null) continue;
                 var registration = ReadRegistration(root, verb, path, handler, roots);
                 if (registration != null) _registrations[registration.Entry.Id] = registration;
@@ -75,7 +75,8 @@ public sealed class WindowsContextMenuStore : IContextMenuStore
         string raw;
         bool enabled;
         var leaf = path[(path.LastIndexOf('\\') + 1)..];
-        var label = StringValue(key, "MUIVerb") ?? StringValue(key, "") ?? leaf;
+        string label;
+        string[]? valueNames = null;
         if (handler)
         {
             raw = StringValue(key, "") ?? leaf;
@@ -88,12 +89,14 @@ public sealed class WindowsContextMenuStore : IContextMenuStore
         }
         else
         {
+            label = StringValue(key, "MUIVerb") ?? StringValue(key, "") ?? leaf;
             // These registrations have independent visibility rules that a simple toggle cannot reverse.
-            if (key.GetValueNames().Contains("ProgrammaticAccessOnly", StringComparer.OrdinalIgnoreCase)) return null;
+            valueNames = key.GetValueNames();
+            if (valueNames.Contains("ProgrammaticAccessOnly", StringComparer.OrdinalIgnoreCase)) return null;
             using var command = key.OpenSubKey("command");
             raw = StringValue(command, "") ?? "";
             target = raw;
-            enabled = !key.GetValueNames().Contains(DisabledValue, StringComparer.OrdinalIgnoreCase);
+            enabled = !valueNames.Contains(DisabledValue, StringComparer.OrdinalIgnoreCase);
         }
         var executable = ExecutablePath(target);
         if (executable.Length == 0) return null;
@@ -102,7 +105,7 @@ public sealed class WindowsContextMenuStore : IContextMenuStore
         if (label.StartsWith('@') || Guid.TryParse(label, out _)) label = leaf;
         var id = root.Id + "\\" + path;
         // Include the complete value set relevant to identity/state, including original registry types.
-        var evidence = raw + "\0" + target + "\0" + string.Join("\0", key.GetValueNames().Order(StringComparer.OrdinalIgnoreCase)
+        var evidence = raw + "\0" + target + "\0" + string.Join("\0", (valueNames ?? key.GetValueNames()).Order(StringComparer.OrdinalIgnoreCase)
             .Select(name => name + ":" + key.GetValueKind(name) + ":" + Convert.ToBase64String(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(key.GetValue(name, null, RegistryValueOptions.DoNotExpandEnvironmentNames)))));
         return new(root.Id, path, handler, evidence,
             new ContextMenuEntry(id, program, label.Replace("&", ""), root.Id + "\\" + path, enabled)

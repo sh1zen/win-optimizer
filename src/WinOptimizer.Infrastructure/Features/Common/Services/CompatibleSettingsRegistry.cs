@@ -19,7 +19,7 @@ public class CompatibleSettingsRegistry : ICompatibleSettingsRegistry
     private readonly IPowerSettingsValidationService _powerValidation;
     private readonly ILogService _logService;
 
-    private bool _isInitialized;
+    private volatile bool _isInitialized;
     private readonly SemaphoreSlim _initializationLock = new SemaphoreSlim(1, 1);
     private readonly Dictionary<string, IEnumerable<SettingDefinition>> _preFilteredSettings = new();
     private readonly Dictionary<string, IEnumerable<SettingDefinition>> _windowsFilterBypassedSettings = new();
@@ -159,40 +159,47 @@ public class CompatibleSettingsRegistry : ICompatibleSettingsRegistry
         var featureProviders = GetKnownFeatureProviders();
         _logService.Log(LogLevel.Info, $"Found {featureProviders.Count} feature providers");
 
-        foreach (var (featureId, provider) in featureProviders)
+        // Preparation of non-power catalogues can finish while the power catalogue awaits Windows.
+        // Publish the snapshots in catalogue order, including for duplicate setting IDs.
+        var preparations = featureProviders.Select(feature => (feature.Key,
+            Snapshot: PrepareFeatureAsync(feature.Key, feature.Value))).ToArray();
+        foreach (var (featureId, preparation) in preparations)
         {
-            try
-            {
-                _logService.Log(LogLevel.Info, $"Loading raw settings for {featureId}");
-                var rawSettings = provider().ToList();
-                _logService.Log(LogLevel.Info, $"Loaded {rawSettings.Count} raw settings for {featureId}");
-
-                var filteredSettings = _windowsFilter.FilterSettingsByWindowsVersion(rawSettings);
-
-                if (featureId == FeatureIds.Power)
-                {
-                    filteredSettings = await _hardwareFilter.FilterSettingsByHardwareAsync(filteredSettings).ConfigureAwait(false);
-                    filteredSettings = await _powerValidation.FilterSettingsByExistenceAsync(filteredSettings).ConfigureAwait(false);
-                }
-
-                var filteredSnapshot = filteredSettings.ToArray();
-                var bypassedSnapshot = _windowsFilter
-                    .FilterSettingsByWindowsVersion(rawSettings, applyFilter: false).ToArray();
-                _preFilteredSettings[featureId] = filteredSnapshot;
-                _windowsFilterBypassedSettings[featureId] = bypassedSnapshot;
-
-                _logService.Log(LogLevel.Info, $"Registered {filteredSnapshot.Length} settings for {featureId}");
-            }
-            catch (Exception ex)
-            {
-                _logService.Log(LogLevel.Error,
-                    $"Error loading settings for {featureId}: {ex.Message}");
-                _preFilteredSettings[featureId] = Enumerable.Empty<SettingDefinition>();
-                _windowsFilterBypassedSettings[featureId] = Enumerable.Empty<SettingDefinition>();
-            }
+            var (filtered, bypassed) = await preparation.ConfigureAwait(false);
+            _preFilteredSettings[featureId] = filtered;
+            _windowsFilterBypassedSettings[featureId] = bypassed;
         }
 
         _logService.Log(LogLevel.Info, "Pre-filtering completed");
+    }
+
+    /// <summary>Builds both views of one feature and isolates failures to that feature.</summary>
+    private async Task<(SettingDefinition[] Filtered, SettingDefinition[] Bypassed)> PrepareFeatureAsync(
+        string featureId, Func<IEnumerable<SettingDefinition>> provider)
+    {
+        try
+        {
+            _logService.Log(LogLevel.Info, $"Loading raw settings for {featureId}");
+            var rawSettings = provider().ToList();
+            _logService.Log(LogLevel.Info, $"Loaded {rawSettings.Count} raw settings for {featureId}");
+
+            var filteredSettings = _windowsFilter.FilterSettingsByWindowsVersion(rawSettings);
+            if (featureId == FeatureIds.Power)
+            {
+                filteredSettings = await _hardwareFilter.FilterSettingsByHardwareAsync(filteredSettings).ConfigureAwait(false);
+                filteredSettings = await _powerValidation.FilterSettingsByExistenceAsync(filteredSettings).ConfigureAwait(false);
+            }
+
+            var filtered = filteredSettings.ToArray();
+            var bypassed = _windowsFilter.FilterSettingsByWindowsVersion(rawSettings, applyFilter: false).ToArray();
+            _logService.Log(LogLevel.Info, $"Registered {filtered.Length} settings for {featureId}");
+            return (filtered, bypassed);
+        }
+        catch (Exception ex)
+        {
+            _logService.Log(LogLevel.Error, $"Error loading settings for {featureId}: {ex.Message}");
+            return ([], []);
+        }
     }
 
     /// <summary>

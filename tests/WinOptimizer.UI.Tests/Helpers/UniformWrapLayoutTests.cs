@@ -44,4 +44,5 @@ public sealed class UniformWrapLayoutTests
         layout.Columns.Should().Be(6);
         layout.CellWidth.Should().Be(150);
     }
+
 }

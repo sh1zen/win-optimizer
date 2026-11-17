@@ -26,10 +26,10 @@
                 </VisualState>
                 <VisualState x:Name="Selected">
                     <VisualState.Setters>
-                        <Setter Target="BackgroundBorder.Background" Value="{ThemeResource NavigationSelectedBackgroundBrush}"/>
-                        <Setter Target="IconPath.Stroke" Value="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
+                        <Setter Target="BackgroundBorder.Background" Value="{ThemeResource AccentSelectionBackgroundBrush}"/>
+                        <Setter Target="IconPath.Stroke" Value="{ThemeResource AccentSelectionForegroundBrush}"/>
                         <Setter Target="IconPath.StrokeThickness" Value="2.25"/>
-                        <Setter Target="ButtonText.Foreground" Value="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
+                        <Setter Target="ButtonText.Foreground" Value="{ThemeResource AccentSelectionForegroundBrush}"/>
                         <Setter Target="ButtonText.FontWeight" Value="SemiBold"/>
                     </VisualState.Setters>
                 </VisualState>
@@ -39,7 +39,7 @@
         <!-- Main Button Background -->
         <Border x:Name="BackgroundBorder"
                 Background="Transparent"
-                CornerRadius="10"/>
+                CornerRadius="13"/>
 
         <!-- Content Stack.
              Spacing 2 (not 4) so that when Windows' "Make text bigger" scale
@@ -89,17 +89,6 @@
                        HorizontalAlignment="Center"
                        Visibility="{x:Bind TextVisibility, Mode=OneWay}"/>
         </StackPanel>
-
-        <!-- Left Selection Indicator -->
-        <Border x:Name="SelectionIndicator"
-                Width="3"
-                Height="{x:Bind IndicatorHeight, Mode=OneWay}"
-                HorizontalAlignment="Left"
-                VerticalAlignment="Center"
-                CornerRadius="2"
-                Margin="0,0,0,0"
-                Background="{ThemeResource AccentTextFillColorPrimaryBrush}"
-                Visibility="{x:Bind IndicatorVisibility, Mode=OneWay}"/>
 
         <!-- InfoBadge Overlay -->
         <InfoBadge x:Name="Badge"

@@ -142,6 +142,36 @@ public sealed class UninstallResidueServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task BatchSharesProfileKeyReadsAndPicksUpNewKeysOnRescan()
+    {
+        var vendor = @"HKEY_USERS\" + First + @"\Software\Piriform";
+        var existingKey = vendor + @"\Recuva";
+        var newKey = vendor + @"\Speccy";
+        var secondRegistration = @"HKEY_LOCAL_MACHINE\Software\Microsoft\Windows\CurrentVersion\Uninstall\Speccy";
+        _registry.Set(existingKey, false, new CleanerRegistryValue("Setting", 1, RegistryValueKind.DWord));
+        _registry.Set(secondRegistration, false, new CleanerRegistryValue("DisplayName", "Speccy", RegistryValueKind.String));
+        var reads = 0;
+        _registry.OnReadSubKeys = (path, view32) =>
+        {
+            if (!view32 && path == vendor) reads++;
+        };
+        var second = _app with { Id = "speccy", Name = "Speccy" };
+
+        await using var session = await _sut.CaptureAsync([_app, second], null, default);
+        Assert.Equal(3, reads); // The shared pass and the registration-enriched pass for each application.
+        NativeRemove();
+        _registry.Remove(secondRegistration, false);
+        await session.VerifyAsync([new(_app.Id, true, false, null), new(second.Id, true, false, null)], null, default);
+        Assert.Equal(4, reads);
+
+        _registry.Set(newKey, false, new CleanerRegistryValue("Setting", 2, RegistryValueKind.DWord));
+        var scan = await session.ScanAsync(null, default);
+        Assert.Equal(5, reads);
+        Assert.Contains(scan.Findings, finding => finding.Path == existingKey && finding.AppId == _app.Id && finding.CanDelete);
+        Assert.Contains(scan.Findings, finding => finding.Path == newKey && finding.AppId == second.Id && finding.CanDelete);
+    }
+
+    [Fact]
     public async Task RunningProcessProtectsResources_RescanCanVerifyItsExitWithoutChangingNativeOutcome()
     {
         Write(Local(First, @"Recuva\settings"), "residual");
@@ -191,7 +221,9 @@ public sealed class UninstallResidueServiceTests : IDisposable
     [Fact]
     public async Task SelectedFilesAndTypedDefaultValuesHaveDurableBackup_AndRestoreWithoutOverwritingSiblings()
     {
-        var selected = Write(Local(First, @"Recuva\selected"), "original");
+        var original = new string('a', 131072) + new string('b', 131072) + "end";
+        var selected = Write(Local(First, @"Recuva\selected"), original);
+        var writtenAt = File.GetLastWriteTimeUtc(selected);
         var sibling = Write(Local(First, @"Recuva\keep"), "unselected");
         var key = @"HKEY_USERS\" + First + @"\Software\Piriform\Recuva";
         _registry.Set(key, false, new("", new byte[] { 4, 5, 6 }, RegistryValueKind.Binary), new("keep", 42, RegistryValueKind.DWord));
@@ -211,7 +243,8 @@ public sealed class UninstallResidueServiceTests : IDisposable
         var restored = await _sut.RestoreAsync(result.BackupId!.Value, default);
         Assert.Empty(restored.Errors);
         Assert.Equal(2, restored.Restored);
-        Assert.Equal("original", File.ReadAllText(selected));
+        Assert.Equal(original, File.ReadAllText(selected));
+        Assert.Equal(writtenAt, File.GetLastWriteTimeUtc(selected));
         Assert.Equal(RegistryValueKind.Binary, _registry.Value(key, false, "")!.Kind);
         Assert.Equal(new byte[] { 4, 5, 6 }, (byte[])_registry.Value(key, false, "")!.Data);
     }
@@ -367,6 +400,7 @@ public sealed class UninstallResidueServiceTests : IDisposable
     internal sealed class RegistryStore : ICleanerRegistryReader, ICleanerRegistryEditor
     {
         private readonly Dictionary<string, Dictionary<string, CleanerRegistryValue>> _keys = new(StringComparer.OrdinalIgnoreCase);
+        public Action<string, bool>? OnReadSubKeys { get; set; }
         private static string Key(string path, bool view) => (view ? "32:" : "64:") + path;
         public void Set(string path, bool view, params CleanerRegistryValue[] values)
         {
@@ -377,8 +411,12 @@ public sealed class UninstallResidueServiceTests : IDisposable
         public void Remove(string path, bool view) { foreach (var key in _keys.Keys.Where(key => key.Equals(Key(path, view), StringComparison.OrdinalIgnoreCase) || key.StartsWith(Key(path, view) + "\\", StringComparison.OrdinalIgnoreCase)).ToArray()) _keys.Remove(key); }
         public CleanerRegistryValue? Value(string path, bool view, string name) => _keys.GetValueOrDefault(Key(path, view))?.GetValueOrDefault(name);
         public bool KeyExists(string path, bool view32) => _keys.ContainsKey(Key(path, view32));
-        public string[] GetSubKeyNames(string path, bool view32) => _keys.Keys.Where(key => key.StartsWith(Key(path, view32) + "\\", StringComparison.OrdinalIgnoreCase))
-            .Select(key => key[(Key(path, view32).Length + 1)..].Split('\\')[0]).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        public string[] GetSubKeyNames(string path, bool view32)
+        {
+            OnReadSubKeys?.Invoke(path, view32);
+            return _keys.Keys.Where(key => key.StartsWith(Key(path, view32) + "\\", StringComparison.OrdinalIgnoreCase))
+                .Select(key => key[(Key(path, view32).Length + 1)..].Split('\\')[0]).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        }
         public IReadOnlyList<CleanerRegistryValue> GetValues(string path, bool view32, CancellationToken ct, ICollection<string>? notices = null) => _keys.GetValueOrDefault(Key(path, view32))?.Values.ToArray() ?? [];
         public ICleanerRegistryKey OpenKey(string path, bool view32, bool writable) => KeyExists(path, view32) ? new Handle(this, path, view32) : throw new IOException("Missing registry parent.");
         private sealed class Handle(RegistryStore owner, string path, bool view) : ICleanerRegistryKey

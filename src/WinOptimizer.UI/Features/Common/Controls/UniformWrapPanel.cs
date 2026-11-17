@@ -22,6 +22,8 @@ namespace WinOptimizer.UI.Features.Common.Controls;
 /// </summary>
 public sealed partial class UniformWrapPanel : Panel
 {
+    private double _measuredCellHeight;
+
     public static readonly DependencyProperty ItemWidthProperty =
         DependencyProperty.Register(
             nameof(ItemWidth),
@@ -118,10 +120,15 @@ public sealed partial class UniformWrapPanel : Panel
         // descriptions push past the floor and rows grow to fit instead of
         // clipping (issue #668).
         var childAvailable = new Size(cellWidth, double.PositiveInfinity);
+        var itemHeight = ItemHeight;
+        var cellHeight = itemHeight > 0 ? itemHeight : 0;
         foreach (var child in Children)
+        {
             child.Measure(childAvailable);
-
-        double cellHeight = ComputeCellHeight();
+            var height = child.DesiredSize.Height;
+            if (height > cellHeight) cellHeight = height;
+        }
+        _measuredCellHeight = cellHeight;
 
         int rows = (int)Math.Ceiling((double)count / columns);
         double totalHeight = rows * cellHeight + Math.Max(0, rows - 1) * RowSpacing;
@@ -134,36 +141,26 @@ public sealed partial class UniformWrapPanel : Panel
         if (count == 0)
             return finalSize;
 
-        var (columns, cellWidth) = UniformWrapLayout.Calculate(finalSize.Width, ItemWidth, ColumnSpacing, count, StretchItems, MaxColumns);
-        double cellHeight = ComputeCellHeight();
+        var columnSpacing = ColumnSpacing;
+        var rowSpacing = RowSpacing;
+        var (columns, cellWidth) = UniformWrapLayout.Calculate(finalSize.Width, ItemWidth, columnSpacing, count, StretchItems, MaxColumns);
+        // WinUI invalidates the panel's measure when a child's desired size changes.
+        var cellHeight = _measuredCellHeight;
+        var columnStride = cellWidth + columnSpacing;
+        var rowStride = cellHeight + rowSpacing;
 
         for (int i = 0; i < count; i++)
         {
             int col = i % columns;
             int row = i / columns;
-            double x = col * (cellWidth + ColumnSpacing);
-            double y = row * (cellHeight + RowSpacing);
+            double x = col * columnStride;
+            double y = row * rowStride;
             Children[i].Arrange(new Rect(x, y, cellWidth, cellHeight));
         }
 
         int rows = (int)Math.Ceiling((double)count / columns);
-        double totalHeight = rows * cellHeight + Math.Max(0, rows - 1) * RowSpacing;
+        double totalHeight = rows * cellHeight + Math.Max(0, rows - 1) * rowSpacing;
         return new Size(finalSize.Width, totalHeight);
     }
 
-    private double ComputeCellHeight()
-    {
-        double floor = ItemHeight > 0 ? ItemHeight : 0;
-        double tallest = MaxChildDesiredHeight();
-        return Math.Max(floor, tallest);
-    }
-
-    private double MaxChildDesiredHeight()
-    {
-        double max = 0;
-        foreach (var child in Children)
-            if (child.DesiredSize.Height > max)
-                max = child.DesiredSize.Height;
-        return max;
-    }
 }

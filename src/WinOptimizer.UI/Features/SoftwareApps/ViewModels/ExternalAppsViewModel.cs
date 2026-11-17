@@ -96,8 +96,7 @@ public partial class ExternalAppsViewModel : BaseViewModel, IExternalAppsItemsPr
 
     private void RebuildCategories()
     {
-        var filtered = Items.Where(a => FilterItem(a)).ToList();
-        var groups = filtered
+        var groups = Items.Where(a => FilterItem(a))
             .GroupBy(a => a.GroupName)
             .Where(g => !string.IsNullOrEmpty(g.Key));
 
@@ -122,6 +121,7 @@ public partial class ExternalAppsViewModel : BaseViewModel, IExternalAppsItemsPr
 
     [ObservableProperty]
     public partial string SearchText { get; set; }
+    private SearchHelper.PreparedSearch _search;
 
     [ObservableProperty]
     public partial AppSortMode SortMode { get; set; } = AppSortMode.GroupAsc;
@@ -188,6 +188,7 @@ public partial class ExternalAppsViewModel : BaseViewModel, IExternalAppsItemsPr
 
     partial void OnSearchTextChanged(string value)
     {
+        _search = SearchHelper.Prepare(value);
         using (ItemsView.DeferRefresh())
         {
             ItemsView.RefreshFilter();
@@ -201,7 +202,7 @@ public partial class ExternalAppsViewModel : BaseViewModel, IExternalAppsItemsPr
         if (obj is AppItemViewModel app)
         {
             return app.IsInstalled &&
-                SearchHelper.MatchesSearchTerm(SearchText, app.Name, app.Description, app.Id);
+                _search.Matches([app.Name, app.Description, app.Id]);
         }
         return false;
     }
@@ -334,13 +335,14 @@ public partial class ExternalAppsViewModel : BaseViewModel, IExternalAppsItemsPr
     /// Resolves artwork from installed packages and desktop registrations, then refreshes the bound icons.
     /// Failures are logged while app loading continues with category glyphs.
     /// </summary>
-    private async Task ResolveIconsAsync()
+    private async Task ResolveIconsAsync(IReadOnlyList<IRegisteredDesktopIcon>? registrations)
     {
         try
         {
             var definitions = Items.Select(item => item.Definition).ToList();
             // Preserve source colors and backplates for local package artwork.
-            await _iconResolver.ResolveBatchAsync(definitions, applyThemeAdaptation: false);
+            if (registrations is null) await _iconResolver.ResolveBatchAsync(definitions, applyThemeAdaptation: false);
+            else await _iconResolver.ResolveBatchAsync(definitions, registrations, applyThemeAdaptation: false);
 
             foreach (var item in Items)
                 item.NotifyIconChanged();
@@ -363,13 +365,14 @@ public partial class ExternalAppsViewModel : BaseViewModel, IExternalAppsItemsPr
 
         await _statusCheckGate.WaitAsync();
         var loadingDefinitions = true;
+        IReadOnlyList<IRegisteredDesktopIcon>? registrations = null;
         try
         {
-            var inventory = (await _externalAppsService.GetAppsAsync()).ToList();
+            var inventory = await _externalAppsService.ReadInventoryAsync();
             await _dispatcherService.RunOnUIThreadAsync(() =>
             {
                 // Keep existing view models and selections while reconciling newly installed or removed programs.
-                var ids = inventory.Select(item => item.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var ids = inventory.Applications.Select(item => item.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
                 using (ItemsView.DeferRefresh())
                 {
                     foreach (var item in Items.Where(item => !ids.Contains(item.Id)).ToList())
@@ -379,13 +382,13 @@ public partial class ExternalAppsViewModel : BaseViewModel, IExternalAppsItemsPr
                         item.Dispose();
                     }
                     var existingIds = Items.Select(item => item.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
-                    LoadAppsIntoItems(inventory.Where(item => !existingIds.Contains(item.Id)));
+                    LoadAppsIntoItems(inventory.Applications.Where(item => !existingIds.Contains(item.Id)));
                 }
                 return Task.CompletedTask;
             });
             loadingDefinitions = false;
             var definitions = Items.Select(item => item.Definition).ToList();
-            var statusResults = await _externalAppsService.CheckBatchInstalledAsync(definitions);
+            var statusResults = await inventory.ReadStatusAsync(definitions);
 
             await _dispatcherService.RunOnUIThreadAsync(() =>
             {
@@ -402,6 +405,7 @@ public partial class ExternalAppsViewModel : BaseViewModel, IExternalAppsItemsPr
                 });
                 return Task.CompletedTask;
             });
+            registrations = inventory.DesktopRegistrations;
         }
         catch (Exception ex)
         {
@@ -421,7 +425,7 @@ public partial class ExternalAppsViewModel : BaseViewModel, IExternalAppsItemsPr
             _statusCheckGate.Release();
         }
         // Resolve after every inventory refresh, including newly discovered desktop programs, without blocking app loading.
-        ResolveIconsAsync().FireAndForget(_logService);
+        ResolveIconsAsync(registrations).FireAndForget(_logService);
     }
 
     [RelayCommand]

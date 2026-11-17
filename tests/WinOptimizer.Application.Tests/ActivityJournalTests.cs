@@ -68,6 +68,20 @@ public sealed class ActivityJournalTests
     }
 
     [Fact]
+    public async Task EqualTimestampsKeepSourceOrderAcrossBufferAndPageBoundaries()
+    {
+        Diagnostics(("b.jsonl", [Event(5, "b")]),
+            ("a.jsonl", Enumerable.Range(0, 205).Select(index => Event(5, $"a{index}")).ToArray()));
+        var session = await Create().OpenAsync(new());
+        var first = await session.ReadNextAsync();
+        var second = await session.ReadNextAsync();
+        Assert.Equal(200, first.Entries.Count);
+        Assert.Equal(Enumerable.Range(0, 205).Select(index => $"a{index}").Append("b"),
+            first.Entries.Concat(second.Entries).Select(record => record.Diagnostic!.Message));
+        Assert.False(second.HasMore);
+    }
+
+    [Fact]
     public async Task TopicProblemAndExceptionSearchUseStoredTypedFields()
     {
         Diagnostics(("events.jsonl", [Event(3, "Operation failed", LogTopic.Software, LogLevel.Error) with

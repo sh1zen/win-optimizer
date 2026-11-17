@@ -1,5 +1,6 @@
 using WinOptimizer.Core.Features.Common.Constants;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using WinOptimizer.Core.Features.Common.Interfaces;
@@ -39,6 +40,23 @@ public class FileSystemService : IFileSystemService
         => Directory.GetFiles(path, searchPattern, searchOption);
     public string[] GetDirectories(string path, string searchPattern = "*", SearchOption searchOption = SearchOption.TopDirectoryOnly)
         => Directory.GetDirectories(path, searchPattern, searchOption);
+
+    /// <summary>Sums lengths from the directory enumeration metadata.</summary>
+    public long GetDirectoryFileSize(string path) =>
+        new DirectoryInfo(path).EnumerateFiles("*", SearchOption.AllDirectories).Sum(file => file.Length);
+
+    /// <summary>Uses directory-entry metadata to classify each entry without enumerating the directory twice.</summary>
+    public (IReadOnlyList<string> Directories, IReadOnlyList<string> Files) ReadDirectoryContents(string path)
+    {
+        var directories = new List<string>();
+        var files = new List<string>();
+        foreach (var entry in new DirectoryInfo(path).EnumerateFileSystemInfos())
+        {
+            var destination = entry is DirectoryInfo ? directories : files;
+            destination.Add(Path.Join(path, entry.Name));
+        }
+        return (directories, files);
+    }
 
     // Path operations
     /// <summary>Returns the application workspace prepared during storage initialization.</summary>

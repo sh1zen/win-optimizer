@@ -65,12 +65,52 @@ public sealed partial class SortingTestApplication(string resultPath) : WinUIApp
     {
         try
         {
-            var count = await NativeTestCases.RunAsync(typeof(AppSortingTests), typeof(WindowsAppsViewModelTests), typeof(ExternalAppsViewModelTests), typeof(LeftoverAppsViewModelTests), typeof(UninstallResidueViewModelTests), typeof(UninstallResidueReviewTests), typeof(SoftwareAppsViewModelTests), typeof(SelectedAppsProviderTests), typeof(ConfigExportServiceTests));
+            var count = await NativeTestCases.RunAsync(typeof(AppSortingTests), typeof(WindowsAppsViewModelTests), typeof(ExternalAppsViewModelTests), typeof(LeftoverAppsViewModelTests), typeof(UninstallResidueViewModelTests), typeof(UninstallResidueReviewTests), typeof(SoftwareAppsViewModelTests), typeof(SelectedAppsProviderTests), typeof(ConfigExportServiceTests), typeof(UniformWrapLayoutTests));
+            await VerifyCardLayoutAsync();
             await CaptureLeftoverPreviewsAsync();
             await CaptureUninstallPreviewsAsync();
-            Finish($"PASS: {count} Software & Apps cases on the WinUI dispatcher; English/Italian Leftover and uninstall-result previews at two widths.", true);
+            Finish($"PASS: {count} Software & Apps cases on the WinUI dispatcher; card layout and English/Italian Leftover and uninstall-result previews at two widths.", true);
         }
         catch (Exception ex) { Finish(ex.ToString()); }
+    }
+
+    /// <summary>Checks row height and spacing with the production panel in a real WinUI visual tree.</summary>
+    private async Task VerifyCardLayoutAsync()
+    {
+        var window = _window ?? throw new InvalidOperationException("The test window is unavailable.");
+        var shell = (Grid)window.Content;
+        var panel = new WinOptimizer.UI.Features.Common.Controls.UniformWrapPanel
+        {
+            Width = 210, ItemWidth = 100, ItemHeight = 20, ColumnSpacing = 10, RowSpacing = 5,
+            HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top
+        };
+        var first = new Grid { Height = 15, VerticalAlignment = VerticalAlignment.Top };
+        var second = new Grid { Height = 70, VerticalAlignment = VerticalAlignment.Top };
+        var third = new Grid { Height = 15, VerticalAlignment = VerticalAlignment.Top };
+        panel.Children.Add(first);
+        panel.Children.Add(second);
+        panel.Children.Add(third);
+        shell.Children.Add(panel);
+        try
+        {
+            await Task.Yield();
+            shell.UpdateLayout();
+
+            Assert.Equal(new Windows.Foundation.Size(210, 145), panel.DesiredSize);
+            Assert.Equal(70, second.ActualHeight);
+            Assert.Equal(new Windows.Foundation.Point(0, 0), first.TransformToVisual(panel).TransformPoint(default));
+            Assert.Equal(new Windows.Foundation.Point(110, 0), second.TransformToVisual(panel).TransformPoint(default));
+            Assert.Equal(new Windows.Foundation.Point(0, 75), third.TransformToVisual(panel).TransformPoint(default));
+            Assert.All(new[] { first, second, third }, card => Assert.Equal(100, card.ActualWidth));
+
+            third.Height = 90;
+            await Task.Yield();
+            shell.UpdateLayout();
+            Assert.Equal(new Windows.Foundation.Size(210, 185), panel.DesiredSize);
+            Assert.Equal(90, third.ActualHeight);
+            Assert.Equal(new Windows.Foundation.Point(0, 95), third.TransformToVisual(panel).TransformPoint(default));
+        }
+        finally { shell.Children.Remove(panel); }
     }
 
     private void Finish(string message, bool passed = false)

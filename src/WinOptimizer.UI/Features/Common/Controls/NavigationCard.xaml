@@ -4,10 +4,14 @@
     xmlns:toolkit="using:CommunityToolkit.WinUI.Controls">
     <toolkit:SettingsCard x:Name="Card" Style="{StaticResource PageSettingsCardStyle}" IsClickEnabled="True" Click="Card_Click"
                          AutomationProperties.Name="{x:Bind Title, Mode=OneWay}">
+        <toolkit:SettingsCard.Resources>
+            <ResourceDictionary Source="ms-appx:///Features/Common/Resources/InteractiveSurfaceResources.xaml"/>
+        </toolkit:SettingsCard.Resources>
         <toolkit:SettingsCard.Header>
             <Grid ColumnSpacing="18">
                 <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                <Border Width="52" Height="52" CornerRadius="14" Background="{ThemeResource PageIconBackgroundBrush}" VerticalAlignment="Center">
+                <Border Width="52" Height="52" CornerRadius="{StaticResource PageIconCornerRadius}"
+                        Background="{ThemeResource PageIconBackgroundBrush}" VerticalAlignment="Center">
                     <ContentPresenter Content="{x:Bind Icon, Mode=OneWay}" Foreground="{ThemeResource PageIconForegroundBrush}"
                                       HorizontalAlignment="Center" VerticalAlignment="Center"/>
                 </Border>

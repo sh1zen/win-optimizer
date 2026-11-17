@@ -31,14 +31,15 @@ public class PowerSettingsScriptSectionTests
 
     /// <summary>Explicit configuration values must survive generation on a different host plan.</summary>
     [Theory]
-    [InlineData(InputType.NumericRange, "{\"PowerSettings\":{\"ACValue\":1200,\"DCValue\":300}}", 1200, 300)]
-    [InlineData(InputType.Selection, "{\"PowerSettings\":{\"ACIndex\":7,\"DCIndex\":4}}", 1200, 300)]
-    [InlineData(InputType.NumericRange, "{\"PowerSettings\":{\"Value\":1200}}", 1200, 1200)]
-    [InlineData(InputType.NumericRange, "{\"PowerSettings\":{\"ACValue\":1200}}", 1200, 60)]
-    [InlineData(InputType.Selection, "{\"SelectedIndex\":7}", 1200, 1200)]
-    [InlineData(InputType.Selection, "{\"CustomStateValues\":{\"ACValue\":1200,\"DCValue\":300}}", 1200, 300)]
+    [InlineData(InputType.NumericRange, "{\"PowerSettings\":{\"ACValue\":1200,\"DCValue\":300}}", 1200, 300, false)]
+    [InlineData(InputType.Selection, "{\"PowerSettings\":{\"ACIndex\":7,\"DCIndex\":4}}", 1200, 300, false)]
+    [InlineData(InputType.NumericRange, "{\"PowerSettings\":{\"Value\":1200}}", 1200, 1200, false)]
+    [InlineData(InputType.NumericRange, "{\"PowerSettings\":{\"ACValue\":1200}}", 1200, 60, true)]
+    [InlineData(InputType.Selection, "{\"PowerSettings\":{\"DCIndex\":4}}", 60, 300, true)]
+    [InlineData(InputType.Selection, "{\"SelectedIndex\":7}", 1200, 1200, false)]
+    [InlineData(InputType.Selection, "{\"CustomStateValues\":{\"ACValue\":1200,\"DCValue\":300}}", 1200, 300, false)]
     public async Task AppendPowerSettingsSectionAsync_ConfiguredValues_OverrideHostSnapshot(
-        InputType inputType, string configurationJson, int expectedAc, int expectedDc)
+        InputType inputType, string configurationJson, int expectedAc, int expectedDc, bool usesHostPlan)
     {
         var definition = new SettingDefinition
         {
@@ -80,6 +81,8 @@ public class PowerSettingsScriptSectionTests
 
         output.ToString().Should().Contain($"AC={expectedAc}; DC={expectedDc}");
         output.ToString().Should().NotContain("AC=60; DC=60");
+        _powerSettingsQueryService.Verify(service => service.GetActivePowerPlanAsync(), usesHostPlan ? Times.Once() : Times.Never());
+        _powerSettingsQueryService.Verify(service => service.GetAllPowerSettingsACDCAsync("host-guid"), usesHostPlan ? Times.Once() : Times.Never());
     }
 
     // ---------------------------------------------------------------

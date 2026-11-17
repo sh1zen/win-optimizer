@@ -102,6 +102,9 @@
                         <cleaner:CleanerSettingsControl ViewModel="{x:Bind ViewModel.Cleaner}" Section="{x:Bind ViewModel.SelectedCleanerSection, Mode=OneWay}" Visibility="{x:Bind ViewModel.ShowCleaner, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
                         <drivers:DriverSettingsControl ViewModel="{x:Bind ViewModel.Drivers}" Visibility="{x:Bind ViewModel.ShowDrivers, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
                         <StackPanel Spacing="6" Visibility="{x:Bind ViewModel.ShowInfo, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <StackPanel.Resources>
+                                <ResourceDictionary Source="ms-appx:///Features/Common/Resources/InteractiveSurfaceResources.xaml"/>
+                            </StackPanel.Resources>
                             <controls:SettingsCard Header="{x:Bind ViewModel.Info.VersionLabel, Mode=OneWay}" Description="{x:Bind ViewModel.Info.VersionInfo, Mode=OneWay}" Style="{StaticResource PageSettingsCardStyle}">
                                 <controls:SettingsCard.HeaderIcon><fluent:FluentIcon Icon="Info" IconVariant="Regular" IconSize="Size20"/></controls:SettingsCard.HeaderIcon>
                             </controls:SettingsCard>

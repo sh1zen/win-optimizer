@@ -195,12 +195,11 @@
     pills and these per-card buttons.
 
     Hover/press: the icon child carries its own Foreground brush (BadgeRecommendedForeground
-    / BadgeDefaultForeground) so the default ButtonForegroundPointerOver override on the
+    / BadgeDefaultForeground) so the SubtleButtonForegroundPointerOver override on the
     ContentPresenter has no effect — the green/grey stays while the usual background
     hover tint still renders.
     -->
-    <Style x:Key="QuickSetButtonBase" TargetType="Button">
-        <Setter Property="Background" Value="Transparent"/>
+    <Style x:Key="QuickSetButtonBase" TargetType="Button" BasedOn="{StaticResource SubtleButtonStyle}">
         <Setter Property="BorderThickness" Value="0"/>
         <Setter Property="Padding" Value="4"/>
         <Setter Property="Width" Value="28"/>

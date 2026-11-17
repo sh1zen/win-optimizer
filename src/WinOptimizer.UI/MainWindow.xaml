@@ -8,7 +8,8 @@
     xmlns:fluentIcons="using:FluentIcons.WinUI"
     Title="win-optimizer">
 
-    <Grid x:Name="RootGrid" Loaded="RootGrid_Loaded" KeyboardAcceleratorPlacementMode="Hidden">
+    <Grid x:Name="RootGrid" Loaded="RootGrid_Loaded"
+          Background="{ThemeResource AppCanvasBrush}" KeyboardAcceleratorPlacementMode="Hidden">
         <Grid.KeyboardAccelerators>
             <!-- Ctrl+1-5: Navigate to sections -->
             <KeyboardAccelerator Key="Number1" Modifiers="Control" Invoked="NavigateAccelerator_Invoked"/>
@@ -45,11 +46,12 @@
             </Grid.ColumnDefinitions>
 
             <!-- Include all navigation controls in the native title bar's clickable region. -->
-            <StackPanel x:Name="TitleBarNavigation" Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center" Margin="8,0,0,0">
+            <Border x:Name="TitleBarNavigation" Grid.Column="1" Style="{StaticResource SegmentedSurfaceStyle}"
+                    VerticalAlignment="Center" Margin="12,0,0,0">
+            <StackPanel Orientation="Horizontal" Spacing="2">
                 <Button x:Name="NavigateBackButton" Click="NavigateBack_Click"
                         IsEnabled="{x:Bind CanNavigateBack, Mode=OneWay}"
                         Style="{StaticResource TitleBarButtonStyle}"
-                        CornerRadius="4,0,0,4"
                         ToolTipService.ToolTip="{x:Bind ViewModel.NavigationBackTooltip, Mode=OneWay}"
                         AutomationProperties.Name="{x:Bind ViewModel.NavigationBackTooltip, Mode=OneWay}">
                     <fluentIcons:FluentIcon Icon="ArrowLeft" IconVariant="Regular" FontSize="16"/>
@@ -57,12 +59,16 @@
                 <Button x:Name="NavigateForwardButton" Click="NavigateForward_Click"
                         IsEnabled="{x:Bind CanNavigateForward, Mode=OneWay}"
                         Style="{StaticResource TitleBarButtonStyle}"
-                        CornerRadius="0,4,4,0"
                         ToolTipService.ToolTip="{x:Bind ViewModel.NavigationForwardTooltip, Mode=OneWay}"
                         AutomationProperties.Name="{x:Bind ViewModel.NavigationForwardTooltip, Mode=OneWay}">
                     <fluentIcons:FluentIcon Icon="ArrowRight" IconVariant="Regular" FontSize="16"/>
                 </Button>
             </StackPanel>
+            </Border>
+
+            <TextBlock Grid.Column="2" Margin="12,0" VerticalAlignment="Center"
+                       Text="win-optimizer" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
+                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
 
             <!-- Title Bar Action Buttons -->
             <StackPanel x:Name="TitleBarButtons"
@@ -143,20 +149,30 @@
             <!-- Custom Navigation Sidebar -->
             <controls:NavSidebar x:Name="NavSidebar"
                                  Grid.Column="0"
+                                 Margin="12,4,0,12"
                                  IsPaneOpen="{x:Bind ViewModel.SidebarPreferences.IsExpanded, Mode=OneWay}"
                                  ItemClicked="NavSidebar_ItemClicked"/>
 
             <!-- Content + Task Progress -->
-            <Grid Grid.Column="1">
+            <Grid Grid.Column="1" Margin="0,8,0,0">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="*"/>
                     <RowDefinition Height="Auto"/>
                 </Grid.RowDefinitions>
 
                 <!-- Content Frame for Page Navigation -->
-                <Frame x:Name="ContentFrame" Grid.Row="0" Margin="{StaticResource PageHorizontalMargin}" Navigating="ContentFrame_Navigating" Navigated="ContentFrame_Navigated"/>
+                <Frame x:Name="ContentFrame" Grid.Row="0" Margin="{StaticResource PageHorizontalMargin}" Navigating="ContentFrame_Navigating" Navigated="ContentFrame_Navigated">
+                    <Frame.ContentTransitions>
+                        <TransitionCollection>
+                            <NavigationThemeTransition>
+                                <SuppressNavigationTransitionInfo/>
+                            </NavigationThemeTransition>
+                        </TransitionCollection>
+                    </Frame.ContentTransitions>
+                </Frame>
+                <Border x:Name="PageTransitionOverlay" Margin="{StaticResource PageHorizontalMargin}" IsHitTestVisible="False"/>
                 <Border x:Name="TrialToolsOverlay" Grid.Row="0" Visibility="Collapsed"
-                        Background="{ThemeResource SolidBackgroundFillColorBaseBrush}" Padding="32">
+                        Background="{ThemeResource AppCanvasBrush}" Padding="32">
                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12" MaxWidth="480">
                         <TextBlock Text="{x:Bind ViewModel.TrialModeLabel, Mode=OneWay}" FontSize="24" FontWeight="SemiBold"/>
                         <TextBlock Text="{x:Bind ViewModel.TrialModeBlockedMessage, Mode=OneWay}" TextWrapping="Wrap"/>

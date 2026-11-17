@@ -98,6 +98,7 @@ public partial class WindowsAppsViewModel : BaseViewModel, IWindowsAppsItemsProv
 
     [ObservableProperty]
     public partial string SearchText { get; set; }
+    private SearchHelper.PreparedSearch _search;
 
     [ObservableProperty]
     public partial AppSortMode SortMode { get; set; } = AppSortMode.GroupAsc;
@@ -189,6 +190,7 @@ public partial class WindowsAppsViewModel : BaseViewModel, IWindowsAppsItemsProv
 
     partial void OnSearchTextChanged(string value)
     {
+        _search = SearchHelper.Prepare(value);
         using (ItemsView.DeferRefresh())
         {
             ItemsView.RefreshFilter();
@@ -209,7 +211,7 @@ public partial class WindowsAppsViewModel : BaseViewModel, IWindowsAppsItemsProv
         if (obj is AppItemViewModel app)
         {
             return (app.IsInstalled || (ShowHiddenInstalledApps && app.IsRetainedOnDevice)) &&
-                SearchHelper.MatchesSearchTerm(SearchText, app.Name, app.Description, app.Id);
+                _search.Matches([app.Name, app.Description, app.Id]);
         }
         return false;
     }

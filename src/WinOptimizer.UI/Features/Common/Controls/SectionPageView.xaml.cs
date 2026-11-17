@@ -2,6 +2,7 @@ using System.ComponentModel;
 using FluentIcons.Common;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media.Animation;
 using Microsoft.UI.Xaml.Navigation;
 using WinOptimizer.Core.Features.Common.Events;
 using WinOptimizer.Core.Features.Common.Events.Settings;
@@ -122,7 +123,7 @@ public sealed partial class SectionPageView : UserControl
         ViewModel.CurrentSectionKey = item.Key;
         var searchText = destination?.SearchText;
         if (!string.IsNullOrWhiteSpace(searchText)) item.Feature.ApplySearchFilter(searchText);
-        if (!InnerContentFrame.Navigate(item.Route.PageType, searchText))
+        if (!InnerContentFrame.Navigate(item.Route.PageType, searchText, new SuppressNavigationTransitionInfo()))
             throw new InvalidOperationException($"Cannot navigate to section {item.Key}.");
         if (_review.IsInReviewMode) _review.MarkFeatureVisited(item.Route.Section.ModuleId);
     }

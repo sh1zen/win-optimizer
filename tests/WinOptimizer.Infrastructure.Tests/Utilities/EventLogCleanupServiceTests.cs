@@ -25,6 +25,7 @@ public sealed class EventLogCleanupServiceTests
         var rows = await Create().ReadAsync(CancellationToken.None);
         Assert.Equal(new[] { "Application", "System" }, rows.Select(row => row.Name));
         Assert.Equal("Access denied", rows[0].Diagnostic);
+        Assert.Equal(1, _store.InventoryReads);
         Assert.Empty(_store.Cleared); Assert.Equal(0, _store.BackupDirectories);
         _mode.Verify(mode => mode.BeginSystemOperation(), Times.Never);
     }
@@ -141,11 +142,17 @@ public sealed class EventLogCleanupServiceTests
         public EventLogChannel[] Rows = [new("System", 20, 4096, ""), new("Application", 5, 4096, "")];
         public List<string> Cleared { get; } = [];
         public int PermissionChecks, BackupDirectories;
+        public int InventoryReads;
         public bool Deny, BackupFailure;
         public string Failing = "";
         public Action? AfterClear;
         public IReadOnlyList<string> GetLogNames() => Rows.Select(row => row.Name).ToArray();
-        public EventLogChannel Read(string name) => Rows.Single(row => row.Name == name);
+        public IReadOnlyList<EventLogChannel> ReadChannels(IReadOnlyList<string> names, CancellationToken cancellationToken)
+        {
+            InventoryReads++;
+            return names.Select(Read).ToArray();
+        }
+        private EventLogChannel Read(string name) => Rows.Single(row => row.Name == name);
         public void EnsureCanClear() { PermissionChecks++; if (Deny) throw new UnauthorizedAccessException("Elevation required"); }
         public string CreateBackupDirectory() { BackupDirectories++; if (BackupFailure) throw new IOException("Disk full"); return "archive"; }
         public EventLogCleanupOutcome ClearWithBackup(string name, string directory)

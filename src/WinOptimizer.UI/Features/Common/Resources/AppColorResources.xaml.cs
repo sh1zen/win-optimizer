@@ -13,10 +13,32 @@ public sealed partial class AppColorResources : ResourceDictionary
     public AppColorResources()
     {
         InitializeComponent();
+        var interactionPalette = new ResourceDictionary
+        {
+            Source = new Uri("ms-appx:///Features/Common/Resources/InteractiveSurfaceResources.xaml")
+        };
         // WinUI control templates look up these aliases rather than the base accent brushes.
         foreach (var theme in new[] { "Light", "Default" })
         {
             var dictionary = (ResourceDictionary)ThemeDictionaries[theme];
+            dictionary["AccentSelectionForegroundBrush"] = dictionary["AccentTextFillColorPrimaryBrush"];
+
+            // Give native transitions opaque endpoints to avoid flashing as both color and opacity change.
+            var interactionTheme = (ResourceDictionary)interactionPalette.ThemeDictionaries[theme];
+            var surface = dictionary["AppSurfaceBrush"];
+            var hoveredSurface = interactionTheme["SettingsCardBackgroundPointerOver"];
+            var pressedSurface = interactionTheme["SettingsCardBackgroundPressed"];
+            dictionary["AppSurfacePointerOverBrush"] = hoveredSurface;
+            dictionary["AppSurfacePressedBrush"] = pressedSurface;
+            foreach (var key in new[] { "ButtonBackground", "ComboBoxBackground" })
+            {
+                dictionary[key] = surface;
+                dictionary[key + "PointerOver"] = hoveredSurface;
+                dictionary[key + "Pressed"] = pressedSurface;
+            }
+            dictionary["TextControlBackground"] = surface;
+            dictionary["TextControlBackgroundPointerOver"] = hoveredSurface;
+
             foreach (var key in new[] { "ToggleSwitchFillOn", "ToggleSwitchStrokeOn", "ToggleButtonBackgroundChecked",
                 "AccentButtonBackground", "CheckBoxCheckBackgroundFillChecked", "CheckBoxCheckBackgroundFillIndeterminate",
                 "CheckBoxCheckBackgroundStrokeChecked", "CheckBoxCheckBackgroundStrokeIndeterminate",
@@ -42,7 +64,7 @@ public sealed partial class AppColorResources : ResourceDictionary
     /// <summary>Returns readable accent variants for light and dark surfaces.</summary>
     public static (Color Light, Color Dark) ColorsFor(AppColor color) => color switch
     {
-        AppColor.Blue => (Color.FromArgb(255, 0, 103, 192), Color.FromArgb(255, 96, 205, 255)),
+        AppColor.Blue => (Color.FromArgb(255, 36, 102, 217), Color.FromArgb(255, 141, 180, 255)),
         AppColor.Teal => (Color.FromArgb(255, 0, 117, 117), Color.FromArgb(255, 78, 214, 205)),
         AppColor.Green => (Color.FromArgb(255, 16, 124, 16), Color.FromArgb(255, 108, 211, 108)),
         AppColor.Purple => (Color.FromArgb(255, 116, 71, 190), Color.FromArgb(255, 194, 166, 255)),
@@ -59,18 +81,29 @@ public sealed partial class AppColorResources : ResourceDictionary
         {
             var dictionary = (ResourceDictionary)ThemeDictionaries[theme];
             var accent = theme == "Light" ? light : dark;
+            // Blend the selection tint onto its surface before the template animates it.
+            var surface = ((SolidColorBrush)dictionary["AppSurfaceBrush"]).Color;
+            ((SolidColorBrush)dictionary["AccentSelectionBackgroundBrush"]).Color = Color.FromArgb(255,
+                TintSelectionChannel(surface.R, accent.R), TintSelectionChannel(surface.G, accent.G), TintSelectionChannel(surface.B, accent.B));
+
             // Solid, deeper tiles keep white glyphs readable in both application themes.
             ((SolidColorBrush)dictionary["PageIconBackgroundBrush"]).Color = light;
             foreach (var (key, alpha) in new (string, byte)[]
             {
                 ("AccentFillColorDefaultBrush", 255), ("AccentFillColorSecondaryBrush", 230), ("AccentFillColorTertiaryBrush", 204),
-                ("AccentTextFillColorPrimaryBrush", 255), ("AccentTextFillColorSecondaryBrush", 255), ("AccentTextFillColorTertiaryBrush", 255),
-                ("SidebarBackgroundBrush", 20), ("NavigationSelectedBackgroundBrush", 26)
+                ("AccentTextFillColorPrimaryBrush", 255), ("AccentTextFillColorSecondaryBrush", 255), ("AccentTextFillColorTertiaryBrush", 255)
             })
             {
                 var brush = (SolidColorBrush)dictionary[key];
                 brush.Color = Color.FromArgb(alpha, accent.R, accent.G, accent.B);
             }
         }
+    }
+
+    /// <summary>Mixes the accent at the selection tint's opacity, rounded to the nearest channel value.</summary>
+    private static byte TintSelectionChannel(byte surface, byte accent)
+    {
+        const int accentWeight = 26;
+        return (byte)((surface * (255 - accentWeight) + accent * accentWeight + 127) / 255);
     }
 }

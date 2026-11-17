@@ -104,10 +104,17 @@ public class AppIconResolver : IAppIconResolver
     private static string DefaultCacheRoot() =>
         AppDataPaths.IconCache;
 
-    public async Task ResolveBatchAsync(
+    public Task ResolveBatchAsync(IEnumerable<ItemDefinition> definitions, bool applyThemeAdaptation = true, CancellationToken ct = default) =>
+        ResolveIconsAsync(definitions, null, applyThemeAdaptation, ct);
+
+    public Task ResolveBatchAsync(IEnumerable<ItemDefinition> definitions, IReadOnlyList<IRegisteredDesktopIcon> registrations,
+        bool applyThemeAdaptation = true, CancellationToken ct = default) => ResolveIconsAsync(definitions, registrations, applyThemeAdaptation, ct);
+
+    private async Task ResolveIconsAsync(
         IEnumerable<ItemDefinition> definitions,
-        bool applyThemeAdaptation = true,
-        CancellationToken ct = default)
+        IReadOnlyList<IRegisteredDesktopIcon>? registrations,
+        bool applyThemeAdaptation,
+        CancellationToken ct)
     {
         using var logTopic = _logService.BeginTopic(LogTopic.Software);
         bool entered = false;
@@ -121,37 +128,70 @@ public class AppIconResolver : IAppIconResolver
                 return;
 
             IReadOnlyDictionary<string, string> installedMap = new Dictionary<string, string>();
-            if (candidates.Any(d => d.AppxPackageName is { Length: > 0 }))
+            var requested = candidates.Where(def => def.IconPath is null).SelectMany(def => def.AppxPackageName ?? [])
+                .Where(name => !string.IsNullOrEmpty(name)).ToHashSet(StringComparer.OrdinalIgnoreCase);
+            if (requested.Count > 0)
             {
-                try { installedMap = await _appxSource.GetInstalledPackageMapAsync(ct).ConfigureAwait(false); }
+                try { installedMap = await _appxSource.GetInstalledPackageMapAsync(requested, ct).ConfigureAwait(false); }
                 catch (Exception ex) { _logService.LogError("Installed package icon inventory failed", ex); }
             }
-            IReadOnlyList<InstalledProgram>? programs = null;
+            var programs = registrations;
+            ILookup<string, IRegisteredDesktopIcon>? programsByPath = null;
 
             int appxResolved = 0, desktopResolved = 0;
-            foreach (var def in candidates)
+            foreach (var batch in candidates.Chunk(4))
             {
                 if (ct.IsCancellationRequested) return;
+                var requests = batch.Select(def => def.IconPath is null ? FindAppxLogo(def, installedMap) : null).ToArray();
+                var prefetched = new Task<Stream?>?[requests.Length];
                 try
                 {
-                    if (def.AppxPackageName is { Length: > 0 } && def.IconPath is not null) continue;
-                    if (await TryResolveFromAppxAsync(def, installedMap, applyThemeAdaptation, ct).ConfigureAwait(false))
-                        appxResolved++;
-                    else if (def.IsInstalled)
+                    // Only overlap logo reads. Cache publication and fallback still follow candidate order.
+                    var requestedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    for (int index = 0; index < requests.Length && !ct.IsCancellationRequested; index++)
+                        if (requests[index] is { } request && requestedPaths.Add(request.CachePath) && !File.Exists(request.CachePath))
+                            prefetched[index] = ReadLogoAsync(request.FullName, ct);
+
+                    for (int index = 0; index < batch.Length; index++)
                     {
-                        def.IconPath = null;
-                        if (programs == null)
+                        if (ct.IsCancellationRequested) return;
+                        var def = batch[index];
+                        try
                         {
-                            try { programs = await _installedPrograms.ReadAsync().ConfigureAwait(false); }
-                            catch (Exception ex) { _logService.LogError("Desktop icon registration inventory failed", ex); programs = []; }
+                            if (def.AppxPackageName is { Length: > 0 } && def.IconPath is not null) continue;
+                            var logo = prefetched[index];
+                            prefetched[index] = null;
+                            if (await TryResolveFromAppxAsync(def, requests[index], logo, applyThemeAdaptation, ct).ConfigureAwait(false))
+                                appxResolved++;
+                            else if (def.IsInstalled)
+                            {
+                                def.IconPath = null;
+                                if (programs == null)
+                                {
+                                    try { programs = await _installedPrograms.ReadAsync().ConfigureAwait(false); }
+                                    catch (Exception ex) { _logService.LogError("Desktop icon registration inventory failed", ex); programs = []; }
+                                }
+                                IEnumerable<IRegisteredDesktopIcon> matches;
+                                if (def.RegistryUninstallKeyPath is { } path)
+                                {
+                                    programsByPath ??= programs.ToLookup(program => program.KeyPath, StringComparer.OrdinalIgnoreCase);
+                                    matches = programsByPath[path];
+                                }
+                                else matches = programs.Where(program => program.Matches(def));
+                                if (await TryResolveFromDesktopAsync(def, matches, ct).ConfigureAwait(false)) desktopResolved++;
+                                else def.IconPath = null;
+                            }
                         }
-                        if (await TryResolveFromDesktopAsync(def, programs, ct).ConfigureAwait(false)) desktopResolved++;
-                        else def.IconPath = null;
+                        catch (Exception ex)
+                        {
+                            _logService.LogWarning($"App icon resolution failed for {def.Id} ({def.Name}): {ex.Message}");
+                        }
                     }
                 }
-                catch (Exception ex)
+                finally
                 {
-                    _logService.LogWarning($"App icon resolution failed for {def.Id} ({def.Name}): {ex.Message}");
+                    foreach (var logo in prefetched)
+                        if (logo is not null) await DiscardLogoAsync(logo).ConfigureAwait(false);
                 }
             }
 
@@ -166,10 +206,10 @@ public class AppIconResolver : IAppIconResolver
         finally { if (entered) _resolveGate.Release(); }
     }
 
-    /// <summary>Matches exact uninstall identities or catalogue fingerprints and versions each registered local icon resource.</summary>
-    private async Task<bool> TryResolveFromDesktopAsync(ItemDefinition def, IReadOnlyList<InstalledProgram> programs, CancellationToken ct)
+    /// <summary>Versions the first usable registered local icon, preserving registration order.</summary>
+    private async Task<bool> TryResolveFromDesktopAsync(ItemDefinition def, IEnumerable<IRegisteredDesktopIcon> programs, CancellationToken ct)
     {
-        foreach (var program in programs.Where(program => program.Matches(def)))
+        foreach (var program in programs)
         {
             ct.ThrowIfCancellationRequested();
             if (program.DisplayIcon is not { Length: > 0 } displayIcon || _desktopSource.Resolve(displayIcon) is not { } source) continue;
@@ -188,38 +228,39 @@ public class AppIconResolver : IAppIconResolver
         return false;
     }
 
-    private async Task<bool> TryResolveFromAppxAsync(
-        ItemDefinition def,
-        IReadOnlyDictionary<string, string> installedMap,
-        bool applyThemeAdaptation,
-        CancellationToken ct)
+    private sealed record AppxLogo(string FullName, string CachePath);
+
+    /// <summary>Uses the first declared package identity available in the ordered inventory.</summary>
+    private AppxLogo? FindAppxLogo(ItemDefinition def, IReadOnlyDictionary<string, string> installedMap)
     {
-        var packageNames = def.AppxPackageName;
-        if (packageNames is null || packageNames.Length == 0) return false;
+        foreach (var packageName in def.AppxPackageName ?? [])
+            if (!string.IsNullOrEmpty(packageName) && installedMap.TryGetValue(packageName, out var fullName))
+                return fullName is null ? null : new(fullName, Path.Combine(_cacheRoot, BuildCacheFileName(def.Id, fullName)));
+        return null;
+    }
 
-        // Walk every declared AppX name and use the first one present in the
-        // installed map. Apps like Xbox declare BOTH a modern and a legacy
-        // identity (Microsoft.GamingApp + Microsoft.XboxApp); checking only
-        // the first name would silently skip the resolve on machines where
-        // only the other one is installed.
-        string? fullName = null;
-        foreach (var packageName in packageNames)
-        {
-            if (string.IsNullOrEmpty(packageName)) continue;
-            if (installedMap.TryGetValue(packageName, out fullName))
-                break;
-            fullName = null;
-        }
-        if (fullName is null) return false;
+    private async Task<Stream?> ReadLogoAsync(string fullName, CancellationToken ct) =>
+        await _appxSource.GetLogoStreamAsync(fullName, LogoSize, ct).ConfigureAwait(false);
 
-        var cachePath = Path.Combine(_cacheRoot, BuildCacheFileName(def.Id, fullName));
+    private async Task DiscardLogoAsync(Task<Stream?> logo)
+    {
+        try { await using var stream = await logo.ConfigureAwait(false); }
+        catch (Exception ex) { _logService.LogDebug($"Unused AppX icon read did not complete: {ex.Message}"); }
+    }
+
+    private async Task<bool> TryResolveFromAppxAsync(ItemDefinition def, AppxLogo? request,
+        Task<Stream?>? prefetched, bool applyThemeAdaptation, CancellationToken ct)
+    {
+        if (request is null) return false;
+        var cachePath = request.CachePath;
         if (File.Exists(cachePath))
         {
+            if (prefetched is not null) await DiscardLogoAsync(prefetched).ConfigureAwait(false);
             def.IconPath = cachePath;
             return true;
         }
 
-        await using var stream = await _appxSource.GetLogoStreamAsync(fullName, LogoSize, ct).ConfigureAwait(false);
+        await using var stream = await (prefetched ?? ReadLogoAsync(request.FullName, ct)).ConfigureAwait(false);
         if (stream is null)
             return false;
 
@@ -235,9 +276,9 @@ public class AppIconResolver : IAppIconResolver
 
     private static string ShortSha1Hex(string input)
     {
-        using var sha1 = System.Security.Cryptography.SHA1.Create();
-        var bytes = sha1.ComputeHash(System.Text.Encoding.UTF8.GetBytes(input));
-        return Convert.ToHexString(bytes, 0, 4).ToLowerInvariant();
+        Span<byte> digest = stackalloc byte[System.Security.Cryptography.SHA1.HashSizeInBytes];
+        System.Security.Cryptography.SHA1.HashData(System.Text.Encoding.UTF8.GetBytes(input), digest);
+        return Convert.ToHexString(digest[..4]).ToLowerInvariant();
     }
 
     private async Task WriteStreamToCacheAsync(

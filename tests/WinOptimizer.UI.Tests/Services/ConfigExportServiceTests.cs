@@ -196,7 +196,7 @@ public class ConfigExportServiceTests
         };
         _mockCompatibleSettingsRegistry.Setup(x => x.GetAllFilteredSettings()).Returns(
             new Dictionary<string, IEnumerable<SettingDefinition>> { [WinOptimizer.Core.Features.Common.Constants.FeatureIds.Power] = definitions });
-        _mockDiscoveryService.Setup(x => x.GetSettingStatesAsync(It.IsAny<IEnumerable<SettingDefinition>>()))
+        _mockDiscoveryService.Setup(x => x.GetSettingStateSnapshotAsync(It.IsAny<IReadOnlyList<SettingDefinition>>()))
             .ReturnsAsync(new Dictionary<string, SettingStateResult>());
         _mockWindowsAppsVM.SetupGet(x => x.IsInitialized).Returns(true);
         _mockWindowsAppsVM.SetupGet(x => x.Items).Returns(new ObservableCollection<AppItemViewModel>());
@@ -244,7 +244,7 @@ public class ConfigExportServiceTests
         };
         _mockCompatibleSettingsRegistry.Setup(x => x.GetAllFilteredSettings()).Returns(
             new Dictionary<string, IEnumerable<SettingDefinition>> { [WinOptimizer.Core.Features.Common.Constants.FeatureIds.Power] = definitions });
-        _mockDiscoveryService.Setup(x => x.GetSettingStatesAsync(It.IsAny<IEnumerable<SettingDefinition>>()))
+        _mockDiscoveryService.Setup(x => x.GetSettingStateSnapshotAsync(It.IsAny<IReadOnlyList<SettingDefinition>>()))
             .ReturnsAsync(new Dictionary<string, SettingStateResult>());
         _mockWindowsAppsVM.SetupGet(x => x.IsInitialized).Returns(true);
         _mockWindowsAppsVM.SetupGet(x => x.Items).Returns(new ObservableCollection<AppItemViewModel>());

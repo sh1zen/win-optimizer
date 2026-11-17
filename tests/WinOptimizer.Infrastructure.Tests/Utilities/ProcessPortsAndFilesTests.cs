@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Net;
+using System.Runtime.InteropServices;
 using WinOptimizer.Core.Features.Utilities;
 using WinOptimizer.Infrastructure.Features.Management;
 using Xunit;
@@ -51,6 +52,31 @@ public sealed class ProcessPortsAndFilesTests
     {
         Assert.Throws<InvalidDataException>(() => WindowsProcessPorts.Parse([1, 0], false, true, 42));
         Assert.Throws<InvalidDataException>(() => WindowsProcessPorts.Parse([255, 255, 255, 255], true, true, 42));
+    }
+
+    [Fact]
+    public void EndpointReadRetriesGrowthAndExposesOnlyTheBytesReportedByWindows()
+    {
+        var bytes = new byte[16];
+        Write(bytes, 0, 1);
+        BinaryPrimitives.WriteUInt16BigEndian(bytes.AsSpan(8), 5353);
+        Write(bytes, 12, 42);
+        var offeredSizes = new List<int>();
+        uint Query(IntPtr buffer, ref int size)
+        {
+            offeredSizes.Add(size);
+            if (buffer == IntPtr.Zero) { size = 4; return 122; }
+            if (size < bytes.Length) { size = 24; return 122; }
+            Marshal.Copy(bytes, 0, buffer, bytes.Length);
+            size = bytes.Length;
+            return 0;
+        }
+
+        var table = WindowsProcessPorts.ReadTable(Query);
+
+        Assert.Equal(new[] { 0, 4, 24 }, offeredSizes);
+        Assert.Equal(bytes.Length, table.Length);
+        Assert.Equal(5353, Assert.Single(WindowsProcessPorts.Parse(table.Span, false, false, 42)).LocalPort);
     }
 
     [Fact]

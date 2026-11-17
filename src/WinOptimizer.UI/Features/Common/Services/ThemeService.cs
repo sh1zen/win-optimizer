@@ -3,6 +3,7 @@ using WinOptimizer.Core.Features.Common.Constants;
 using WinOptimizer.Core.Features.Common.Events;
 using WinOptimizer.Core.Features.Common.Events.Settings;
 using WinOptimizer.Core.Features.Common.Interfaces;
+using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.UI.Features.Common.Interfaces;
 using Windows.UI.ViewManagement;
 
@@ -66,34 +67,24 @@ public class ThemeService : IThemeService
     /// <inheritdoc />
     public void LoadSavedTheme()
     {
-        // Load theme preference synchronously to avoid async/await deadlock on UI thread
-        _currentTheme = LoadThemePreferenceSync();
-        ApplyTheme(_currentTheme);
-    }
-
-    private WinOptimizerTheme LoadThemePreferenceSync()
-    {
+        var saved = string.Empty;
         try
         {
-            // Use synchronous method to get preference to avoid deadlock
-            var themeString = _userPreferences.GetPreference<string>("Theme", string.Empty);
-
-            if (string.IsNullOrEmpty(themeString))
-            {
-                return WinOptimizerTheme.System; // Default to following Windows
-            }
-
-            if (Enum.TryParse<WinOptimizerTheme>(themeString, out var theme))
-            {
-                return theme;
-            }
+            saved = _userPreferences.GetPreference("Theme", string.Empty);
         }
         catch
         {
-            // Fall through to default
+            // Restore the system theme if the saved value is unavailable.
         }
+        ApplySavedTheme(saved);
+    }
 
-        return WinOptimizerTheme.System;
+    public void LoadSavedTheme(UserPreferencesSnapshot snapshot) => ApplySavedTheme(snapshot.Get("Theme", string.Empty));
+
+    private void ApplySavedTheme(string saved)
+    {
+        _currentTheme = Enum.TryParse<WinOptimizerTheme>(saved, out var theme) ? theme : WinOptimizerTheme.System;
+        ApplyTheme(_currentTheme);
     }
 
     /// <inheritdoc />

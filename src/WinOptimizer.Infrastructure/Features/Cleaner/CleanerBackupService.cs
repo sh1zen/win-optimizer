@@ -147,7 +147,7 @@ public sealed class CleanerBackupService(ICleanerBackupVault vault, CleanerFileS
                 ct.ThrowIfCancellationRequested();
                 var payload = Path.Combine(directory, entry.Id.ToString("N") + ".bin");
                 CleanerPaths.ValidateDescendant(directory, payload);
-                using var stream = new FileStream(payload, FileMode.Open, FileAccess.Read, FileShare.Read);
+                using var stream = OpenSequentialRead(payload);
                 if (stream.Length != entry.File!.Length || Convert.ToHexString(await SHA256.HashDataAsync(stream, ct).ConfigureAwait(false)) != entry.Hash)
                     throw new IOException("Backup integrity verification failed. No resources have been restored.");
             }
@@ -164,7 +164,7 @@ public sealed class CleanerBackupService(ICleanerBackupVault vault, CleanerFileS
                         files.ValidateForRestore(entry.File);
                         if (File.Exists(entry.File.Path))
                         {
-                            using var existing = new FileStream(entry.File.Path, FileMode.Open, FileAccess.Read, FileShare.Read);
+                            using var existing = OpenSequentialRead(entry.File.Path);
                             if (Convert.ToHexString(await SHA256.HashDataAsync(existing, ct).ConfigureAwait(false)) != entry.Hash)
                                 throw new IOException("A different file now exists; it has been preserved.");
                             restored++;
@@ -173,7 +173,7 @@ public sealed class CleanerBackupService(ICleanerBackupVault vault, CleanerFileS
                         Directory.CreateDirectory(Path.GetDirectoryName(entry.File.Path)!);
                         CleanerPaths.ValidateDescendant(entry.File.Root, entry.File.Path);
                         var payload = Path.Combine(directory, entry.Id.ToString("N") + ".bin");
-                        using var source = new FileStream(payload, FileMode.Open, FileAccess.Read, FileShare.Read);
+                        using var source = OpenSequentialRead(payload);
                         using var destination = CleanerFileDeletion.CreateRestoreFile(entry.File.Path);
                         try
                         {
@@ -218,6 +218,10 @@ public sealed class CleanerBackupService(ICleanerBackupVault vault, CleanerFileS
         catch (Exception ex) when (ex is CryptographicException or JsonException)
         { throw new IOException("The cleanup backup is damaged or belongs to another Windows account.", ex); }
     }
+
+    /// <summary>Opens files that are read end to end during backup verification and restore.</summary>
+    internal static FileStream OpenSequentialRead(string path) => new(path, FileMode.Open, FileAccess.Read, FileShare.Read,
+        4096, FileOptions.Asynchronous | FileOptions.SequentialScan);
 
     /// <summary>Copies with a reusable buffer, flushes to storage, then verifies the persisted bytes against the source hash.</summary>
     internal static async Task<string> CopyVerifiedAsync(Stream source, FileStream destination, CancellationToken ct)

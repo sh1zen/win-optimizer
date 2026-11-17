@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using FluentAssertions;
 using Moq;
+using WinOptimizer.Core.Features.Common.Constants;
 using WinOptimizer.Core.Features.Common.Enums;
 using WinOptimizer.Core.Features.Common.Events;
 using WinOptimizer.Core.Features.Common.Interfaces;
@@ -133,6 +134,37 @@ public class SettingViewModelFactoryTests
         var result = await _sut.CreateAsync(setting, state, null);
 
         result.IsLocked.Should().BeFalse();
+    }
+
+    [Fact]
+    public async Task PageLoadReadsAdvancedUnlockOnceAndTheNextLoadReadsItAgain()
+    {
+        var preparation = new Mock<ISettingPreparationPipeline>();
+        var simple = CreateToggleSetting("simple");
+        var first = CreateToggleSetting("first") with { RequiresAdvancedUnlock = true };
+        var second = CreateToggleSetting("second") with { RequiresAdvancedUnlock = true };
+        preparation.Setup(pipeline => pipeline.PrepareSettings("Power")).Returns([simple]);
+        var discovery = new Mock<ISystemSettingsDiscoveryService>();
+        discovery.Setup(service => service.GetSettingStatesAsync(It.IsAny<IReadOnlyList<SettingDefinition>>()))
+            .ReturnsAsync(new Dictionary<string, SettingStateResult>());
+        var loading = new SettingsLoadingService(discovery.Object, _mockEventBus.Object, _mockLogService.Object,
+            Mock.Of<IInitializationService>(), _mockComboBoxResolver.Object, preparation.Object, _sut);
+
+        var ordinary = await loading.LoadConfiguredSettingsAsync("Power", "Loading");
+        _mockUserPreferencesService.Verify(service => service.GetPreferenceAsync(UserPreferenceKeys.AdvancedPowerSettingsUnlocked, false), Times.Never);
+        Assert.Single(ordinary).Dispose();
+
+        preparation.Setup(pipeline => pipeline.PrepareSettings("Power")).Returns([first, second]);
+        _mockUserPreferencesService.SetupSequence(service => service.GetPreferenceAsync(UserPreferenceKeys.AdvancedPowerSettingsUnlocked, false))
+            .ReturnsAsync(false).ReturnsAsync(true);
+        var locked = await loading.LoadConfiguredSettingsAsync("Power", "Loading");
+        var unlocked = await loading.LoadConfiguredSettingsAsync("Power", "Loading");
+
+        Assert.Equal(new[] { "first", "second" }, locked.Select(row => row.SettingId));
+        Assert.All(locked, row => Assert.True(row.IsLocked));
+        Assert.All(unlocked, row => Assert.False(row.IsLocked));
+        _mockUserPreferencesService.Verify(service => service.GetPreferenceAsync(UserPreferenceKeys.AdvancedPowerSettingsUnlocked, false), Times.Exactly(2));
+        foreach (var row in locked.Concat(unlocked)) row.Dispose();
     }
 
     [Fact]

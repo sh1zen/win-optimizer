@@ -22,11 +22,37 @@ internal sealed class WindowsEventLogStore : IEventLogStore
         { throw new UtilityOperationException("Windows event log discovery failed: " + ex.Message, ex); }
     }
 
-    public EventLogChannel Read(string name)
+    /// <summary>Reads channel metadata through one local session, retaining per-channel diagnostics.</summary>
+    public IReadOnlyList<EventLogChannel> ReadChannels(IReadOnlyList<string> names, CancellationToken cancellationToken)
+    {
+        if (names.Count == 0) return [];
+        var channels = new List<EventLogChannel>(names.Count);
+        cancellationToken.ThrowIfCancellationRequested();
+        EventLogSession session;
+        try { session = new EventLogSession(); }
+        catch (Exception ex) when (IsExpectedFailure(ex))
+        {
+            return names.Select(name => new EventLogChannel(name, null, null, ex.Message)).ToArray();
+        }
+        using (session)
+            foreach (var name in names)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                channels.Add(Read(session, name));
+            }
+        return channels;
+    }
+
+    private static EventLogChannel Read(string name)
+    {
+        try { using var session = new EventLogSession(); return Read(session, name); }
+        catch (Exception ex) when (IsExpectedFailure(ex)) { return new(name, null, null, ex.Message); }
+    }
+
+    private static EventLogChannel Read(EventLogSession session, string name)
     {
         try
         {
-            using var session = new EventLogSession();
             var info = session.GetLogInformation(name, PathType.LogName);
             return new(name, info.RecordCount, info.FileSize, "");
         }
@@ -85,7 +111,7 @@ internal sealed class WindowsEventLogStore : IEventLogStore
             if (!File.Exists(backup) || new FileInfo(backup).Length == 0)
                 throw new IOException("The log was cleared, but its EVTX archive could not be verified.");
             _ = session.GetLogInformation(backup, PathType.FilePath);
-            return new(name, true, backup, "", Read(name));
+            return new(name, true, backup, "", Read(session, name));
         }
         catch (Exception ex) when (IsExpectedFailure(ex)) { return new(name, cleared, backup, ex.Message, cleared ? Read(name) : null); }
     }

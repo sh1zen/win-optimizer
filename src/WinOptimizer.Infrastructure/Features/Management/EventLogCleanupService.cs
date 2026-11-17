@@ -11,13 +11,8 @@ internal sealed class EventLogCleanupService(IEventLogStore store, IApplicationM
 
     public Task<IReadOnlyList<EventLogChannel>> ReadAsync(CancellationToken cancellationToken) => Task.Run<IReadOnlyList<EventLogChannel>>(() =>
     {
-        var channels = new List<EventLogChannel>();
-        foreach (var name in store.GetLogNames().Order(StringComparer.OrdinalIgnoreCase))
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            channels.Add(store.Read(name));
-        }
-        return channels;
+        var names = store.GetLogNames().Order(StringComparer.OrdinalIgnoreCase).ToArray();
+        return store.ReadChannels(names, cancellationToken);
     }, cancellationToken);
 
     public async Task<EventLogCleanupResult> ClearAsync(IReadOnlyList<string> logNames,
@@ -62,7 +57,7 @@ internal sealed class EventLogCleanupService(IEventLogStore store, IApplicationM
 internal interface IEventLogStore
 {
     IReadOnlyList<string> GetLogNames();
-    EventLogChannel Read(string name);
+    IReadOnlyList<EventLogChannel> ReadChannels(IReadOnlyList<string> names, CancellationToken cancellationToken);
     void EnsureCanClear();
     string CreateBackupDirectory();
     EventLogCleanupOutcome ClearWithBackup(string name, string backupDirectory);

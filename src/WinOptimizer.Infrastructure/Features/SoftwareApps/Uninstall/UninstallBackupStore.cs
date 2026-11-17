@@ -29,9 +29,10 @@ internal sealed class UninstallBackupStore(ICleanerBackupVault vault, UninstallR
             foreach (var entry in entries.Where(entry => entry.File != null))
             {
                 ct.ThrowIfCancellationRequested();
-                using var source = editor.OpenBackupFile(entry);
+                using var source = editor.OpenBackupFile(entry, asynchronous: true);
                 var path = Payload(directory, entry.Finding.Id);
-                using var destination = new FileStream(path, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None);
+                using var destination = new FileStream(path, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None,
+                    4096, FileOptions.Asynchronous | FileOptions.SequentialScan);
                 created.Add(path);
                 hashes[entry.Finding.Id] = await CleanerBackupService.CopyVerifiedAsync(source, destination, ct).ConfigureAwait(false);
             }
@@ -81,7 +82,7 @@ internal sealed class UninstallBackupStore(ICleanerBackupVault vault, UninstallR
         foreach (var entry in manifest.Entries.Where(entry => entry.File != null))
         {
             ct.ThrowIfCancellationRequested();
-            using var stream = new FileStream(Payload(directory, entry.Finding.Id), FileMode.Open, FileAccess.Read, FileShare.Read);
+            using var stream = CleanerBackupService.OpenSequentialRead(Payload(directory, entry.Finding.Id));
             if (stream.Length != entry.File!.Length ||
                 Convert.ToHexString(await SHA256.HashDataAsync(stream, ct).ConfigureAwait(false)) != manifest.Hashes[entry.Finding.Id])
                 throw new IOException("Uninstall cleanup backup integrity verification failed. No resources were restored.");

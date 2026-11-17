@@ -133,24 +133,7 @@ public sealed partial class MonitorTestApplication(string output) : Microsoft.UI
                 ShowClockSpeed = true, ShowPower = true, ShowVoltage = true, ShowStorageActivity = true, ShowStorageThroughput = true };
             widget.ApplyOptions(options, ElementTheme.Dark);
             widget.Show();
-            for (var i = 0; i < 60; i++)
-            {
-                var wave = (1 + Math.Sin(i / 6d)) / 2;
-                widget.Publish(new(DateTimeOffset.UnixEpoch.AddSeconds(i), 25, null, null, null, null, [], [], [])
-                {
-                    HardwareMetrics = [new(SystemMonitorMetricKind.GpuUsage, "GPU Core · NVIDIA GeForce RTX 3070", 30 + 40 * wave),
-                        new(SystemMonitorMetricKind.GpuUsage, "GPU Memory Controller · NVIDIA GeForce RTX 3070", 5 + 10 * wave),
-                        new(SystemMonitorMetricKind.GpuMemory, "GPU Memory Used · NVIDIA GeForce RTX 3070", 2 + wave),
-                        new(SystemMonitorMetricKind.GpuMemory, "GPU Memory Total · NVIDIA GeForce RTX 3070", 8),
-                        new(SystemMonitorMetricKind.ClockSpeed, "GPU Core · NVIDIA GeForce RTX 3070", 900 + 600 * wave),
-                        new(SystemMonitorMetricKind.ClockSpeed, "GPU Memory · NVIDIA GeForce RTX 3070", 6001),
-                        new(SystemMonitorMetricKind.Power, "CPU Package · CPU · Intel Core i9", 10 + 20 * wave),
-                        new(SystemMonitorMetricKind.Power, "GPU Package · NVIDIA GeForce RTX 3070", 35 + 40 * wave),
-                        new(SystemMonitorMetricKind.Voltage, "GPU Core · NVIDIA GeForce RTX 3070", 0.6 + 0.3 * wave),
-                        new(SystemMonitorMetricKind.StorageActivity, "Total Activity · SSD", 10 + 60 * wave),
-                        new(SystemMonitorMetricKind.StorageThroughput, "Read · SSD", 1048576 * (1 + 10 * wave))]
-                });
-            }
+            for (var i = 0; i < 60; i++) widget.Publish(ChartSample(i));
             var root = Assert.IsType<Grid>(widget.Content);
             foreach (var theme in new[] { ElementTheme.Dark, ElementTheme.Light })
             {
@@ -170,8 +153,36 @@ public sealed partial class MonitorTestApplication(string output) : Microsoft.UI
                     (uint)bitmap.PixelHeight, 96, 96, (await bitmap.GetPixelsAsync()).ToArray());
                 await encoder.FlushAsync();
             }
+            var gpu = Descendants<SystemMonitorMetricChart>(root).Single(chart => chart.Section?.Kind == SystemMonitorMetricKind.GpuUsage);
+            var legend = Assert.Single(Descendants<WinOptimizer.UI.Features.Common.Controls.UniformWrapPanel>(gpu));
+            var legendRow = legend.Children[0];
+            var trace = Descendants<Polyline>(gpu).First();
+            var previousPoint = trace.Points.Last();
+            widget.Publish(ChartSample(60));
+            Assert.Same(legendRow, legend.Children[0]);
+            Assert.Same(trace, Descendants<Polyline>(gpu).First());
+            Assert.NotEqual(previousPoint, trace.Points.Last());
         }
         finally { widget.CloseFromHost(); }
+    }
+
+    private static SystemMonitorSnapshot ChartSample(int index)
+    {
+        var wave = (1 + Math.Sin(index / 6d)) / 2;
+        return new(DateTimeOffset.UnixEpoch.AddSeconds(index), 25, null, null, null, null, [], [], [])
+        {
+            HardwareMetrics = [new(SystemMonitorMetricKind.GpuUsage, "GPU Core · NVIDIA GeForce RTX 3070", 30 + 40 * wave),
+                new(SystemMonitorMetricKind.GpuUsage, "GPU Memory Controller · NVIDIA GeForce RTX 3070", 5 + 10 * wave),
+                new(SystemMonitorMetricKind.GpuMemory, "GPU Memory Used · NVIDIA GeForce RTX 3070", 2 + wave),
+                new(SystemMonitorMetricKind.GpuMemory, "GPU Memory Total · NVIDIA GeForce RTX 3070", 8),
+                new(SystemMonitorMetricKind.ClockSpeed, "GPU Core · NVIDIA GeForce RTX 3070", 900 + 600 * wave),
+                new(SystemMonitorMetricKind.ClockSpeed, "GPU Memory · NVIDIA GeForce RTX 3070", 6001),
+                new(SystemMonitorMetricKind.Power, "CPU Package · CPU · Intel Core i9", 10 + 20 * wave),
+                new(SystemMonitorMetricKind.Power, "GPU Package · NVIDIA GeForce RTX 3070", 35 + 40 * wave),
+                new(SystemMonitorMetricKind.Voltage, "GPU Core · NVIDIA GeForce RTX 3070", 0.6 + 0.3 * wave),
+                new(SystemMonitorMetricKind.StorageActivity, "Total Activity · SSD", 10 + 60 * wave),
+                new(SystemMonitorMetricKind.StorageThroughput, "Read · SSD", 1048576 * (1 + 10 * wave))]
+        };
     }
 
     /// <summary>Finds rendered production controls without exposing their implementation as a public test API.</summary>

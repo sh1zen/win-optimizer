@@ -3,6 +3,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using WinOptimizer.Core.Features.Common.Enums;
 using WinOptimizer.Core.Features.Common.Interfaces;
+using WinOptimizer.Core.Features.Common.Models;
 
 namespace WinOptimizer.Infrastructure.Features.Common.Services;
 
@@ -41,11 +42,12 @@ public class GlobalSettingsPreloader : IGlobalSettingsPreloader
         {
             try
             {
-                var settingsList = settings.ToList();
+                // The compatibility registry already publishes materialized snapshots.
+                var snapshot = settings as IReadOnlyCollection<SettingDefinition> ?? settings.ToArray();
 
-                _globalSettingsRegistry.RegisterSettings(featureId, settingsList);
+                _globalSettingsRegistry.RegisterSettings(featureId, snapshot);
 
-                _logService.Log(LogLevel.Debug, $"[Preloader] Registered {settingsList.Count} bypassed settings from {featureId}");
+                _logService.Log(LogLevel.Debug, $"[Preloader] Registered {snapshot.Count} bypassed settings from {featureId}");
             }
             catch (Exception ex)
             {

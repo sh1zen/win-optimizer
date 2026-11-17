@@ -102,7 +102,9 @@ internal static class CleanerFileDeletion
     /// <summary>Creates a missing restore destination with exclusive access and cleanup rights.</summary>
     public static FileStream CreateRestoreFile(string path)
     {
-        var handle = CreateFile(NativePath(path), 0xC0010100, 0, IntPtr.Zero, 1, 0x00200000, IntPtr.Zero);
+        const uint openReparsePoint = 0x00200000;
+        const uint overlapped = 0x40000000;
+        var handle = CreateFile(NativePath(path), 0xC0010100, 0, IntPtr.Zero, 1, openReparsePoint | overlapped, IntPtr.Zero);
         if (handle.IsInvalid)
         {
             int error = Marshal.GetLastWin32Error();
@@ -112,7 +114,7 @@ internal static class CleanerFileDeletion
         try
         {
             ValidateHandlePath(handle, path);
-            return new FileStream(handle, FileAccess.ReadWrite);
+            return new FileStream(handle, FileAccess.ReadWrite, 4096, isAsync: true);
         }
         catch
         {

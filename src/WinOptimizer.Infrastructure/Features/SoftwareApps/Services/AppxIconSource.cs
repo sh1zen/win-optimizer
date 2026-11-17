@@ -16,130 +16,118 @@ namespace WinOptimizer.Infrastructure.Features.SoftwareApps.Services;
 // `Package` type would clash with NuGet/MSBuild concepts elsewhere in the project. The
 // `Package` references below are fully qualified for that reason.
 
-public class AppxIconSource(ILogService logService) : IAppxIconSource
+public class AppxIconSource : IAppxIconSource
 {
-    // Snapshot of packages keyed by FullName. Populated by GetInstalledPackageMapAsync;
-    // consumed by GetLogoStreamAsync to avoid re-enumerating PackageManager per icon
-    // and to retain references to provisioned-only packages (which carry an
-    // InstalledPath we can read manifest XML from even when no user has them registered).
-    private IReadOnlyDictionary<string, Windows.ApplicationModel.Package> _packagesByFullName =
-        new Dictionary<string, Windows.ApplicationModel.Package>(StringComparer.OrdinalIgnoreCase);
+    private readonly ILogService logService;
+    private readonly Func<PackageScope, IEnumerable<IconPackage>> _readScope;
+    private readonly SemaphoreSlim _inventoryGate = new(1, 1);
+    private volatile Inventory _inventory = new(new(StringComparer.OrdinalIgnoreCase), new(StringComparer.OrdinalIgnoreCase), 0);
 
-    // Per-instance cached enumeration result. The resolver runs once per tab (Windows
-    // Apps + External Apps) within a single SoftwareApps page load; both passes call
-    // GetInstalledPackageMapAsync. Without this cache we'd enumerate ~119 packages
-    // twice. Cache lasts the singleton's lifetime — no invalidation hook on purpose:
-    // nothing re-resolves an app's icon after an in-session install/uninstall (a
-    // removed app's row just stops showing its icon, it isn't re-fetched), and the
-    // map is rebuilt fresh on next launch, so a stale entry is never read.
-    private IReadOnlyDictionary<string, string>? _cachedMap;
-    private readonly object _cacheLock = new();
+    internal enum PackageScope { CurrentUser, AllUsers, Provisioned }
+    internal sealed record IconPackage(string Name, string FullName, Windows.ApplicationModel.Package? Package = null);
+    private sealed record Inventory(Dictionary<string, string> Names,
+        Dictionary<string, Windows.ApplicationModel.Package> Packages, int ScopesRead);
 
     private static readonly XNamespace UapNs = "http://schemas.microsoft.com/appx/manifest/uap/windows10";
+    private const int ScopeCount = 3;
 
-    public async Task<IReadOnlyDictionary<string, string>> GetInstalledPackageMapAsync(
-        CancellationToken ct = default)
+    public AppxIconSource(ILogService logService) : this(logService, scope => ReadWindowsPackages(scope, logService)) { }
+
+    internal AppxIconSource(ILogService logService, Func<PackageScope, IEnumerable<IconPackage>> readScope)
     {
-        // Fast path: cached snapshot from a prior call this session.
-        var cached = _cachedMap;
-        if (cached is not null)
-            return cached;
-
-        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        var packageDict = new Dictionary<string, Windows.ApplicationModel.Package>(StringComparer.OrdinalIgnoreCase);
-
-        try
-        {
-            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            linkedCts.CancelAfter(TimeSpan.FromSeconds(20));
-
-            await Task.Run(() =>
-            {
-                var packageManager = new PackageManager();
-
-                // Layer 1: current user's registered packages. Cheapest, most common.
-                EnumerateInto(packageManager.FindPackagesForUser(""), map, packageDict, linkedCts.Token);
-
-                // Layer 2: all users on the machine. Catches packages another user
-                // has registered, including system-apps that the current user has
-                // uninstalled but that remain registered system-wide.
-                try
-                {
-                    EnumerateInto(packageManager.FindPackages(), map, packageDict, linkedCts.Token);
-                }
-                catch (Exception ex)
-                {
-                    logService.LogWarning($"AppxIconSource: FindPackages (all users) unavailable, skipping: {ex.Message}");
-                }
-
-                // Layer 3: provisioned templates. Catches Microsoft system apps that
-                // ship with Windows but no user has registered (e.g., the user removed
-                // Calculator on a single-user machine — its provisioned template
-                // remains, files still on disk, manifest still readable).
-                try
-                {
-                    EnumerateInto(packageManager.FindProvisionedPackages(), map, packageDict, linkedCts.Token);
-                }
-                catch (Exception ex)
-                {
-                    logService.LogWarning($"AppxIconSource: FindProvisionedPackages unavailable (likely not elevated), skipping: {ex.Message}");
-                }
-            }, linkedCts.Token).ConfigureAwait(false);
-
-            logService.LogInformation($"AppxIconSource: enumerated {map.Count} packages across user/all-users/provisioned scopes");
-        }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested)
-        {
-            throw;
-        }
-        catch (OperationCanceledException)
-        {
-            logService.LogWarning("AppxIconSource enumeration timed out after 20s — returning what was collected");
-        }
-        catch (Exception ex)
-        {
-            logService.LogWarning($"AppxIconSource enumeration failed: {ex.Message}");
-        }
-
-        _packagesByFullName = packageDict;
-
-        // Cache the snapshot so the second tab's resolver pass reuses it instead
-        // of re-enumerating. Last-writer-wins under concurrent first-callers is
-        // fine: both produce equivalent maps from the same PackageManager state.
-        lock (_cacheLock)
-        {
-            _cachedMap = map;
-        }
-        return map;
+        this.logService = logService;
+        _readScope = readScope;
     }
 
-    private void EnumerateInto(
-        IEnumerable<Windows.ApplicationModel.Package> packages,
-        Dictionary<string, string> map,
-        Dictionary<string, Windows.ApplicationModel.Package> packageDict,
-        CancellationToken ct)
+    public Task<IReadOnlyDictionary<string, string>> GetInstalledPackageMapAsync(CancellationToken ct = default) =>
+        ReadInventoryAsync(null, ct);
+
+    public Task<IReadOnlyDictionary<string, string>> GetInstalledPackageMapAsync(IReadOnlySet<string> requested,
+        CancellationToken ct = default) => ReadInventoryAsync(requested, ct);
+
+    /// <summary>Fills the account and provisioned layers only as far as the requested package names require.</summary>
+    private async Task<IReadOnlyDictionary<string, string>> ReadInventoryAsync(IReadOnlySet<string>? requested, CancellationToken ct)
     {
-        foreach (var package in packages)
+        static bool Covers(Inventory inventory, IReadOnlySet<string>? names) =>
+            inventory.ScopesRead == ScopeCount || names is not null && names.All(inventory.Names.ContainsKey);
+
+        var snapshot = _inventory;
+        if (Covers(snapshot, requested)) return snapshot.Names;
+
+        await _inventoryGate.WaitAsync(ct).ConfigureAwait(false);
+        try
         {
-            ct.ThrowIfCancellationRequested();
+            snapshot = _inventory;
+            if (Covers(snapshot, requested)) return snapshot.Names;
+
+            using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            timeout.CancelAfter(TimeSpan.FromSeconds(20));
+            var names = new Dictionary<string, string>(snapshot.Names, StringComparer.OrdinalIgnoreCase);
+            var packages = new Dictionary<string, Windows.ApplicationModel.Package>(snapshot.Packages, StringComparer.OrdinalIgnoreCase);
+            var scope = snapshot.ScopesRead;
             try
             {
-                // Don't overwrite a package we already have — earlier layers (current
-                // user) win because their AppListEntries reliably work; provisioned-only
-                // packages come last and only fill in gaps.
-                if (!packageDict.ContainsKey(package.Id.FullName))
+                await Task.Run(() =>
                 {
-                    packageDict[package.Id.FullName] = package;
-                }
-                if (!map.ContainsKey(package.Id.Name))
-                {
-                    map[package.Id.Name] = package.Id.FullName;
-                }
+                    while (scope < ScopeCount && (requested is null || !requested.All(names.ContainsKey)))
+                    {
+                        timeout.Token.ThrowIfCancellationRequested();
+                        try
+                        {
+                            foreach (var package in _readScope((PackageScope)scope))
+                            {
+                                timeout.Token.ThrowIfCancellationRequested();
+                                names.TryAdd(package.Name, package.FullName);
+                                if (package.Package is not null) packages.TryAdd(package.FullName, package.Package);
+                            }
+                        }
+                        catch (Exception ex) when (scope != 0 && ex is not OperationCanceledException)
+                        { logService.LogWarning($"AppxIconSource: {(PackageScope)scope} inventory unavailable, skipping: {ex.Message}"); }
+                        scope++;
+                    }
+                }, timeout.Token).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { throw; }
+            catch (OperationCanceledException)
+            {
+                scope = ScopeCount;
+                logService.LogWarning("AppxIconSource enumeration timed out after 20s — returning what was collected");
             }
             catch (Exception ex)
             {
-                logService.LogWarning($"Skipped package during icon-source enumeration: {ex.Message}");
+                scope = ScopeCount;
+                logService.LogWarning($"AppxIconSource enumeration failed: {ex.Message}");
             }
+
+            _inventory = new(names, packages, scope);
+            return names;
+        }
+        finally { _inventoryGate.Release(); }
+    }
+
+    private static IEnumerable<IconPackage> ReadWindowsPackages(PackageScope scope, ILogService log)
+    {
+        var manager = new PackageManager();
+        var packages = scope switch
+        {
+            PackageScope.CurrentUser => manager.FindPackagesForUser(""),
+            PackageScope.AllUsers => manager.FindPackages(),
+            _ => manager.FindProvisionedPackages()
+        };
+        foreach (var package in packages)
+        {
+            IconPackage item;
+            try
+            {
+                var id = package.Id;
+                item = new(id.Name, id.FullName, package);
+            }
+            catch (Exception ex)
+            {
+                log.LogWarning($"Skipped package during icon-source enumeration: {ex.Message}");
+                continue;
+            }
+            yield return item;
         }
     }
 
@@ -161,7 +149,7 @@ public class AppxIconSource(ILogService logService) : IAppxIconSource
                 // Path 1: AppListEntry + DisplayInfo.GetLogo. Works for any package
                 // with at least one registered user. Returns the locale-appropriate
                 // logo at the requested size.
-                var entries = await pkg.GetAppListEntriesAsync();
+                var entries = await pkg.GetAppListEntriesAsync().AsTask(linkedCts.Token).ConfigureAwait(false);
                 if (entries is { Count: > 0 })
                 {
                     var streamRef = entries[0].DisplayInfo.GetLogo(size);
@@ -191,7 +179,7 @@ public class AppxIconSource(ILogService logService) : IAppxIconSource
 
     private Windows.ApplicationModel.Package? ResolvePackage(string packageFullName)
     {
-        var snapshot = _packagesByFullName;
+        var snapshot = _inventory.Packages;
         if (snapshot.TryGetValue(packageFullName, out var cachedPkg))
         {
             return cachedPkg;
@@ -216,7 +204,7 @@ public class AppxIconSource(ILogService logService) : IAppxIconSource
         Windows.Storage.Streams.RandomAccessStreamReference streamRef,
         CancellationToken ct)
     {
-        using var randomStream = await streamRef.OpenReadAsync();
+        using var randomStream = await streamRef.OpenReadAsync().AsTask(ct).ConfigureAwait(false);
         var ms = new MemoryStream();
         using (var input = randomStream.AsStreamForRead())
         {

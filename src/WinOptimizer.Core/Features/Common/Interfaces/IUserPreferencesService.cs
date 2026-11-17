@@ -7,6 +7,8 @@ namespace WinOptimizer.Core.Features.Common.Interfaces;
 public interface IUserPreferencesService
 {
     Task<Dictionary<string, object>> GetPreferencesAsync();
+    /// <summary>Reads once for consumers that need several related values.</summary>
+    Task<UserPreferencesSnapshot> ReadSnapshotAsync();
     Task<OperationResult> SavePreferencesAsync(Dictionary<string, object> preferences);
     /// <summary>Atomically merges a group of related fields while preserving other concurrent preference updates.</summary>
     Task<OperationResult> UpdatePreferencesAsync(IReadOnlyDictionary<string, object> changes);

@@ -3,6 +3,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.UI.Xaml;
 using WinOptimizer.Core.Features.Common.Enums;
 using WinOptimizer.Core.Features.Common.Interfaces;
+using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.Core.Features.Common.Services;
 using WinOptimizer.Core.Features.Common.Extensions;
 using WinOptimizer.UI.Features.Common.Extensions.DI;
@@ -137,14 +138,18 @@ public partial class App : Microsoft.UI.Xaml.Application
             }
             if (window.IsClosed) { _host.Dispose(); return; }
 
+            var preferences = Services.GetRequiredService<IUserPreferencesService>();
+            var startupPreferences = await preferences.ReadSnapshotAsync();
+            if (window.IsClosed) { _host.Dispose(); return; }
+
             // Populate and theme the lightweight loader before its first visible frame.
-            InitializeLocalization();
+            InitializeLocalization(startupPreferences);
             window.InitializeLoadingPresentation(Services.GetRequiredService<ILocalizationService>());
-            InitializeTheme();
+            InitializeTheme(startupPreferences);
 
             // Await placement before activation so the visible loader retains the last-used size.
             await window.InitializeWindowPlacementAsync(
-                Services.GetRequiredService<IUserPreferencesService>(), Services.GetRequiredService<ILogService>());
+                preferences, Services.GetRequiredService<ILogService>(), startupPreferences);
             if (!Program.IsWidgetStartup || window.IsManualActivationRequested)
             {
                 window.Activate();
@@ -190,8 +195,8 @@ public partial class App : Microsoft.UI.Xaml.Application
 
             // Restore shell geometry and accent while the loader still covers the window.
             await Task.WhenAll(
-                Services.GetRequiredService<Features.Settings.ViewModels.SidebarPreferencesViewModel>().LoadAsync(),
-                Services.GetRequiredService<Features.Settings.ViewModels.AppColorPreferencesViewModel>().LoadAsync());
+                Services.GetRequiredService<Features.Settings.ViewModels.SidebarPreferencesViewModel>().LoadAsync(startupPreferences),
+                Services.GetRequiredService<Features.Settings.ViewModels.AppColorPreferencesViewModel>().LoadAsync(startupPreferences));
             if (window.IsClosed) { _host.Dispose(); return; }
 
             // Complete the shell in the window that is already displaying startup progress.
@@ -249,16 +254,13 @@ public partial class App : Microsoft.UI.Xaml.Application
     /// <summary>
     /// Initializes the localization system for use with x:Bind in XAML.
     /// </summary>
-    private void InitializeLocalization()
+    private void InitializeLocalization(UserPreferencesSnapshot snapshot)
     {
         try
         {
             var localizationService = Services.GetRequiredService<ILocalizationService>();
 
-            // Load and apply the saved language preference (sync to avoid async deadlock on UI thread)
-            var preferencesService = Services.GetRequiredService<IUserPreferencesService>();
-            var savedLanguage = preferencesService.GetPreference("Language", "en");
-            localizationService.SetLanguage(savedLanguage);
+            localizationService.SetLanguage(snapshot.Get("Language", "en"));
         }
         catch (Exception ex)
         {
@@ -270,12 +272,12 @@ public partial class App : Microsoft.UI.Xaml.Application
     /// <summary>
     /// Initializes the theme system and loads the saved user preference.
     /// </summary>
-    private void InitializeTheme()
+    private void InitializeTheme(UserPreferencesSnapshot snapshot)
     {
         try
         {
             var themeService = Services.GetRequiredService<IThemeService>();
-            themeService.LoadSavedTheme();
+            themeService.LoadSavedTheme(snapshot);
         }
         catch (Exception ex)
         {

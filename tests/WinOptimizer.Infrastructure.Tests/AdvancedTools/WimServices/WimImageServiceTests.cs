@@ -115,6 +115,31 @@ public class WimImageServiceTests
     }
 
     [Fact]
+    public async Task CancellingAfterTheLastExportPreservesTheSourceAndRemovesOnlyTheStagedImage()
+    {
+        using var cancellation = new CancellationTokenSource();
+        const string source = @"C:\work\sources\install.wim";
+        const string target = @"C:\work\sources\install.esd";
+        var targetExists = false;
+        _mockFileSystem.Setup(fs => fs.DirectoryExists(It.IsAny<string>())).Returns(true);
+        _mockFileSystem.Setup(fs => fs.FileExists(source)).Returns(true);
+        _mockFileSystem.Setup(fs => fs.FileExists(target)).Returns(() => targetExists);
+        _mockProcessExecutor.Setup(pe => pe.ExecuteAsync("dism.exe", It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ProcessExecutionResult { StandardOutput = "Index : 1\nName : Home\n" });
+        _mockDismRunner.Setup(runner => runner.RunProcessWithProgressAsync("dism.exe", It.IsAny<string>(),
+            It.IsAny<IProgress<TaskProgressDetail>?>(), cancellation.Token)).Callback(() =>
+            { targetExists = true; cancellation.Cancel(); }).ReturnsAsync((0, ""));
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => _service.ConvertImageAsync(@"C:\work", ImageFormat.Esd,
+            cancellationToken: cancellation.Token));
+
+        _mockProcessExecutor.Verify(pe => pe.ExecuteAsync("dism.exe", It.Is<string>(args => args.Contains("install.esd")),
+            It.IsAny<CancellationToken>()), Times.Never);
+        _mockFileSystem.Verify(fs => fs.DeleteFile(source), Times.Never);
+        _mockFileSystem.Verify(fs => fs.DeleteFile(target), Times.Once);
+    }
+
+    [Fact]
     public async Task DetectImageFormatAsync_SourcesDirectoryNotFound_ReturnsNull()
     {
         // Arrange

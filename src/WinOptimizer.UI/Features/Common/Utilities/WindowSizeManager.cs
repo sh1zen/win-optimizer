@@ -5,6 +5,7 @@ using Microsoft.UI.Windowing;
 using WinOptimizer.Core.Features.Common.Constants;
 using WinOptimizer.Core.Features.Common.Enums;
 using WinOptimizer.Core.Features.Common.Interfaces;
+using WinOptimizer.Core.Features.Common.Models;
 using Windows.Graphics;
 
 namespace WinOptimizer.UI.Features.Common.Utilities;
@@ -43,11 +44,13 @@ public class WindowSizeManager
     /// <summary>
     /// Initializes window size and position, restoring from preferences if available.
     /// </summary>
-    public async Task InitializeAsync()
+    public Task InitializeAsync() => InitializeAsync(snapshot: null);
+
+    internal async Task InitializeAsync(UserPreferencesSnapshot? snapshot)
     {
         try
         {
-            bool loaded = await LoadWindowSettingsAsync();
+            bool loaded = await LoadWindowSettingsAsync(snapshot);
 
             if (!loaded)
             {
@@ -101,15 +104,16 @@ public class WindowSizeManager
         }
     }
 
-    private async Task<bool> LoadWindowSettingsAsync()
+    private async Task<bool> LoadWindowSettingsAsync(UserPreferencesSnapshot? snapshot)
     {
         try
         {
-            var width = await _userPreferencesService.GetPreferenceAsync<double>(UserPreferenceKeys.WindowWidth, 0);
-            var height = await _userPreferencesService.GetPreferenceAsync<double>(UserPreferenceKeys.WindowHeight, 0);
-            var left = await _userPreferencesService.GetPreferenceAsync<double>(UserPreferenceKeys.WindowLeft, double.NaN);
-            var top = await _userPreferencesService.GetPreferenceAsync<double>(UserPreferenceKeys.WindowTop, double.NaN);
-            var isMaximized = await _userPreferencesService.GetPreferenceAsync<bool>(UserPreferenceKeys.WindowMaximized, false);
+            snapshot ??= await _userPreferencesService.ReadSnapshotAsync();
+            var width = snapshot.Get(UserPreferenceKeys.WindowWidth, 0d);
+            var height = snapshot.Get(UserPreferenceKeys.WindowHeight, 0d);
+            var left = snapshot.Get(UserPreferenceKeys.WindowLeft, double.NaN);
+            var top = snapshot.Get(UserPreferenceKeys.WindowTop, double.NaN);
+            var isMaximized = snapshot.Get(UserPreferenceKeys.WindowMaximized, false);
 
             // Only reject clearly invalid values (no saved prefs yet)
             if (!double.IsFinite(width) || !double.IsFinite(height) ||

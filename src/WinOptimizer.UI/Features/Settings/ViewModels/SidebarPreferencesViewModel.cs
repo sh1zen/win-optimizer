@@ -2,6 +2,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using WinOptimizer.Application.Preferences;
 using WinOptimizer.Core.Features.Common.Constants;
 using WinOptimizer.Core.Features.Common.Interfaces;
+using WinOptimizer.Core.Features.Common.Models;
 
 namespace WinOptimizer.UI.Features.Settings.ViewModels;
 
@@ -31,15 +32,18 @@ public partial class SidebarPreferencesViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>Restores the saved layout explicitly, sharing concurrent loads and allowing failed reads to be retried.</summary>
-    public Task<bool> LoadAsync() => IsLoaded ? Task.FromResult(true) :
-        _loadTask is { IsCompleted: false } ? _loadTask : _loadTask = LoadCoreAsync();
+    public Task<bool> LoadAsync() => LoadAsync(snapshot: null);
 
-    private async Task<bool> LoadCoreAsync()
+    internal Task<bool> LoadAsync(UserPreferencesSnapshot? snapshot) => IsLoaded ? Task.FromResult(true) :
+        _loadTask is { IsCompleted: false } ? _loadTask : _loadTask = LoadCoreAsync(snapshot);
+
+    private async Task<bool> LoadCoreAsync(UserPreferencesSnapshot? snapshot)
     {
         IsBusy = true;
         try
         {
-            var expanded = await _preferences.GetPreferenceAsync(UserPreferenceKeys.SidebarExpanded, true);
+            var expanded = snapshot?.Get(UserPreferenceKeys.SidebarExpanded, true) ??
+                await _preferences.GetPreferenceAsync(UserPreferenceKeys.SidebarExpanded, true);
             ApplyPreference(expanded);
             IsLoaded = true;
             Status = "";

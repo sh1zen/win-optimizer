@@ -45,31 +45,31 @@ public sealed class BatteryTelemetryTests
     }
 
     [Fact]
-    public void ChargingAndIdleNeverInventDischargeRuntimeOrZeroCurrent()
+    public async Task ChargingAndIdleNeverInventDischargeRuntimeOrZeroCurrent()
     {
         var wmi = new SensorFake();
         var status = wmi.Rows["BatteryStatus"][0];
         status["Charging"] = true; status["Discharging"] = false;
         status["PowerOnline"] = true; status["ChargeRate"] = 21000u; status["DischargeRate"] = 0u;
-        var battery = Assert.Single(BatteryTelemetryReader.Read(wmi).Batteries);
+        var battery = Assert.Single((await BatteryTelemetryReader.ReadAsync(wmi)).Batteries);
         Assert.True(battery.Charging); Assert.True(battery.PowerOnline);
         Assert.Equal(1.5, battery.CurrentAmperes); Assert.Null(battery.EstimatedRuntime);
         status["Charging"] = false;
-        battery = Assert.Single(BatteryTelemetryReader.Read(wmi).Batteries);
+        battery = Assert.Single((await BatteryTelemetryReader.ReadAsync(wmi)).Batteries);
         Assert.Null(battery.CurrentAmperes); Assert.Null(battery.EstimatedRuntime);
         status["Charging"] = true; status["Discharging"] = true;
-        battery = Assert.Single(BatteryTelemetryReader.Read(wmi).Batteries);
+        battery = Assert.Single((await BatteryTelemetryReader.ReadAsync(wmi)).Batteries);
         Assert.Null(battery.CurrentAmperes); Assert.Null(battery.EstimatedRuntime);
     }
 
     [Theory]
     [InlineData(0xC0000000u)]
     [InlineData(null)]
-    public void RelativeOrUnestablishedUnitsNeverBecomeWattsOrWattHours(uint? capabilities)
+    public async Task RelativeOrUnestablishedUnitsNeverBecomeWattsOrWattHours(uint? capabilities)
     {
         var wmi = new SensorFake();
         wmi.Rows["BatteryStaticData"][0]["Capabilities"] = capabilities;
-        var battery = Assert.Single(BatteryTelemetryReader.Read(wmi).Batteries);
+        var battery = Assert.Single((await BatteryTelemetryReader.ReadAsync(wmi)).Batteries);
         Assert.Null(battery.DesignCapacityWh); Assert.Null(battery.FullChargeCapacityWh);
         Assert.Null(battery.RemainingEnergyWh); Assert.Null(battery.ChargePowerWatts);
         Assert.Null(battery.DischargePowerWatts); Assert.Null(battery.CurrentAmperes); Assert.Null(battery.EstimatedRuntime);
@@ -77,7 +77,7 @@ public sealed class BatteryTelemetryTests
     }
 
     [Fact]
-    public void UnsupportedAndUnknownValuesRemainUnavailableWhileRealZeroEnergyIsRetained()
+    public async Task UnsupportedAndUnknownValuesRemainUnavailableWhileRealZeroEnergyIsRetained()
     {
         var wmi = new SensorFake();
         wmi.Rows["BatteryStaticData"][0]["DesignedCapacity"] = 0u;
@@ -87,14 +87,14 @@ public sealed class BatteryTelemetryTests
         var status = wmi.Rows["BatteryStatus"][0];
         status["Voltage"] = uint.MaxValue; status["ChargeRate"] = int.MinValue;
         status["DischargeRate"] = 0x80000000u; status["RemainingCapacity"] = 0u;
-        var battery = Assert.Single(BatteryTelemetryReader.Read(wmi).Batteries);
+        var battery = Assert.Single((await BatteryTelemetryReader.ReadAsync(wmi)).Batteries);
         Assert.Null(battery.DesignCapacityWh); Assert.Null(battery.FullChargeCapacityWh);
         Assert.Null(battery.HealthPercent); Assert.Null(battery.WearPercent); Assert.Null(battery.CycleCount);
         Assert.Null(battery.TemperatureCelsius); Assert.Null(battery.Voltage); Assert.Null(battery.ChargePowerWatts);
         Assert.Null(battery.DischargePowerWatts); Assert.Null(battery.CurrentAmperes); Assert.Null(battery.EstimatedRuntime);
         Assert.Equal(0, battery.RemainingEnergyWh);
         status["RemainingCapacity"] = uint.MaxValue;
-        Assert.Null(Assert.Single(BatteryTelemetryReader.Read(wmi).Batteries).RemainingEnergyWh);
+        Assert.Null(Assert.Single((await BatteryTelemetryReader.ReadAsync(wmi)).Batteries).RemainingEnergyWh);
     }
 
     [Fact]
@@ -110,12 +110,12 @@ public sealed class BatteryTelemetryTests
     }
 
     [Fact]
-    public void DifferentBatteriesJoinByIdentityEvenWhenSourcesAreReorderedOrMissing()
+    public async Task DifferentBatteriesJoinByIdentityEvenWhenSourcesAreReorderedOrMissing()
     {
         var wmi = new SensorFake();
         wmi.Rows["BatteryStaticData"].Add(new() { ["InstanceName"] = "second", ["DeviceName"] = "Second battery", ["Capabilities"] = 0x80000000u, ["DesignedCapacity"] = 80000u });
         wmi.Rows["BatteryFullChargedCapacity"].Insert(0, new() { ["InstanceName"] = "SECOND", ["FullChargedCapacity"] = 64000u });
-        var snapshot = BatteryTelemetryReader.Read(wmi);
+        var snapshot = await BatteryTelemetryReader.ReadAsync(wmi);
         Assert.Equal(2, snapshot.Batteries.Count);
         var first = snapshot.Batteries.Single(battery => battery.Name == "Test battery");
         var second = snapshot.Batteries.Single(battery => battery.Name == "Second battery");
@@ -138,13 +138,49 @@ public sealed class BatteryTelemetryTests
     }
 
     [Fact]
-    public void AmbiguousSensorsProduceDiagnosticsInsteadOfMergingBatteries()
+    public async Task AmbiguousSensorsProduceDiagnosticsInsteadOfMergingBatteries()
     {
         var wmi = new SensorFake();
         wmi.Rows["BatteryTemperature"].Add(new(wmi.Rows["BatteryTemperature"][0]));
-        var snapshot = BatteryTelemetryReader.Read(wmi);
+        var snapshot = await BatteryTelemetryReader.ReadAsync(wmi);
         Assert.Contains("BatteryTemperature", Assert.Single(snapshot.Diagnostics));
         Assert.Null(Assert.Single(snapshot.Batteries).TemperatureCelsius);
+    }
+
+    [Fact]
+    public async Task IndependentSensorReadsOverlapAndDiagnosticsRetainClassOrder()
+    {
+        using var releaseFirst = new ManualResetEventSlim();
+        var enteredFirst = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var enteredOther = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var wmi = new SensorFake
+        {
+            OnSensorQuery = name =>
+            {
+                if (name == "BatteryStaticData")
+                {
+                    enteredFirst.TrySetResult();
+                    Assert.True(releaseFirst.Wait(TimeSpan.FromSeconds(10)));
+                    throw new UnauthorizedAccessException("Static data unavailable");
+                }
+                if (name == "BatteryStatus")
+                {
+                    enteredOther.TrySetResult();
+                    throw new UnauthorizedAccessException("Status unavailable");
+                }
+            }
+        };
+        var operation = new BatteryChargeService(wmi, [], Mock.Of<IApplicationModeService>()).ReadAsync();
+        try
+        {
+            await Task.WhenAll(enteredFirst.Task, enteredOther.Task).WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(operation.IsCompleted);
+        }
+        finally { releaseFirst.Set(); }
+
+        var snapshot = Assert.IsType<BatteryTelemetrySnapshot>((await operation).Telemetry);
+        Assert.Equal(new[] { "BatteryStaticData: Static data unavailable", "BatteryStatus: Status unavailable" }, snapshot.Diagnostics);
+        Assert.Equal(55u, Assert.Single(snapshot.Batteries).CycleCount);
     }
 
     /// <summary>Supplies the same class boundaries used in local production WMI queries.</summary>
@@ -152,7 +188,9 @@ public sealed class BatteryTelemetryTests
     {
         public bool HasBattery { get; set; } = true;
         public string? FailedSource { get; init; }
-        public int SensorQueries { get; private set; }
+        private int _sensorQueries;
+        public int SensorQueries => Volatile.Read(ref _sensorQueries);
+        public Action<string>? OnSensorQuery { get; init; }
         public Dictionary<string, List<Dictionary<string, object?>>> Rows { get; } = new()
         {
             ["BatteryStaticData"] = [new() { ["InstanceName"] = "first", ["DeviceName"] = "Test battery", ["ManufactureName"] = "Test manufacturer", ["Capabilities"] = 0x80000000u, ["DesignedCapacity"] = 60000u }],
@@ -167,9 +205,10 @@ public sealed class BatteryTelemetryTests
             if (query.Contains("Win32_ComputerSystem")) return [new Dictionary<string, object?> { ["Manufacturer"] = "Test OEM", ["Model"] = "Test laptop" }];
             if (query.Contains("Win32_Battery")) return HasBattery ? [new Dictionary<string, object?> { ["EstimatedChargeRemaining"] = 50 }] : [];
             Assert.Equal(@"root\wmi", scope);
-            SensorQueries++;
+            Interlocked.Increment(ref _sensorQueries);
             var className = query.Split(' ')[3];
             Assert.Equal($"SELECT * FROM {className} WHERE Active=TRUE", query);
+            OnSensorQuery?.Invoke(className);
             if (className == FailedSource) throw new UnauthorizedAccessException("Test sensor access denied.");
             return Rows.GetValueOrDefault(className)?.Select(row => (IReadOnlyDictionary<string, object?>)row).ToArray() ?? [];
         }

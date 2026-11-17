@@ -5,8 +5,12 @@
     <Thickness x:Key="PageHorizontalMargin">16,0,16,0</Thickness>
     <Thickness x:Key="PageContentPadding">0,8,0,24</Thickness>
     <x:Double x:Key="PageSectionSpacing">24</x:Double>
-    <x:Double x:Key="PageCardSpacing">10</x:Double>
+    <x:Double x:Key="PageCardSpacing">12</x:Double>
     <Thickness x:Key="PageCardPadding">20</Thickness>
+    <CornerRadius x:Key="ControlCornerRadius">10</CornerRadius>
+    <CornerRadius x:Key="OverlayCornerRadius">16</CornerRadius>
+    <CornerRadius x:Key="PageSurfaceCornerRadius">18</CornerRadius>
+    <CornerRadius x:Key="PageIconCornerRadius">16</CornerRadius>
     <Style x:Key="PageGridStyle" TargetType="Grid">
         <Setter Property="Padding" Value="{StaticResource PageContentPadding}"/>
         <Setter Property="RowSpacing" Value="{StaticResource PageSectionSpacing}"/>
@@ -28,18 +32,24 @@
         <Setter Property="HorizontalScrollBarVisibility" Value="Disabled"/>
         <Setter Property="VerticalScrollBarVisibility" Value="Auto"/>
     </Style>
-    <Style x:Key="PageCardStyle" TargetType="Border">
-        <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}"/>
-        <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}"/>
+    <Style x:Key="PageSurfaceStyle" TargetType="Border">
+        <Setter Property="Background" Value="{ThemeResource AppSurfaceBrush}"/>
+        <Setter Property="BorderBrush" Value="{ThemeResource AppSurfaceStrokeBrush}"/>
         <Setter Property="BorderThickness" Value="1"/>
-        <Setter Property="CornerRadius" Value="12"/>
+        <Setter Property="CornerRadius" Value="{StaticResource PageSurfaceCornerRadius}"/>
+    </Style>
+    <Style x:Key="PageCardStyle" TargetType="Border" BasedOn="{StaticResource PageSurfaceStyle}">
         <Setter Property="Padding" Value="{StaticResource PageCardPadding}"/>
     </Style>
+    <Style x:Key="SegmentedSurfaceStyle" TargetType="Border" BasedOn="{StaticResource PageSurfaceStyle}">
+        <Setter Property="CornerRadius" Value="14"/>
+        <Setter Property="Padding" Value="3"/>
+    </Style>
     <Style x:Key="PageSettingsCardStyle" TargetType="toolkit:SettingsCard">
-        <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}"/>
-        <Setter Property="BorderBrush" Value="{ThemeResource CardStrokeColorDefaultBrush}"/>
+        <Setter Property="Background" Value="{ThemeResource AppSurfaceBrush}"/>
+        <Setter Property="BorderBrush" Value="{ThemeResource AppSurfaceStrokeBrush}"/>
         <Setter Property="BorderThickness" Value="1"/>
-        <Setter Property="CornerRadius" Value="12"/>
+        <Setter Property="CornerRadius" Value="{StaticResource PageSurfaceCornerRadius}"/>
         <Setter Property="Padding" Value="{StaticResource PageCardPadding}"/>
     </Style>
 </ResourceDictionary>

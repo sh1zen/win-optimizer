@@ -55,6 +55,18 @@ public sealed class SidebarPreferencesViewModelTests
     }
 
     [Fact]
+    public async Task StartupSnapshotRestoresSidebarWithoutASecondRead()
+    {
+        using var vm = CreateViewModel();
+        var snapshot = new UserPreferencesSnapshot(new Dictionary<string, object>
+            { [UserPreferenceKeys.SidebarExpanded] = false }, Mock.Of<ILogService>());
+        Assert.True(await vm.LoadAsync(snapshot));
+        Assert.False(vm.IsExpanded);
+        Assert.True(vm.CanEdit);
+        _preferences.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public async Task RapidEditsUpdateLiveLayoutImmediatelyAndFlushSavesInOrder()
     {
         using var vm = CreateViewModel();

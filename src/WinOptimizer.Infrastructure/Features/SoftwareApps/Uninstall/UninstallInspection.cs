@@ -109,8 +109,9 @@ internal sealed class UninstallInspection(ICleanerRegistrySessions sessions, IUn
                 using var session = sessions.Open(account.Sid);
                 if (!session.GetFolderPath(Environment.SpecialFolder.UserProfile).Equals(account.ProfileDirectory, StringComparison.OrdinalIgnoreCase))
                     throw new IOException("The account's profile registration changed during uninstall.");
+                var installedNames = installed.Select(package => package.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
                 foreach (var plan in plans)
-                    if (installed.Any(package => (plan.Application.AppxPackageName ?? []).Contains(package.Name, StringComparer.OrdinalIgnoreCase)))
+                    if (plan.Application.AppxPackageName?.Any(installedNames.Contains) == true)
                         active[plan.Application.Id].Add(account.Sid);
                 CheckRegistrations(plans, session, session.UserPrefix, account.Sid, active, ct);
             }
@@ -132,10 +133,11 @@ internal sealed class UninstallInspection(ICleanerRegistrySessions sessions, IUn
         }
         var allRoots = plans.SelectMany(plan => plan.ReferencePaths).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         var running = processes.FindRunningExecutables(allRoots, notices);
+        var outcomesById = outcomes.ToLookup(outcome => outcome.AppId, StringComparer.Ordinal);
         Dictionary<string, UninstallVerificationContext> result = [];
         foreach (var plan in plans)
         {
-            var outcome = outcomes.SingleOrDefault(outcome => outcome.AppId == plan.Application.Id)
+            var outcome = outcomesById[plan.Application.Id].SingleOrDefault()
                 ?? new UninstallNativeOutcome(plan.Application.Id, false, false, "No native uninstall outcome is available.");
             var id = plan.Application.Id;
             var hasProof = plan.Registrations.Count > 0 || plan.Packages.Values.Any(values => values.Length > 0) || plan.Executables.Count > 0;
@@ -211,7 +213,7 @@ internal sealed class UninstallInspection(ICleanerRegistrySessions sessions, IUn
                 if (IsSharedRoot(plan, root)) { notices.Add($"{root.Path}: shared with another registered product; preserved."); continue; }
                 if (root.SingleFile)
                 {
-                    if (File.Exists(root.Path)) AddFile(root.Path, root);
+                    if (File.Exists(root.Path)) AddFile(new FileInfo(root.Path), root);
                     continue;
                 }
                 if (!Directory.Exists(root.Path)) continue;
@@ -226,13 +228,12 @@ internal sealed class UninstallInspection(ICleanerRegistrySessions sessions, IUn
                         var info = new DirectoryInfo(directory);
                         Add(new(Finding(UninstallArtifactKind.Directory, directory, root.Sid, verification, plan,
                             modified: info.LastWriteTimeUtc), root));
-                        foreach (var entry in Directory.EnumerateFileSystemEntries(directory))
+                        foreach (var entry in info.EnumerateFileSystemInfos())
                         {
                             ct.ThrowIfCancellationRequested();
-                            var attributes = File.GetAttributes(entry);
-                            if ((attributes & FileAttributes.ReparsePoint) != 0) { notices.Add($"{entry}: link/junction preserved."); continue; }
-                            if ((attributes & FileAttributes.Directory) != 0) pending.Push(entry);
-                            else AddFile(entry, root);
+                            if ((entry.Attributes & FileAttributes.ReparsePoint) != 0) { notices.Add($"{entry.FullName}: link/junction preserved."); continue; }
+                            if (entry is FileInfo file) AddFile(file, root);
+                            else pending.Push(entry.FullName);
                         }
                     }
                     catch (Exception ex) when (UninstallResources.IsResourceError(ex)) { notices.Add($"{directory}: {ex.Message}"); }
@@ -242,15 +243,19 @@ internal sealed class UninstallInspection(ICleanerRegistrySessions sessions, IUn
         }
         return found.Values.ToArray();
 
-        void AddFile(string path, UninstallFileRoot root)
+        void AddFile(FileInfo info, UninstallFileRoot root)
         {
-            var info = new FileInfo(path);
-            if (root.ShortcutTarget != null && !shortcuts.ReadTarget(path).Equals(root.ShortcutTarget, StringComparison.OrdinalIgnoreCase))
+            var path = info.FullName;
+            if (root.ShortcutTarget != null)
             {
-                // Environment-bearing shortcut targets are resolved when checking cleanup, rather than borrowing this process' profile.
-                using var account = sessions.Open(root.Sid);
-                if (!CleanerAccountEnvironment.Expand(shortcuts.ReadTarget(path), RegistryView.Registry64, account)
-                    .Equals(root.ShortcutTarget, StringComparison.OrdinalIgnoreCase)) return;
+                var target = shortcuts.ReadTarget(path);
+                if (!target.Equals(root.ShortcutTarget, StringComparison.OrdinalIgnoreCase))
+                {
+                    // Resolve environment-bearing targets against the account that owns the shortcut.
+                    using var account = sessions.Open(root.Sid);
+                    if (!CleanerAccountEnvironment.Expand(target, RegistryView.Registry64, account)
+                        .Equals(root.ShortcutTarget, StringComparison.OrdinalIgnoreCase)) return;
+                }
             }
             var evidence = new CleanerFileTarget(Path.GetDirectoryName(root.Path)!, path, info.Length,
                 info.LastWriteTimeUtc, DateTime.UtcNow, root.ShortcutTarget);
@@ -350,6 +355,7 @@ internal sealed class UninstallInspection(ICleanerRegistrySessions sessions, IUn
     {
         value = CleanerAccountEnvironment.Expand(value, view32 ? RegistryView.Registry32 : RegistryView.Registry64, account);
         // FeatureUsage and compatibility records may encode the Program Files known-folder ID.
+        if (!value.Contains('{')) return value;
         value = value.Replace("{6D809377-6AF0-444B-8957-A3773F02200E}", Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), StringComparison.OrdinalIgnoreCase)
             .Replace("{7C5A40EF-A0FB-4BFC-874A-C0F2E0B9FA8E}", Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), StringComparison.OrdinalIgnoreCase);
         return value;

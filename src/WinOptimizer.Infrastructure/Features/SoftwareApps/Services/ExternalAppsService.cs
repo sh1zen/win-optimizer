@@ -40,12 +40,41 @@ public class ExternalAppsService(
     public void InvalidateStatusCache() => appStatusDiscoveryService.InvalidateCache();
 
     /// <summary>Merges registered installed programs with the supported installation catalogue.</summary>
-    public async Task<IEnumerable<ItemDefinition>> GetAppsAsync()
+    public async Task<IEnumerable<ItemDefinition>> GetAppsAsync() =>
+        MergeCatalogue(await installedPrograms.ReadAsync().ConfigureAwait(false));
+
+    /// <summary>Uses the same registration snapshot for catalogue discovery and installation detection.</summary>
+    public async Task<ExternalAppInventory> ReadInventoryAsync()
+    {
+        var registrations = await installedPrograms.ReadAsync().ConfigureAwait(false);
+        var applications = MergeCatalogue(registrations);
+        var registry = AppStatusDiscoveryService.BuildRegistrySnapshot(registrations);
+        return new(applications, definitions => appStatusDiscoveryService.GetExternalAppsInstallationStatusAsync(definitions, registry))
+        { DesktopRegistrations = registrations };
+    }
+
+    private static IReadOnlyList<ItemDefinition> MergeCatalogue(IReadOnlyList<InstalledProgram> registrations)
     {
         var catalogue = ExternalAppDefinitions.GetExternalApps().Items.ToList();
-        var windowsApps = WindowsAppDefinitions.GetWindowsApps().Items;
-        var registrations = await installedPrograms.ReadAsync().ConfigureAwait(false);
-        var discovered = registrations.Where(program => program.IsVisible && !catalogue.Any(program.Matches) && !windowsApps.Any(program.Matches))
+        if (registrations.Count == 0) return catalogue;
+        var definitions = catalogue.Concat(WindowsAppDefinitions.GetWindowsApps().Items).ToArray();
+        var knownPaths = definitions.Select(item => item.RegistryUninstallKeyPath).OfType<string>()
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var byName = definitions.Where(item => item.RegistryUninstallKeyPath is null).ToArray();
+        var knownNames = byName.Select(item => item.Name).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var keyPatterns = byName.Select(item => item.RegistrySubKeyName).OfType<string>().Where(pattern => pattern.Length > 0)
+            .Distinct(StringComparer.Ordinal).Select(AppStatusDiscoveryService.GetFingerprintMatcher).ToArray();
+        var displayPatterns = byName.Select(item => item.RegistryDisplayName).OfType<string>().Where(pattern => pattern.Length > 0)
+            .Distinct(StringComparer.Ordinal).Select(AppStatusDiscoveryService.GetFingerprintMatcher).ToArray();
+
+        var discovered = registrations.Where(program =>
+        {
+            if (!program.IsVisible || knownPaths.Contains(program.KeyPath)) return false;
+            var key = program.KeyName;
+            return !knownNames.Contains(key) && !knownNames.Contains(program.Name) &&
+                (key.Length == 0 || !keyPatterns.Any(pattern => pattern.IsMatch(key))) &&
+                !displayPatterns.Any(pattern => pattern.IsMatch(program.Name));
+        })
             .DistinctBy(program => program.KeyPath, StringComparer.OrdinalIgnoreCase)
             .Select(program => program.ToDefinition());
         return catalogue.Concat(discovered).ToList();

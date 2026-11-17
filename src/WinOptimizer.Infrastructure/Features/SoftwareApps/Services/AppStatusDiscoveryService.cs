@@ -63,9 +63,8 @@ public class AppStatusDiscoveryService(
                     features.Select(f => f.OptionalFeatureName!).ToList())
                 : Task.FromResult(new WindowsComponentStatus(
                     new Dictionary<string, bool>(), new Dictionary<string, bool>()));
-            var packagesTask = apps.Count > 0
-                ? GetOrFetchAppxPackageNamesAsync()
-                : Task.FromResult(new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+            var packageRead = apps.Count > 0 ? GetOrFetchAppxInventory() : default;
+            var packagesTask = packageRead?.Names ?? Task.FromResult(new HashSet<string>(StringComparer.OrdinalIgnoreCase));
             // Ordinary AppX identities do not depend on servicing results. Start
             // their conditional WinGet fallback as soon as package enumeration
             // finishes, while DISM is still running. Shared component identities
@@ -168,7 +167,7 @@ public class AppStatusDiscoveryService(
             logService.LogInformation(
                 $"Detection complete: {capCount} via Capability, {featCount} via Feature, {appxCount} via AppX, {wingetCount} via WinGet, {notFoundCount} not found");
 
-            await RefreshMetadataAsync(definitionList, result).ConfigureAwait(false);
+            await RefreshMetadataAsync(definitionList, result, packageRead?.Fresh).ConfigureAwait(false);
             return result;
         }
         catch (Exception ex)
@@ -204,16 +203,23 @@ public class AppStatusDiscoveryService(
         }
     }
 
-    /// <summary>Shares account package evidence until explicit refresh; failed reads remain retryable.</summary>
-    private Task<HashSet<string>> GetOrFetchAppxPackageNamesAsync()
+    private sealed record AppxRead(Task<HashSet<string>> Names, Task<AppxInventorySnapshot>? Fresh);
+
+    /// <summary>Keeps only names in the cache and exposes registrations to the refresh that enumerated them.</summary>
+    private AppxRead GetOrFetchAppxInventory()
     {
         lock (_inventoryGate)
         {
-            if (_appxPackageNames is null || _appxPackageNames.IsFaulted || _appxPackageNames.IsCanceled)
-                _appxPackageNames = appxPackageSource.GetInstalledPackageNamesAsync();
-            return _appxPackageNames;
+            if (_appxPackageNames is { IsFaulted: false, IsCanceled: false })
+                return new(_appxPackageNames, null);
+            var inventory = appxPackageSource.ReadInstalledInventoryAsync();
+            _appxPackageNames = ReadPackageNamesAsync(inventory);
+            return new(_appxPackageNames, inventory);
         }
     }
+
+    private static async Task<HashSet<string>> ReadPackageNamesAsync(Task<AppxInventorySnapshot> inventory) =>
+        (await inventory.ConfigureAwait(false)).Names;
 
     /// <summary>Fetches one inventory without publishing into a potentially invalidated cache.</summary>
     private async Task<HashSet<string>?> FetchWinGetPackageIdsAsync()
@@ -238,12 +244,6 @@ public class AppStatusDiscoveryService(
         }
     }
 
-    internal record RegistryUninstallInfo(
-        HashSet<string> KeyNames,
-        HashSet<string> DisplayNames,
-        HashSet<string> AllKeyNames,
-        HashSet<string> KeyPaths);
-
     /// <summary>
     /// Tests whether input matches a pattern containing {version}, {arch}, {locale} placeholders.
     /// Each placeholder is replaced by a non-greedy wildcard (.+?) for regex matching.
@@ -251,9 +251,12 @@ public class AppStatusDiscoveryService(
     /// </summary>
     internal static bool MatchesPattern(string input, string pattern)
     {
-        if (string.IsNullOrEmpty(input))
-            return false;
+        return !string.IsNullOrEmpty(input) && GetFingerprintMatcher(pattern).IsMatch(input);
+    }
 
+    /// <summary>Reuses the same culture-aware catalogue expression throughout an inventory pass.</summary>
+    internal static Regex GetFingerprintMatcher(string pattern)
+    {
         // Catalogue matching visits the same fingerprints for many registrations.
         // Keep parsed expressions bounded and preserve Regex's current-culture casing.
         Regex expression;
@@ -272,12 +275,16 @@ public class AppStatusDiscoveryService(
             }
             else expression = cached;
         }
-        return expression.IsMatch(input);
+        return expression;
     }
 
     #region External Apps Detection
 
-    public async Task<Dictionary<string, bool>> GetExternalAppsInstallationStatusAsync(IEnumerable<ItemDefinition> definitions)
+    public Task<Dictionary<string, bool>> GetExternalAppsInstallationStatusAsync(IEnumerable<ItemDefinition> definitions) =>
+        GetExternalAppsInstallationStatusAsync(definitions, registry: null);
+
+    public async Task<Dictionary<string, bool>> GetExternalAppsInstallationStatusAsync(IEnumerable<ItemDefinition> definitions,
+        AppRegistrySnapshot? registry)
     {
         using var logTopic = logService.BeginTopic(LogTopic.Software);
         var result = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
@@ -291,20 +298,20 @@ public class AppStatusDiscoveryService(
             int wingetCount = 0, chocoCount = 0, appxCount = 0, registryCount = 0, fileSystemCount = 0;
 
             // Reused in Phase 4 so registry disambiguation never scans twice.
-            RegistryUninstallInfo? sharedRegInfo = null;
+            var sharedRegInfo = registry;
 
             // Phase 1: WinGet detection for apps with WinGetPackageId or MsStoreId
             var appsWithWinGetId = definitionList
                 .Where(d => (d.WinGetPackageId != null && d.WinGetPackageId.Length > 0) || !string.IsNullOrEmpty(d.MsStoreId))
                 .ToList();
-            Task<RegistryUninstallInfo>? registryTask = null;
+            Task<AppRegistrySnapshot>? registryTask = null;
 
             if (appsWithWinGetId.Count != 0)
             {
                 var winGetTask = GetOrFetchWinGetPackageIdsAsync();
                 // Discovered registry-only entries always need a fresh registration
                 // inventory. Overlap that required read with WinGet enumeration.
-                if (definitionList.Any(d => d.RegistryUninstallKeyPath is not null &&
+                if (sharedRegInfo is null && definitionList.Any(d => d.RegistryUninstallKeyPath is not null &&
                     d.WinGetPackageId is not { Length: > 0 } && string.IsNullOrEmpty(d.MsStoreId) &&
                     string.IsNullOrEmpty(d.ChocoPackageId) && d.AppxPackageName is not { Length: > 0 }))
                     registryTask = GetRegistryUninstallInfoAsync();
@@ -318,7 +325,7 @@ public class AppStatusDiscoveryService(
                     // entry that winget uses to fingerprint "AutoHotkey.AutoHotkey" (v2).
                     if (appsWithWinGetId.Any(d => !string.IsNullOrEmpty(d.RegistryDisplayName) ||
                         !string.IsNullOrEmpty(d.RegistrySubKeyName)))
-                        sharedRegInfo = await (registryTask ??= GetRegistryUninstallInfoAsync()).ConfigureAwait(false);
+                        sharedRegInfo ??= await (registryTask ??= GetRegistryUninstallInfoAsync()).ConfigureAwait(false);
                     foreach (var def in appsWithWinGetId)
                     {
                         var matchedById = def.WinGetPackageId?.Any(pkgId => winGetIds.Contains(pkgId)) == true;
@@ -374,9 +381,9 @@ public class AppStatusDiscoveryService(
 
             // These AppX candidates must be checked regardless of Chocolatey results.
             // Start only required work, then apply the existing provider precedence.
-            var appxTask = definitionList.Any(d => d.AppxPackageName?.Length > 0 &&
+            var packageRead = definitionList.Any(d => d.AppxPackageName?.Length > 0 &&
                 string.IsNullOrEmpty(d.ChocoPackageId) && !result.GetValueOrDefault(d.Id))
-                ? GetOrFetchAppxPackageNamesAsync() : null;
+                ? GetOrFetchAppxInventory() : null;
 
             if (appsForChocoCheck.Count != 0)
             {
@@ -418,7 +425,8 @@ public class AppStatusDiscoveryService(
 
             if (appsWithAppxName.Count != 0)
             {
-                var installedPackageNames = await (appxTask ?? GetOrFetchAppxPackageNamesAsync()).ConfigureAwait(false);
+                packageRead ??= GetOrFetchAppxInventory();
+                var installedPackageNames = await packageRead.Names.ConfigureAwait(false);
                 foreach (var def in appsWithAppxName)
                 {
                     if (def.AppxPackageName!.Any(name => installedPackageNames.Contains(name)))
@@ -542,7 +550,7 @@ public class AppStatusDiscoveryService(
             logService.LogInformation(
                 $"Status check complete: {totalFound}/{definitionList.Count} apps installed ({wingetCount} via WinGet, {chocoCount} via Chocolatey, {appxCount} via AppX, {registryCount} via Registry, {fileSystemCount} via FileSystem)");
 
-            await RefreshMetadataAsync(definitionList, result).ConfigureAwait(false);
+            await RefreshMetadataAsync(definitionList, result, appsWithAppxName.Count > 0 ? packageRead?.Fresh : null).ConfigureAwait(false);
             return result;
         }
         catch (Exception ex)
@@ -553,7 +561,8 @@ public class AppStatusDiscoveryService(
     }
 
     /// <summary>Refreshes metadata independently so unavailable measurements cannot change installed status.</summary>
-    private async Task RefreshMetadataAsync(IReadOnlyList<ItemDefinition> definitions, IReadOnlyDictionary<string, bool> status)
+    private async Task RefreshMetadataAsync(IReadOnlyList<ItemDefinition> definitions, IReadOnlyDictionary<string, bool> status,
+        Task<AppxInventorySnapshot>? freshInventory)
     {
         foreach (var definition in definitions)
             definition.Metadata = null;
@@ -561,7 +570,10 @@ public class AppStatusDiscoveryService(
         {
             var installed = definitions.Where(item => status.TryGetValue(item.Id, out var found) && found).ToList();
             if (installed.Count == 0) return;
-            var metadata = await metadataSource.ReadAsync(installed).ConfigureAwait(false);
+            var registrations = freshInventory is null ? null : (await freshInventory.ConfigureAwait(false)).Registrations;
+            var metadata = registrations is null
+                ? await metadataSource.ReadAsync(installed).ConfigureAwait(false)
+                : await metadataSource.ReadAsync(installed, registrations).ConfigureAwait(false);
             foreach (var definition in installed)
                 definition.Metadata = metadata.GetValueOrDefault(definition.Id);
         }
@@ -572,11 +584,13 @@ public class AppStatusDiscoveryService(
     }
 
     /// <summary>Builds catalogue fingerprints and exact installed-program identities from one registry inventory.</summary>
-    private async Task<RegistryUninstallInfo> GetRegistryUninstallInfoAsync()
+    private async Task<AppRegistrySnapshot> GetRegistryUninstallInfoAsync() =>
+        BuildRegistrySnapshot(await installedPrograms.ReadAsync().ConfigureAwait(false));
+
+    internal static AppRegistrySnapshot BuildRegistrySnapshot(IReadOnlyList<InstalledProgram> registrations)
     {
-        var registrations = await installedPrograms.ReadAsync().ConfigureAwait(false);
         var visible = registrations.Where(program => !program.IsSystemComponent).ToList();
-        return new RegistryUninstallInfo(
+        return new AppRegistrySnapshot(
             visible.Select(program => program.KeyName).ToHashSet(StringComparer.OrdinalIgnoreCase),
             visible.Select(program => program.Name).Where(name => !string.IsNullOrEmpty(name)).ToHashSet(StringComparer.OrdinalIgnoreCase),
             registrations.Select(program => program.KeyName).ToHashSet(StringComparer.OrdinalIgnoreCase),

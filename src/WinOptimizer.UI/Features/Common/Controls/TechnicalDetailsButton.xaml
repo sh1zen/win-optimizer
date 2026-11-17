@@ -192,8 +192,8 @@
             </Grid>
         </ResourceDictionary>
     </UserControl.Resources>
-    <Button x:Name="InfoButton" Click="InfoButton_Click"
-            Width="28" Height="28" Padding="0" CornerRadius="14" Background="Transparent" BorderThickness="0" VerticalAlignment="Center" ToolTipService.ToolTip="{x:Bind Setting.TechnicalDetailsLabel, Mode=OneWay}" AutomationProperties.Name="{x:Bind Setting.TechnicalDetailsLabel, Mode=OneWay}" AutomationProperties.HelpText="{x:Bind Setting.Name, Mode=OneWay}">
+    <Button x:Name="InfoButton" Click="InfoButton_Click" Style="{StaticResource SubtleButtonStyle}"
+            Width="28" Height="28" Padding="0" CornerRadius="14" BorderThickness="0" VerticalAlignment="Center" ToolTipService.ToolTip="{x:Bind Setting.TechnicalDetailsLabel, Mode=OneWay}" AutomationProperties.Name="{x:Bind Setting.TechnicalDetailsLabel, Mode=OneWay}" AutomationProperties.HelpText="{x:Bind Setting.Name, Mode=OneWay}">
         <FontIcon Glyph="&#xE946;" FontSize="16" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
     </Button>
 </UserControl>

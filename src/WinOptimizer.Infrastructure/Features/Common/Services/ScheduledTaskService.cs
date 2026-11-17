@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -446,36 +447,77 @@ public class ScheduledTaskService(ILogService logService, IFileSystemService fil
         return await Task.Run(() => SetTaskEnabled(taskPath, false)).ConfigureAwait(false);
     }
 
-    public async Task<bool?> IsTaskEnabledAsync(string taskPath)
+    public Task<bool?> IsTaskEnabledAsync(string taskPath) => Task.Run(() =>
     {
-        return await Task.Run(() =>
+        object? session = null;
+        try { return ReadTaskState(taskPath, ref session); }
+        finally { ReleaseComObject(session); }
+    });
+
+    /// <summary>Shares one connected scheduler across reads on the same worker.</summary>
+    public Task<(bool? Enabled, Exception? Error)[]> GetTaskStatesAsync(IReadOnlyList<string> taskPaths) => Task.Run(() =>
+    {
+        var states = new (bool?, Exception?)[taskPaths.Count];
+        object? session = null;
+        try
         {
-            dynamic? taskService = null;
-            dynamic? folder = null;
-            dynamic? task = null;
-            try
+            for (var index = 0; index < states.Length; index++)
             {
-                taskService = _createTaskService();
-                var (folderPath, taskName) = SplitTaskPath(taskPath);
-                folder = taskService.GetFolder(folderPath);
-                task = folder.GetTask(taskName);
-                // State: 1 = Disabled, 3 = Ready, 4 = Running
-                int state = (int)task.State;
-                return (bool?)(state != 1);
+                try { states[index] = (ReadTaskState(taskPaths[index], ref session), null); }
+                catch (Exception ex) { states[index] = (null, ex); }
             }
-            catch (Exception ex)
+            return states;
+        }
+        finally { ReleaseComObject(session); }
+    });
+
+    /// <summary>Releases each task and folder while keeping a healthy scheduler connection for subsequent reads.</summary>
+    private bool? ReadTaskState(string taskPath, ref object? session)
+    {
+        try
+        {
+            if (session is not null)
             {
-                logService.Log(Core.Features.Common.Enums.LogLevel.Warning,
-                    $"Failed to query task state for {taskPath}: {ex.Message}");
-                return null;
+                try { return ReadConnectedTaskState(session, taskPath); }
+                catch (Exception ex) when (!IsMissingTaskResource(ex))
+                {
+                    // Retry through a fresh connection if a previously connected session cannot read the task.
+                    ReleaseComObject(session);
+                    session = null;
+                }
             }
-            finally
+            session ??= _createTaskService();
+            return ReadConnectedTaskState(session, taskPath);
+        }
+        catch (Exception ex)
+        {
+            if (!IsMissingTaskResource(ex))
             {
-                ReleaseComObject(task);
-                ReleaseComObject(folder);
-                ReleaseComObject(taskService);
+                ReleaseComObject(session);
+                session = null;
             }
-        }).ConfigureAwait(false);
+            logService.Log(Core.Features.Common.Enums.LogLevel.Warning,
+                $"Failed to query task state for {taskPath}: {ex.Message}");
+            return null;
+        }
+    }
+
+    private static bool ReadConnectedTaskState(dynamic session, string taskPath)
+    {
+        dynamic? folder = null;
+        dynamic? task = null;
+        try
+        {
+            var (folderPath, taskName) = SplitTaskPath(taskPath);
+            folder = session.GetFolder(folderPath);
+            task = folder.GetTask(taskName);
+            return (int)task.State != 1; // State 1 means disabled.
+        }
+        finally
+        {
+            ReleaseComObject(task);
+            ReleaseComObject(folder);
+        }
     }
 
     private OperationResult SetTaskEnabled(string taskPath, bool enabled)

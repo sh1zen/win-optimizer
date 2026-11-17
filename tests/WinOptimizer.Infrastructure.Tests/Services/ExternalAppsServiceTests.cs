@@ -30,12 +30,12 @@ public class ExternalAppsServiceTests
     public ExternalAppsServiceTests() => _installedPrograms.Setup(source => source.ReadAsync())
         .ReturnsAsync(Array.Empty<InstalledProgram>());
 
-    private ExternalAppsService CreateSut() => new(
+    private ExternalAppsService CreateSut(IAppStatusDiscoveryService? status = null) => new(
         _logService.Object,
         _winGetPackageInstaller.Object,
         _winGetDetectionService.Object,
         _winGetBootstrapper.Object,
-        _appStatusDiscoveryService.Object,
+        status ?? _appStatusDiscoveryService.Object,
         _externalAppUninstallService.Object,
         _directDownloadService.Object,
         _taskProgressService.Object,
@@ -93,6 +93,32 @@ public class ExternalAppsServiceTests
         Assert.Equal(before.Id, updated.Id);
         Assert.NotEqual(before.Name, updated.Name);
         Assert.DoesNotContain(await service.GetAppsAsync(), item => item.Id == before.Id);
+    }
+
+    [Fact]
+    public async Task InventorySharesOneRegistrationReadWithItsStatusCheckAndRefreshReadsAgain()
+    {
+        var program = new InstalledProgram(WindowsInstalledProgramSource.Roots[2] + @"\FixtureEdit", "Fixture Edit", "remove.exe");
+        _installedPrograms.SetupSequence(source => source.ReadAsync())
+            .ReturnsAsync(new[] { program }).ReturnsAsync(Array.Empty<InstalledProgram>());
+        var metadata = new Mock<IAppMetadataSource>();
+        metadata.Setup(source => source.ReadAsync(It.IsAny<IReadOnlyList<ItemDefinition>>()))
+            .ReturnsAsync(new Dictionary<string, AppMetadata>());
+        var discovery = new AppStatusDiscoveryService(_logService.Object, _winGetBootstrapper.Object,
+            _winGetDetectionService.Object, _chocolateyService.Object, _installedPrograms.Object,
+            Mock.Of<IAppxPackageSource>(), Mock.Of<IWindowsComponentStatusSource>(), metadata.Object, _interactiveUserService.Object);
+        var service = CreateSut(discovery);
+
+        var inventory = await service.ReadInventoryAsync();
+        Assert.Same(program, Assert.Single(inventory.DesktopRegistrations!));
+        var app = Assert.Single(inventory.Applications, item => item.RegistryUninstallKeyPath == program.KeyPath);
+        Assert.True((await inventory.ReadStatusAsync([app]))[app.Id]);
+        _installedPrograms.Verify(source => source.ReadAsync(), Times.Once);
+
+        var refreshed = await service.ReadInventoryAsync();
+        Assert.DoesNotContain(refreshed.Applications, item => item.Id == app.Id);
+        Assert.False((await refreshed.ReadStatusAsync([app]))[app.Id]);
+        _installedPrograms.Verify(source => source.ReadAsync(), Times.Exactly(2));
     }
 
     [Fact]

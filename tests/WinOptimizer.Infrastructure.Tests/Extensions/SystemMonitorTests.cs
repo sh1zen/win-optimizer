@@ -145,6 +145,65 @@ public sealed class SystemMonitorTests
         Assert.Equal("LibreHardwareMonitor: provider access denied", Assert.Single(notices));
     }
 
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void WmiStopsOnceTheMissingSensorKindIsAvailable(bool needsTemperature)
+    {
+        var calls = new List<string>();
+        var readings = WindowsSystemMonitorProbe.ReadSensors(provider =>
+        {
+            calls.Add(provider);
+            return needsTemperature ? ([new("CPU", 45)], []) : ([], [new("Fan", 1000)]);
+        }, default, [], needTemperatures: needsTemperature, needFans: !needsTemperature);
+
+        Assert.Equal("LibreHardwareMonitor", Assert.Single(calls));
+        Assert.Equal(needsTemperature ? 1 : 0, readings.Temperatures.Count);
+        Assert.Equal(needsTemperature ? 0 : 1, readings.Fans.Count);
+    }
+
+    [Fact]
+    public void WmiConnectionsAreReusedForFreshValuesAndReplacedWhenTheyFail()
+    {
+        var queries = new List<SensorQuery>();
+        using var sessions = new WindowsSystemMonitorProbe.SensorQueries(_ =>
+        {
+            var next = new SensorQuery();
+            queries.Add(next);
+            return next;
+        });
+        List<string> notices = [];
+
+        Assert.Equal(1, Assert.Single(sessions.Read("Fixture", default, notices).Fans).Value);
+        Assert.Equal(2, Assert.Single(sessions.Read("Fixture", default, notices).Fans).Value);
+        var first = Assert.Single(queries);
+        first.Fail = true;
+
+        Assert.Equal(1, Assert.Single(sessions.Read("Fixture", default, notices).Fans).Value);
+        Assert.True(first.Disposed);
+        Assert.Empty(notices);
+        Assert.Equal(2, queries.Count);
+        sessions.Dispose();
+        Assert.All(queries, query => Assert.True(query.Disposed));
+    }
+
+    private sealed class SensorQuery : WindowsSystemMonitorProbe.ISensorQuery
+    {
+        private int _samples;
+        public bool Fail { get; set; }
+        public bool Disposed { get; private set; }
+
+        public (IReadOnlyList<SystemMonitorSensor> Temperatures, IReadOnlyList<SystemMonitorSensor> Fans) Read(
+            CancellationToken token, List<string> notices)
+        {
+            if (!Fail) return ([], [new("Fan", ++_samples)]);
+            notices.Add("Interrupted reading");
+            throw new UnauthorizedAccessException("Provider disconnected");
+        }
+
+        public void Dispose() => Disposed = true;
+    }
+
     [Fact]
     public async Task StopWaitsForTheCurrentReadAndReleasesTheHardwareSession()
     {

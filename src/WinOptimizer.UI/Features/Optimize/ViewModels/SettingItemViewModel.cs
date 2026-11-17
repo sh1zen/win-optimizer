@@ -1686,7 +1686,7 @@ public partial class SettingItemViewModel : BaseViewModel
 
         if (dontShowAgain && _userPreferencesService != null)
         {
-            await _userPreferencesService.SetPreferenceAsync("AdvancedPowerSettingsUnlocked", true);
+            await _userPreferencesService.SetPreferenceAsync(UserPreferenceKeys.AdvancedPowerSettingsUnlocked, true);
             _logService.Log(LogLevel.Info, "User permanently unlocked advanced power settings");
 
             // Unlock all other advanced settings in the same feature

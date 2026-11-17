@@ -18,6 +18,8 @@
     <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\TechnicalDetailsManagerTests.cs" Link="TechnicalDetailsManagerTests.cs"/>
     <Compile Include="..\WinOptimizer.UI.Tests\Services\StartupPresentationTests.cs" Link="StartupPresentationTests.cs"/>
     <Compile Include="..\WinOptimizer.UI.Tests\Utilities\WindowSizeManagerTests.cs" Link="WindowSizeManagerTests.cs"/>
+    <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\SidebarPreferencesViewModelTests.cs" Link="SidebarPreferencesViewModelTests.cs"/>
+    <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\AppColorPreferencesViewModelTests.cs" Link="AppColorPreferencesViewModelTests.cs"/>
     <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\CleanerProgressReporterTests.cs" Link="CleanerProgressReporterTests.cs"/>
     <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\CleanerViewModelTests.cs" Link="CleanerViewModelTests.cs"/>
     <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\DriversViewModelTests.cs" Link="DriversViewModelTests.cs"/>

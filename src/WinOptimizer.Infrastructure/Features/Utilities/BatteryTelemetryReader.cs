@@ -6,30 +6,23 @@ namespace WinOptimizer.Infrastructure.Features.Utilities;
 internal static class BatteryTelemetryReader
 {
     private const uint RelativeCapacity = 0x40000000;
+    private static readonly string[] SensorClasses =
+        ["BatteryStaticData", "BatteryFullChargedCapacity", "BatteryStatus", "BatteryCycleCount", "BatteryTemperature"];
 
-    public static BatteryTelemetrySnapshot Read(IBatteryWmi wmi)
+    public static async Task<BatteryTelemetrySnapshot> ReadAsync(IBatteryWmi wmi)
     {
         var diagnostics = new List<string>();
         var sources = new Dictionary<string, Dictionary<string, IReadOnlyDictionary<string, object?>>>();
-        foreach (var className in new[] { "BatteryStaticData", "BatteryFullChargedCapacity", "BatteryStatus", "BatteryCycleCount", "BatteryTemperature" })
+        // Keep independent WMI calls bounded and merge each batch in catalogue order.
+        foreach (var batch in SensorClasses.Chunk(3))
         {
-            var rows = new Dictionary<string, IReadOnlyDictionary<string, object?>>(StringComparer.OrdinalIgnoreCase);
-            try
+            var readings = await Task.WhenAll(batch.Select(name => Task.Run(() => ReadSensor(wmi, name)))).ConfigureAwait(false);
+            for (var index = 0; index < readings.Length; index++)
             {
-                foreach (var row in wmi.Query(@"root\wmi", $"SELECT * FROM {className} WHERE Active=TRUE"))
-                {
-                    if (row.GetValueOrDefault("InstanceName") is not string { Length: > 0 } instance)
-                        throw new UtilityOperationException("A battery sensor has no instance identity.");
-                    if (!rows.TryAdd(instance, row))
-                        throw new UtilityOperationException("The battery sensor returned ambiguous instance identities.");
-                }
+                var (rows, error) = readings[index];
+                sources.Add(batch[index], rows);
+                if (error is not null) diagnostics.Add(error);
             }
-            catch (Exception ex) when (ex is UtilityOperationException or UnauthorizedAccessException)
-            {
-                rows.Clear();
-                diagnostics.Add($"{className}: {ex.Message}");
-            }
-            sources.Add(className, rows);
         }
 
         var batteries = new List<BatteryTelemetry>();
@@ -63,6 +56,29 @@ internal static class BatteryTelemetryReader
             });
         }
         return new(DateTimeOffset.Now, batteries, diagnostics);
+    }
+
+    /// <summary>Reads one class and discards only that class if its instance identities cannot be trusted.</summary>
+    private static (Dictionary<string, IReadOnlyDictionary<string, object?>> Rows, string? Error) ReadSensor(
+        IBatteryWmi wmi, string className)
+    {
+        var rows = new Dictionary<string, IReadOnlyDictionary<string, object?>>(StringComparer.OrdinalIgnoreCase);
+        try
+        {
+            foreach (var row in wmi.Query(@"root\wmi", $"SELECT * FROM {className} WHERE Active=TRUE"))
+            {
+                if (row.GetValueOrDefault("InstanceName") is not string { Length: > 0 } instance)
+                    throw new UtilityOperationException("A battery sensor has no instance identity.");
+                if (!rows.TryAdd(instance, row))
+                    throw new UtilityOperationException("The battery sensor returned ambiguous instance identities.");
+            }
+            return (rows, null);
+        }
+        catch (Exception ex) when (ex is UtilityOperationException or UnauthorizedAccessException)
+        {
+            rows.Clear();
+            return (rows, $"{className}: {ex.Message}");
+        }
     }
 
     /// <summary>Rejects WMI unknown sentinels and invalid numeric shapes without converting them into real measurements.</summary>

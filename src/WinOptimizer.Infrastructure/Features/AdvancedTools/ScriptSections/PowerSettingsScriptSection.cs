@@ -62,8 +62,7 @@ internal class PowerSettingsScriptSection
         string indent)
     {
         var powerPlanSetting = FindPowerPlanSetting(config, allSettings);
-        var activePowerPlan = await _powerSettingsQueryService.GetActivePowerPlanAsync().ConfigureAwait(false);
-        var powerSettings = await ExtractPowerSettingsAsync(activePowerPlan.Guid, config, allSettings).ConfigureAwait(false);
+        var powerSettings = await ExtractPowerSettingsAsync(config, allSettings).ConfigureAwait(false);
 
         if (powerPlanSetting == null && powerSettings.Count == 0)
             return false;
@@ -219,7 +218,6 @@ internal class PowerSettingsScriptSection
     }
 
     private async Task<List<PowerSettingData>> ExtractPowerSettingsAsync(
-        string activePowerPlanGuid,
         UnifiedConfigurationFile config,
         IReadOnlyDictionary<string, IEnumerable<SettingDefinition>> allSettings)
     {
@@ -230,7 +228,7 @@ internal class PowerSettingsScriptSection
 
         bool hasBattery = await _hardwareDetectionService.HasBatteryAsync().ConfigureAwait(false);
 
-        var bulkQueryResults = await _powerSettingsQueryService.GetAllPowerSettingsACDCAsync(activePowerPlanGuid).ConfigureAwait(false);
+        Dictionary<string, (int? acValue, int? dcValue)>? bulkQueryResults = null;
         config.Optimize.Features.TryGetValue(FeatureIds.Power, out var powerSection);
         var configuredItems = powerSection?.Items.ToDictionary(item => item.Id, StringComparer.Ordinal);
 
@@ -245,21 +243,27 @@ internal class PowerSettingsScriptSection
             if (settingDef.RequiresBrightnessSupport)
                 continue;
 
+            var configured = ResolveConfiguredValues(settingDef, configuredItems?.GetValueOrDefault(settingDef.Id));
+            if ((!configured.acValue.HasValue || !configured.dcValue.HasValue) && bulkQueryResults is null)
+            {
+                var activePlan = await _powerSettingsQueryService.GetActivePowerPlanAsync().ConfigureAwait(false);
+                bulkQueryResults = await _powerSettingsQueryService.GetAllPowerSettingsACDCAsync(activePlan.Guid).ConfigureAwait(false);
+            }
+
             foreach (var powerCfgSetting in settingDef.PowerCfgSettings)
             {
-                var values = bulkQueryResults.GetValueOrDefault(powerCfgSetting.SettingGuid);
-                var item = configuredItems?.GetValueOrDefault(settingDef.Id);
-                values = ResolveConfiguredValues(settingDef, item, values);
-
-                if (!values.acValue.HasValue || !values.dcValue.HasValue)
+                var current = bulkQueryResults?.GetValueOrDefault(powerCfgSetting.SettingGuid) ?? default;
+                var acValue = configured.acValue ?? current.acValue;
+                var dcValue = configured.dcValue ?? current.dcValue;
+                if (!acValue.HasValue || !dcValue.HasValue)
                     continue;
 
                 powerSettings.Add(new PowerSettingData
                 {
                     SubgroupGuid = powerCfgSetting.SubgroupGuid,
                     SettingGuid = powerCfgSetting.SettingGuid,
-                    AcValue = values.acValue.Value,
-                    DcValue = values.dcValue.Value,
+                    AcValue = acValue.Value,
+                    DcValue = dcValue.Value,
                     Description = settingDef.Description
                 });
             }
@@ -269,15 +273,15 @@ internal class PowerSettingsScriptSection
         return powerSettings;
     }
 
-    /// <summary>Overlays authored values on the system snapshot used by current-selection exports.</summary>
+    /// <summary>Resolves authored values, leaving unspecified modes for the host plan.</summary>
     private (int? acValue, int? dcValue) ResolveConfiguredValues(
-        SettingDefinition setting, ConfigurationItem? item, (int? acValue, int? dcValue) current)
+        SettingDefinition setting, ConfigurationItem? item)
     {
         if (item == null)
-            return current;
+            return default;
 
         if (item.CustomStateValues?.Count > 0)
-            return ReadRawValues(item.CustomStateValues, current);
+            return ReadRawValues(item.CustomStateValues);
 
         if (item.PowerSettings?.Count > 0)
         {
@@ -286,12 +290,12 @@ internal class PowerSettingsScriptSection
                 (power.ContainsKey("ACIndex") || power.ContainsKey("DCIndex")))
             {
                 return (
-                    power.TryGetValue("ACIndex", out var ac) ? ResolveIndex(ac) : current.acValue,
-                    power.TryGetValue("DCIndex", out var dc) ? ResolveIndex(dc) : current.dcValue);
+                    power.TryGetValue("ACIndex", out var ac) ? ResolveIndex(ac) : null,
+                    power.TryGetValue("DCIndex", out var dc) ? ResolveIndex(dc) : null);
             }
 
             // Configuration numeric values and captured custom values are already in system units.
-            return ReadRawValues(power, current);
+            return ReadRawValues(power);
         }
 
         if (setting.InputType == InputType.Selection && item.SelectedIndex.HasValue)
@@ -300,7 +304,7 @@ internal class PowerSettingsScriptSection
             return (value, value);
         }
 
-        return current;
+        return default;
 
         int ResolveIndex(object indexValue)
         {
@@ -313,11 +317,11 @@ internal class PowerSettingsScriptSection
 
     /// <summary>Reads persisted raw AC/DC values without applying display-unit conversions.</summary>
     private static (int? acValue, int? dcValue) ReadRawValues(
-        IReadOnlyDictionary<string, object> values, (int? acValue, int? dcValue) current)
+        IReadOnlyDictionary<string, object> values)
     {
         int? Read(string key) => values.TryGetValue(key, out var value) && value != null
             ? NumericConversionHelper.ConvertNumericValue(value) : null;
         var single = Read("Value") ?? Read("PowerCfgValue");
-        return (Read("ACValue") ?? single ?? current.acValue, Read("DCValue") ?? single ?? current.dcValue);
+        return (Read("ACValue") ?? single, Read("DCValue") ?? single);
     }
 }

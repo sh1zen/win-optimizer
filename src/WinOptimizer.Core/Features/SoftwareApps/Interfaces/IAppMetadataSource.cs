@@ -6,4 +6,6 @@ namespace WinOptimizer.Core.Features.SoftwareApps.Interfaces;
 public interface IAppMetadataSource
 {
     Task<IReadOnlyDictionary<string, AppMetadata>> ReadAsync(IReadOnlyList<ItemDefinition> definitions);
+    Task<IReadOnlyDictionary<string, AppMetadata>> ReadAsync(IReadOnlyList<ItemDefinition> definitions,
+        IReadOnlyList<AppxRegistration> registrations) => ReadAsync(definitions);
 }

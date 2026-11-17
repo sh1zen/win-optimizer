@@ -198,13 +198,11 @@ public class IsoService : IIsoService
             isoMounted = false;
 
             var extractedDirs = _fileSystemService.GetDirectories(workingDirectory);
-            var dirNames = extractedDirs.Select(d => _fileSystemService.GetFileName(d)).ToList();
+            var dirNames = extractedDirs.Select(_fileSystemService.GetFileName).ToArray();
             _logService.LogInformation($"Found {extractedDirs.Length} directories: {string.Join(", ", dirNames)}");
 
-            var hasSourcesDir = extractedDirs.Any(d =>
-                _fileSystemService.GetFileName(d).Equals("sources", StringComparison.OrdinalIgnoreCase));
-            var hasBootDir = extractedDirs.Any(d =>
-                _fileSystemService.GetFileName(d).Equals("boot", StringComparison.OrdinalIgnoreCase));
+            var hasSourcesDir = dirNames.Contains("sources", StringComparer.OrdinalIgnoreCase);
+            var hasBootDir = dirNames.Contains("boot", StringComparer.OrdinalIgnoreCase);
 
             if (!hasSourcesDir || !hasBootDir)
             {
@@ -301,8 +299,7 @@ public class IsoService : IIsoService
                 return false;
             }
 
-            var workingDirSize = _fileSystemService.GetFiles(workingDirectory, "*", SearchOption.AllDirectories)
-                .Sum(f => _fileSystemService.GetFileSize(f));
+            var workingDirSize = _fileSystemService.GetDirectoryFileSize(workingDirectory);
 
             var requiredSpace = workingDirSize + (2L * 1024 * 1024 * 1024);
 
@@ -427,11 +424,11 @@ public class IsoService : IIsoService
     {
         cancellationToken.ThrowIfCancellationRequested();
 
-        var dirs = _fileSystemService.GetDirectories(sourceDir);
+        var (directories, files) = _fileSystemService.ReadDirectoryContents(sourceDir);
 
         _fileSystemService.CreateDirectory(destDir);
 
-        foreach (var file in _fileSystemService.GetFiles(sourceDir))
+        foreach (var file in files)
         {
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -445,7 +442,7 @@ public class IsoService : IIsoService
             _fileSystemService.CopyFile(file, targetFilePath, true);
         }
 
-        foreach (var subDir in dirs)
+        foreach (var subDir in directories)
         {
             cancellationToken.ThrowIfCancellationRequested();
 

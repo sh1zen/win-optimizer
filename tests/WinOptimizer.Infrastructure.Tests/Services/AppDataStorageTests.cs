@@ -48,6 +48,29 @@ public sealed class AppDataStorageTests : IDisposable
         AssertSharedPermissions(AppDataStorage.CreateProtectedDirectorySecurity(_root));
 
     [Fact]
+    public void ProtectionComparisonKeepsTheOwnerAndEveryAccessRule()
+    {
+        var expected = AppDataStorage.CreateProtectedDirectorySecurity(_root);
+        var descriptor = new RawSecurityDescriptor(expected.GetSecurityDescriptorBinaryForm(), 0);
+        descriptor.SetFlags(descriptor.ControlFlags | ControlFlags.DiscretionaryAclAutoInherited);
+        var bytes = new byte[descriptor.BinaryLength];
+        descriptor.GetBinaryForm(bytes, 0);
+        var existing = new DirectorySecurity();
+        existing.SetSecurityDescriptorBinaryForm(bytes);
+
+        Assert.Equal(AppDataStorage.GetProtectionDescriptor(expected), AppDataStorage.GetProtectionDescriptor(existing));
+
+        var system = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
+        existing.SetOwner(system);
+        Assert.NotEqual(AppDataStorage.GetProtectionDescriptor(expected), AppDataStorage.GetProtectionDescriptor(existing));
+        existing.SetOwner(expected.GetOwner(typeof(SecurityIdentifier))!);
+
+        existing.AddAccessRule(new FileSystemAccessRule(new SecurityIdentifier(WellKnownSidType.BuiltinUsersSid, null),
+            FileSystemRights.Write, AccessControlType.Allow));
+        Assert.NotEqual(AppDataStorage.GetProtectionDescriptor(expected), AppDataStorage.GetProtectionDescriptor(existing));
+    }
+
+    [Fact]
     public void UnrelatedOwnerIsRejectedWithoutChangingExistingPermissions()
     {
         var existing = new DirectorySecurity();

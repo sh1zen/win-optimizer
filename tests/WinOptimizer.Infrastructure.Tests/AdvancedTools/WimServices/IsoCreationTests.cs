@@ -33,7 +33,7 @@ public sealed class IsoCreationTests
         _files.Setup(files => files.GetDirectoryName(It.IsAny<string>())).Returns((string path) => Path.GetDirectoryName(path));
         _files.Setup(files => files.GetExtension(It.IsAny<string>())).Returns((string path) => Path.GetExtension(path));
         _files.Setup(files => files.DirectoryExists(It.IsAny<string>())).Returns(true);
-        _files.Setup(files => files.GetFiles(Media, "*", SearchOption.AllDirectories)).Returns([]);
+        _files.Setup(files => files.GetDirectoryFileSize(Media)).Returns(ValidSize);
         _files.Setup(files => files.FileExists(It.IsAny<string>())).Returns((string path) => _contents.ContainsKey(path));
         _files.Setup(files => files.GetFileSize(It.IsAny<string>())).Returns((string path) => path == _stagedPath ? _stagedSize : ValidSize);
         _files.Setup(files => files.DeleteFile(It.IsAny<string>())).Callback<string>(path => _contents.Remove(path));
@@ -85,6 +85,7 @@ public sealed class IsoCreationTests
         Assert.True(await _service.CreateIsoAsync(Media, Output, progress));
         Assert.True(successReported);
         Assert.Equal("New ISO", _contents[Output]);
+        _runner.Verify(runner => runner.CheckDiskSpaceAsync(Output, ValidSize + 2L * 1024 * 1024 * 1024, "ISO creation"), Times.Once);
         _files.Verify(files => files.ReplaceFile(_stagedPath!, Output), replacing ? Times.Once : Times.Never);
         _files.Verify(files => files.MoveFile(_stagedPath!, Output), replacing ? Times.Never : Times.Once);
         _files.Verify(files => files.DeleteFile(Output), Times.Never);

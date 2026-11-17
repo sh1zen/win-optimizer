@@ -19,6 +19,16 @@ public sealed class WindowsSecurityBackend(IProcessExecutor processes, IInteract
         Converters = { new JsonStringEnumConverter() },
         RespectRequiredConstructorParameters = true
     };
+    private static readonly Lazy<string> QueryScript = new(ReadQueryScript);
+
+    /// <summary>Loads the immutable PowerShell query on first use.</summary>
+    private static string ReadQueryScript()
+    {
+        using var resource = typeof(WindowsSecurityBackend).Assembly.GetManifestResourceStream("WinOptimizer.Security.Security.ps1")
+            ?? throw new InvalidOperationException("The Windows security query is missing.");
+        using var reader = new StreamReader(resource, Encoding.UTF8);
+        return reader.ReadToEnd();
+    }
 
     private static string? SettingId(SecurityCheckId id) => id switch
     {
@@ -37,7 +47,7 @@ public sealed class WindowsSecurityBackend(IProcessExecutor processes, IInteract
         var preferences = ids.Where(id => SettingId(id) != null).Select(id => (Id: id, Definition: catalog.GetById(SettingId(id)!))).ToArray();
         var definitions = preferences.Select(preference => preference.Definition).OfType<SettingDefinition>().ToArray();
         var states = definitions.Length == 0 ? new Dictionary<string, SettingStateResult>() :
-            await discovery.GetSettingStatesAsync(definitions).ConfigureAwait(false);
+            await discovery.GetSettingStateSnapshotAsync(definitions).ConfigureAwait(false);
         token.ThrowIfCancellationRequested();
         foreach (var (id, definition) in preferences)
         {
@@ -77,16 +87,14 @@ public sealed class WindowsSecurityBackend(IProcessExecutor processes, IInteract
         var sid = user.IsOtsElevation ? user.InteractiveUserSid : identity?.User?.Value;
         if (string.IsNullOrWhiteSpace(sid)) throw new InvalidOperationException("The interactive user identity is unavailable.");
         sid = new SecurityIdentifier(sid).Value;
-        using var resource = typeof(WindowsSecurityBackend).Assembly.GetManifestResourceStream("WinOptimizer.Security.Security.ps1")
-            ?? throw new InvalidOperationException("The Windows security query is missing.");
-        using var reader = new StreamReader(resource, Encoding.UTF8);
         var request = Convert.ToBase64String(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(new
         {
             Ids = ids.Select(id => id.ToString()).ToArray(), Sid = sid, Fix = fix
         }, JsonOptions)));
+        token.ThrowIfCancellationRequested();
         var script = "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; [Console]::OutputEncoding=[Text.UTF8Encoding]::new($false);\n" +
             "$request = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('" + request + "')) | ConvertFrom-Json\n" +
-            await reader.ReadToEndAsync(token).ConfigureAwait(false);
+            QueryScript.Value;
         var encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
         if (encoded.Length > 30000) throw new InvalidOperationException("The Windows security query exceeds the process command limit.");
         ProcessExecutionResult output;

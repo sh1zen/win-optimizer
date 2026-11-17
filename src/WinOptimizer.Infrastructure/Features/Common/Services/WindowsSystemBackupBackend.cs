@@ -17,8 +17,8 @@ internal interface ISystemBackupBackend
     bool IsEnabled();
     Task<bool> EnableAsync(CancellationToken cancellationToken);
     Task EnsureStorageAsync(CancellationToken cancellationToken);
-    Task<(bool Success, int StatusCode)> CreateAsync(string description, CancellationToken cancellationToken);
-    Task<DateTime?> FindAsync(string description, CancellationToken cancellationToken);
+    Task<(bool Success, int StatusCode, uint SequenceNumber)> CreateAsync(string description, CancellationToken cancellationToken);
+    Task<DateTime?> FindAsync(string description, CancellationToken cancellationToken, uint? sequenceNumber = null);
 }
 
 /// <summary>Owns native restore-point resources, including restoration of the frequency throttle.</summary>
@@ -30,7 +30,7 @@ internal sealed class WindowsSystemBackupBackend(ILogService logService, IProces
     private const double MinFreeStoragePercent = 15.0;
     public bool IsEnabled() => systemRestoreService.IsEnabledForC();
 
-    public async Task<DateTime?> FindAsync(string description, CancellationToken cancellationToken)
+    public async Task<DateTime?> FindAsync(string description, CancellationToken cancellationToken, uint? sequenceNumber = null)
     {
         return await Task.Run(() =>
         {
@@ -40,9 +40,11 @@ internal sealed class WindowsSystemBackupBackend(ILogService logService, IProces
                 _logService.Log(LogLevel.Info, $"Querying for restore point: '{description}'");
 
                 var escapedDescription = description.Replace("'", "\\'");
+                var filter = $"Description = '{escapedDescription}'";
+                if (sequenceNumber is uint sequence) filter += " AND SequenceNumber = " + sequence.ToString(CultureInfo.InvariantCulture);
                 using var searcher = new ManagementObjectSearcher(
                     @"root\default",
-                    $"SELECT * FROM SystemRestore WHERE Description = '{escapedDescription}'");
+                    $"SELECT CreationTime FROM SystemRestore WHERE {filter}");
                 using var results = searcher.Get();
 
                 foreach (ManagementObject obj in results)
@@ -56,7 +58,7 @@ internal sealed class WindowsSystemBackupBackend(ILogService logService, IProces
                         {
                             return (DateTime?)ManagementDateTimeConverter.ToDateTime(creationTimeStr);
                         }
-                        return (DateTime?)DateTime.Now;
+                        return sequenceNumber.HasValue ? (DateTime?)null : DateTime.Now;
                     }
                 }
 
@@ -72,7 +74,7 @@ internal sealed class WindowsSystemBackupBackend(ILogService logService, IProces
         }, cancellationToken).ConfigureAwait(false);
     }
 
-    public async Task<(bool Success, int StatusCode)> CreateAsync(string description, CancellationToken cancellationToken)
+    public async Task<(bool Success, int StatusCode, uint SequenceNumber)> CreateAsync(string description, CancellationToken cancellationToken)
     {
         return await Task.Run(() =>
         {
@@ -101,7 +103,8 @@ internal sealed class WindowsSystemBackupBackend(ILogService logService, IProces
                     {
                         _logService.Log(LogLevel.Error, $"Failed to create restore point. Status: {status.nStatus} ({SrClientApi.GetStatusDescription(status.nStatus)})");
                     }
-                    return (success, status.nStatus);
+                    var sequence = status.llSequenceNumber is > 0 and <= uint.MaxValue ? (uint)status.llSequenceNumber : 0u;
+                    return (success, status.nStatus, sequence);
                 }
                 finally
                 {
@@ -112,7 +115,7 @@ internal sealed class WindowsSystemBackupBackend(ILogService logService, IProces
             catch (Exception ex)
             {
                 _logService.Log(LogLevel.Error, $"Failed to create restore point: {ex.Message}");
-                return (false, -1);
+                return (false, -1, 0u);
             }
         }, cancellationToken).ConfigureAwait(false);
     }

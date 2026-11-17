@@ -29,6 +29,7 @@ public class AppIconResolverTests : IDisposable
         _tempCacheDir = Path.Combine(Path.GetTempPath(), "WinOptimizerTest_" + Path.GetRandomFileName());
 
         Directory.CreateDirectory(_tempCacheDir);
+        _mockIconSource.Setup(source => source.GetInstalledPackageMapAsync(It.IsAny<IReadOnlySet<string>>(), It.IsAny<CancellationToken>())).CallBase();
         _programs.Setup(source => source.ReadAsync()).ReturnsAsync(Array.Empty<InstalledProgram>());
         _resolver = new AppIconResolver(
             _mockIconSource.Object,
@@ -68,6 +69,75 @@ public class AppIconResolverTests : IDisposable
     // ===== Candidate selection / no-op cases =====
 
     [Fact]
+    public async Task AppxLogoReadsOverlapAndPublishInCandidateOrder()
+    {
+        var first = Def("first", "Test.First");
+        var second = Def("second", "Test.Second");
+        var blocked = new TaskCompletionSource<Stream?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondRead = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _mockIconSource.Setup(source => source.GetInstalledPackageMapAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Dictionary<string, string> { ["Test.First"] = "First_1", ["Test.Second"] = "Second_1" });
+        _mockIconSource.Setup(source => source.GetLogoStreamAsync("First_1", It.IsAny<Size>(), It.IsAny<CancellationToken>()))
+            .Returns(blocked.Task);
+        _mockIconSource.Setup(source => source.GetLogoStreamAsync("Second_1", It.IsAny<Size>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => { secondRead.TrySetResult(); return PngBytes("second"); });
+
+        var operation = _resolver.ResolveBatchAsync([first, second, first], applyThemeAdaptation: false);
+        try
+        {
+            await secondRead.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.Null(first.IconPath);
+            Assert.Null(second.IconPath);
+        }
+        finally { blocked.TrySetResult(PngBytes("first")); }
+
+        await operation;
+        Assert.Equal("PNG-first", File.ReadAllText(first.IconPath!));
+        Assert.Equal("PNG-second", File.ReadAllText(second.IconPath!));
+        _mockIconSource.Verify(source => source.GetLogoStreamAsync("First_1", It.IsAny<Size>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Fact]
+    public async Task AppxIconInventoryLoadsLowerPriorityScopesOnlyForMissingNames()
+    {
+        var scopes = new List<AppxIconSource.PackageScope>();
+        var source = new AppxIconSource(_mockLog.Object, scope =>
+        {
+            scopes.Add(scope);
+            return scope switch
+            {
+                AppxIconSource.PackageScope.CurrentUser => [new("Known", "user")],
+                AppxIconSource.PackageScope.AllUsers => [new("Known", "other"), new("Shared", "shared")],
+                _ => [new("Shared", "older"), new("Retained", "retained")]
+            };
+        });
+
+        var first = await source.GetInstalledPackageMapAsync(new HashSet<string> { "known" });
+        Assert.Equal("user", first["Known"]);
+        Assert.Equal(AppxIconSource.PackageScope.CurrentUser, Assert.Single(scopes));
+        var second = await source.GetInstalledPackageMapAsync(new HashSet<string> { "shared" });
+        Assert.Equal("user", second["Known"]);
+        Assert.Equal("shared", second["Shared"]);
+        Assert.Equal(2, scopes.Count);
+        var last = await source.GetInstalledPackageMapAsync();
+        Assert.Equal("shared", last["Shared"]);
+        Assert.Equal("retained", last["Retained"]);
+        Assert.Equal(Enum.GetValues<AppxIconSource.PackageScope>(), scopes);
+    }
+
+    [Fact]
+    public async Task AlreadyResolvedAppxArtworkDoesNotRequestPackageInventory()
+    {
+        var app = Def("known-app", "Test.App");
+        app.IconPath = Path.Combine(_tempCacheDir, "known-app.png");
+
+        await _resolver.ResolveBatchAsync([app]);
+
+        Assert.Equal(Path.Combine(_tempCacheDir, "known-app.png"), app.IconPath);
+        _mockIconSource.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public async Task DesktopCatalogueEntryUsesItsRegisteredDisplayIconAndReusesVersionedCache()
     {
         var def = Def("external-app-editor") with { RegistryDisplayName = "Vendor Editor {version}" };
@@ -100,6 +170,31 @@ public class AppIconResolverTests : IDisposable
         await _resolver.ResolveBatchAsync([def]);
         Assert.NotNull(def.IconPath);
         _desktop.Verify(source => source.Resolve("other.ico"), Times.Never);
+    }
+
+    [Fact]
+    public async Task DesktopSnapshotUsesExactRegistrationAndChecksAnUpdatedIconResource()
+    {
+        var root = WindowsInstalledProgramSource.Roots[0];
+        var chosen = new InstalledProgram(root + @"\Chosen", "Same name", null, DisplayIcon: "chosen.ico");
+        var other = new InstalledProgram(root + @"\Other", "Same name", null, DisplayIcon: "other.ico");
+        var definition = chosen.ToDefinition();
+        definition.IsInstalled = true;
+        var icon = new DesktopIconReference(@"C:\Fixture\chosen.ico", 0, 10, DateTime.UnixEpoch);
+        _desktop.Setup(source => source.Resolve("chosen.ico")).Returns(() => icon);
+        _desktop.Setup(source => source.GetIconStreamAsync(It.IsAny<DesktopIconReference>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => PngBytes("fixture"));
+
+        await _resolver.ResolveBatchAsync([definition], [other, chosen]);
+        var firstPath = definition.IconPath;
+        Assert.NotNull(firstPath);
+        icon = icon with { LastWriteUtc = DateTime.UnixEpoch.AddMinutes(1) };
+        await _resolver.ResolveBatchAsync([definition], [other, chosen]);
+
+        Assert.NotNull(definition.IconPath);
+        Assert.NotEqual(firstPath, definition.IconPath);
+        _desktop.Verify(source => source.Resolve("other.ico"), Times.Never);
+        _programs.Verify(source => source.ReadAsync(), Times.Never);
     }
 
     [Fact]

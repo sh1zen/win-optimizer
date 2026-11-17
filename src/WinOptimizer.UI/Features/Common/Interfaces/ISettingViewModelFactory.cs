@@ -15,4 +15,7 @@ public interface ISettingViewModelFactory
         SettingDefinition setting,
         SettingStateResult currentState,
         ISettingsFeatureViewModel? parentViewModel);
+
+    /// <summary>Scopes shared initialization state to one page load.</summary>
+    Func<SettingDefinition, SettingStateResult, ISettingsFeatureViewModel?, Task<SettingItemViewModel>> BeginPageLoad() => CreateAsync;
 }

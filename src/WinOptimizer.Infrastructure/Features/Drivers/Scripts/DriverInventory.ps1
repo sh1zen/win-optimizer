@@ -29,33 +29,41 @@ foreach ($device in $devices) {
     })
 }
 $packageSizes = @{}
+$selectedNames = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
+if ($measureSelectedOnly) {
+    foreach ($name in $selectedPackages) { [void]$selectedNames.Add([string]$name) }
+}
 $storeRoot = [IO.Path]::GetFullPath((Join-Path $env:windir 'System32\DriverStore\FileRepository')) + [IO.Path]::DirectorySeparatorChar
+function Measure-DriverPackage([string]$infPath) {
+    # Measure each package directory once, including shared package paths, without traversing reparse points.
+    $directory = [IO.Path]::GetDirectoryName([IO.Path]::GetFullPath($infPath))
+    if (-not $directory.StartsWith($storeRoot, [StringComparison]::OrdinalIgnoreCase)) { throw 'Package path is outside the driver store.' }
+    if (-not $packageSizes.ContainsKey($directory)) {
+        $pending = [Collections.Generic.Stack[string]]::new()
+        $pending.Push($directory)
+        $bytes = [long]0
+        while ($pending.Count -gt 0) {
+            $folder = Get-Item -LiteralPath $pending.Pop() -Force -ErrorAction Stop
+            if ($folder.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Driver package contains a reparse point.' }
+            foreach ($entry in @(Get-ChildItem -LiteralPath $folder.FullName -Force -ErrorAction Stop)) {
+                if ($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Driver package contains a reparse point.' }
+                if ($entry.PSIsContainer) { $pending.Push($entry.FullName) } else { $bytes += $entry.Length }
+            }
+        }
+        $packageSizes[$directory] = $bytes
+    }
+    return $packageSizes[$directory]
+}
 $packages = @(Get-WindowsDriver -Online -ErrorAction Stop | ForEach-Object {
     $driver = $_
+    $publishedName = [IO.Path]::GetFileName([string]$driver.Driver)
     $size = $null
-    try {
-        # Measure each package directory once, including shared package paths, without traversing reparse points.
-        $directory = [IO.Path]::GetDirectoryName([IO.Path]::GetFullPath([string]$driver.OriginalFileName))
-        if (-not $directory.StartsWith($storeRoot, [StringComparison]::OrdinalIgnoreCase)) { throw 'Package path is outside the driver store.' }
-        if (-not $packageSizes.ContainsKey($directory)) {
-            $pending = [Collections.Generic.Stack[string]]::new()
-            $pending.Push($directory)
-            $bytes = [long]0
-            while ($pending.Count -gt 0) {
-                $folder = Get-Item -LiteralPath $pending.Pop() -Force -ErrorAction Stop
-                if ($folder.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Driver package contains a reparse point.' }
-                foreach ($entry in @(Get-ChildItem -LiteralPath $folder.FullName -Force -ErrorAction Stop)) {
-                    if ($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) { throw 'Driver package contains a reparse point.' }
-                    if ($entry.PSIsContainer) { $pending.Push($entry.FullName) } else { $bytes += $entry.Length }
-                }
-            }
-            $packageSizes[$directory] = $bytes
-        }
-        $size = $packageSizes[$directory]
+    if (-not $measureSelectedOnly -or $selectedNames.Contains($publishedName)) {
+        try { $size = Measure-DriverPackage ([string]$driver.OriginalFileName) }
+        catch { $notices.Add(('{0}: Package size unavailable: {1}' -f $driver.Driver, $_.Exception.Message)) }
     }
-    catch { $notices.Add(('{0}: Package size unavailable: {1}' -f $driver.Driver, $_.Exception.Message)) }
     @{
-        PublishedName = [IO.Path]::GetFileName([string]$driver.Driver)
+        PublishedName = $publishedName
         OriginalName = [IO.Path]::GetFileName([string]$driver.OriginalFileName)
         Provider = [string]$driver.ProviderName
         ClassName = [string]$driver.ClassName

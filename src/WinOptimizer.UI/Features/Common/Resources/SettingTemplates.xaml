@@ -292,12 +292,16 @@
                     AutomationProperties.Name="{x:Bind Name}"
                     AutomationProperties.LocalizedControlType="setting"
                     HeaderIcon="{x:Bind Converter={StaticResource IconConverter}}"
-                    Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}"
                     CornerRadius="12,12,0,0">
                     <!-- Hide the built-in > action icon that appears with IsClickEnabled -->
                     <controls:SettingsCard.Resources>
-                        <x:Double x:Key="SettingsCardActionIconMaxSize">0</x:Double>
-                        <Thickness x:Key="SettingsCardActionIconMargin">0</Thickness>
+                        <ResourceDictionary>
+                            <ResourceDictionary.MergedDictionaries>
+                                <ResourceDictionary Source="ms-appx:///Features/Common/Resources/InteractiveSurfaceResources.xaml"/>
+                            </ResourceDictionary.MergedDictionaries>
+                            <x:Double x:Key="SettingsCardActionIconMaxSize">0</x:Double>
+                            <Thickness x:Key="SettingsCardActionIconMargin">0</Thickness>
+                        </ResourceDictionary>
                     </controls:SettingsCard.Resources>
 
                     <controls:SettingsCard.Description>

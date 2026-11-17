@@ -157,20 +157,22 @@ public class SystemSettingsDiscoveryService(
             results[setting.Id] = rawValues;
         }
 
-        foreach (var setting in scheduledTaskSettings)
+        if (scheduledTaskSettings.Count > 0)
         {
-            try
+            var paths = scheduledTaskSettings.Select(setting => setting.ScheduledTaskSettings[0].TaskPath).ToArray();
+            var states = await scheduledTaskService.GetTaskStatesAsync(paths).ConfigureAwait(false);
+            for (var index = 0; index < paths.Length; index++)
             {
+                var settingId = scheduledTaskSettings[index].Id;
+                var (enabled, error) = states[index];
                 var rawValues = new Dictionary<string, object?>();
-                var isEnabled = await scheduledTaskService.IsTaskEnabledAsync(setting.ScheduledTaskSettings[0].TaskPath).ConfigureAwait(false);
-                rawValues["ScheduledTaskEnabled"] = isEnabled;
-                rawValues["ScheduledTaskExists"] = isEnabled != null;
-                results[setting.Id] = rawValues;
-            }
-            catch (Exception ex)
-            {
-                logService.Log(LogLevel.Warning, $"Exception getting scheduled task state for '{setting.Id}': {ex.Message}");
-                results[setting.Id] = new Dictionary<string, object?>();
+                if (error is null)
+                {
+                    rawValues["ScheduledTaskEnabled"] = enabled;
+                    rawValues["ScheduledTaskExists"] = enabled.HasValue;
+                }
+                else logService.Log(LogLevel.Warning, $"Exception getting scheduled task state for '{settingId}': {error.Message}");
+                results[settingId] = rawValues;
             }
         }
 
@@ -264,9 +266,15 @@ public class SystemSettingsDiscoveryService(
         return (results, batchedRegistryValues);
     }
 
-    public async Task<Dictionary<string, SettingStateResult>> GetSettingStatesAsync(IEnumerable<SettingDefinition> settings)
+    public async Task<Dictionary<string, SettingStateResult>> GetSettingStatesAsync(IEnumerable<SettingDefinition> settings) =>
+        await ReadInterpretedStatesAsync(settings.ToList(), includeTooltips: true).ConfigureAwait(false);
+
+    public Task<Dictionary<string, SettingStateResult>> GetSettingStateSnapshotAsync(IReadOnlyList<SettingDefinition> settings) =>
+        ReadInterpretedStatesAsync(settings, includeTooltips: false);
+
+    private async Task<Dictionary<string, SettingStateResult>> ReadInterpretedStatesAsync(
+        IReadOnlyList<SettingDefinition> settingsList, bool includeTooltips)
     {
-        var settingsList = settings.ToList();
         logService.Log(LogLevel.Info, $"[SystemSettingsDiscoveryService] Getting interpreted states for {settingsList.Count} settings");
 
         var (allRawValues, batchRegistryValues) = await GetRawSettingsValuesWithBatchAsync(settingsList).ConfigureAwait(false);
@@ -333,17 +341,20 @@ public class SystemSettingsDiscoveryService(
             }
         }
 
-        // Build tooltip data from the already-read batch registry values (single read)
-        foreach (var setting in settingsList)
+        if (includeTooltips)
         {
-            if (!results.TryGetValue(setting.Id, out var stateResult) || !stateResult.Success)
-                continue;
-
-            var tooltipData = BuildTooltipData(setting, batchRegistryValues, stateResult.RawValues);
-            if (tooltipData != null)
+            // Build UI tooltips from the already-read batch. Per-device tooltip fields may need additional reads.
+            foreach (var setting in settingsList)
             {
-                tooltipData = tooltipData with { CurrentSettingState = stateResult.IsEnabled };
-                results[setting.Id] = stateResult with { TooltipData = tooltipData };
+                if (!results.TryGetValue(setting.Id, out var stateResult) || !stateResult.Success)
+                    continue;
+
+                var tooltipData = BuildTooltipData(setting, batchRegistryValues, stateResult.RawValues);
+                if (tooltipData != null)
+                {
+                    tooltipData = tooltipData with { CurrentSettingState = stateResult.IsEnabled };
+                    results[setting.Id] = stateResult with { TooltipData = tooltipData };
+                }
             }
         }
 

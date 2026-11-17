@@ -247,7 +247,7 @@ public class SoftwareAppsViewModelTests
         _userPreferencesService.Verify(service => service.GetPreference("SoftwareAppsViewMode", "Card"), Times.Once);
         _userPreferencesService.Verify(service => service.GetPreference("SoftwareAppsSortMode", "GroupAsc"), Times.Once);
         _windowsAppsService.Verify(service => service.GetAppsAsync(), Times.Never);
-        _externalAppsService.Verify(service => service.GetAppsAsync(), Times.Never);
+        _externalAppsService.Verify(service => service.ReadInventoryAsync(), Times.Never);
     }
 
     [Fact]
@@ -257,8 +257,8 @@ public class SoftwareAppsViewModelTests
             .Returns("Table");
         _windowsAppsService.Setup(s => s.GetAppsAsync())
             .ReturnsAsync(Enumerable.Empty<ItemDefinition>());
-        _externalAppsService.Setup(s => s.GetAppsAsync())
-            .ReturnsAsync(Enumerable.Empty<ItemDefinition>());
+        _externalAppsService.Setup(s => s.ReadInventoryAsync())
+            .ReturnsAsync(new ExternalAppInventory([], _externalAppsService.Object.CheckBatchInstalledAsync));
         _windowsAppsService.Setup(s => s.CheckBatchInstalledAsync(It.IsAny<IEnumerable<ItemDefinition>>()))
             .ReturnsAsync(new Dictionary<string, bool>());
         _externalAppsService.Setup(s => s.CheckBatchInstalledAsync(It.IsAny<IEnumerable<ItemDefinition>>()))
@@ -292,8 +292,8 @@ public class SoftwareAppsViewModelTests
             .Returns("Garbage");
         _windowsAppsService.Setup(s => s.GetAppsAsync())
             .ReturnsAsync(Enumerable.Empty<ItemDefinition>());
-        _externalAppsService.Setup(s => s.GetAppsAsync())
-            .ReturnsAsync(Enumerable.Empty<ItemDefinition>());
+        _externalAppsService.Setup(s => s.ReadInventoryAsync())
+            .ReturnsAsync(new ExternalAppInventory([], _externalAppsService.Object.CheckBatchInstalledAsync));
         _windowsAppsService.Setup(s => s.CheckBatchInstalledAsync(It.IsAny<IEnumerable<ItemDefinition>>()))
             .ReturnsAsync(new Dictionary<string, bool>());
         _externalAppsService.Setup(s => s.CheckBatchInstalledAsync(It.IsAny<IEnumerable<ItemDefinition>>()))

@@ -123,9 +123,14 @@ public class ChangeHistoryService(
         {
             try
             {
-                EnsureDirectory();
                 var receipt = entry with { Batch = _batchHeader, BatchId = _batchId };
-                fileSystemService.AppendAllText(FilePath, JsonSerializer.Serialize(receipt, LogPageReader.JsonOptions) + "\r\n", Utf8);
+                var line = JsonSerializer.Serialize(receipt, LogPageReader.JsonOptions) + "\r\n";
+                try { fileSystemService.AppendAllText(FilePath, line, Utf8); }
+                catch (DirectoryNotFoundException)
+                {
+                    EnsureDirectory();
+                    fileSystemService.AppendAllText(FilePath, line, Utf8);
+                }
             }
             catch (Exception ex)
             { logService.Log(LogLevel.Warning, $"[ChangeHistoryService] Failed to write entry: {ex.Message}"); }

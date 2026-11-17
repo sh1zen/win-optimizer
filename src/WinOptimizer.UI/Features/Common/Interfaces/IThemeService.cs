@@ -1,4 +1,5 @@
 using Microsoft.UI.Xaml;
+using WinOptimizer.Core.Features.Common.Models;
 
 namespace WinOptimizer.UI.Features.Common.Interfaces;
 
@@ -40,6 +41,9 @@ public interface IThemeService
     /// Loads the saved theme preference and applies it.
     /// </summary>
     void LoadSavedTheme();
+
+    /// <summary>Applies the theme from the shared startup preference snapshot.</summary>
+    void LoadSavedTheme(UserPreferencesSnapshot snapshot);
 
     /// <summary>
     /// Gets the actual effective theme (Light or Dark) accounting for System theme following Windows.

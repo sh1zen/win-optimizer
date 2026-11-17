@@ -1,5 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using FluentIcons.Common;
+using System.Collections.ObjectModel;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Models;
 
@@ -17,8 +18,9 @@ public sealed partial class LogTopicGroup(LogTopic topic, IReadOnlyList<LogDispl
     ILocalizationService localization) : ObservableObject
 {
     public LogTopic Topic { get; } = topic;
-    public IReadOnlyList<LogDisplayEntry> Items { get; } = items;
-    private readonly int _problems = items.Count(item => item.Record.IsProblem);
+    private readonly ObservableCollection<LogDisplayEntry> _items = new(items);
+    public IReadOnlyList<LogDisplayEntry> Items => _items;
+    private int _problems = items.Count(item => item.Record.IsProblem);
     [ObservableProperty] public partial bool IsExpanded { get; set; }
     public string Title => localization.GetString("Logs_Topic_" + Topic);
     public string Summary => localization.GetString("Logs_GroupCount", Items.Count);
@@ -32,6 +34,19 @@ public sealed partial class LogTopicGroup(LogTopic topic, IReadOnlyList<LogDispl
         _ => Icon.DocumentText
     };
     public void RefreshLabels() => OnPropertyChanged(string.Empty);
+
+    /// <summary>Appends newly read rows while retaining the existing visual group and its expansion.</summary>
+    internal void Append(IEnumerable<LogDisplayEntry> rows)
+    {
+        foreach (var row in rows)
+        {
+            _items.Add(row);
+            if (row.Record.IsProblem) _problems++;
+        }
+        OnPropertyChanged(nameof(Summary));
+        OnPropertyChanged(nameof(HasProblems));
+        OnPropertyChanged(nameof(Problems));
+    }
 }
 
 /// <summary>Formats typed events with compact summaries and separately expandable technical details.</summary>

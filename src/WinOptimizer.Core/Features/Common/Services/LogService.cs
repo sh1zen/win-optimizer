@@ -207,11 +207,11 @@ public class LogService : ILogService, IDisposable
         cancellationToken.ThrowIfCancellationRequested();
         lock (_lockObject)
         {
-            string[] files;
-            try { files = Directory.GetFiles(_logDirectory, "WinOptimizer_Log_*"); }
+            FileInfo[] files;
+            try { files = new DirectoryInfo(_logDirectory).GetFiles("WinOptimizer_Log_*"); }
             catch (DirectoryNotFoundException) { return []; }
             return files
-                .Where(IsLogFile).Select(path => new FileInfo(path)).OrderByDescending(file => file.LastWriteTimeUtc)
+                .Where(file => IsLogFile(file.Name)).OrderByDescending(file => file.LastWriteTimeUtc)
                 .Select(file => new LogFileInfo(file.Name, file.LastWriteTimeUtc)).ToArray();
         }
     }, cancellationToken);
@@ -304,8 +304,8 @@ public class LogService : ILogService, IDisposable
             if (!Directory.Exists(logDirectory))
                 return;
 
-            var logFiles = Directory.GetFiles(logDirectory, "WinOptimizer_Log_*").Where(IsLogFile)
-                .Select(f => new FileInfo(f))
+            var logFiles = new DirectoryInfo(logDirectory).GetFiles("WinOptimizer_Log_*")
+                .Where(file => IsLogFile(file.Name))
                 .OrderBy(f => f.CreationTimeUtc)
                 .ToList();
 
@@ -322,11 +322,11 @@ public class LogService : ILogService, IDisposable
             }
 
             // If still over maxFiles, delete the oldest
-            while (logFiles.Count > maxFiles)
+            var excess = Math.Min(logFiles.Count, (long)logFiles.Count - maxFiles);
+            for (var index = 0; index < excess; index++)
             {
-                try { logFiles[0].Delete(); }
+                try { logFiles[index].Delete(); }
                 catch { /* best-effort cleanup */ }
-                logFiles.RemoveAt(0);
             }
         }
         catch
@@ -339,6 +339,7 @@ public class LogService : ILogService, IDisposable
     {
         lock (_lockObject)
         {
+            if (_logWriter is null) return;
             try
             {
                 var entry = new AppLogEntry
@@ -349,8 +350,7 @@ public class LogService : ILogService, IDisposable
                         exception.Message, exception.StackTrace, exception.InnerException?.ToString())
                 };
 
-                // Write to file if log writer is available
-                if (_logWriter is not null) _logWriter.WriteLine(JsonSerializer.Serialize(entry, LogPageReader.JsonOptions));
+                _logWriter.WriteLine(JsonSerializer.Serialize(entry, LogPageReader.JsonOptions));
 
             }
             catch (Exception)

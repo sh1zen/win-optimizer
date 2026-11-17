@@ -155,14 +155,20 @@ public class WindowsRegistryServiceTests : IDisposable
     {
         // Arrange
         var path = TestPath("BatchTest");
+        var other = TestPath("OtherBatchKey");
+        var missing = TestPath("MissingBatchKey");
         _service.SetValue(path, "A", 1, RegistryValueKind.DWord);
         _service.SetValue(path, "B", "hello", RegistryValueKind.String);
         _service.SetValue(path, "C", 99, RegistryValueKind.DWord);
+        _service.SetValue(other, "A", 2, RegistryValueKind.DWord);
 
         var queries = new (string keyPath, string? valueName)[]
         {
             (path, "A"),
             (path, "B"),
+            (other, "A"),
+            (missing, null),
+            (missing, "A"),
             (path, "C"),
         };
 
@@ -170,8 +176,8 @@ public class WindowsRegistryServiceTests : IDisposable
         var results = _service.GetBatchValues(queries);
 
         // Assert
-        results.Should().HaveCount(3);
-        results.Values.Should().AllSatisfy(v => v.Should().NotBeNull());
+        results.Keys.Should().Equal(path + @"\A", path + @"\B", other + @"\A", missing + @"\__KEY_EXISTS__", missing + @"\A", path + @"\C");
+        results.Values.Should().Equal(1, "hello", 2, false, null, 99);
     }
 
     [Fact]

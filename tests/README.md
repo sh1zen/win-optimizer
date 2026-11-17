@@ -32,8 +32,7 @@ cached NuGet restore and executable validation. Each runner owns its build locat
 and scenarios. `NUGET_PACKAGES` selects the cache; otherwise the user cache is used.
 Startup and Software & Apps share `NativeTestCases` for fact/inline-data execution
 and fixture disposal on the WinUI dispatcher.
-Their entry points run the production assembly's module initializer before WinUI;
-the application owns Windows App SDK runtime initialization for these hosts.
+The application owns Windows App SDK runtime initialization for these hosts.
 
 ## Focused checks
 
@@ -80,16 +79,11 @@ Cleaner hard-link regressions use isolated files under the system temporary fold
 which must support local NTFS hard links. Workload timings report discovery,
 inspection, verified backup and deletion separately; timings have no pass/fail threshold.
 
-Installer regressions create isolated installations in the Windows temporary
-folder, which must support local NTFS junctions. They use unique registration IDs
-and redirect application storage into the fixture.
-Offline-profile fixtures are removed after each scenario; junction targets stay intact.
-Uninstaller scenario logs are saved under `build/logs/`; installer checks create
-the directory before collecting logs.
-Registry trace containers, the profile catalogue, Prefetch and disabled startup
-tasks use unique fixture boundaries. Checks cover exact and GUID-based ownership,
-unrelated values/tasks, empty scheduler folders, offline profile errors, denied
-registry writes and locked or redirected cleanup paths.
+Installer regressions require local NTFS junction support. They use isolated
+temporary installations, unique registration IDs, redirected application storage
+and fixture-owned profiles, registry traces, Prefetch and startup tasks.
+Fixtures clean up their resources while preserving junction targets and unrelated
+Windows data. Uninstaller scenario logs are saved under `build/logs/`.
 
 See the [language-resource guide](../src/WinOptimizer.UI/Features/Common/Localization/README.md)
 for translation coverage and format validation.

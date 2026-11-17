@@ -64,6 +64,48 @@ public sealed class ConnectionTrafficServiceTests
         Assert.Equal(2, adapters.Calls);
     }
 
+    [Fact]
+    public async Task WindowsHistoryOverlapsProfilesAndCombinesSamplesAndDiagnosticsInProfileOrder()
+    {
+        var start = new DateTimeOffset(2026, 10, 20, 0, 0, 0, TimeSpan.Zero);
+        var end = start.AddDays(1).AddHours(12);
+        var firstStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var secondStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var unblock = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        async Task<WindowsConnectionHistory.HistorySamples> First(WindowsConnectionHistory.HistoryQuery query, CancellationToken ct)
+        {
+            if (query.First == 0)
+            {
+                firstStarted.TrySetResult();
+                await unblock.Task.WaitAsync(ct);
+                throw new UnauthorizedAccessException("first profile blocked");
+            }
+            return new(1, _ => 30, _ => 40);
+        }
+        Task<WindowsConnectionHistory.HistorySamples> Second(WindowsConnectionHistory.HistoryQuery query, CancellationToken ct)
+        {
+            if (query.First != 0) return Task.FromResult(new WindowsConnectionHistory.HistorySamples(1, _ => 50, _ => 60));
+            secondStarted.TrySetResult();
+            return Task.FromException<WindowsConnectionHistory.HistorySamples>(new InvalidOperationException("second profile blocked"));
+        }
+        var history = new WindowsConnectionHistory(() => [First, Second]);
+
+        var operation = history.ReadAsync(end,
+            [new(new DateOnly(2026, 10, 20), start, start.AddDays(1)), new(new DateOnly(2026, 10, 21), start.AddDays(1), end)], default);
+        try
+        {
+            await Task.WhenAll(firstStarted.Task, secondStarted.Task).WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(operation.IsCompleted);
+        }
+        finally { unblock.TrySetResult(); }
+
+        var result = await operation;
+        Assert.Equal(new ConnectionDailyUsage(new DateOnly(2026, 10, 20), null, null, 0, 2), result.Days[0]);
+        Assert.Equal(new ConnectionDailyUsage(new DateOnly(2026, 10, 21), 80, 100, 2, 2), result.Days[1]);
+        Assert.Equal("Windows usage history: 1 day(s) unavailable for a connection profile. first profile blocked" + Environment.NewLine +
+            "Windows usage history: 1 day(s) unavailable for a connection profile. second profile blocked", result.Diagnostic);
+    }
+
     private sealed class TestClock : TimeProvider
     {
         public DateTimeOffset At { get; set; } = new(2026, 10, 20, 12, 0, 0, TimeSpan.Zero);

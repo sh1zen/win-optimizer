@@ -48,10 +48,27 @@ public class SettingViewModelFactory : ISettingViewModelFactory
     /// <summary>
     /// Creates a fully-configured SettingItemViewModel for the given setting definition and current state.
     /// </summary>
-    public async Task<SettingItemViewModel> CreateAsync(
+    public Task<SettingItemViewModel> CreateAsync(
         SettingDefinition setting,
         SettingStateResult currentState,
-        ISettingsFeatureViewModel? parentViewModel)
+        ISettingsFeatureViewModel? parentViewModel) => CreateAsync(setting, currentState, parentViewModel, ReadAdvancedUnlockAsync);
+
+    /// <summary>Reads the shared advanced lock preference only when the first applicable row needs it.</summary>
+    public Func<SettingDefinition, SettingStateResult, ISettingsFeatureViewModel?, Task<SettingItemViewModel>> BeginPageLoad()
+    {
+        var advancedUnlock = new Lazy<Task<bool>>(ReadAdvancedUnlockAsync);
+        Func<Task<bool>> read = () => advancedUnlock.Value;
+        return (setting, state, parent) => CreateAsync(setting, state, parent, read);
+    }
+
+    private Task<bool> ReadAdvancedUnlockAsync() =>
+        _userPreferencesService.GetPreferenceAsync(UserPreferenceKeys.AdvancedPowerSettingsUnlocked, false);
+
+    private async Task<SettingItemViewModel> CreateAsync(
+        SettingDefinition setting,
+        SettingStateResult currentState,
+        ISettingsFeatureViewModel? parentViewModel,
+        Func<Task<bool>> readAdvancedUnlock)
     {
         var config = new SettingItemViewModelConfig
         {
@@ -86,7 +103,7 @@ public class SettingViewModelFactory : ISettingViewModelFactory
         // Set lock state for advanced settings
         if (setting.RequiresAdvancedUnlock)
         {
-            var unlocked = await _userPreferencesService.GetPreferenceAsync("AdvancedPowerSettingsUnlocked", false);
+            var unlocked = await readAdvancedUnlock();
             viewModel.IsLocked = !unlocked;
         }
 

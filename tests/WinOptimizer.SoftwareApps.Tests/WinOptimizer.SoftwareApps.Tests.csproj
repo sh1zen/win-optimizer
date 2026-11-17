@@ -18,6 +18,7 @@
     <PackageReference Include="FluentAssertions" Version="7.0.0"/>
     <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\AppSortingTests.cs" Link="AppSortingTests.cs"/>
     <Compile Include="..\WinOptimizer.UI.Tests\Helpers\NativeTestCases.cs" Link="NativeTestCases.cs"/>
+    <Compile Include="..\WinOptimizer.UI.Tests\Helpers\UniformWrapLayoutTests.cs" Link="UniformWrapLayoutTests.cs"/>
     <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\WindowsAppsViewModelTests.cs" Link="WindowsAppsViewModelTests.cs"/>
     <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\ExternalAppsViewModelTests.cs" Link="ExternalAppsViewModelTests.cs"/>
     <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\LeftoverAppsViewModelTests.cs" Link="LeftoverAppsViewModelTests.cs"/>

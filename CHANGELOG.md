@@ -2,6 +2,32 @@
 
 ## [Unreleased]
 
+- Use a brief blur-to-sharp animation when navigating between pages.
+- Refresh the app with rounded cards and controls, segmented tabs and a brighter blue accent.
+- Fix hover flashes on cards and controls.
+- Skip unrelated driver-package size checks before removal.
+- Bound Cleaner file inspection memory while scanning large folders.
+- Reduce blocking file I/O during verified cleanup backups and restores.
+- Reduce repeated work when checking uninstall residues.
+- Speed up scheduled-task settings discovery.
+- Reduce repeated preference reads when opening power settings.
+- Reduce startup storage writes, preference reads and catalogue preparation time.
+- Speed up installed app inventory, metadata matching, icons, searches and card layout.
+- Reuse a DISM session when checking capabilities and optional features.
+- Bound WinGet activation time before falling back to the command line.
+- Download driver offers together while preserving individual results.
+- Speed up Process Monitor list updates and endpoint sampling.
+- Speed up event channel loading, log rotation and activity journal paging.
+- Reduce widget redraw work and load times for system information, battery telemetry and network history.
+- Speed up Leftover cache checks.
+- Speed up Autoruns and context menu inventories.
+- Reduce repeated filesystem work when saving preferences and checking security settings.
+- Avoid tooltip reads when exporting settings or verifying privacy settings.
+- Load AppX icon scopes on demand and read uncached logos together.
+- Verify manual Explorer restarts immediately when the process is ready.
+- Verify completed WIM conversions and newly visible restore points sooner.
+- Reduce directory reads during ISO extraction and creation.
+- Speed up generation of unattended Windows configurations.
 - Improve optional driver discovery, bundled-package verification and upgrade comparisons; show the active WHQL filter beside results.
 - Simplify Optimize and Customize category cards to custom and configuration-review indicators.
 - Keep the loading screen centered and steady while startup progress changes.
@@ -9,6 +35,7 @@
 - Automatically refresh app inventories after uninstallation finishes, including partial or cancelled operations.
 - Use the .NET 11 SDK specified in `global.json` for development and CI.
 - Align Windows runtime references and initialization across the application and native test hosts.
+- Clarify that win-optimizer is licensed under Apache 2.0.
 
 ## [v26.11.04] - 2026-11-04
 

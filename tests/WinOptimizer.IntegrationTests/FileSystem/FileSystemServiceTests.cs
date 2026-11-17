@@ -21,6 +21,35 @@ public class FileSystemServiceTests : IClassFixture<TempDirectoryFixture>
     private string TempFile(string name) => Path.Combine(_fixture.TempPath, name);
 
     [Fact]
+    public void DirectoryContentsClassifyImmediateFilesAndDirectoriesInEnumerationOrder()
+    {
+        var source = Directory.CreateDirectory(TempFile("directory-contents"));
+        var child = source.CreateSubdirectory("boot");
+        source.CreateSubdirectory("sources");
+        File.WriteAllText(Path.Combine(child.FullName, "nested"), "not an immediate entry");
+        File.WriteAllText(Path.Combine(source.FullName, "setup.exe"), "fixture");
+        File.WriteAllText(Path.Combine(source.FullName, "autorun.inf"), "fixture");
+
+        var contents = _service.ReadDirectoryContents(source.FullName);
+
+        Assert.Equal(_service.GetDirectories(source.FullName), contents.Directories);
+        Assert.Equal(_service.GetFiles(source.FullName), contents.Files);
+    }
+
+    [Fact]
+    public void DirectoryFileSizeIncludesNestedAndHiddenFiles()
+    {
+        var source = Directory.CreateDirectory(TempFile("directory-size"));
+        var child = source.CreateSubdirectory("sources");
+        File.WriteAllBytes(Path.Combine(source.FullName, "setup.exe"), [1, 2, 3]);
+        var hidden = Path.Combine(child.FullName, "media");
+        File.WriteAllBytes(hidden, [4, 5, 6, 7]);
+        File.SetAttributes(hidden, FileAttributes.Hidden);
+
+        Assert.Equal(7L, _service.GetDirectoryFileSize(source.FullName));
+    }
+
+    [Fact]
     public void CreateDirectory_DirectoryExists_ReturnsTrue()
     {
         // Arrange

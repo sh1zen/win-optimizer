@@ -47,12 +47,34 @@ public class ExternalAppsViewModelTests
         _themeService.Object,
         iconResolver: _icons.Object);
 
+    private ExternalAppInventory Inventory(params ItemDefinition[] items) =>
+        new(items, _externalAppsService.Object.CheckBatchInstalledAsync);
+
+    [Fact]
+    public async Task RefreshPassesTheCapturedDesktopRegistrationsToIconResolution()
+    {
+        var app = CreateTestItem("registered");
+        IReadOnlyList<IRegisteredDesktopIcon> registrations = [Mock.Of<IRegisteredDesktopIcon>()];
+        _externalAppsService.Setup(service => service.ReadInventoryAsync())
+            .ReturnsAsync(new ExternalAppInventory([app], _ => Task.FromResult(new Dictionary<string, bool> { [app.Id] = true }))
+            { DesktopRegistrations = registrations });
+        _icons.Setup(resolver => resolver.ResolveBatchAsync(It.IsAny<IEnumerable<ItemDefinition>>(), registrations, false,
+            It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+        using var sut = CreateSut();
+
+        await sut.CheckInstallationStatusAsync();
+
+        Assert.True(Assert.Single(sut.Items).IsInstalled);
+        _icons.Verify(resolver => resolver.ResolveBatchAsync(It.IsAny<IEnumerable<ItemDefinition>>(), registrations, false,
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
     [Fact]
     public async Task RefreshResolvesRegisteredIconsForNewDesktopRowsWithoutLosingSelection()
     {
         var first = CreateTestItem("first", isInstalled: true);
         var added = CreateTestItem("added", isInstalled: true);
-        _externalAppsService.SetupSequence(source => source.GetAppsAsync()).ReturnsAsync([first]).ReturnsAsync([first, added]);
+        _externalAppsService.SetupSequence(source => source.ReadInventoryAsync()).ReturnsAsync(Inventory(first)).ReturnsAsync(Inventory(first, added));
         _externalAppsService.Setup(source => source.CheckBatchInstalledAsync(It.IsAny<IEnumerable<ItemDefinition>>()))
             .ReturnsAsync(new Dictionary<string, bool> { [first.Id] = true, [added.Id] = true });
         _icons.Setup(source => source.ResolveBatchAsync(It.IsAny<IEnumerable<ItemDefinition>>(), false, It.IsAny<CancellationToken>()))
@@ -85,7 +107,7 @@ public class ExternalAppsViewModelTests
     {
         var apps = Enumerable.Range(0, 100).Select(index => CreateTestItem($"app{index}")).ToArray();
         var installed = true;
-        _externalAppsService.Setup(service => service.GetAppsAsync()).ReturnsAsync(apps);
+        _externalAppsService.Setup(service => service.ReadInventoryAsync()).ReturnsAsync(Inventory(apps));
         _externalAppsService.Setup(service => service.CheckBatchInstalledAsync(It.IsAny<IEnumerable<ItemDefinition>>()))
             .ReturnsAsync(() => apps.ToDictionary(app => app.Id, _ => installed));
         using var sut = CreateSut();
@@ -107,7 +129,7 @@ public class ExternalAppsViewModelTests
     {
         var app = CreateTestItem("chosen", isInstalled: true) with { RegistryUninstallKeyPath = @"HKCU\Fixture\Chosen" };
         var installed = true;
-        _externalAppsService.Setup(service => service.GetAppsAsync()).ReturnsAsync(() => installed ? [app] : Array.Empty<ItemDefinition>());
+        _externalAppsService.Setup(service => service.ReadInventoryAsync()).ReturnsAsync(() => Inventory(installed ? [app] : []));
         _externalAppsService.Setup(service => service.CheckBatchInstalledAsync(It.IsAny<IEnumerable<ItemDefinition>>()))
             .ReturnsAsync(() => new Dictionary<string, bool> { [app.Id] = installed });
         _dialogService.Setup(dialog => dialog.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>())).ReturnsAsync(new ConfirmationResponse { Confirmed = true });
@@ -129,7 +151,7 @@ public class ExternalAppsViewModelTests
                 Assert.Empty(sut.Items);
                 Assert.Empty(sut.ItemsView);
                 Assert.True(sut.IsTaskRunning);
-                _externalAppsService.Verify(service => service.GetAppsAsync(), Times.Once);
+                _externalAppsService.Verify(service => service.ReadInventoryAsync(), Times.Once);
                 _externalAppsService.Verify(service => service.CheckBatchInstalledAsync(It.IsAny<IEnumerable<ItemDefinition>>()), Times.Once);
                 await workflowFinished.Task;
                 return result;
@@ -150,7 +172,7 @@ public class ExternalAppsViewModelTests
         Assert.False(sut.IsTaskRunning);
         Assert.False(sut.IsLoading);
         _externalAppsService.Verify(service => service.InvalidateStatusCache(), Times.Once);
-        _externalAppsService.Verify(service => service.GetAppsAsync(), Times.Exactly(2));
+        _externalAppsService.Verify(service => service.ReadInventoryAsync(), Times.Exactly(2));
         _externalAppsService.Verify(service => service.CheckBatchInstalledAsync(It.IsAny<IEnumerable<ItemDefinition>>()), Times.Exactly(2));
         _icons.Verify(service => service.ResolveBatchAsync(It.IsAny<IEnumerable<ItemDefinition>>(), false, It.IsAny<CancellationToken>()), Times.Exactly(2));
     }
@@ -162,7 +184,7 @@ public class ExternalAppsViewModelTests
     {
         var app = CreateTestItem("chosen", isInstalled: true);
         var installed = true;
-        _externalAppsService.Setup(service => service.GetAppsAsync()).ReturnsAsync(() => installed ? [app] : Array.Empty<ItemDefinition>());
+        _externalAppsService.Setup(service => service.ReadInventoryAsync()).ReturnsAsync(() => Inventory(installed ? [app] : []));
         _externalAppsService.Setup(service => service.CheckBatchInstalledAsync(It.IsAny<IEnumerable<ItemDefinition>>()))
             .ReturnsAsync(() => new Dictionary<string, bool> { [app.Id] = installed });
         _dialogService.Setup(dialog => dialog.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>())).ReturnsAsync(new ConfirmationResponse { Confirmed = true });
@@ -180,7 +202,7 @@ public class ExternalAppsViewModelTests
         Assert.False(sut.IsTaskRunning);
         Assert.False(sut.IsLoading);
         _externalAppsService.Verify(service => service.InvalidateStatusCache(), Times.Once);
-        _externalAppsService.Verify(service => service.GetAppsAsync(), Times.Exactly(2));
+        _externalAppsService.Verify(service => service.ReadInventoryAsync(), Times.Exactly(2));
         _externalAppsService.Verify(service => service.CheckBatchInstalledAsync(It.IsAny<IEnumerable<ItemDefinition>>()), Times.Exactly(2));
     }
 
@@ -188,7 +210,7 @@ public class ExternalAppsViewModelTests
     public async Task RefreshFailureAfterUninstallClearsBusyStateAndReportsError()
     {
         var app = CreateTestItem("chosen", isInstalled: true);
-        _externalAppsService.Setup(service => service.GetAppsAsync()).ReturnsAsync([app]);
+        _externalAppsService.Setup(service => service.ReadInventoryAsync()).ReturnsAsync(Inventory(app));
         _externalAppsService.SetupSequence(service => service.CheckBatchInstalledAsync(It.IsAny<IEnumerable<ItemDefinition>>()))
             .ReturnsAsync(new Dictionary<string, bool> { [app.Id] = true })
             .ThrowsAsync(new IOException("Inventory unavailable"));
@@ -219,7 +241,7 @@ public class ExternalAppsViewModelTests
     {
         var chosen = CreateTestItem("chosen", isInstalled: true);
         var other = CreateTestItem("other", isInstalled: true);
-        _externalAppsService.Setup(service => service.GetAppsAsync()).ReturnsAsync([chosen, other]);
+        _externalAppsService.Setup(service => service.ReadInventoryAsync()).ReturnsAsync(Inventory(chosen, other));
         _externalAppsService.Setup(service => service.CheckBatchInstalledAsync(It.IsAny<IEnumerable<ItemDefinition>>()))
             .ReturnsAsync(new Dictionary<string, bool> { [chosen.Id] = true, [other.Id] = true });
         _dialogService.Setup(dialog => dialog.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>()))
@@ -250,14 +272,14 @@ public class ExternalAppsViewModelTests
         Assert.True(sut.Items[1].IsInstalled);
         Assert.Same(metadata, other.Metadata);
         Assert.All(sut.Items, item => Assert.False(item.IsSelected));
-        _externalAppsService.Verify(service => service.GetAppsAsync(), Times.Exactly(2));
+        _externalAppsService.Verify(service => service.ReadInventoryAsync(), Times.Exactly(2));
         _externalAppsService.Verify(service => service.CheckBatchInstalledAsync(It.IsAny<IEnumerable<ItemDefinition>>()), Times.Exactly(2));
     }
 
     [Fact]
     public async Task UninstallApps_RequiresConfirmationBeforeCallingWorkflow()
     {
-        _externalAppsService.Setup(service => service.GetAppsAsync()).ReturnsAsync([CreateTestItem("chosen", isInstalled: true)]);
+        _externalAppsService.Setup(service => service.ReadInventoryAsync()).ReturnsAsync(Inventory(CreateTestItem("chosen", isInstalled: true)));
         _externalAppsService.Setup(service => service.CheckBatchInstalledAsync(It.IsAny<IEnumerable<ItemDefinition>>())).ReturnsAsync(new Dictionary<string, bool> { ["chosen"] = true });
         _dialogService.Setup(dialog => dialog.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>())).ReturnsAsync(new ConfirmationResponse { Confirmed = false });
         var sut = CreateSut();
@@ -286,8 +308,7 @@ public class ExternalAppsViewModelTests
     [Fact]
     public async Task LoadAppsAndCheckInstallationStatusAsync_WhenAlreadyInitialized_SkipsLoading()
     {
-        _externalAppsService.Setup(s => s.GetAppsAsync())
-            .ReturnsAsync(Enumerable.Empty<ItemDefinition>());
+        _externalAppsService.Setup(s => s.ReadInventoryAsync()).ReturnsAsync(Inventory());
         _externalAppsService.Setup(s => s.CheckBatchInstalledAsync(It.IsAny<IEnumerable<ItemDefinition>>()))
             .ReturnsAsync(new Dictionary<string, bool>());
 
@@ -296,13 +317,13 @@ public class ExternalAppsViewModelTests
         await sut.LoadAppsAndCheckInstallationStatusAsync();
         await sut.LoadAppsAndCheckInstallationStatusAsync();
 
-        _externalAppsService.Verify(s => s.GetAppsAsync(), Times.Once);
+        _externalAppsService.Verify(s => s.ReadInventoryAsync(), Times.Once);
     }
 
     [Fact]
     public async Task LoadAppsAndCheckInstallationStatusAsync_OnError_LogsErrorAndCompletes()
     {
-        _externalAppsService.Setup(s => s.GetAppsAsync())
+        _externalAppsService.Setup(s => s.ReadInventoryAsync())
             .ThrowsAsync(new InvalidOperationException("Service error"));
 
         var sut = CreateSut();
@@ -328,8 +349,7 @@ public class ExternalAppsViewModelTests
     [Fact]
     public async Task RefreshInstallationStatusAsync_WhenInitialized_InvalidatesCacheAndRefreshes()
     {
-        _externalAppsService.Setup(s => s.GetAppsAsync())
-            .ReturnsAsync(Enumerable.Empty<ItemDefinition>());
+        _externalAppsService.Setup(s => s.ReadInventoryAsync()).ReturnsAsync(Inventory());
         _externalAppsService.Setup(s => s.CheckBatchInstalledAsync(It.IsAny<IEnumerable<ItemDefinition>>()))
             .ReturnsAsync(new Dictionary<string, bool>());
 
@@ -345,8 +365,7 @@ public class ExternalAppsViewModelTests
     [Fact]
     public async Task UninstallAppsAsync_WhenNoItemsSelected_ShowsWarning()
     {
-        _externalAppsService.Setup(s => s.GetAppsAsync())
-            .ReturnsAsync(new[] { CreateTestItem("app1") });
+        _externalAppsService.Setup(s => s.ReadInventoryAsync()).ReturnsAsync(Inventory(CreateTestItem("app1")));
         _externalAppsService.Setup(s => s.CheckBatchInstalledAsync(It.IsAny<IEnumerable<ItemDefinition>>()))
             .ReturnsAsync(new Dictionary<string, bool> { ["app1"] = true });
 
@@ -363,12 +382,10 @@ public class ExternalAppsViewModelTests
     [Fact]
     public async Task ToggleSelectAllNotInstalled_SelectsOnlyNotInstalledItems()
     {
-        _externalAppsService.Setup(s => s.GetAppsAsync())
-            .ReturnsAsync(new[]
-            {
+        _externalAppsService.Setup(s => s.ReadInventoryAsync())
+            .ReturnsAsync(Inventory(
                 CreateTestItem("app1", isInstalled: true),
-                CreateTestItem("app2", isInstalled: false)
-            });
+                CreateTestItem("app2", isInstalled: false)));
         _externalAppsService.Setup(s => s.CheckBatchInstalledAsync(It.IsAny<IEnumerable<ItemDefinition>>()))
             .ReturnsAsync(new Dictionary<string, bool> { ["app1"] = true, ["app2"] = false });
 
@@ -387,8 +404,8 @@ public class ExternalAppsViewModelTests
     [Fact]
     public async Task VisibleApps_RefreshWhenInstallationStatusChanges()
     {
-        _externalAppsService.Setup(s => s.GetAppsAsync())
-            .ReturnsAsync(new[] { CreateTestItem("app1"), CreateTestItem("app2") });
+        _externalAppsService.Setup(s => s.ReadInventoryAsync())
+            .ReturnsAsync(Inventory(CreateTestItem("app1"), CreateTestItem("app2")));
         var status = new Dictionary<string, bool> { ["app1"] = true, ["app2"] = false };
         _externalAppsService.Setup(s => s.CheckBatchInstalledAsync(It.IsAny<IEnumerable<ItemDefinition>>()))
             .ReturnsAsync(() => status);
@@ -416,10 +433,10 @@ public class ExternalAppsViewModelTests
             RegistryUninstallKeyPath = @"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Poedit_is1",
             CanBeReinstalled = false,
         };
-        _externalAppsService.SetupSequence(service => service.GetAppsAsync())
-            .ReturnsAsync(new[] { existing })
-            .ReturnsAsync(new[] { existing with { }, poedit })
-            .ReturnsAsync(new[] { existing with { } });
+        _externalAppsService.SetupSequence(service => service.ReadInventoryAsync())
+            .ReturnsAsync(Inventory(existing))
+            .ReturnsAsync(Inventory(existing with { }, poedit))
+            .ReturnsAsync(Inventory(existing with { }));
         _externalAppsService.Setup(service => service.CheckBatchInstalledAsync(It.IsAny<IEnumerable<ItemDefinition>>()))
             .ReturnsAsync((IEnumerable<ItemDefinition> items) => items.ToDictionary(item => item.Id, _ => true));
         using var sut = CreateSut();
@@ -447,13 +464,11 @@ public class ExternalAppsViewModelTests
     [Fact]
     public async Task SelectAll_WithSearch_SelectsOnlyMatchingInstalledApps()
     {
-        _externalAppsService.Setup(s => s.GetAppsAsync())
-            .ReturnsAsync(new[]
-            {
+        _externalAppsService.Setup(s => s.ReadInventoryAsync())
+            .ReturnsAsync(Inventory(
                 CreateTestItem("app1", "Matching Installed"),
                 CreateTestItem("app2", "Matching Available"),
-                CreateTestItem("app3", "Other Installed")
-            });
+                CreateTestItem("app3", "Other Installed")));
         _externalAppsService.Setup(s => s.CheckBatchInstalledAsync(It.IsAny<IEnumerable<ItemDefinition>>()))
             .ReturnsAsync(new Dictionary<string, bool>
             {

@@ -12,22 +12,24 @@ public class WindowsInstalledProgramSourceTests
     {
         var registry = new Mock<IWindowsRegistryService>(MockBehavior.Strict);
         foreach (var root in WindowsInstalledProgramSource.Roots)
-        {
             registry.Setup(source => source.GetSubKeyNames(root)).Returns(["Tool"]);
-            var path = root + @"\Tool";
-            registry.Setup(source => source.GetValue(path, It.IsAny<string>())).Returns((string _, string value) => value switch
-            {
-                "DisplayName" => "Installed tool",
-                "UninstallString" => "uninstall.exe",
-                "DisplayIcon" => "\"C:\\Fixture\\app.exe\",-7",
-                _ => null,
-            });
-        }
+        registry.Setup(source => source.GetBatchValues(It.IsAny<IEnumerable<(string, string?)>>()))
+            .Returns((IEnumerable<(string Path, string? Field)> queries) => queries.ToDictionary(
+                query => query.Path + "\\" + query.Field, query => (object?)(query.Field switch
+                {
+                    "DisplayName" => "Installed tool",
+                    "UninstallString" => "uninstall.exe",
+                    "DisplayIcon" => "\"C:\\Fixture\\app.exe\",-7",
+                    _ => null,
+                })));
         var programs = await new WindowsInstalledProgramSource(registry.Object).ReadAsync();
         Assert.Equal(WindowsInstalledProgramSource.Roots.Select(root => root + @"\Tool"), programs.Select(program => program.KeyPath));
         Assert.Equal(4, programs.Select(program => program.ToDefinition().Id).Distinct().Count());
         Assert.All(programs, program => Assert.True(program.IsVisible));
         Assert.All(programs, program => Assert.Equal("\"C:\\Fixture\\app.exe\",-7", program.DisplayIcon));
+        foreach (var program in programs)
+            registry.Verify(source => source.GetBatchValues(It.Is<IEnumerable<(string, string?)>>(queries =>
+                queries.Count() == 7 && queries.All(query => query.Item1 == program.KeyPath))), Times.Once);
     }
 
     [Fact]

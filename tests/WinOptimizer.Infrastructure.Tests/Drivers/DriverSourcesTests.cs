@@ -92,20 +92,42 @@ public sealed class DriverSourcesTests
         inspector.VerifyAll();
     }
     [Fact]
-    public async Task UpdateScript_SearchesOptionalOffers_AndExportsIndividualBundledPayloads()
+    public Task UpdateScript_SearchesOptionalOffers_AndExportsIndividualBundledPayloads() =>
+        RunScriptFixtureAsync("DriverUpdates", "driver-updates-scripts.tests.ps1");
+
+    [Fact]
+    public Task InventoryScript_MeasuresOnlySelectedPackagesDuringRemoval() =>
+        RunScriptFixtureAsync("DriverInventory", "driver-inventory-scripts.tests.ps1");
+
+    [Theory]
+    [InlineData(2, true)]
+    [InlineData(10000, false)]
+    public async Task RemovalInventoryFitsWindowsProcessArguments(int packageCount, bool usesSelection)
+    {
+        Output(JsonSerializer.Serialize(new DriverInventory([], [], true, [])));
+        var selected = Enumerable.Range(1, packageCount).Select(index => $"oem{index}.inf").ToHashSet();
+
+        await new WindowsDriverInventorySource(new(_process.Object)).ReadForRemovalAsync(selected, default);
+
+        _process.Verify(x => x.ExecuteWithStreamingAsync(It.IsAny<string>(), It.Is<string>(args =>
+            args.Length < 32000 && DecodeScript(args).Contains("$measureSelectedOnly=$true") == usesSelection),
+            null, null, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    private static async Task RunScriptFixtureAsync(string script, string fixture)
     {
         using var workspace = new DriverScanWorkspace(Path.GetTempPath());
-        var scriptPath = Path.Combine(workspace.Root, "DriverUpdates.ps1");
-        using (var resource = typeof(DriverPowerShell).Assembly.GetManifestResourceStream("WinOptimizer.Drivers.DriverUpdates.ps1")!)
+        var scriptPath = Path.Combine(workspace.Root, script + ".ps1");
+        using (var resource = typeof(DriverPowerShell).Assembly.GetManifestResourceStream($"WinOptimizer.Drivers.{script}.ps1")!)
         using (var reader = new StreamReader(resource))
             await File.WriteAllTextAsync(scriptPath, await reader.ReadToEndAsync());
         var root = new DirectoryInfo(AppContext.BaseDirectory);
-        while (root is not null && !File.Exists(Path.Combine(root.FullName, "tests", "driver-updates-scripts.tests.ps1"))) root = root.Parent;
+        while (root is not null && !File.Exists(Path.Combine(root.FullName, "tests", fixture))) root = root.Parent;
         Assert.NotNull(root);
         var start = new System.Diagnostics.ProcessStartInfo(Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe"))
         { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true };
         foreach (var argument in new[] { "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File",
-            Path.Combine(root.FullName, "tests", "driver-updates-scripts.tests.ps1"), "-ScriptPath", scriptPath }) start.ArgumentList.Add(argument);
+            Path.Combine(root.FullName, "tests", fixture), "-ScriptPath", scriptPath }) start.ArgumentList.Add(argument);
         using var process = System.Diagnostics.Process.Start(start)!;
         var output = process.StandardOutput.ReadToEndAsync();
         var error = process.StandardError.ReadToEndAsync();

@@ -24,8 +24,9 @@ public static class FeatureConfigurationSnapshot
 
         foreach (var (featureId, definitions) in allSettingsByFeature)
         {
-            var settings = definitions.ToList();
-            if (settings.Count == 0) continue;
+            // The compatibility catalogue publishes arrays. Other sources can still supply lazy definitions.
+            var settings = definitions as SettingDefinition[] ?? definitions.ToArray();
+            if (settings.Length == 0) continue;
 
             var isOptimize = FeatureDefinitions.OptimizeFeatures.Contains(featureId);
             var isCustomize = FeatureDefinitions.CustomizeFeatures.Contains(featureId);
@@ -35,7 +36,7 @@ public static class FeatureConfigurationSnapshot
                 continue;
             }
 
-            var states = await discovery.GetSettingStatesAsync(settings);
+            var states = await discovery.GetSettingStateSnapshotAsync(settings);
             var items = settings.Select(setting => project(setting, states.GetValueOrDefault(setting.Id))).ToList();
             var section = new ConfigSection { IsIncluded = true, Items = items };
             if (isOptimize)

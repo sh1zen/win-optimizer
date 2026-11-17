@@ -824,7 +824,7 @@ public sealed class LeftoverServiceTests : IDisposable
     public async Task RegisteredInstallerProtectsItsTargetWithoutProtectingTheWholeCache(bool package, bool directoryReference)
     {
         var owned = Installer(package ? @"Owned\installer.msi" : "owned.msi", package);
-        var orphan = Installer(package ? @"Orphan\installer.msi" : "orphan.msi", package);
+        var orphan = Installer(package ? @"OwnedArchive\installer.msi" : "orphan.msi", package);
         var launcher = Path.Combine(_root, "launcher.exe");
         File.WriteAllText(launcher, "fixture launcher");
         var reference = directoryReference ? Path.GetDirectoryName(owned)! + "\\" : owned;

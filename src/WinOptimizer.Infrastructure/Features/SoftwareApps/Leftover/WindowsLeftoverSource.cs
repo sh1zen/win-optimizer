@@ -207,10 +207,11 @@ internal sealed class WindowsLeftoverSource(IUninstallAccountSessions sessions, 
         if (!references.Busy && restartPending == false)
         {
             LeftoverDirectoryScanner.DiscoverEmpty(emptyRoots, directories, notices, ct);
+            var productsByName = activeProducts.ToLookup(product => product.Name, StringComparer.Ordinal);
             foreach (var directory in directories)
             {
                 var productName = UninstallResources.NormalizeName(directory.Name);
-                if (activeProducts.Any(product => product.Name == productName &&
+                if (productsByName[productName].Any(product =>
                     (directory.Root.Sid == null || product.Sid == null || product.Sid == directory.Root.Sid) &&
                     (!directory.EmptyOnly || product.Location == null || UninstallResources.Under(directory.Root.Path, product.Location) ||
                         UninstallResources.Under(product.Location, directory.Root.Path))) ||
@@ -225,6 +226,13 @@ internal sealed class WindowsLeftoverSource(IUninstallAccountSessions sessions, 
         var roots = new[] { new UninstallFileRoot(windowsCache, null, null, windowsCache, InstallerCache: true) }
             .Concat(searchRoots.Where(root => root.Sid == null || root.Folder == Environment.SpecialFolder.LocalApplicationData)
                 .Select(root => root with { Path = Path.Combine(root.Path, "Package Cache"), BaseDirectory = Path.Combine(root.Path, "Package Cache"), InstallerCache = true }));
+        var protectedDirectories = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var directory in references.SourceDirectories.Concat(activeDirectories))
+        {
+            protectedDirectories.Add(directory);
+            protectedDirectories.Add(directory.TrimEnd('\\') + "\\");
+        }
+        var protectedPaths = protectedDirectories.GetAlternateLookup<ReadOnlySpan<char>>();
         foreach (var cache in roots.GroupBy(root => root.Path, StringComparer.OrdinalIgnoreCase))
         {
             if (cache.Select(root => root.Sid).Distinct(StringComparer.OrdinalIgnoreCase).Count() > 1)
@@ -238,8 +246,7 @@ internal sealed class WindowsLeftoverSource(IUninstallAccountSessions sessions, 
                 var extension = Path.GetExtension(path).ToLowerInvariant();
                 if (extension == ".exe" && systemCache) continue;
                 if (extension is not (".msi" or ".msp" or ".exe") ||
-                    references.Files.Contains(path) || references.SourceDirectories.Any(directory => UninstallResources.Under(path, directory)) ||
-                    activeDirectories.Any(directory => UninstallResources.Under(path, directory)) ||
+                    references.Files.Contains(path) || HasProtectedDirectory(path) ||
                     HasMetadataReference(path, root, metadataReferences)) continue;
                 try
                 {
@@ -259,6 +266,16 @@ internal sealed class WindowsLeftoverSource(IUninstallAccountSessions sessions, 
             }
         }
         return new(candidates, notices.Distinct().ToArray());
+
+        // Compare complete path segments so an active folder does not also match a sibling with the same prefix.
+        bool HasProtectedDirectory(string path)
+        {
+            if (protectedPaths.Contains(path)) return true;
+            var span = path.AsSpan();
+            for (var separator = span.LastIndexOf('\\'); separator >= 0; separator = span[..separator].LastIndexOf('\\'))
+                if (protectedPaths.Contains(span[..(separator + 1)])) return true;
+            return false;
+        }
     }
 
     /// <summary>Uses native MSI absence or a missing owned uninstaller; existing installation trees require full payload checks.</summary>

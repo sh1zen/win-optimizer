@@ -19,10 +19,8 @@ public class WindowSizeManagerTests
     private static Mock<IUserPreferencesService> Preferences(Dictionary<string, object> values)
     {
         var preferences = new Mock<IUserPreferencesService>();
-        preferences.Setup(service => service.GetPreferenceAsync<double>(It.IsAny<string>(), It.IsAny<double>()))
-            .Returns((string key, double fallback) => Task.FromResult(values.TryGetValue(key, out var value) ? (double)value : fallback));
-        preferences.Setup(service => service.GetPreferenceAsync<bool>(It.IsAny<string>(), It.IsAny<bool>()))
-            .Returns((string key, bool fallback) => Task.FromResult(values.TryGetValue(key, out var value) ? (bool)value : fallback));
+        preferences.Setup(service => service.ReadSnapshotAsync())
+            .ReturnsAsync(() => new UserPreferencesSnapshot(new Dictionary<string, object>(values), Mock.Of<ILogService>()));
         preferences.Setup(service => service.GetPreferencesAsync()).ReturnsAsync(() => new Dictionary<string, object>(values));
         preferences.Setup(service => service.UpdatePreferencesAsync(It.IsAny<IReadOnlyDictionary<string, object>>()))
             .Returns((IReadOnlyDictionary<string, object> saved) =>

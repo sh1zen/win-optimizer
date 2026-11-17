@@ -11,6 +11,31 @@ namespace WinOptimizer.Application.Tests;
 public class ConfigApplicationExecutionServiceTests
 {
     [Theory]
+    [InlineData(1, true)]
+    [InlineData(3, true)]
+    [InlineData(11, false)]
+    public async Task ExplorerChecksImmediatelyAndRetainsAllDelayedRetries(int probes, bool found)
+    {
+        var timers = System.Threading.Channels.Channel.CreateUnbounded<Action>();
+        var clock = new Mock<TimeProvider>();
+        clock.Setup(provider => provider.CreateTimer(It.IsAny<TimerCallback>(), It.IsAny<object?>(),
+                TimeSpan.FromMilliseconds(500), Timeout.InfiniteTimeSpan))
+            .Returns((TimerCallback callback, object? state, TimeSpan _, TimeSpan _) =>
+            {
+                timers.Writer.TryWrite(() => callback(state));
+                return Mock.Of<ITimer>();
+            });
+        var calls = 0;
+        var verification = ConfigApplicationExecutionService.VerifyManualExplorerStartAsync(() => ++calls == probes && found, clock.Object);
+        Assert.Equal(1, calls);
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        for (var i = 1; i < probes; i++) (await timers.Reader.ReadAsync(deadline.Token))();
+
+        Assert.Equal(found, await verification.WaitAsync(deadline.Token));
+        Assert.Equal(probes, calls);
+        Assert.False(timers.Reader.TryRead(out _));
+    }
+    [Theory]
     [InlineData("Taskbar")]
     [InlineData("StartMenu")]
     [InlineData("WindowsTheme")]

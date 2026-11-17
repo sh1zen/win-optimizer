@@ -266,8 +266,10 @@ public partial class ProcessMonitorViewModel : UtilityViewModel
 
     private void FilterRows()
     {
-        var matches = _all.Values.Where(row => string.IsNullOrWhiteSpace(SearchText) ||
-            row.SearchContent.Contains(SearchText.Trim(), StringComparison.CurrentCultureIgnoreCase)).Select(row => row.Identity).ToHashSet();
+        var query = SearchText?.Trim() ?? string.Empty;
+        var hasQuery = query.Length != 0;
+        var matches = _all.Values.Where(row => !hasQuery ||
+            row.SearchContent.Contains(query, StringComparison.CurrentCultureIgnoreCase)).Select(row => row.Identity).ToHashSet();
         var ordered = new List<ProcessDisplayRow>();
         if (SortMode == 0)
         {
@@ -281,7 +283,7 @@ public partial class ProcessMonitorViewModel : UtilityViewModel
                 var (row, depth) = item;
                 if (!matches.Contains(row.Identity)) continue;
                 row.SetTree(depth, children.ContainsKey(row.Identity), !_collapsed.Contains(row.Identity)); ordered.Add(row);
-                if (!string.IsNullOrWhiteSpace(SearchText) || !_collapsed.Contains(row.Identity))
+                if (hasQuery || !_collapsed.Contains(row.Identity))
                     if (children.TryGetValue(row.Identity, out var nested)) for (var index = nested.Length - 1; index >= 0; index--) pending.Push((nested[index], depth + 1));
             }
         }
@@ -299,11 +301,43 @@ public partial class ProcessMonitorViewModel : UtilityViewModel
                 .ThenBy(row => row.Identity.Pid).ThenBy(row => row.Identity.StartedAtUtcTicks);
             foreach (var row in items) { row.SetTree(0, false, true); ordered.Add(row); }
         }
-        var visible = ordered.ToHashSet();
-        for (var index = Rows.Count - 1; index >= 0; index--) if (!visible.Contains(Rows[index])) Rows.RemoveAt(index);
-        for (var index = 0; index < ordered.Count; index++)
-        { var current = Rows.IndexOf(ordered[index]); if (current < 0) Rows.Insert(index, ordered[index]); else if (current != index) Rows.Move(current, index); }
+        ReconcileRows(ordered);
         OnPropertyChanged(nameof(Summary)); OnPropertyChanged(nameof(IsEmpty));
+    }
+
+    /// <summary>Preserves incremental collection notifications while finding moved rows by their original rank.</summary>
+    private void ReconcileRows(IReadOnlyList<ProcessDisplayRow> ordered)
+    {
+        var visible = ordered.ToHashSet();
+        for (var index = Rows.Count - 1; index >= 0; index--)
+            if (!visible.Contains(Rows[index])) Rows.RemoveAt(index);
+
+        var next = 0;
+        while (next < Rows.Count && ReferenceEquals(Rows[next], ordered[next])) next++;
+        if (next == Rows.Count)
+        {
+            for (; next < ordered.Count; next++) Rows.Add(ordered[next]);
+            return;
+        }
+
+        // The unplaced suffix retains its original relative order. A Fenwick tree counts
+        // positions already consumed, so a move never needs to search or reindex the suffix.
+        var originalSlots = new Dictionary<ProcessDisplayRow, int>(Rows.Count - next);
+        for (var index = next; index < Rows.Count; index++) originalSlots.Add(Rows[index], index - next + 1);
+        var consumed = new int[originalSlots.Count + 1];
+        for (; next < ordered.Count; next++)
+        {
+            var row = ordered[next];
+            if (!originalSlots.TryGetValue(row, out var slot))
+            {
+                Rows.Insert(next, row);
+                continue;
+            }
+            var remainingEarlier = slot - 1;
+            for (var prefix = slot - 1; prefix > 0; prefix &= prefix - 1) remainingEarlier -= consumed[prefix];
+            for (var prefix = slot; prefix < consumed.Length; prefix += prefix & -prefix) consumed[prefix]++;
+            if (remainingEarlier != 0) Rows.Move(next + remainingEarlier, next);
+        }
     }
 
     protected override void NotifyActions()

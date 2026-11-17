@@ -55,20 +55,22 @@ public static class LogPageReader
             cancellationToken.ThrowIfCancellationRequested();
             var read = await stream.ReadAsync(buffer.AsMemory(0, (int)Math.Min(buffer.Length, snapshotLength - position)), cancellationToken).ConfigureAwait(false);
             if (read == 0) throw new IOException("The log changed while it was being read. Refresh to reload it.");
-            for (var index = 0; index < read; index++)
+            var remaining = buffer.AsSpan(0, read);
+            while (!remaining.IsEmpty)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                position++;
-                if (buffer[index] == (byte)'\n')
+                var delimiter = remaining.IndexOf((byte)'\n');
+                if (delimiter < 0)
                 {
-                    CompleteLine();
-                    if (processed == pageSize) return new(entries, position, position < snapshotLength, unreadable);
+                    AppendLineBytes(line, remaining, ref oversized);
+                    position += remaining.Length;
+                    break;
                 }
-                else if (!oversized)
-                {
-                    if (line.Length == MaximumLineBytes) oversized = true;
-                    else line.WriteByte(buffer[index]);
-                }
+                AppendLineBytes(line, remaining[..delimiter], ref oversized);
+                position += delimiter + 1;
+                CompleteLine();
+                if (processed == pageSize) return new(entries, position, position < snapshotLength, unreadable);
+                remaining = remaining[(delimiter + 1)..];
             }
         }
         CompleteLine();
@@ -118,29 +120,45 @@ public static class LogPageReader
             var count = (int)Math.Min(buffer.Length, position);
             stream.Seek(position - count, SeekOrigin.Begin);
             await stream.ReadExactlyAsync(buffer.AsMemory(0, count), cancellationToken).ConfigureAwait(false);
-            for (var index = count - 1; index >= 0; index--)
+            // Consume the block in reading order, reversing each completed record before decoding it.
+            var remaining = buffer.AsSpan(0, count);
+            remaining.Reverse();
+            if (firstByte)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                position--;
-                if (firstByte)
+                firstByte = false;
+                if (remaining[0] == (byte)'\n')
                 {
-                    firstByte = false;
-                    if (buffer[index] == (byte)'\n') continue;
+                    position--;
+                    remaining = remaining[1..];
                 }
-                if (buffer[index] == (byte)'\n')
+            }
+            while (!remaining.IsEmpty)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var delimiter = remaining.IndexOf((byte)'\n');
+                if (delimiter < 0)
                 {
-                    CompleteLine();
-                    if (processed == pageSize) return new(entries, position + 1, position + 1 > 0, unreadable);
+                    AppendLineBytes(line, remaining, ref oversized);
+                    position -= remaining.Length;
+                    break;
                 }
-                else if (!oversized)
-                {
-                    if (line.Length == MaximumLineBytes) oversized = true;
-                    else line.WriteByte(buffer[index]);
-                }
+                AppendLineBytes(line, remaining[..delimiter], ref oversized);
+                position -= delimiter + 1;
+                CompleteLine();
+                if (processed == pageSize) return new(entries, position + 1, position + 1 > 0, unreadable);
+                remaining = remaining[(delimiter + 1)..];
             }
         }
         CompleteLine();
         return new(entries, 0, false, unreadable);
     }
 
+    /// <summary>Buffers only lines that remain within the complete-record size limit.</summary>
+    private static void AppendLineBytes(MemoryStream line, ReadOnlySpan<byte> bytes, ref bool oversized)
+    {
+        if (oversized) return;
+        if (bytes.Length > MaximumLineBytes - line.Length) oversized = true;
+        else line.Write(bytes);
+    }
 }

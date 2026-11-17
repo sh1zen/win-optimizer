@@ -16,7 +16,7 @@ internal sealed class WindowsProcessPorts
         foreach (var family in new[] { 2, 23 })
         foreach (var tcp in new[] { true, false })
         {
-            try { ports.AddRange(Parse(ReadTable(family, tcp), family == 23, tcp, pid)); }
+            try { ports.AddRange(Parse(ReadTable(family, tcp).Span, family == 23, tcp, pid)); }
             catch (Exception ex) when (ex is Win32Exception or InvalidDataException or OverflowException)
             { warnings.Add($"{(tcp ? "TCP" : "UDP")} IPv{(family == 2 ? 4 : 6)}: {ex.Message}"); }
         }
@@ -24,7 +24,7 @@ internal sealed class WindowsProcessPorts
     }
 
     /// <summary>Validates native buffer lengths before reading rows; exposed internally for binary-fixture tests.</summary>
-    internal static IReadOnlyList<ProcessPort> Parse(byte[] table, bool ipv6, bool tcp, int pid)
+    internal static IReadOnlyList<ProcessPort> Parse(ReadOnlySpan<byte> table, bool ipv6, bool tcp, int pid)
     {
         if (table.Length < 4) throw new InvalidDataException("The endpoint table header is incomplete.");
         var count = BinaryPrimitives.ReadUInt32LittleEndian(table);
@@ -33,7 +33,7 @@ internal sealed class WindowsProcessPorts
         var result = new List<ProcessPort>();
         for (var index = 0; index < count; index++)
         {
-            var row = table.AsSpan(checked(4 + (int)index * stride), stride);
+            var row = table.Slice(checked(4 + (int)index * stride), stride);
             var ownerOffset = ipv6 ? tcp ? 52 : 24 : tcp ? 20 : 8;
             if (BinaryPrimitives.ReadUInt32LittleEndian(row[ownerOffset..]) != (uint)pid) continue;
             var addressOffset = ipv6 || !tcp ? 0 : 4;
@@ -50,25 +50,32 @@ internal sealed class WindowsProcessPorts
         return result;
     }
 
-    private static byte[] ReadTable(int family, bool tcp)
+    private static ReadOnlyMemory<byte> ReadTable(int family, bool tcp) => ReadTable((IntPtr buffer, ref int size) =>
+        tcp ? GetExtendedTcpTable(buffer, ref size, true, family, 5, 0)
+            : GetExtendedUdpTable(buffer, ref size, true, family, 1, 0));
+
+    internal delegate uint QueryEndpointTable(IntPtr buffer, ref int size);
+
+    /// <summary>Reads the table directly into managed memory and retries if its size changed.</summary>
+    internal static ReadOnlyMemory<byte> ReadTable(QueryEndpointTable query)
     {
         var size = 0;
-        uint Query(IntPtr buffer) => tcp ? GetExtendedTcpTable(buffer, ref size, true, family, 5, 0)
-            : GetExtendedUdpTable(buffer, ref size, true, family, 1, 0);
-        var error = Query(IntPtr.Zero);
+        var error = query(IntPtr.Zero, ref size);
         for (var retry = 0; retry < 4; retry++)
         {
             if (error != 122 && error != 0) throw new Win32Exception(checked((int)error));
             if (size < 4 || size > 64 * 1024 * 1024) throw new InvalidDataException("Windows returned an invalid endpoint table size.");
-            var buffer = Marshal.AllocHGlobal(size);
+            var buffer = new byte[size];
+            var pin = GCHandle.Alloc(buffer, GCHandleType.Pinned);
             try
             {
-                error = Query(buffer);
+                error = query(pin.AddrOfPinnedObject(), ref size);
                 if (error == 122) continue;
                 if (error != 0) throw new Win32Exception(checked((int)error));
-                var bytes = new byte[size]; Marshal.Copy(buffer, bytes, 0, size); return bytes;
+                if (size < 0 || size > buffer.Length) throw new InvalidDataException("Windows returned an invalid endpoint table size.");
+                return buffer.AsMemory(0, size);
             }
-            finally { Marshal.FreeHGlobal(buffer); }
+            finally { pin.Free(); }
         }
         throw new InvalidDataException("The endpoint table kept changing. Refresh to retry.");
     }

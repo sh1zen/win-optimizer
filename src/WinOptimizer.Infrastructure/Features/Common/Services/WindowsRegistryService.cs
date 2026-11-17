@@ -870,35 +870,42 @@ public class WindowsRegistryService(ILogService logService, IInteractiveUserServ
         foreach (var hiveGroup in queriesByHive)
         {
             var rootKey = hiveGroup.Key;
+            var opened = new Dictionary<string, RegistryKey?>();
+            var remaining = hiveGroup.GroupBy(query => query.keyPath).ToDictionary(group => group.Key, group => group.Count());
 
-            foreach (var (keyPath, valueName) in hiveGroup)
+            try
             {
-                try
+                foreach (var (keyPath, valueName) in hiveGroup)
                 {
-                    var (_, subKeyPath) = ParseKeyPath(keyPath);
-                    using var subKey = rootKey.OpenSubKey(subKeyPath, false);
-
                     var resultKey = valueName == null
                         ? $"{keyPath}\\__KEY_EXISTS__"
                         : $"{keyPath}\\{valueName}";
 
-                    if (valueName == null)
+                    try
                     {
-                        results[resultKey] = subKey != null;
+                        // Retain one handle per path for the batch, including when its values are interleaved.
+                        if (!opened.TryGetValue(keyPath, out var subKey))
+                        {
+                            var (_, subKeyPath) = ParseKeyPath(keyPath);
+                            subKey = rootKey.OpenSubKey(subKeyPath, false);
+                            opened.Add(keyPath, subKey);
+                        }
+                        results[resultKey] = valueName == null ? subKey != null : subKey?.GetValue(valueName);
                     }
-                    else
+                    catch (Exception ex)
                     {
-                        results[resultKey] = subKey?.GetValue(valueName);
+                        logService.LogDebug($"[WindowsRegistryService] Failed to get batch value for '{keyPath}\\{valueName}': {ex.Message}");
+                        results[resultKey] = null;
+                    }
+                    finally
+                    {
+                        if (--remaining[keyPath] == 0 && opened.Remove(keyPath, out var finished)) finished?.Dispose();
                     }
                 }
-                catch (Exception ex)
-                {
-                    logService.LogDebug($"[WindowsRegistryService] Failed to get batch value for '{keyPath}\\{valueName}': {ex.Message}");
-                    var resultKey = valueName == null
-                        ? $"{keyPath}\\__KEY_EXISTS__"
-                        : $"{keyPath}\\{valueName}";
-                    results[resultKey] = null;
-                }
+            }
+            finally
+            {
+                foreach (var key in opened.Values) key?.Dispose();
             }
         }
 

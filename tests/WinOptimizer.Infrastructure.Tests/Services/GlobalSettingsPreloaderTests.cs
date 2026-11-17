@@ -72,6 +72,19 @@ public class GlobalSettingsPreloaderTests
     }
 
     [Fact]
+    public async Task PreloadPassesTheMaterializedCompatibilitySnapshotToItsRegistry()
+    {
+        SettingDefinition[] snapshot = [CreateSetting("a"), CreateSetting("b")];
+        _compatibleRegistryMock.Setup(registry => registry.GetAllBypassedSettings())
+            .Returns(new Dictionary<string, IEnumerable<SettingDefinition>> { ["Feature"] = snapshot });
+
+        await _sut.PreloadAllSettingsAsync();
+
+        _globalRegistryMock.Verify(registry => registry.RegisterSettings("Feature",
+            It.Is<IEnumerable<ISettingItem>>(items => ReferenceEquals(snapshot, items))), Times.Once);
+    }
+
+    [Fact]
     public async Task PreloadAllSettingsAsync_CalledTwice_SkipsSecondPreload()
     {
         _compatibleRegistryMock

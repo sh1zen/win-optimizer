@@ -36,6 +36,7 @@ Test hosts, boundaries and commands are in the [test guide](tests/README.md).
 | `extras/win-optimizer.Installer.iss` | Installed payload, regular/portable integration and uninstallation |
 | `build-installer.yml` / `release.yml` | CI validation/artifacts and tag-triggered publication |
 | `CHANGELOG.md` | Curated release notes |
+| `THIRD-PARTY-NOTICES.txt` | Dependency versions, component attribution and license notices |
 
 Build/restore use MSBuild's static graph. Packaging resolves one version, refreshes
 bundled dependencies, builds Release, runs checks and publishes with `NoBuild=true`.
@@ -48,22 +49,31 @@ release instructions; the [test guide](tests/README.md) owns validation commands
 
 `App` owns host and storage initialization. `MainWindow` hosts `StartupLoadingView`
 and the full shell in one native window; `WindowSizeManager` owns saved placement.
-The loader and shell share extended title-bar geometry. `App` restores language,
-theme and shell preferences before their first presentation; `SoftwareAppsViewModel`
-restores list presentation separately from inventory discovery.
+The loader and shell share extended title-bar geometry. `App` uses one preference
+snapshot for language, theme, window placement, sidebar and accent. It applies
+each before its first presentation. `SoftwareAppsViewModel` restores list
+presentation separately from inventory discovery.
 
 `LogService.StartLogAsync` owns shared diagnostic initialization and its writer.
 UI's `StartupOrchestrator` owns shell setup, deferred inventory and the initial
 configuration backup; `StartupUiCoordinator` owns first-frame navigation/readiness.
+The settings catalogue overlaps the power compatibility checks with construction
+of the other features, and publishes all completed snapshots in catalogue order.
 `WindowsAppsViewModel` shares its load task. Infrastructure's `AppStatusDiscoveryService`
-combines package/component evidence; `WindowsComponentStatusSource` serializes DISM.
-The initial backup waits for that app load and has a 30-second wait limit without
-cancelling the export. The exporter propagates discovery and write failures; startup
-persists completion only after the backup succeeds and observes failures after its
-wait limit. Failed attempts leave the completion preference unset for the next launch.
+combines package/component evidence. `WindowsComponentStatusSource` reads capabilities
+and features in one serialized DISM session, with a separate deadline per query.
+AppX metadata reuses fresh registrations from the same account when available;
+the installation detection cache retains package names.
+AppX artwork inventory reads lower-priority account scopes only for unresolved
+names. The resolver overlaps logo reads and publishes cache entries in list order.
+The initial backup follows inventory loading. Startup records completion only if
+the export succeeds within its 30-second wait. Failed or timed-out attempts retry
+on the next launch; timed-out exports continue with later failures logged.
 
 `NavigationRouter` maps details to owning sections. The main Frame owns the journal;
-nested frames render content. Settings owns transient subscriptions and category
+nested frames render content. `PageBlurTransition` animates committed shell navigation
+in place with WinUI composition and honors the Windows animation setting.
+Settings owns transient subscriptions and category
 navigation. `ApplicationCloseService` obtains consent before the shutdown hook drains
 operations and preference writes, then waits for the captured task to release its
 resources. Update installation uses that same lifecycle with a full process exit;
@@ -83,6 +93,9 @@ presets and load/export/execution/review through its configuration services.
 UI adapters supply app selections, pickers, dialogs and overlays.
 `FeatureConfigurationSnapshot` collects and groups discovered state for configuration
 and answer-file exports; each exporter owns its item format.
+Exports use interpreted state without the per-device registry reads needed by UI tooltips.
+The answer-file generator reads the active power plan for AC or DC values that
+still need system evidence after resolving the configuration.
 `WindowsAppConfigurationMapper` owns record projection for exports, WIM and
 Autounattend, including localized names and AppX/capability/feature precedence.
 
@@ -102,25 +115,16 @@ import checking, filtering, catalogue decoration and bulk actions.
 and UI owns wizard presentation and file pickers. Its XML step uses the local
 Autounattend generator or a user-selected answer file; `WimCustomizationService`
 copies selected XML and drivers into the extracted media.
-The ISO step captures its task cancellation source and artifact paths, waits for
-existing tasks and completes only its own active task. Completion state belongs
-to the current input/output paths and the latest creation attempt.
+Step completion is bound to media revisions, input/output paths and the current
+attempt. Extraction rejects sources inside the workspace and invalidates dependent
+steps before replacing media. XML, driver and image edits invalidate ISO evidence;
+asynchronous results publish only for their captured media revision.
 `IsoService` owns a temporary ISO beside the destination, validates it and publishes
-it through an atomic file replacement (or a move for a new destination).
-Failure and cancellation clean only the temporary artifact; the ISO step leaves
-artifact cleanup to the service.
-Extraction rejects sources contained in the workspace before clearing it.
-XML, driver and image changes announce their target media before mutation so the
-wizard invalidates final ISO evidence, including pending ISO results. Image-format
-detection rejects obsolete query generations at UI dispatch.
-Extraction invalidates dependent evidence before replacing media. XML, driver and ISO
-steps own media revisions so pending results cannot complete different or re-extracted
-media. Their directory setters clear local completion state; the wizard coordinates
-invalidation when extraction evidence changes at the same path. WIM task owners use
-`CompleteOwnedTask` to release their captured cancellation source without completing
-a replacement task. Progress factories, including parallel-script slots, bind
-callbacks to the task active at creation and discard queued updates after completion
-or replacement.
+through atomic replacement or a move. Failure or cancellation cleans the temporary
+artifact and preserves the existing destination.
+Task owners use `CompleteOwnedTask` with their captured cancellation source.
+Progress callbacks bind to the task active at creation and discard updates after
+completion or replacement, including parallel-script slots.
 `WimImageService` exports every edition and verifies the destination inventory before
 replacing the source. `DriverCategorizer` owns package-relative payload paths;
 `WimCustomizationService` integrates a returning driver script with existing
@@ -139,6 +143,8 @@ Optimize/Customize share `SectionPageView`, `BaseSettingsFeatureViewModel` and
 `SettingsLoadingService`. `CompatibleSettingsRegistry` owns filtered/authoring
 snapshots and an ID-to-definition/owner index. `ComboBoxValueResolver` matches
 observations to catalogue options; `ComboBoxResolver` adds discovery/index access.
+`SystemSettingsDiscoveryService` queries scheduled task states through one scheduler
+session per discovery batch, retaining each setting's independent result.
 `TooltipDataService` owns technical-detail eligibility and metadata snapshots;
 `TechnicalDetailsButton` and `TechnicalDetailsManager` own their presentation/lifetime.
 
@@ -156,8 +162,9 @@ and `ISystemSettingsDiscoveryService`.
 
 | Shared owner | Responsibility |
 | --- | --- |
-| `PageHeader`, `NavigationCard`, `PageStyles.xaml` | Page/card layout, shared margins and scrollbar insets |
-| `AppColorResources`, `FeatureIcons.xaml`, `CustomIconCatalog` | Theme/accent/high-contrast resources, original vector artwork and semantic icon-name lookup |
+| `PageHeader`, `NavigationCard`, `PageStyles.xaml` | Shared card, segmented control and page layout styles, including scrollbar insets |
+| `InteractiveSurfaceResources.xaml` | Shared hover and pressed colors resolved by the toolkit card and WinUI templates |
+| `AppColorResources`, `FeatureIcons.xaml`, `CustomIconCatalog` | Theme-aware canvas, surfaces and live accent brushes, original vector artwork and semantic icon-name lookup |
 | `PopupHandler`, `PopupStyles.xaml`, `DialogService` | Modal queue, native popup construction, theme/bounds and domain dialog adapter |
 | `TaskProgressViewModel` | Operation lifecycle and footer cancellation; pages own local loading state |
 | `ScrollBarAutoHide` | Control-scoped idle visibility and input subscriptions |
@@ -195,6 +202,10 @@ discovery and removal through `IInteractiveUserService` folder bindings.
 `AppStatusDiscoveryService` refreshes each installed definition's nullable `AppMetadata`
 through `IAppMetadataSource`. Infrastructure's `WindowsAppMetadataSource` reads uninstall
 registrations, matching AppX packages and interactive-user UserAssist history.
+It indexes exact identities and latest usage once per refresh. External Apps shares
+one registry snapshot between catalogue discovery, status checks and desktop icons.
+The icon resolver checks the current resource when it reads the icon. The program
+inventory reads each registration's fields through a single open registry key.
 Discovery owns shared provider generations and registry-expression caches; metadata
 owns package-size caches. Page view models reconcile inventory and batch presentation
 updates. Shared WinGet/AppX reads survive until invalidation; old reads cannot
@@ -249,15 +260,13 @@ to disable/minimize the window and restore its previous enabled/maximized state 
 `MainWindow` rejects closing while that scope is active. `UninstallResiduePage` keeps the session alive until
 navigation away, blocks navigation during scan/cleanup/recovery and expires its journal
 entries on exit. `UninstallResidueNode` builds selection trees. `ExternalAppUninstallService` owns
-native and automatic removal. Session verification waits for completion and publishes
-outcomes without enumerating leftovers. The review model scans only on request, then
-presents files/folders and registry in separate steps with retained selections and
-cleanup limited to the current step. The workflow passes outcomes to page view models,
-which reconcile only verified removals under their inventory gate before residue
-review. After the uninstall workflow returns, page view models invalidate provider
-status caches and await an inventory recheck before clearing their busy state,
-including after failure or cancellation. Configuration workflows
-defer review until enclosing overlays close. Cleanup accepts current selectable IDs,
+native and automatic removal. Session verification publishes outcomes after removal
+completes; leftover scanning starts on request. The review presents files/folders
+and registry in separate steps, retaining selections and limiting cleanup to the
+current step. Page view models reconcile verified removals before review, then
+invalidate status caches and recheck inventory before releasing their busy state,
+including after failure or cancellation. Configuration workflows defer review until
+enclosing overlays close. Cleanup accepts current selectable IDs,
 revalidates evidence and publishes a verified backup before deletion; recovery
 preserves conflicting destination data.
 
@@ -345,13 +354,16 @@ by driver class, date and version and WHQL filtering. `DriverRemovalService` own
 and per-item results. `DriverSettingsViewModel` owns saved scan options.
 
 Infrastructure supplies inventory/update sources through PowerShell, DISM and
-Windows Update. The update source searches across deployment actions and exports
-individual bundled payloads for verification. `WindowsDriverInfInspector` owns INF/catalog inspection;
+Windows Update. The update source searches across deployment actions, downloads licensed
+uncached offers together with individual results and exports bundled payloads for verification.
+`WindowsDriverInfInspector` owns INF/catalog inspection;
 `DriverScanWorkspace` owns private exports and paths; `WindowsDriverRemovalBackend`
 executes PnPUtil identities. UI's transient `DriversViewModel` owns tasks/selection
 and `DriverResultItem` owns row metadata. Removal rechecks exact package/device
 identities; bound, inbox and boot-critical packages remain protected. Cancellation
 stops between native removals and preserves completed results.
+Removal discovery reads all package and device bindings and normally measures
+only the selected packages before comparing them with the original inventory.
 
 ## Extension and Control
 
@@ -375,7 +387,7 @@ units and propagates to process work; active synchronous native calls finish cle
 | Environment editor | `EnvironmentEditorService` serializes compare-before-write edits; `WindowsEnvironmentVariableStore` preserves raw registry string types and interactive-user targeting. PATH rows project the same raw draft. |
 | Hosts editor | Core's `HostsText` / `HostsSyntax` own parsing and validation. `HostsEditorViewModel` owns one draft; `HostsEditorService` owns the fixed path, revision, encoding, backup and atomic replacement. |
 | Battery | `BatteryChargeService` selects OEM providers and confirms firmware readback. `BatteryTelemetryReader` joins standard WMI sensors; `BatterySupportCatalog` owns official setup routes. See the [provider guide](src/WinOptimizer.Infrastructure/Features/Utilities/README.md). |
-| Connection | `ConnectionService` owns adapter/DNS/VPN inventory; `ConnectionTrafficService` owns sampling and history queries. Core's `ConnectionTrafficWindow` owns bounded counter deltas; `WindowsConnectionHistory` isolates Windows-retained profile usage. DNS uses the existing `gaming-dns-server` setting. |
+| Connection | `ConnectionService` owns adapter/DNS/VPN inventory; `ConnectionTrafficService` owns sampling and history queries. Core's `ConnectionTrafficWindow` owns bounded counter deltas; `WindowsConnectionHistory` reads independent profiles in bounded batches. DNS uses the existing `gaming-dns-server` setting. |
 | Saved Wi-Fi | `SavedWifiService` checks account scope; `WindowsSavedWifi` enumerates native WLAN profiles and reads keys in memory. The transient `SavedWifiViewModel` owns a page-scoped snapshot, with no persistence or logging of credentials. |
 | Windows servicing | `WindowsServicingService` owns typed phase planning, restart gates and cancellation. `WindowsServicingBackend` owns privileges, source validation and DISM/SFC process boundaries, forwarding cancellation to the shared process runner for owned process-tree termination. See the [servicing guide](src/WinOptimizer.Infrastructure/Features/Management/README.md). |
 | Autoruns | `AutorunService` owns snapshot/write authority; `AutorunPowerShellBackend` owns native scripts; `AutorunCsvReader` validates advanced inventory. See the [autorun guide](src/WinOptimizer.Infrastructure/Features/Management/AUTORUNS.md). |
@@ -411,8 +423,9 @@ memory, and shutdown drains native reads before releasing handles.
 
 `WindowsSystemInformationService` owns query definitions, normalization and the
 last completed `ISystemInformationService.CachedSnapshot`. `WindowsSystemInformationQuery`
-isolates local WMI calls and native object lifetimes. Transient page view models
-reuse that snapshot; explicit refresh replaces it. Typed values, availability and
+isolates local WMI calls and native object lifetimes. The service overlaps up to
+four independent queries and publishes sections in catalogue order. Transient
+page view models reuse that snapshot; explicit refresh replaces it. Typed values, availability and
 timestamp cross the UI boundary unchanged. `ISystemInfoProvider` serves the
 separate diagnostic-log summary.
 
@@ -429,7 +442,8 @@ the current asynchronous operation; nested and concurrent flows retain independe
 topics. Original setting receipts keep their typed kind, group, values and batch.
 `ActivityJournalService` in Application merges saved diagnostics and receipts through
 the existing storage contracts. A query session owns bounded source buffers and
-reverse byte cursors, without keeping files open between pages.
+reverse byte cursors. It merges buffered source heads by timestamp and source order
+and closes files between pages.
 
 `LogsAndHistoryViewModel` owns topic/type/search controls and grouped presentation.
 Groups reference the original presentation rows; a new page preserves expansion.
@@ -442,9 +456,10 @@ initialization and validates ownership, permissions and filesystem boundaries.
 Shared executables, machine state and recovery data are writable only by
 Administrators and SYSTEM; account folders additionally grant their account access.
 `InitializeAsync` completes before preferences, logging and feature work. It
-normalizes launching-account-owned directories to administrator ownership and
-protected permissions, rejects other owners except Administrators and SYSTEM,
-and rejects links and junctions before use.
+checks owners, protected permissions and filesystem paths. It normalizes
+launching-account-owned directories to administrator ownership, rejects other
+owners except Administrators and SYSTEM, and rejects links and junctions before use.
+It applies permissions when the owner or access rules differ from the required descriptor.
 
 Inno Setup owns retention/deletion of the shared store and targeted Windows trace
 cleanup, separately from tracked installation files. Profile registry sessions
@@ -480,10 +495,9 @@ retain their bytes and source metadata on disk. Registry writes implement Window
 configuration, startup restoration and Windows integration such as file
 associations, uninstall registration and Registry Editor navigation.
 
-`LogPageReader` supplies bounded forward and newest-first UTF-8 pages with byte cursors.
-Newest-first reads scan backwards in blocks instead of rereading whole sessions. Readers accept
-JSON Lines records with the current typed fields; diagnostic retention runs on session
-startup, removing sessions older than 30 days and retaining at most 50 previous
-sessions. Clearing diagnostics serializes with the active writer and keeps it
-usable; change history has no clear operation. System-information snapshots,
-process observations and widget telemetry remain in memory.
+`LogPageReader` supplies bounded forward and newest-first UTF-8 pages with byte
+cursors; reverse reads scan in blocks. Diagnostic records use typed JSON Lines.
+At session startup, retention removes sessions older than 30 days and keeps at most
+50 previous sessions. Clearing diagnostics serializes with the active writer;
+change history has no clear operation. System-information snapshots, process
+observations and widget telemetry remain in memory.

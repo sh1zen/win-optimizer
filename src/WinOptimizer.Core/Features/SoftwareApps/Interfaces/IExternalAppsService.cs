@@ -10,6 +10,8 @@ public interface IExternalAppsService
 {
     string DomainName { get; }
     Task<IEnumerable<ItemDefinition>> GetAppsAsync();
+    /// <summary>Discovers external apps and captures evidence for the corresponding status check.</summary>
+    Task<ExternalAppInventory> ReadInventoryAsync();
     void InvalidateStatusCache();
     event EventHandler? WinGetReady;
 

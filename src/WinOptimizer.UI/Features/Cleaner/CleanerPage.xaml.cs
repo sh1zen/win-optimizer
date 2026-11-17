@@ -3,7 +3,6 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Navigation;
-using Microsoft.UI.Xaml.Media.Animation;
 using WinOptimizer.UI.Features.Cleaner.ViewModels;
 using WinOptimizer.UI.Features.Management;
 
@@ -49,7 +48,7 @@ public sealed partial class CleanerPage : Page
     private void OpenResults()
     {
         if (ViewModel.HasScanned && Frame is not null && ReferenceEquals(Frame.Content, this))
-            Frame.Navigate(typeof(CleanerResultsPage), null, new DrillInNavigationTransitionInfo());
+            Frame.Navigate(typeof(CleanerResultsPage));
     }
 
     /// <summary>Positions the scan action using the page's available space, including sidebar and app zoom.</summary>

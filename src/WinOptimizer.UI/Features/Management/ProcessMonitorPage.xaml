@@ -8,8 +8,7 @@
     xmlns:common="using:WinOptimizer.UI.Features.Common.Controls">
     <Page.Resources>
         <!-- Native buttons keep keyboard focus and hover feedback on sortable column headers. -->
-        <Style x:Key="ProcessColumnHeaderStyle" TargetType="Button">
-            <Setter Property="Background" Value="Transparent"/>
+        <Style x:Key="ProcessColumnHeaderStyle" TargetType="Button" BasedOn="{StaticResource SubtleButtonStyle}">
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Padding" Value="0,8"/>
             <Setter Property="MinWidth" Value="0"/>
@@ -77,7 +76,7 @@
                             <Grid x:Name="ProcessRowGrid" Padding="12,6" ColumnSpacing="8" MinHeight="40">
                                 <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="64"/><ColumnDefinition Width="84"/><ColumnDefinition Width="100"/></Grid.ColumnDefinitions>
                                 <Grid Margin="{x:Bind Indent, Mode=OneWay}" VerticalAlignment="Center"><Grid.ColumnDefinitions><ColumnDefinition Width="28"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                                    <Button Visibility="{x:Bind HasChildren, Mode=OneWay}" Background="Transparent" BorderThickness="0" Padding="0" MinWidth="24" Width="24" MinHeight="24" Height="24" Click="ExpandProcess_Click" AutomationProperties.Name="{x:Bind Name, Mode=OneWay}">
+                                    <Button Visibility="{x:Bind HasChildren, Mode=OneWay}" Style="{StaticResource SubtleButtonStyle}" BorderThickness="0" Padding="0" MinWidth="24" Width="24" MinHeight="24" Height="24" Click="ExpandProcess_Click" AutomationProperties.Name="{x:Bind Name, Mode=OneWay}">
                                         <FontIcon Glyph="{x:Bind Expander, Mode=OneWay}" FontSize="12"/>
                                     </Button>
                                     <TextBlock Grid.Column="1" Text="{x:Bind Name, Mode=OneWay}" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" ToolTipService.ToolTip="{x:Bind SearchContent, Mode=OneWay}"/>

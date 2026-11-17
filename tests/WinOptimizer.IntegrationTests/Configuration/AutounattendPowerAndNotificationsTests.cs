@@ -101,7 +101,7 @@ public class AutounattendPowerAndNotificationsTests
         var registry = new Mock<ICompatibleSettingsRegistry>();
         registry.Setup(service => service.GetAllFilteredSettings()).Returns(definitions);
         var discovery = new Mock<ISystemSettingsDiscoveryService>();
-        discovery.Setup(service => service.GetSettingStatesAsync(It.IsAny<IEnumerable<SettingDefinition>>()))
+        discovery.Setup(service => service.GetSettingStateSnapshotAsync(It.IsAny<IReadOnlyList<SettingDefinition>>()))
             .ReturnsAsync(states ?? new());
         var query = new Mock<IPowerSettingsQueryService>();
         query.Setup(service => service.GetActivePowerPlanAsync())

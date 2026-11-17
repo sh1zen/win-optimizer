@@ -75,6 +75,31 @@ public sealed class LogPageReaderTests
     }
 
     [Fact]
+    public async Task CursorsLandOnRecordBoundariesAcrossBlocksInBothDirections()
+    {
+        const int block = 16 * 1024;
+        var first = new string('a', block - 1);
+        var last = new string('b', block - 2);
+        using var stream = new MemoryStream(Encoding.UTF8.GetBytes(first + "\n\n漢字\r\n" + last + "\n"));
+        var secondStart = block + 1L;
+        var lastStart = secondStart + Encoding.UTF8.GetByteCount("漢字\r\n");
+
+        var oldest = await LogPageReader.ReadAsync(stream, 0, stream.Length, 1, text => text, default);
+        Assert.Equal(first, Assert.Single(oldest.Entries));
+        Assert.Equal(block, oldest.NextOffset);
+        var next = await LogPageReader.ReadAsync(stream, oldest.NextOffset, stream.Length, 1, text => text, default);
+        Assert.Equal("漢字", Assert.Single(next.Entries));
+        Assert.Equal(lastStart, next.NextOffset);
+
+        var newest = await LogPageReader.ReadNewestAsync(stream, null, stream.Length, 1, text => text, default);
+        Assert.Equal(last, Assert.Single(newest.Entries));
+        Assert.Equal(lastStart, newest.NextOffset);
+        var previous = await LogPageReader.ReadNewestAsync(stream, newest.NextOffset, stream.Length, 1, text => text, default);
+        Assert.Equal("漢字", Assert.Single(previous.Entries));
+        Assert.Equal(secondStart, previous.NextOffset);
+    }
+
+    [Fact]
     public async Task CancelledReadsDoNotReturnAPartialPage()
     {
         using var stream = new MemoryStream(Encoding.UTF8.GetBytes("\"entry\"\n"));

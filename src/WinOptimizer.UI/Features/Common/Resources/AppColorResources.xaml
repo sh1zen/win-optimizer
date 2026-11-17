@@ -4,32 +4,39 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <ResourceDictionary.ThemeDictionaries>
         <ResourceDictionary x:Key="Light">
-            <SolidColorBrush x:Key="AccentFillColorDefaultBrush" Color="#0067C0"/>
-            <SolidColorBrush x:Key="AccentFillColorSecondaryBrush" Color="#E60067C0"/>
-            <SolidColorBrush x:Key="AccentFillColorTertiaryBrush" Color="#CC0067C0"/>
-            <SolidColorBrush x:Key="AccentTextFillColorPrimaryBrush" Color="#0067C0"/>
-            <SolidColorBrush x:Key="AccentTextFillColorSecondaryBrush" Color="#0067C0"/>
-            <SolidColorBrush x:Key="AccentTextFillColorTertiaryBrush" Color="#0067C0"/>
-            <SolidColorBrush x:Key="SidebarBackgroundBrush" Color="#140067C0"/>
-            <SolidColorBrush x:Key="NavigationSelectedBackgroundBrush" Color="#1A0067C0"/>
-            <SolidColorBrush x:Key="PageIconBackgroundBrush" Color="#0067C0"/>
+            <SolidColorBrush x:Key="AppCanvasBrush" Color="#F2F2F4"/>
+            <SolidColorBrush x:Key="AppSurfaceBrush" Color="#FDFDFE"/>
+            <SolidColorBrush x:Key="AppSurfaceStrokeBrush" Color="#DADBE0"/>
+            <SolidColorBrush x:Key="AccentFillColorDefaultBrush" Color="#2466D9"/>
+            <SolidColorBrush x:Key="AccentFillColorSecondaryBrush" Color="#E62466D9"/>
+            <SolidColorBrush x:Key="AccentFillColorTertiaryBrush" Color="#CC2466D9"/>
+            <SolidColorBrush x:Key="AccentTextFillColorPrimaryBrush" Color="#2466D9"/>
+            <SolidColorBrush x:Key="AccentTextFillColorSecondaryBrush" Color="#2466D9"/>
+            <SolidColorBrush x:Key="AccentTextFillColorTertiaryBrush" Color="#2466D9"/>
+            <SolidColorBrush x:Key="AccentSelectionBackgroundBrush" Color="#E7EEFA"/>
+            <SolidColorBrush x:Key="PageIconBackgroundBrush" Color="#2466D9"/>
             <SolidColorBrush x:Key="PageIconForegroundBrush" Color="White"/>
         </ResourceDictionary>
         <ResourceDictionary x:Key="Default">
-            <SolidColorBrush x:Key="AccentFillColorDefaultBrush" Color="#60CDFF"/>
-            <SolidColorBrush x:Key="AccentFillColorSecondaryBrush" Color="#E660CDFF"/>
-            <SolidColorBrush x:Key="AccentFillColorTertiaryBrush" Color="#CC60CDFF"/>
-            <SolidColorBrush x:Key="AccentTextFillColorPrimaryBrush" Color="#60CDFF"/>
-            <SolidColorBrush x:Key="AccentTextFillColorSecondaryBrush" Color="#60CDFF"/>
-            <SolidColorBrush x:Key="AccentTextFillColorTertiaryBrush" Color="#60CDFF"/>
-            <SolidColorBrush x:Key="SidebarBackgroundBrush" Color="#1460CDFF"/>
-            <SolidColorBrush x:Key="NavigationSelectedBackgroundBrush" Color="#1A60CDFF"/>
-            <SolidColorBrush x:Key="PageIconBackgroundBrush" Color="#0067C0"/>
+            <SolidColorBrush x:Key="AppCanvasBrush" Color="#17181C"/>
+            <SolidColorBrush x:Key="AppSurfaceBrush" Color="#232429"/>
+            <SolidColorBrush x:Key="AppSurfaceStrokeBrush" Color="#383A41"/>
+            <SolidColorBrush x:Key="AccentFillColorDefaultBrush" Color="#8DB4FF"/>
+            <SolidColorBrush x:Key="AccentFillColorSecondaryBrush" Color="#E68DB4FF"/>
+            <SolidColorBrush x:Key="AccentFillColorTertiaryBrush" Color="#CC8DB4FF"/>
+            <SolidColorBrush x:Key="AccentTextFillColorPrimaryBrush" Color="#8DB4FF"/>
+            <SolidColorBrush x:Key="AccentTextFillColorSecondaryBrush" Color="#8DB4FF"/>
+            <SolidColorBrush x:Key="AccentTextFillColorTertiaryBrush" Color="#8DB4FF"/>
+            <SolidColorBrush x:Key="AccentSelectionBackgroundBrush" Color="#2E333F"/>
+            <SolidColorBrush x:Key="PageIconBackgroundBrush" Color="#2466D9"/>
             <SolidColorBrush x:Key="PageIconForegroundBrush" Color="White"/>
         </ResourceDictionary>
         <ResourceDictionary x:Key="HighContrast">
-            <SolidColorBrush x:Key="SidebarBackgroundBrush" Color="{ThemeResource SystemColorWindowColor}"/>
-            <SolidColorBrush x:Key="NavigationSelectedBackgroundBrush" Color="{ThemeResource SystemColorWindowColor}"/>
+            <SolidColorBrush x:Key="AppCanvasBrush" Color="{ThemeResource SystemColorWindowColor}"/>
+            <SolidColorBrush x:Key="AppSurfaceBrush" Color="{ThemeResource SystemColorWindowColor}"/>
+            <SolidColorBrush x:Key="AppSurfaceStrokeBrush" Color="{ThemeResource SystemColorWindowTextColor}"/>
+            <SolidColorBrush x:Key="AccentSelectionBackgroundBrush" Color="{ThemeResource SystemColorHighlightColor}"/>
+            <SolidColorBrush x:Key="AccentSelectionForegroundBrush" Color="{ThemeResource SystemColorHighlightTextColor}"/>
             <SolidColorBrush x:Key="PageIconBackgroundBrush" Color="{ThemeResource SystemColorHighlightColor}"/>
             <SolidColorBrush x:Key="PageIconForegroundBrush" Color="{ThemeResource SystemColorHighlightTextColor}"/>
         </ResourceDictionary>

@@ -25,8 +25,8 @@ public class FeatureConfigurationSnapshotTests
         var state = new SettingStateResult { Success = false, CurrentValue = 17 };
         var discovery = new Mock<ISystemSettingsDiscoveryService>(MockBehavior.Strict);
         var reads = new List<string[]>();
-        discovery.Setup(source => source.GetSettingStatesAsync(It.IsAny<IEnumerable<SettingDefinition>>()))
-            .Returns((IEnumerable<SettingDefinition> settings) =>
+        discovery.Setup(source => source.GetSettingStateSnapshotAsync(It.IsAny<IReadOnlyList<SettingDefinition>>()))
+            .Returns((IReadOnlyList<SettingDefinition> settings) =>
             {
                 reads.Add(settings.Select(setting => setting.Id).ToArray());
                 return Task.FromResult(new Dictionary<string, SettingStateResult> { [first.Id] = state });
@@ -72,8 +72,8 @@ public class FeatureConfigurationSnapshotTests
         var failure = new InvalidOperationException("fixture failure");
         var reads = new List<string>();
         var discovery = new Mock<ISystemSettingsDiscoveryService>();
-        discovery.Setup(source => source.GetSettingStatesAsync(It.IsAny<IEnumerable<SettingDefinition>>()))
-            .Returns((IEnumerable<SettingDefinition> settings) =>
+        discovery.Setup(source => source.GetSettingStateSnapshotAsync(It.IsAny<IReadOnlyList<SettingDefinition>>()))
+            .Returns((IReadOnlyList<SettingDefinition> settings) =>
             {
                 var id = settings.Single().Id;
                 reads.Add(id);

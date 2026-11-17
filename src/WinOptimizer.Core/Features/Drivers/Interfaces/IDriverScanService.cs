@@ -5,6 +5,9 @@ namespace WinOptimizer.Core.Features.Drivers.Interfaces;
 public interface IDriverInventorySource
 {
     Task<DriverInventory> ReadAsync(CancellationToken ct);
+
+    /// <summary>Reads binding evidence for all devices and measures packages selected for removal.</summary>
+    Task<DriverInventory> ReadForRemovalAsync(IReadOnlySet<string> packageNames, CancellationToken ct) => ReadAsync(ct);
 }
 
 /// <summary>Returns applicable driver offers from Microsoft's public Windows Update service.</summary>

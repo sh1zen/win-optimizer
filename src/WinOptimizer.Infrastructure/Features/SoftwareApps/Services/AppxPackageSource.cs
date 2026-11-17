@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Windows.Management.Deployment;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.SoftwareApps.Interfaces;
+using WinOptimizer.Core.Features.SoftwareApps.Models;
 
 namespace WinOptimizer.Infrastructure.Features.SoftwareApps.Services;
 
@@ -16,10 +17,16 @@ public class AppxPackageSource(
 {
     /// <summary>Uses the interactive account explicitly under alternate-account elevation.</summary>
     public async Task<HashSet<string>> GetInstalledPackageNamesAsync(CancellationToken cancellationToken = default)
+        => (await ReadInteractiveInventoryAsync(includeRegistrations: false, cancellationToken).ConfigureAwait(false)).Names;
+
+    public Task<AppxInventorySnapshot> ReadInstalledInventoryAsync(CancellationToken cancellationToken = default) =>
+        ReadInteractiveInventoryAsync(includeRegistrations: true, cancellationToken);
+
+    private async Task<AppxInventorySnapshot> ReadInteractiveInventoryAsync(bool includeRegistrations, CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var sid = deployment.InteractiveAccountSid;
-        return await DiscoverPackageNamesAsync(sid.Length == 0 ? null : sid, cancellationToken).ConfigureAwait(false);
+        return await DiscoverInventoryAsync(sid.Length == 0 ? null : sid, includeRegistrations, cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Enumerates retained device packages without falling back to a narrower account inventory.</summary>
@@ -55,11 +62,15 @@ public class AppxPackageSource(
     public Task<HashSet<string>> GetInstalledPackageNamesForUserAsync(string accountSid, CancellationToken cancellationToken = default)
     {
         _ = new System.Security.Principal.SecurityIdentifier(accountSid);
-        return DiscoverPackageNamesAsync(accountSid, cancellationToken);
+        return ReadNamesForUserAsync(accountSid, cancellationToken);
     }
 
+    private async Task<HashSet<string>> ReadNamesForUserAsync(string accountSid, CancellationToken cancellationToken) =>
+        (await DiscoverInventoryAsync(accountSid, includeRegistrations: false, cancellationToken).ConfigureAwait(false)).Names;
+
     /// <summary>Queries the requested account; legacy fallbacks apply only to the implicit current-account query.</summary>
-    private async Task<HashSet<string>> DiscoverPackageNamesAsync(string? accountSid, CancellationToken cancellationToken)
+    private async Task<AppxInventorySnapshot> DiscoverInventoryAsync(string? accountSid, bool includeRegistrations,
+        CancellationToken cancellationToken)
     {
         var packageNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -68,7 +79,9 @@ public class AppxPackageSource(
             using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             linkedCts.CancelAfter(TimeSpan.FromSeconds(15));
             linkedCts.Token.ThrowIfCancellationRequested();
-            var packages = await deployment.GetPackagesAsync(accountSid ?? "", linkedCts.Token).ConfigureAwait(false);
+            var (packages, registrations) = includeRegistrations
+                ? await deployment.ReadAccountInventoryAsync(accountSid ?? "", linkedCts.Token).ConfigureAwait(false)
+                : (await deployment.GetPackagesAsync(accountSid ?? "", linkedCts.Token).ConfigureAwait(false), null);
             foreach (var package in packages)
             {
                 linkedCts.Token.ThrowIfCancellationRequested();
@@ -76,6 +89,7 @@ public class AppxPackageSource(
             }
 
             logService.LogInformation($"AppX detection via PackageManager: found {packageNames.Count} packages");
+            return new(packageNames, registrations);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -87,31 +101,19 @@ public class AppxPackageSource(
             if (accountSid is not null) throw new IOException($"AppX inventory timed out for account {accountSid}.");
             logService.LogWarning("PackageManager enumeration timed out after 15s, falling back to WMI");
 
-            // Tier 2: WMI (Win32_InstalledStoreProgram)
-            var wmiResult = await GetInstalledAppxPackageNamesViaWmiAsync().ConfigureAwait(false);
-            if (wmiResult.Count > 0)
-                return wmiResult;
-
-            // Tier 3: Get-AppxPackage via PowerShell (last resort)
-            logService.LogWarning("WMI also returned 0 results, trying Get-AppxPackage");
-            return await GetInstalledAppxPackageNamesViaPowerShellAsync().ConfigureAwait(false);
         }
         catch (Exception ex)
         {
             if (accountSid is not null) throw new IOException($"AppX inventory is unavailable for account {accountSid}.", ex);
             logService.LogWarning($"PackageManager failed ({ex.Message}), falling back to WMI");
 
-            // Tier 2: WMI (Win32_InstalledStoreProgram)
-            var wmiResult = await GetInstalledAppxPackageNamesViaWmiAsync().ConfigureAwait(false);
-            if (wmiResult.Count > 0)
-                return wmiResult;
-
-            // Tier 3: Get-AppxPackage via PowerShell (last resort)
-            logService.LogWarning("WMI also returned 0 results, trying Get-AppxPackage");
-            return await GetInstalledAppxPackageNamesViaPowerShellAsync().ConfigureAwait(false);
         }
 
-        return packageNames;
+        var wmiResult = await GetInstalledAppxPackageNamesViaWmiAsync().ConfigureAwait(false);
+        if (wmiResult.Count > 0) return new(wmiResult);
+
+        logService.LogWarning("WMI also returned 0 results, trying Get-AppxPackage");
+        return new(await GetInstalledAppxPackageNamesViaPowerShellAsync().ConfigureAwait(false));
     }
 
     private async Task<HashSet<string>> GetInstalledAppxPackageNamesViaWmiAsync()

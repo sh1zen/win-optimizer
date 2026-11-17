@@ -70,6 +70,29 @@ public sealed class SystemInformationServiceTests
         Assert.Contains(requests, request => request.Class == "Win32_PnPSignedDriver" && request.Fields.Contains("DriverVersion") && request.Fields.Contains("DriverDate") && request.Fields.Contains("IsSigned"));
         Assert.DoesNotContain(requests, request => request.Fields.Contains("AdapterRAM")); // WMI's uint32 VRAM field truncates larger adapters.
     }
+
+    [Fact]
+    public async Task IndependentCategoriesCanOverlapWithoutPublishingOrReorderingTheSnapshot()
+    {
+        var firstQuery = new TaskCompletionSource<IReadOnlyList<IReadOnlyDictionary<string, object?>>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var nextQueryStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _query.Setup(source => source.ReadAsync("Win32_ComputerSystem", It.IsAny<IReadOnlyList<string>>(), It.IsAny<CancellationToken>()))
+            .Returns(firstQuery.Task);
+        _query.Setup(source => source.ReadAsync("Win32_OperatingSystem", It.IsAny<IReadOnlyList<string>>(), It.IsAny<CancellationToken>()))
+            .Callback(() => nextQueryStarted.TrySetResult()).ReturnsAsync(Array.Empty<IReadOnlyDictionary<string, object?>>());
+
+        var read = _service.ReadAsync(default);
+        try
+        {
+            await nextQueryStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(read.IsCompleted);
+            Assert.Null(_service.CachedSnapshot);
+        }
+        finally { firstQuery.TrySetResult([]); }
+        var snapshot = await read;
+        Assert.Equal(Enum.GetValues<SystemInformationCategory>(), snapshot.Sections.Select(section => section.Category));
+        Assert.Same(snapshot, _service.CachedSnapshot);
+    }
     [Fact]
     public async Task Quantities_Remain64Bit_AndWindowsKilobytesBecomeBytes()
     {

@@ -58,6 +58,7 @@ public class SettingsLoadingService : ISettingsLoadingService
             await ResolveComboBoxStatesAsync(settingsList, batchStates);
 
             // Create ViewModels for all settings (skip settings whose backing resource doesn't exist)
+            var createViewModel = _viewModelFactory.BeginPageLoad();
             foreach (var setting in settingsList)
             {
                 if (batchStates.TryGetValue(setting.Id, out var settingState) && !settingState.Success)
@@ -66,8 +67,7 @@ public class SettingsLoadingService : ISettingsLoadingService
                     continue;
                 }
 
-                var currentState = batchStates.TryGetValue(setting.Id, out var s) ? s : new SettingStateResult();
-                var viewModel = await _viewModelFactory.CreateAsync(setting, currentState, parentViewModel);
+                var viewModel = await createViewModel(setting, settingState ?? new SettingStateResult(), parentViewModel);
                 viewModel.UpdateVisibility(string.Empty);
                 settingViewModels.Add(viewModel);
             }

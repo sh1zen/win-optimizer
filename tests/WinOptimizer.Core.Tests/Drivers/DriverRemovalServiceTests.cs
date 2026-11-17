@@ -22,7 +22,8 @@ public sealed class DriverRemovalServiceTests
     public DriverRemovalServiceTests()
     {
         _service = new(_inventory.Object, _backend.Object, _mode.Object);
-        _inventory.Setup(source => source.ReadAsync(It.IsAny<CancellationToken>())).ReturnsAsync(Report.Inventory);
+        _inventory.Setup(source => source.ReadForRemovalAsync(It.IsAny<IReadOnlySet<string>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Report.Inventory);
     }
 
     [Fact]
@@ -36,7 +37,9 @@ public sealed class DriverRemovalServiceTests
         Assert.Equal(new[] { DeviceTarget, PackageTarget }, calls);
         Assert.Equal(2, result.Outcomes.Count);
         Assert.True(result.Outcomes[1].RestartRequired);
-        _inventory.Verify(source => source.ReadAsync(It.IsAny<CancellationToken>()), Times.Once);
+        _inventory.Verify(source => source.ReadForRemovalAsync(It.Is<IReadOnlySet<string>>(names => names.SetEquals(new[] { _package.PublishedName })),
+            It.IsAny<CancellationToken>()), Times.Once);
+        _inventory.VerifyNoOtherCalls();
     }
 
     [Fact]
@@ -48,7 +51,7 @@ public sealed class DriverRemovalServiceTests
     }
 
     [Theory]
-    [InlineData("bound")] [InlineData("incomplete")] [InlineData("protected")] [InlineData("changed")] [InlineData("missing")]
+    [InlineData("bound")] [InlineData("incomplete")] [InlineData("protected")] [InlineData("changed")] [InlineData("missing")] [InlineData("size")]
     public async Task ChangedPackageEvidence_PreventsRemoval(string change)
     {
         var current = Report.Inventory with
@@ -59,11 +62,12 @@ public sealed class DriverRemovalServiceTests
             {
                 "protected" => [_package with { BootCritical = true }],
                 "changed" => [_package with { Version = "2.0" }],
+                "size" => [_package with { SizeBytes = 4096 }],
                 "missing" => [],
                 _ => [_package]
             }
         };
-        _inventory.Setup(source => source.ReadAsync(It.IsAny<CancellationToken>())).ReturnsAsync(current);
+        _inventory.Setup(source => source.ReadForRemovalAsync(It.IsAny<IReadOnlySet<string>>(), It.IsAny<CancellationToken>())).ReturnsAsync(current);
         var result = await _service.RemoveAsync(Report, [PackageTarget], null, default);
         Assert.False(Assert.Single(result.Outcomes).Success);
         _backend.VerifyNoOtherCalls();
@@ -72,7 +76,7 @@ public sealed class DriverRemovalServiceTests
     [Fact]
     public async Task ReconnectedDevice_IsKeptWhileEligiblePackageIsRemoved()
     {
-        _inventory.Setup(source => source.ReadAsync(It.IsAny<CancellationToken>()))
+        _inventory.Setup(source => source.ReadForRemovalAsync(It.IsAny<IReadOnlySet<string>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Report.Inventory with { Devices = [_device with { Present = true }] });
         _backend.Setup(backend => backend.RemoveAsync(PackageTarget, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new DriverRemovalOutcome(PackageTarget, true, false));

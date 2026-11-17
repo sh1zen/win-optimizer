@@ -2,6 +2,7 @@ using System.Security.Principal;
 using System.Text;
 using Windows.Management.Deployment;
 using WinOptimizer.Core.Features.Common.Interfaces;
+using WinOptimizer.Core.Features.SoftwareApps.Models;
 
 namespace WinOptimizer.Infrastructure.Features.SoftwareApps.Services;
 
@@ -14,6 +15,8 @@ public interface IAppxDeployment
     /// <summary>Explicit SID under alternate-account elevation; empty means the calling account.</summary>
     string InteractiveAccountSid { get; }
     Task<IReadOnlyList<AppxPackageIdentity>> GetPackagesAsync(string accountSid, CancellationToken ct);
+    async Task<(IReadOnlyList<AppxPackageIdentity> Packages, IReadOnlyList<AppxRegistration>? Registrations)> ReadAccountInventoryAsync(
+        string accountSid, CancellationToken ct) => (await GetPackagesAsync(accountSid, ct).ConfigureAwait(false), null);
     Task RemovePackageAsync(string fullName, string accountSid, Action<int> progress, CancellationToken ct);
     Task InstallPackageAsync(string packagePath, IReadOnlyList<string> dependencyPaths, CancellationToken ct);
 }
@@ -65,23 +68,41 @@ public sealed class WindowsAppxDeployment(IInteractiveUserService user, IProcess
     }
 
     /// <summary>Reads a materialized account snapshot on a worker, respecting cancellation before Windows access.</summary>
-    public Task<IReadOnlyList<AppxPackageIdentity>> GetPackagesAsync(string accountSid, CancellationToken ct) =>
-        Task.Run<IReadOnlyList<AppxPackageIdentity>>(() =>
+    public async Task<IReadOnlyList<AppxPackageIdentity>> GetPackagesAsync(string accountSid, CancellationToken ct) =>
+        (await ReadAccountInventoryAsync(accountSid, includeRegistrations: false, ct).ConfigureAwait(false)).Packages;
+
+    public Task<(IReadOnlyList<AppxPackageIdentity> Packages, IReadOnlyList<AppxRegistration>? Registrations)> ReadAccountInventoryAsync(
+        string accountSid, CancellationToken ct) => ReadAccountInventoryAsync(accountSid, includeRegistrations: true, ct);
+
+    internal static AppxRegistrationDetails ReadRegistrationDetails(Windows.ApplicationModel.Package package) =>
+        new(package.Id.FullName, package.Id.FamilyName, package.InstalledDate, package.InstalledLocation.Path, package.IsDevelopmentMode);
+
+    private Task<(IReadOnlyList<AppxPackageIdentity> Packages, IReadOnlyList<AppxRegistration>? Registrations)> ReadAccountInventoryAsync(
+        string accountSid, bool includeRegistrations, CancellationToken ct) =>
+        Task.Run<(IReadOnlyList<AppxPackageIdentity>, IReadOnlyList<AppxRegistration>?)>(() =>
         {
             ct.ThrowIfCancellationRequested();
             if (accountSid.Length > 0) _ = new SecurityIdentifier(accountSid);
             List<AppxPackageIdentity> packages = [];
+            List<AppxRegistration>? registrations = includeRegistrations ? [] : null;
             foreach (var package in new PackageManager().FindPackagesForUser(accountSid))
             {
                 ct.ThrowIfCancellationRequested();
-                try { packages.Add(new(package.Id.Name, package.Id.FullName)); }
+                try
+                {
+                    var id = package.Id;
+                    var name = id.Name;
+                    packages.Add(new(name, id.FullName));
+                    registrations?.Add(new(name, () => ReadRegistrationDetails(package)));
+                }
                 catch (Exception ex)
                 {
                     if (accountSid.Length > 0) throw new IOException($"Cannot read a package for account {accountSid}.", ex);
                     log.LogWarning($"PackageManager enumeration skipped an entry: {ex.Message}");
+                    registrations = null; // A partial identity inventory cannot replace the independent metadata read.
                 }
             }
-            return packages;
+            return (packages, registrations);
         }, ct);
 
     /// <summary>Removes exactly one captured package registration and surfaces native or PowerShell failures.</summary>

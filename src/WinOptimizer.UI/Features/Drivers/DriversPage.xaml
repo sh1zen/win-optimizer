@@ -7,7 +7,7 @@
                 <Grid ColumnSpacing="12">
                     <Grid.ColumnDefinitions><ColumnDefinition Width="32"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                     <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay}" IsEnabled="{Binding CanClean}" Visibility="{Binding ShowSelection, Converter={StaticResource BooleanToVisibilityConverter}}" AutomationProperties.Name="{Binding Name}" MinWidth="0" MinHeight="32" Padding="0" VerticalAlignment="Center"/>
-                    <Button Grid.Column="1" Command="{Binding ShowDetailsCommand}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Background="Transparent" BorderThickness="0" Padding="0,12" MinWidth="0" AutomationProperties.Name="{Binding Name}">
+                    <Button Grid.Column="1" Command="{Binding ShowDetailsCommand}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" Style="{StaticResource SubtleButtonStyle}" BorderThickness="0" Padding="0,12" MinWidth="0" AutomationProperties.Name="{Binding Name}">
                         <ToolTipService.ToolTip><TextBlock Text="{Binding Name}"/></ToolTipService.ToolTip>
                         <Grid ColumnSpacing="12">
                             <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="110"/><ColumnDefinition Width="86"/><ColumnDefinition Width="16"/></Grid.ColumnDefinitions>

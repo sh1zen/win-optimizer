@@ -139,6 +139,33 @@ public class CompatibleSettingsRegistryTests
     }
 
     [Fact]
+    public async Task IndependentFeaturesPrepareWhilePowerValidationIsPendingAndPublishInOrder()
+    {
+        var power = new TaskCompletionSource<IEnumerable<SettingDefinition>>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var updatePrepared = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _powerValidation.Setup(service => service.FilterSettingsByExistenceAsync(It.IsAny<IEnumerable<SettingDefinition>>()))
+            .Returns(power.Task);
+        _logService.Setup(log => log.Log(LogLevel.Info,
+                It.Is<string>(message => message.StartsWith("Registered ") && message.EndsWith($"settings for {FeatureIds.Update}")), null))
+            .Callback(() => updatePrepared.TrySetResult());
+
+        var initializing = _sut.InitializeAsync();
+        try
+        {
+            await updatePrepared.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(_sut.IsInitialized);
+            Assert.Throws<InvalidOperationException>(() => _sut.GetAllFilteredSettings());
+        }
+        finally { power.TrySetResult([]); }
+
+        await initializing;
+        var keys = _sut.GetAllFilteredSettings().Keys.ToList();
+        Assert.True(keys.IndexOf(FeatureIds.Power) < keys.IndexOf(FeatureIds.Update));
+        Assert.NotEmpty(_sut.GetBypassedSettings(FeatureIds.Power));
+        Assert.NotEmpty(_sut.GetFilteredSettings(FeatureIds.Update));
+    }
+
+    [Fact]
     public void GetFilteredSettings_BeforeInitialization_ThrowsInvalidOperationException()
     {
         var action = () => _sut.GetFilteredSettings("SomeFeature");

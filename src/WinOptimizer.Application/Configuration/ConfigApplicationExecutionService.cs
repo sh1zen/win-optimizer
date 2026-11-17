@@ -587,8 +587,7 @@ public class ConfigApplicationExecutionService : IConfigApplicationExecutionServ
 
             while (retryCount < maxRetries)
             {
-                bool isRunning = await Task.Run(() =>
-                    _windowsUIManagementService.IsProcessRunning("explorer"));
+                bool isRunning = _windowsUIManagementService.IsProcessRunning("explorer");
 
                 if (isRunning)
                 {
@@ -605,25 +604,12 @@ public class ConfigApplicationExecutionService : IConfigApplicationExecutionServ
 
             await _processExecutor.ShellExecuteAsync("explorer.exe").ConfigureAwait(false);
 
-            // Verify explorer actually started
-            retryCount = 0;
-            const int verifyMaxRetries = 10;
-
-            while (retryCount < verifyMaxRetries)
+            if (await VerifyManualExplorerStartAsync(() => _windowsUIManagementService.IsProcessRunning("explorer"),
+                    TimeProvider.System).ConfigureAwait(false))
             {
-                await Task.Delay(500).ConfigureAwait(false);
-
-                bool isRunning = await Task.Run(() =>
-                    _windowsUIManagementService.IsProcessRunning("explorer"));
-
-                if (isRunning)
-                {
-                    _logService.Log(LogLevel.Info, "Explorer.exe started successfully");
-                    await Task.Delay(1000).ConfigureAwait(false);
-                    return;
-                }
-
-                retryCount++;
+                _logService.Log(LogLevel.Info, "Explorer.exe started successfully");
+                await Task.Delay(1000).ConfigureAwait(false);
+                return;
             }
 
             _logService.Log(LogLevel.Error, "Failed to verify explorer restart");
@@ -632,5 +618,17 @@ public class ConfigApplicationExecutionService : IConfigApplicationExecutionServ
         {
             _logService.Log(LogLevel.Error, $"Error restarting explorer: {ex.Message}");
         }
+    }
+
+    /// <summary>Checks a completed launch immediately and retains the full verification window for slow starts.</summary>
+    internal static async Task<bool> VerifyManualExplorerStartAsync(Func<bool> isRunning, TimeProvider clock)
+    {
+        if (isRunning()) return true;
+        for (var attempt = 0; attempt < 10; attempt++)
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(500), clock).ConfigureAwait(false);
+            if (isRunning()) return true;
+        }
+        return false;
     }
 }

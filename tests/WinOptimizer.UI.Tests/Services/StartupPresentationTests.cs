@@ -1,9 +1,13 @@
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Animation;
+using Microsoft.UI.Xaml.Hosting;
+using Microsoft.UI.Composition;
 using Moq;
 using WinOptimizer.Core.Features.Common.Constants;
 using WinOptimizer.Core.Features.Common.Interfaces;
+using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.UI.Features.Common.Controls;
 using WinOptimizer.UI.Helpers;
 using Xunit;
@@ -13,6 +17,117 @@ namespace WinOptimizer.UI.Tests.Services;
 /// <summary>Checks the production startup frame boundary on a native WinUI dispatcher.</summary>
 public sealed class StartupPresentationTests
 {
+    /// <summary>Exercises the compositor effect, rapid navigation, and reduced-motion cancellation.</summary>
+    [Fact]
+    public async Task PageBlurOverlayClearsAfterTheLatestTransition()
+    {
+        var overlay = new Border { IsHitTestVisible = false };
+        var content = new Grid { Children = { new TextBlock { Text = "Page content" }, overlay } };
+        var window = new Window { Content = content };
+        try
+        {
+            using var transition = new PageBlurTransition(overlay, null);
+            window.Activate();
+            await StartupUiCoordinator.RunAfterFirstRenderAsync(content, () => Task.CompletedTask);
+
+            transition.Play(false);
+            Assert.Null(ElementCompositionPreview.GetElementChildVisual(overlay));
+            transition.Play(true);
+            var visual = Assert.IsType<SpriteVisual>(ElementCompositionPreview.GetElementChildVisual(overlay));
+            Assert.IsType<CompositionEffectBrush>(visual.Brush);
+            Assert.Equal(System.Numerics.Vector2.One, visual.RelativeSizeAdjustment);
+
+            transition.Play(true);
+            Assert.Same(visual, ElementCompositionPreview.GetElementChildVisual(overlay));
+            transition.Play(false);
+            Assert.Null(ElementCompositionPreview.GetElementChildVisual(overlay));
+            transition.Play(true);
+            await WaitForOverlayToClearAsync().WaitAsync(TimeSpan.FromSeconds(3));
+        }
+        finally { window.Close(); }
+
+        async Task WaitForOverlayToClearAsync()
+        {
+            while (ElementCompositionPreview.GetElementChildVisual(overlay) != null)
+                await StartupUiCoordinator.RunAfterFirstRenderAsync(overlay, () => Task.CompletedTask);
+        }
+    }
+
+    /// <summary>Checks the state brushes consumed by the rendered card and input templates.</summary>
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task InteractiveSurfacesKeepOpaqueFillsThroughHoverAndPress(bool dark)
+    {
+        var card = new NavigationCard { Title = "SysMonitor" };
+        var button = new Button { Content = "Show widget" };
+        var resources = Microsoft.UI.Xaml.Application.Current.Resources;
+        var titleBarButton = new Button { Content = "Back", Style = (Style)resources["TitleBarButtonStyle"] };
+        var dropDownButton = new DropDownButton { Content = "Sort" };
+        var comboBox = new ComboBox { PlaceholderText = "Options" };
+        var searchInput = new TextBox { PlaceholderText = "Search" };
+        var content = new StackPanel
+        {
+            RequestedTheme = dark ? ElementTheme.Dark : ElementTheme.Light,
+            Children = { card, button, titleBarButton, dropDownButton, comboBox, searchInput }
+        };
+        var window = new Window { Content = content };
+        try
+        {
+            window.Activate();
+            await StartupUiCoordinator.RunAfterFirstRenderAsync(content, () => Task.CompletedTask);
+            var cardControl = Assert.IsType<CommunityToolkit.WinUI.Controls.SettingsCard>(card.FindName("Card"));
+            var cardSurface = Assert.IsType<Grid>(VisualTreeHelper.GetChild(cardControl, 0));
+            var buttonSurface = Assert.IsType<ContentPresenter>(VisualTreeHelper.GetChild(button, 0));
+            var titleBarSurface = Assert.IsType<ContentPresenter>(VisualTreeHelper.GetChild(titleBarButton, 0));
+            var dropDownSurface = Assert.IsType<Grid>(VisualTreeHelper.GetChild(dropDownButton, 0));
+            var comboRoot = Assert.IsType<Grid>(VisualTreeHelper.GetChild(comboBox, 0));
+            var comboSurface = comboRoot.Children.OfType<Border>().Single(border => border.Name == "Background");
+            var searchRoot = Assert.IsType<Grid>(VisualTreeHelper.GetChild(searchInput, 0));
+            var searchSurface = searchRoot.Children.OfType<Border>().Single(border => border.Name == "BorderElement");
+            var highContrast = new Windows.UI.ViewManagement.AccessibilitySettings().HighContrast;
+            var appColors = resources.MergedDictionaries
+                .OfType<WinOptimizer.UI.Features.Common.Resources.AppColorResources>().Single();
+            var palette = Assert.IsType<ResourceDictionary>(appColors.ThemeDictionaries[dark ? "Default" : "Light"]);
+
+            foreach (var (state, surfaceKey) in new[]
+            {
+                ("PointerOver", "AppSurfacePointerOverBrush"),
+                ("Pressed", "AppSurfacePressedBrush"),
+                ("Normal", "AppSurfaceBrush")
+            })
+            {
+                Assert.True(VisualStateManager.GoToState(cardControl, state, true));
+                Assert.True(VisualStateManager.GoToState(button, state, true));
+                Assert.True(VisualStateManager.GoToState(titleBarButton, state, true));
+                Assert.True(VisualStateManager.GoToState(dropDownButton, state, true));
+                Assert.True(VisualStateManager.GoToState(comboBox, state, true));
+                if (state != "Pressed")
+                    Assert.True(VisualStateManager.GoToState(searchInput, state, true));
+
+                await StartupUiCoordinator.RunAfterFirstRenderAsync(content, () => Task.CompletedTask);
+                var cardFill = Assert.IsType<SolidColorBrush>(cardSurface.Background).Color;
+                Assert.Equal(byte.MaxValue, cardFill.A);
+                // Contrast themes use the system's separate interaction palette.
+                if (highContrast) continue;
+
+                var expected = Assert.IsType<SolidColorBrush>(palette[surfaceKey]).Color;
+                Assert.Equal(expected, cardFill);
+                Assert.Equal(expected, Assert.IsType<SolidColorBrush>(buttonSurface.Background).Color);
+                var titleBarOpacity = Assert.IsType<SolidColorBrush>(titleBarSurface.Background).Color.A;
+                if (state == "Normal")
+                    Assert.Equal((byte)0, titleBarOpacity);
+                else
+                    Assert.InRange(titleBarOpacity, (byte)1, (byte)64);
+                Assert.Equal(expected, Assert.IsType<SolidColorBrush>(dropDownSurface.Background).Color);
+                Assert.Equal(expected, Assert.IsType<SolidColorBrush>(comboSurface.Background).Color);
+                if (state != "Pressed")
+                    Assert.Equal(expected, Assert.IsType<SolidColorBrush>(searchSurface.Background).Color);
+            }
+        }
+        finally { window.Close(); }
+    }
+
     /// <summary>Centers the loader at each viewport size without shifting on detailed progress reports.</summary>
     [Theory]
     [InlineData(false)]
@@ -80,12 +195,14 @@ public sealed class StartupPresentationTests
             localization.Setup(service => service.GetString("Loading_PreparingApp")).Returns("Preparing app...");
             window.InitializeLoadingPresentation(localization.Object);
             loader.RequestedTheme = ElementTheme.Dark;
-            var preferences = new Mock<IUserPreferencesService>();
-            preferences.Setup(service => service.GetPreferenceAsync<double>(UserPreferenceKeys.WindowWidth, 0)).ReturnsAsync(1050);
-            preferences.Setup(service => service.GetPreferenceAsync<double>(UserPreferenceKeys.WindowHeight, 0)).ReturnsAsync(720);
-            preferences.Setup(service => service.GetPreferenceAsync<double>(UserPreferenceKeys.WindowLeft, double.NaN)).ReturnsAsync(double.NaN);
-            preferences.Setup(service => service.GetPreferenceAsync<double>(UserPreferenceKeys.WindowTop, double.NaN)).ReturnsAsync(double.NaN);
-            await window.InitializeWindowPlacementAsync(preferences.Object, Mock.Of<ILogService>());
+            var preferences = new Mock<IUserPreferencesService>(MockBehavior.Strict);
+            var log = Mock.Of<ILogService>();
+            var saved = new UserPreferencesSnapshot(new Dictionary<string, object>
+            {
+                [UserPreferenceKeys.WindowWidth] = 1050d,
+                [UserPreferenceKeys.WindowHeight] = 720d,
+            }, log);
+            await window.InitializeWindowPlacementAsync(preferences.Object, log, saved);
             Assert.False(window.AppWindow.IsVisible);
             Assert.Equal(1050, window.AppWindow.Size.Width);
             Assert.Equal(720, window.AppWindow.Size.Height);
@@ -118,6 +235,9 @@ public sealed class StartupPresentationTests
             var id = window.AppWindow.Id;
             window.InitializeShell();
             var shell = Assert.IsType<Grid>(window.Content);
+            var frame = Assert.IsType<Frame>(shell.FindName("ContentFrame"));
+            var navigation = Assert.IsType<NavigationThemeTransition>(Assert.Single(frame.ContentTransitions));
+            Assert.IsType<SuppressNavigationTransitionInfo>(navigation.DefaultNavigationTransitionInfo);
             await StartupUiCoordinator.RunAfterFirstRenderAsync(shell, () => Task.CompletedTask);
             var overlay = Assert.IsType<Grid>(shell.FindName("LoadingOverlay"));
             Assert.Same(loader, Assert.Single(overlay.Children));
@@ -194,7 +314,7 @@ public sealed class StartupPresentationTests
         finally { window.Close(); }
     }
 
-    /// <summary>Checks selected button bounds against the real scroll viewport as the pane resizes.</summary>
+    /// <summary>Checks the selected button's theme and bounds against the real scroll viewport.</summary>
     [Fact]
     public async Task SidebarSelectionFitsTheViewportInBothPaneModesWithAndWithoutScrolling()
     {
@@ -211,6 +331,18 @@ public sealed class StartupPresentationTests
             var viewport = Assert.IsType<ScrollContentPresenter>(presenter);
             var button = Assert.IsType<NavButton>(sidebar.GetButton("SoftwareApps"));
             var background = Assert.IsType<Border>(button.FindName("BackgroundBorder"));
+
+            var colors = Microsoft.UI.Xaml.Application.Current.Resources.MergedDictionaries
+                .OfType<WinOptimizer.UI.Features.Common.Resources.AppColorResources>().Single();
+            var highContrast = new Windows.UI.ViewManagement.AccessibilitySettings().HighContrast;
+            foreach (var (theme, themeKey) in new[] { (ElementTheme.Light, "Light"), (ElementTheme.Dark, "Default") })
+            {
+                sidebar.RequestedTheme = theme;
+                await StartupUiCoordinator.RunAfterFirstRenderAsync(sidebar, () => Task.CompletedTask);
+                var palette = Assert.IsType<ResourceDictionary>(colors.ThemeDictionaries[highContrast ? "HighContrast" : themeKey]);
+                var selected = Assert.IsType<SolidColorBrush>(palette["AccentSelectionBackgroundBrush"]);
+                Assert.Equal(selected.Color, Assert.IsType<SolidColorBrush>(background.Background).Color);
+            }
 
             foreach (var expanded in new[] { true, false })
             foreach (var height in new[] { 800d, 300d })

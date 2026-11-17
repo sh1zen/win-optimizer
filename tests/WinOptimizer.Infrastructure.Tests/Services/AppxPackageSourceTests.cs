@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Moq;
 using WinOptimizer.Core.Features.Common.Interfaces;
+using WinOptimizer.Core.Features.SoftwareApps.Models;
 using WinOptimizer.Infrastructure.Features.SoftwareApps.Services;
 using Xunit;
 
@@ -84,6 +85,22 @@ public class AppxPackageSourceTests
 
         Assert.Equal(new[] { "Interactive.App" }, result);
         _deployment.Verify(source => source.GetPackagesAsync("", It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task RegistrationSnapshotUsesOnlyTheInteractiveAccountAndDefersMetadata()
+    {
+        const string sid = "S-1-5-21-1-2-3-1001";
+        IReadOnlyList<AppxPackageIdentity> packages = [new("Interactive.App", "Interactive.App_1.0_x64__publisher")];
+        IReadOnlyList<AppxRegistration> registrations = [new("Interactive.App", () => throw new InvalidOperationException("Read later."))];
+        _deployment.SetupGet(source => source.InteractiveAccountSid).Returns(sid);
+        _deployment.Setup(source => source.ReadAccountInventoryAsync(sid, It.IsAny<CancellationToken>())).ReturnsAsync((packages, registrations));
+
+        var result = await _service.ReadInstalledInventoryAsync();
+
+        Assert.Contains("interactive.app", result.Names);
+        Assert.Same(registrations, result.Registrations);
+        _deployment.Verify(source => source.GetPackagesAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]

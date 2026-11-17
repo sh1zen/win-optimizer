@@ -43,6 +43,21 @@ public class UserPreferencesServiceTests
 
     #region GetPreferenceAsync
 
+    [Fact]
+    public async Task SnapshotReadsOnceAndKeepsDefaultsLocalToMalformedFields()
+    {
+        _mockFileSystemService.Setup(files => files.FileExists(It.IsAny<string>())).Returns(true);
+        _mockFileSystemService.Setup(files => files.ReadAllTextAsync(It.IsAny<string>(), default))
+            .ReturnsAsync("""{"WindowWidth":1050,"WindowHeight":720,"WindowMaximized":"invalid","Language":"it"}""");
+
+        var preferences = await _service.ReadSnapshotAsync();
+        Assert.Equal(1050d, preferences.Get("WindowWidth", 0d));
+        Assert.Equal(720d, preferences.Get("WindowHeight", 0d));
+        Assert.False(preferences.Get("WindowMaximized", false));
+        Assert.Equal("it", preferences.Get("Language", "en"));
+        _mockFileSystemService.Verify(files => files.ReadAllTextAsync(It.IsAny<string>(), default), Times.Once);
+    }
+
     [Theory]
     [InlineData("read-error")]
     [InlineData("invalid-json")]
@@ -102,6 +117,23 @@ public class UserPreferencesServiceTests
         Assert.Equal("it", document.RootElement.GetProperty("Language").GetString());
         Assert.Equal(1400, document.RootElement.GetProperty("WindowWidth").GetInt32());
         Assert.Equal(900, document.RootElement.GetProperty("WindowHeight").GetInt32());
+    }
+
+    [Fact]
+    public async Task PreferencePatchResolvesOneAccountPathForTheWholeTransaction()
+    {
+        _mockInteractiveUserService.SetupSequence(service => service.InteractiveUserSid)
+            .Returns("S-1-5-21-111-222-333-1001").Returns("S-1-5-21-111-222-333-1002");
+        _mockFileSystemService.Setup(files => files.FileExists(It.IsAny<string>())).Returns(true);
+        _mockFileSystemService.Setup(files => files.ReadAllTextAsync(It.IsAny<string>(), default)).ReturnsAsync("{}");
+        _mockFileSystemService.Setup(files => files.WriteAllTextAsync(It.IsAny<string>(), It.IsAny<string>(), default))
+            .Returns(Task.CompletedTask);
+
+        Assert.True((await _service.SetPreferenceAsync("Language", "it")).Success);
+
+        _mockInteractiveUserService.VerifyGet(service => service.InteractiveUserSid, Times.Once);
+        _mockFileSystemService.Verify(files => files.WriteAllTextAsync(
+            It.Is<string>(path => path.Contains("S-1-5-21-111-222-333-1001")), It.IsAny<string>(), default), Times.Once);
     }
 
     [Fact]

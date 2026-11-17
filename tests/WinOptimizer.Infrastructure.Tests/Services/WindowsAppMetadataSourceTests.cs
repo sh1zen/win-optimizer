@@ -55,15 +55,33 @@ public class WindowsAppMetadataSourceTests
     }
 
     [Fact]
+    public void SharedAppxRegistrationsReadDetailsOnlyForMatchingPackagesAndIsolateFailures()
+    {
+        WithPackageDirectory((source, path) =>
+        {
+            File.WriteAllBytes(Path.Combine(path, "payload.bin"), new byte[42]);
+            var installed = DateTimeOffset.UnixEpoch;
+            var package = new ItemDefinition { Id = "app", Name = "App", Description = "", AppxPackageName = ["Test.App"] };
+            var result = source.ReadPackages([package],
+            [
+                new("Other.App", () => throw new InvalidOperationException("Unmatched package must stay lazy.")),
+                new("Test.App", () => throw new UnauthorizedAccessException("App registration unavailable.")),
+                new("TEST.APP", () => new("Test.App_1", "Test.App_family", installed, path, false))
+            ]);
+            Assert.Equal(new WindowsAppMetadataSource.PackageMetadata("TEST.APP", "Test.App_family", installed, 42), Assert.Single(result));
+        });
+    }
+
+    [Fact]
     public void DiscoveredProgramMetadataUsesTheExactRegistrationScope()
     {
         var program = new InstalledProgram(WindowsInstalledProgramSource.Roots[2] + @"\Tool", "Tool", "remove.exe");
-        var metadata = WindowsAppMetadataSource.Match(program.ToDefinition(),
+        var snapshot = new WindowsAppMetadataSource.MetadataSnapshot(
         [
             new("Tool", "Tool", null, 999, null, WindowsInstalledProgramSource.Roots[0] + @"\Tool"),
             new("Tool", "Tool", null, 42, null, program.KeyPath),
-        ], [], new Dictionary<string, DateTimeOffset>(), path => path);
-        Assert.Equal(42, metadata.SizeBytes);
+        ], [], new Dictionary<string, DateTimeOffset>());
+        Assert.Equal(42, snapshot.Match(program.ToDefinition(), path => path).SizeBytes);
     }
 
     [Fact]
@@ -81,8 +99,10 @@ public class WindowsAppMetadataSourceTests
         {
             [@"C:\Tools\TOOL.exe"] = date.AddHours(1), [@"C:\Tools\other.exe"] = date.AddDays(2),
         };
-        Assert.Equal(new AppMetadata(date, 8192, date.AddHours(1)), WindowsAppMetadataSource.Match(item, registrations, [], usage, path => path));
-        Assert.Equal(new AppMetadata(null, null, null), WindowsAppMetadataSource.Match(item, [], [], usage, path => path));
+        var snapshot = new WindowsAppMetadataSource.MetadataSnapshot(registrations, [], usage);
+        Assert.Equal(new AppMetadata(date, 8192, date.AddHours(1)), snapshot.Match(item, path => path));
+        var missing = new WindowsAppMetadataSource.MetadataSnapshot([], [], usage);
+        Assert.Equal(new AppMetadata(null, null, null), missing.Match(item, path => path));
     }
 
     [Fact]
@@ -95,7 +115,30 @@ public class WindowsAppMetadataSourceTests
         {
             ["Vendor.App_123!Main"] = date.AddHours(2), ["Vendor.App_1234!Main"] = date.AddDays(2),
         };
-        Assert.Equal(new AppMetadata(date, 4096, date.AddHours(2)), WindowsAppMetadataSource.Match(item, [], packages, usage, path => path));
+        var snapshot = new WindowsAppMetadataSource.MetadataSnapshot([], packages, usage);
+        Assert.Equal(new AppMetadata(date, 4096, date.AddHours(2)), snapshot.Match(item, path => path));
+    }
+
+    [Fact]
+    public void SharedSnapshotUsesLatestMatchingUsageAcrossPathsAndPackageEntries()
+    {
+        var date = DateTimeOffset.UnixEpoch.AddYears(55);
+        var item = new ItemDefinition { Id = "app", Name = "Tool", Description = "", AppxPackageName = ["vendor.app"] };
+        var second = new ItemDefinition { Id = "other", Name = "Other", Description = "", DetectionPaths = [@"C:\Tools\other.exe"] };
+        var snapshot = new WindowsAppMetadataSource.MetadataSnapshot(
+            [new("tool", "TOOL", date, 2048, @"C:\Tools\tool.exe")],
+            [new("Vendor.App", "Vendor.App_123", date.AddDays(1), 4096)],
+            new Dictionary<string, DateTimeOffset>
+            {
+                [@"C:\TOOLS\TOOL.exe"] = date.AddHours(3),
+                [@"C:\Tools\tool.exe"] = date.AddHours(4),
+                ["Vendor.App_123!First"] = date.AddHours(2),
+                ["VENDOR.APP_123!Second"] = date.AddHours(5),
+                [@"C:\Tools\other.exe"] = date.AddHours(6),
+            });
+
+        Assert.Equal(new AppMetadata(date.AddDays(1), 4096, date.AddHours(5)), snapshot.Match(item, path => path));
+        Assert.Equal(new AppMetadata(null, null, date.AddHours(6)), snapshot.Match(second, path => path));
     }
 
     [Fact]

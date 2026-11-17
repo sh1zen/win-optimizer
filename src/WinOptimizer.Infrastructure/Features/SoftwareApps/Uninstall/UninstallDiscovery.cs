@@ -55,9 +55,10 @@ internal sealed class UninstallDiscovery(ICleanerRegistrySessions sessions, ICle
                 if (sid != null && !account.GetFolderPath(Environment.SpecialFolder.UserProfile).Equals(
                     Accounts.Single(item => item.Sid == sid).ProfileDirectory, StringComparison.OrdinalIgnoreCase))
                     throw new IOException("The account's profile registration changed during uninstall.");
+                Dictionary<(string Path, bool View32), string[]>? subKeys = plans.Count > 1 ? new() : null;
                 foreach (var plan in plans)
                 {
-                    DiscoverSoftwareKeys(plan, account, sid, sid == null ? "HKEY_LOCAL_MACHINE" : account.UserPrefix, ct);
+                    DiscoverSoftwareKeys(plan, account, sid, sid == null ? "HKEY_LOCAL_MACHINE" : account.UserPrefix, ct, subKeys);
                     if (sid == null) continue;
                     foreach (var folder in new[] { Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolder.ApplicationData })
                         DiscoverDirectories(plan, account.GetFolderPath(folder), sid, folder, ct, account: account);
@@ -121,6 +122,7 @@ internal sealed class UninstallDiscovery(ICleanerRegistrySessions sessions, ICle
         ProtectSharedProfiles(plans);
         using (var machine = sessions.Open(null))
             ReadRegistrations(machine, null, "HKEY_LOCAL_MACHINE", ct);
+        var packageNames = plans.SelectMany(plan => plan.Application.AppxPackageName ?? []).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         foreach (var account in Accounts)
         {
             ct.ThrowIfCancellationRequested();
@@ -130,7 +132,6 @@ internal sealed class UninstallDiscovery(ICleanerRegistrySessions sessions, ICle
                 using var session = sessions.Open(account.Sid);
                 ReadRegistrations(session, account.Sid, session.UserPrefix, ct);
                 IReadOnlyList<UninstallPackage> installed = [];
-                var packageNames = plans.SelectMany(plan => plan.Application.AppxPackageName ?? []).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
                 if (packageNames.Length > 0)
                 {
                     try
@@ -144,6 +145,7 @@ internal sealed class UninstallDiscovery(ICleanerRegistrySessions sessions, ICle
                         foreach (var plan in plans.Where(plan => plan.Application.AppxPackageName?.Length > 0)) plan.UnreadableAccounts.Add(account.Sid);
                     }
                 }
+                Dictionary<(string Path, bool View32), string[]>? subKeys = plans.Length > 1 ? new() : null;
                 foreach (var plan in plans)
                 {
                     plan.Packages[account.Sid] = installed.Where(package => (plan.Application.AppxPackageName ?? [])
@@ -172,7 +174,7 @@ internal sealed class UninstallDiscovery(ICleanerRegistrySessions sessions, ICle
                     DiscoverDirectories(plan, localLow, account.Sid, null, ct, localLow, UninstallResources.LocalLowId, session);
                     AddDetectionPaths(plan, session, account.Sid);
                     DiscoverPackageData(plan, session, account.Sid, ct);
-                    DiscoverSoftwareKeys(plan, session, account.Sid, session.UserPrefix, ct);
+                    DiscoverSoftwareKeys(plan, session, account.Sid, session.UserPrefix, ct, subKeys);
                 }
             }
             catch (Exception ex) when (UninstallResources.IsResourceError(ex) || ex is System.Runtime.InteropServices.COMException)
@@ -342,12 +344,14 @@ internal sealed class UninstallDiscovery(ICleanerRegistrySessions sessions, ICle
         return candidates.ToArray();
     }
 
-    private void DiscoverSoftwareKeys(UninstallProductPlan plan, ICleanerRegistrySession session, string? sid, string prefix, CancellationToken ct)
+    /// <summary>Matches each product against the key names read in the current account session.</summary>
+    private void DiscoverSoftwareKeys(UninstallProductPlan plan, ICleanerRegistrySession session, string? sid, string prefix,
+        CancellationToken ct, Dictionary<(string Path, bool View32), string[]>? subKeys = null)
     {
         foreach (var view32 in new[] { false, true })
         {
             var software = prefix + (sid != null && view32 ? @"\Software\Wow6432Node" : @"\Software");
-            foreach (var name in session.Reader.GetSubKeyNames(software, view32))
+            foreach (var name in ReadSubKeyNames(software, view32))
             {
                 ct.ThrowIfCancellationRequested();
                 var path = software + "\\" + name;
@@ -356,12 +360,21 @@ internal sealed class UninstallDiscovery(ICleanerRegistrySessions sessions, ICle
                 {
                     try
                     {
-                        foreach (var child in session.Reader.GetSubKeyNames(path, view32))
+                        foreach (var child in ReadSubKeyNames(path, view32))
                             if (plan.Names.Contains(UninstallResources.NormalizeName(child))) AddRegistryRoot(plan, new(sid, path + "\\" + child, view32));
                     }
                     catch (Exception ex) when (UninstallResources.IsResourceError(ex)) { Notices.Add($"{path}: {ex.Message}"); }
                 }
             }
+        }
+
+        string[] ReadSubKeyNames(string path, bool view32)
+        {
+            if (subKeys is null) return session.Reader.GetSubKeyNames(path, view32);
+            var key = (path, view32);
+            if (!subKeys.TryGetValue(key, out var names))
+                subKeys[key] = names = session.Reader.GetSubKeyNames(path, view32);
+            return names;
         }
     }
 

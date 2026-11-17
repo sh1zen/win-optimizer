@@ -77,6 +77,7 @@ public sealed class ChangeHistoryServiceTests
         Assert.Null(entry.After);
     }
 
+
     [Theory]
     [InlineData(AppChangeKind.Installed, "ChangeHistory_AppInstalled", "App installed", HistoryEntryKind.AppInstalled)]
     [InlineData(AppChangeKind.Removed, "ChangeHistory_AppRemoved", "App removed", HistoryEntryKind.AppRemoved)]
@@ -119,13 +120,26 @@ public sealed class ChangeHistoryServiceTests
     }
 
     [Fact]
-    public void FirstWriteCreatesTheDirectoryAndOneStructuredReceipt()
+    public void FirstWriteCreatesTheDirectoryAndLaterReceiptsAppendWithoutAnotherCheck()
     {
-        _files.Setup(files => files.DirectoryExists(It.IsAny<string>())).Returns(false);
+        var directoryExists = false;
+        _files.Setup(files => files.DirectoryExists(It.IsAny<string>())).Returns(() => directoryExists);
+        _files.Setup(files => files.CreateDirectory(It.IsAny<string>())).Callback(() => directoryExists = true);
+        _files.Setup(files => files.AppendAllText(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<Encoding>()))
+            .Callback<string, string, Encoding>((path, line, _) =>
+            {
+                if (!directoryExists) throw new DirectoryNotFoundException();
+                _contents[path] = _contents.GetValueOrDefault(path, "") + line;
+            });
         _service.LogSettingAction("Action", null);
         _files.Verify(files => files.CreateDirectory(It.IsAny<string>()), Times.Once);
         Assert.Single(Entries);
-        _files.Verify(files => files.AppendAllText(It.Is<string>(path => path.EndsWith("ChangeHistory.jsonl")), It.IsAny<string>(), It.IsAny<Encoding>()), Times.Once);
+
+        _service.LogSettingAction("Second", null);
+
+        Assert.Equal(new[] { "Action", "Second" }, Entries.Select(entry => entry.Name));
+        _files.Verify(files => files.DirectoryExists(It.IsAny<string>()), Times.Once);
+        _files.Verify(files => files.AppendAllText(It.Is<string>(path => path.EndsWith("ChangeHistory.jsonl")), It.IsAny<string>(), It.IsAny<Encoding>()), Times.Exactly(3));
     }
 
     [Fact]

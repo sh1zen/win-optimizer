@@ -14,7 +14,7 @@ internal sealed class BatteryChargeService(IBatteryWmi wmi, IEnumerable<IBattery
     public async Task<BatteryChargeState> ReadAsync()
     {
         await _gate.WaitAsync().ConfigureAwait(false);
-        try { return await Task.Run(Read).ConfigureAwait(false); }
+        try { return await Task.Run(ReadStateAsync).ConfigureAwait(false); }
         finally { _gate.Release(); }
     }
 
@@ -26,16 +26,16 @@ internal sealed class BatteryChargeService(IBatteryWmi wmi, IEnumerable<IBattery
         {
             using var reservation = mode.BeginSystemOperation();
             if (mode.CurrentMode != WinOptimizerMode.Normal) throw new InvalidOperationException("Battery changes require normal application mode.");
-            return await Task.Run(() =>
+            return await Task.Run(async () =>
             {
-                var state = Read();
+                var state = await ReadStateAsync().ConfigureAwait(false);
                 if (!state.CanApply || !state.SupportedLimits.Contains(percentage))
                     throw new UtilityOperationException("The requested percentage is not supported by this device's firmware.");
                 var provider = providers.Single(p => p.Matches(state.Manufacturer));
                 try { provider.SetLimit(percentage); }
                 catch (Exception ex) when (ex is UtilityOperationException or Win32Exception or UnauthorizedAccessException)
                 { throw new UtilityOperationException($"The limit was not confirmed; some firmware changes may already be applied. Refresh before retrying. {ex.Message}", ex); }
-                var actual = Read();
+                var actual = await ReadStateAsync().ConfigureAwait(false);
                 if (actual.ActiveLimit != percentage)
                     throw new UtilityOperationException("The firmware has not confirmed the requested limit. Refresh and check the OEM charging utility or BIOS; a restart may be required.");
                 return actual;
@@ -44,7 +44,8 @@ internal sealed class BatteryChargeService(IBatteryWmi wmi, IEnumerable<IBattery
         finally { _gate.Release(); }
     }
 
-    private BatteryChargeState Read()
+    /// <summary>Reads firmware on the worker and completes the state with the independent sensor snapshot.</summary>
+    private async Task<BatteryChargeState> ReadStateAsync()
     {
         var computer = wmi.Query(@"root\cimv2", "SELECT Manufacturer, Model FROM Win32_ComputerSystem").FirstOrDefault();
         var manufacturer = computer?.GetValueOrDefault("Manufacturer") as string ?? "";
@@ -75,6 +76,6 @@ internal sealed class BatteryChargeService(IBatteryWmi wmi, IEnumerable<IBattery
         var setup = BatterySupportCatalog.Find(manufacturer, model);
         return new(manufacturer, model, batteries.Count > 0, charge, firmware.Provider,
             firmware.Limits, firmware.ActiveLimit, diagnostic, setup?.HelpUri ?? new("https://support.microsoft.com/windows"))
-        { Issue = issue, Setup = setup, Telemetry = batteries.Count > 0 ? BatteryTelemetryReader.Read(wmi) : null };
+        { Issue = issue, Setup = setup, Telemetry = batteries.Count > 0 ? await BatteryTelemetryReader.ReadAsync(wmi).ConfigureAwait(false) : null };
     }
 }

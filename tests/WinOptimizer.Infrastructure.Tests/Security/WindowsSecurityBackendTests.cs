@@ -74,7 +74,7 @@ public sealed class WindowsSecurityBackendTests
     {
         var definition = new SettingDefinition { Id = "privacy-language-list", Name = "Language list", Description = "Language preference" };
         _catalog.Setup(catalog => catalog.GetById(definition.Id)).Returns(definition);
-        _discovery.SetupSequence(discovery => discovery.GetSettingStatesAsync(It.IsAny<IEnumerable<SettingDefinition>>()))
+        _discovery.SetupSequence(discovery => discovery.GetSettingStateSnapshotAsync(It.IsAny<IReadOnlyList<SettingDefinition>>()))
             .ReturnsAsync(new Dictionary<string, SettingStateResult> { [definition.Id] = new() { Success = true, IsEnabled = true } })
             .ReturnsAsync(new Dictionary<string, SettingStateResult> { [definition.Id] = new() { Success = true, IsEnabled = false } });
         _settings.Setup(settings => settings.ApplySettingAsync(It.Is<ApplySettingRequest>(request => request.SettingId == definition.Id && !request.Enable)))
@@ -88,7 +88,7 @@ public sealed class WindowsSecurityBackendTests
     {
         var definition = new SettingDefinition { Id = "privacy-app-launch-tracking", Name = "App tracking", Description = "Launch history preference" };
         _catalog.Setup(catalog => catalog.GetById(definition.Id)).Returns(definition);
-        _discovery.Setup(discovery => discovery.GetSettingStatesAsync(It.IsAny<IEnumerable<SettingDefinition>>()))
+        _discovery.Setup(discovery => discovery.GetSettingStateSnapshotAsync(It.IsAny<IReadOnlyList<SettingDefinition>>()))
             .ReturnsAsync(new Dictionary<string, SettingStateResult> { [definition.Id] = new() { Success = true, IsEnabled = false } });
         await Assert.ThrowsAsync<InvalidOperationException>(() => _backend.FixAsync(new(SecurityCheckId.AppTracking, SecurityCheckState.Attention, "Enabled", "True", true), default));
         _settings.VerifyNoOtherCalls();

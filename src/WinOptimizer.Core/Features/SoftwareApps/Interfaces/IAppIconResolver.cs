@@ -28,4 +28,16 @@ public interface IAppIconResolver
         IEnumerable<ItemDefinition> definitions,
         bool applyThemeAdaptation = true,
         CancellationToken ct = default);
+
+    /// <summary>Resolves icons using the desktop registrations captured by the current inventory.</summary>
+    Task ResolveBatchAsync(IEnumerable<ItemDefinition> definitions, IReadOnlyList<IRegisteredDesktopIcon> registrations,
+        bool applyThemeAdaptation = true, CancellationToken ct = default) => ResolveBatchAsync(definitions, applyThemeAdaptation, ct);
+}
+
+/// <summary>Identifies the desktop registration and icon reference used by the artwork resolver.</summary>
+public interface IRegisteredDesktopIcon
+{
+    string KeyPath { get; }
+    string? DisplayIcon { get; }
+    bool Matches(ItemDefinition definition);
 }

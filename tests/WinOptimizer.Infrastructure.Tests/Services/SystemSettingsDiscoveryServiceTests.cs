@@ -25,6 +25,7 @@ public class SystemSettingsDiscoveryServiceTests
         // Default: no discovery handlers registered. Tests that need handler
         // behaviour can override _mockDiscoveryRegistry.Setup(r => r.All) locally.
         _mockDiscoveryRegistry.Setup(r => r.All).Returns(Array.Empty<ISpecialSettingHandler>());
+        _mockScheduledTask.Setup(s => s.GetTaskStatesAsync(It.IsAny<IReadOnlyList<string>>())).CallBase();
 
         _service = new SystemSettingsDiscoveryService(
             _mockRegistry.Object,
@@ -356,6 +357,28 @@ public class SystemSettingsDiscoveryServiceTests
 
         result.Should().ContainKey("test-task-error");
         result["test-task-error"].Should().BeEmpty();
+    }
+
+    [Fact]
+    public async Task ScheduledTaskDiscoveryBatchesPathsInOrderAndKeepsPerSettingResults()
+    {
+        var enabled = CreateScheduledTaskSetting("enabled", @"\Test\Enabled");
+        var failed = CreateScheduledTaskSetting("failed", @"\Test\Failed");
+        var missing = CreateScheduledTaskSetting("missing", @"\Test\Missing");
+        var disabled = CreateScheduledTaskSetting("disabled", @"\Test\Disabled");
+        _mockScheduledTask.Setup(s => s.IsTaskEnabledAsync(@"\Test\Enabled")).ReturnsAsync(true);
+        _mockScheduledTask.Setup(s => s.IsTaskEnabledAsync(@"\Test\Disabled")).ReturnsAsync(false);
+        _mockScheduledTask.Setup(s => s.IsTaskEnabledAsync(@"\Test\Failed")).ThrowsAsync(new IOException("Read failed"));
+
+        var result = await _service.GetRawSettingsValuesAsync([enabled, failed, missing, disabled]);
+
+        _mockScheduledTask.Verify(s => s.GetTaskStatesAsync(It.Is<IReadOnlyList<string>>(paths =>
+            paths.SequenceEqual(new[] { @"\Test\Enabled", @"\Test\Failed", @"\Test\Missing", @"\Test\Disabled" }))), Times.Once);
+        Assert.Equal(true, result["enabled"]["ScheduledTaskEnabled"]);
+        Assert.Empty(result["failed"]);
+        Assert.Equal(false, result["missing"]["ScheduledTaskExists"]);
+        Assert.Equal(false, result["disabled"]["ScheduledTaskEnabled"]);
+        Assert.Equal(true, result["disabled"]["ScheduledTaskExists"]);
     }
 
     [Fact]
@@ -836,12 +859,23 @@ public class SystemSettingsDiscoveryServiceTests
                 It.Is<RegistrySetting>(rs => rs.ApplyPerNetworkInterface)))
             .Returns(true);
 
+        var keyPath = setting.RegistrySettings[0].KeyPath;
+        _mockRegistry.Setup(r => r.GetSubKeyNames(keyPath)).Returns(["Fixture"]);
+        var exported = (await _service.GetSettingStateSnapshotAsync([setting]))[setting.Id];
+        Assert.True(exported.Success);
+        Assert.True(exported.IsEnabled);
+        Assert.Null(exported.TooltipData);
+        _mockRegistry.Verify(r => r.GetSubKeyNames(keyPath), Times.Never);
+
         var result = await _service.GetSettingStatesAsync(new[] { setting });
 
         result["test-network-interface"].Success.Should().BeTrue();
         result["test-network-interface"].IsEnabled.Should().BeTrue();
+        Assert.NotNull(result[setting.Id].TooltipData);
+        Assert.Equal(exported.RawValues?.ToArray(), result[setting.Id].RawValues?.ToArray());
+        _mockRegistry.Verify(r => r.GetSubKeyNames(keyPath), Times.Once);
         _mockRegistry.Verify(r => r.IsSettingApplied(
-            It.Is<RegistrySetting>(rs => rs.ApplyPerNetworkInterface)), Times.Once);
+            It.Is<RegistrySetting>(rs => rs.ApplyPerNetworkInterface)), Times.Exactly(2));
     }
 
     [Fact]

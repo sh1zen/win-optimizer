@@ -36,9 +36,10 @@ public class UserPreferencesService : IUserPreferencesService
     }
 
     /// <summary>Uses the interactive account's preferences in the common application data root.</summary>
-    private string GetPreferencesFilePath()
+    private string GetPreferencesFilePath() => EnsurePreferencesPath(AppDataPaths.Preferences(_interactiveUserService));
+
+    private string EnsurePreferencesPath(string path)
     {
-        var path = AppDataPaths.Preferences(_interactiveUserService);
         AppDataStorage.ValidatePath(path);
         _fileSystemService.CreateDirectory(Path.GetDirectoryName(path)!);
         return path;
@@ -49,7 +50,7 @@ public class UserPreferencesService : IUserPreferencesService
         await _fileLock.WaitAsync().ConfigureAwait(false);
         try
         {
-            return await GetPreferencesUnsafeAsync().ConfigureAwait(false);
+            return await GetPreferencesUnsafeAsync(GetPreferencesFilePath()).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -62,12 +63,10 @@ public class UserPreferencesService : IUserPreferencesService
         }
     }
 
-    private async Task<Dictionary<string, object>> GetPreferencesUnsafeAsync()
+    private async Task<Dictionary<string, object>> GetPreferencesUnsafeAsync(string filePath)
     {
         try
         {
-            string filePath = GetPreferencesFilePath();
-
             if (!_fileSystemService.FileExists(filePath))
             {
                 _logService.Log(LogLevel.Info, $"User preferences file does not exist at '{filePath}', returning empty preferences");
@@ -111,19 +110,13 @@ public class UserPreferencesService : IUserPreferencesService
         }
     }
 
-    private async Task<OperationResult> SavePreferencesUnsafeAsync(Dictionary<string, object> preferences)
+    private async Task<OperationResult> SavePreferencesUnsafeAsync(Dictionary<string, object> preferences, string? resolvedPath = null)
     {
         try
         {
-            string filePath = GetPreferencesFilePath();
+            string filePath = resolvedPath is null ? GetPreferencesFilePath() : EnsurePreferencesPath(resolvedPath);
 
             string json = JsonSerializer.Serialize(preferences, WriteOptions);
-
-            string? directory = _fileSystemService.GetDirectoryName(filePath);
-            if (directory != null && !_fileSystemService.DirectoryExists(directory))
-            {
-                _fileSystemService.CreateDirectory(directory);
-            }
 
             await _fileSystemService.WriteAllTextAsync(filePath, json).ConfigureAwait(false);
 
@@ -149,31 +142,11 @@ public class UserPreferencesService : IUserPreferencesService
         }
     }
 
-    public async Task<T> GetPreferenceAsync<T>(string key, T defaultValue)
-    {
-        // GetPreferencesAsync acquires _fileLock for us; no extra locking needed here.
-        var preferences = await GetPreferencesAsync().ConfigureAwait(false);
+    public async Task<UserPreferencesSnapshot> ReadSnapshotAsync() =>
+        new(await GetPreferencesAsync().ConfigureAwait(false), _logService);
 
-        if (preferences.TryGetValue(key, out var value))
-        {
-            try
-            {
-                return ReadPreferenceValue(value, defaultValue);
-            }
-            catch (Exception ex)
-            {
-                _logService.Log(LogLevel.Error, $"Error converting preference value for key '{key}': {ex.Message}");
-                if (ex.InnerException != null)
-                {
-                    _logService.Log(LogLevel.Error, $"Inner exception: {ex.InnerException.Message}");
-                }
-                _logService.Log(LogLevel.Error, $"Stack trace: {ex.StackTrace}");
-                return defaultValue;
-            }
-        }
-
-        return defaultValue;
-    }
+    public async Task<T> GetPreferenceAsync<T>(string key, T defaultValue) =>
+        (await ReadSnapshotAsync().ConfigureAwait(false)).Get(key, defaultValue);
 
     public async Task<OperationResult> SetPreferenceAsync<T>(string key, T value)
     {
@@ -191,10 +164,12 @@ public class UserPreferencesService : IUserPreferencesService
         await _fileLock.WaitAsync().ConfigureAwait(false);
         try
         {
-            var preferences = await GetPreferencesUnsafeAsync().ConfigureAwait(false);
+            // Use the same account path on both sides of the read/modify/write transaction.
+            var filePath = GetPreferencesFilePath();
+            var preferences = await GetPreferencesUnsafeAsync(filePath).ConfigureAwait(false);
 
             foreach (var (key, value) in changes) preferences[key] = value;
-            return await SavePreferencesUnsafeAsync(preferences).ConfigureAwait(false);
+            return await SavePreferencesUnsafeAsync(preferences, filePath).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -232,7 +207,7 @@ public class UserPreferencesService : IUserPreferencesService
 
             if (preferences != null && preferences.TryGetValue(key, out var value))
             {
-                return ReadPreferenceValue(value, defaultValue);
+                return UserPreferencesSnapshot.ConvertValue(value, defaultValue);
             }
         }
         catch (Exception ex)
@@ -241,19 +216,6 @@ public class UserPreferencesService : IUserPreferencesService
         }
 
         return defaultValue;
-    }
-
-    /// <summary>Reads the requested JSON type using the same contract for both preference APIs.</summary>
-    private static T ReadPreferenceValue<T>(object? value, T defaultValue)
-    {
-        if (value is T typedValue) return typedValue;
-        if (value is null) return defaultValue;
-        if (value is JsonElement element)
-        {
-            var storedValue = element.Deserialize<T>();
-            return storedValue is null ? defaultValue : storedValue;
-        }
-        throw new JsonException($"Expected a preference value of type {typeof(T).Name}.");
     }
 
 }

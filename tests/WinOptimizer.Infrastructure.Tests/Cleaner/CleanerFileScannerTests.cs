@@ -235,6 +235,24 @@ public sealed class CleanerFileScannerTests : IDisposable
     }
 
     [Fact]
+    public async Task PrivacyInspectionReusesBatchesWithoutRepeatingFindingsForSkippedFiles()
+    {
+        var expected = new List<string>();
+        for (var index = 0; index < 130; index++)
+        {
+            var path = WriteAgedFile($@"Google\Chrome\User Data\Default\Cache\{index:D3}.tmp");
+            if (index % 3 == 0) File.SetLastWriteTimeUtc(path, DateTime.UtcNow.AddDays(1));
+            else expected.Add(path);
+        }
+
+        var result = await _scanner.ScanAsync(CleanerArea.Privacy, new(), default);
+
+        Assert.Equal(130, result.CheckedItems);
+        result.Findings.Select(finding => finding.Detail).Should().BeEquivalentTo(expected);
+        Assert.Empty(result.Notices);
+    }
+
+    [Fact]
     public async Task OptionalCaches_OnlySelectRecognizedAgedCacheAndReportFiles()
     {
         var shader = WriteAgedFile(@"D3DSCache\old.bin");

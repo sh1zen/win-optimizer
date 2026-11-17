@@ -14,7 +14,7 @@ using WinOptimizer.Core.Features.Common.Interfaces;
 namespace WinOptimizer.UI.Features.Common.Controls;
 
 /// <summary>
-/// Custom navigation button with icon-over-text layout, selection indicator,
+/// Custom navigation button with icon-over-text layout, selection styling,
 /// lock overlay, and compact mode support.
 /// </summary>
 public sealed partial class NavButton : UserControl, INotifyPropertyChanged
@@ -191,9 +191,7 @@ public sealed partial class NavButton : UserControl, INotifyPropertyChanged
     public double ActualButtonWidth => IsCompact ? CompactWidth : ExpandedWidth;
     public double ActualButtonHeight => IsCompact ? CompactHeight : ExpandedHeight;
     public double IconSize => IsCompact ? CompactIconSize : ExpandedIconSize;
-    public double IndicatorHeight => IsCompact ? 24 : 40;
     public Visibility TextVisibility => IsCompact ? Visibility.Collapsed : Visibility.Visible;
-    public Visibility IndicatorVisibility => IsSelected ? Visibility.Visible : Visibility.Collapsed;
     public Visibility LockedVisibility => IsLocked ? Visibility.Visible : Visibility.Collapsed;
     public double ContentOpacity => IsLocked ? 0.4 : 1.0;
 
@@ -259,7 +257,6 @@ public sealed partial class NavButton : UserControl, INotifyPropertyChanged
     {
         if (d is NavButton button)
         {
-            button.NotifyPropertyChanged(nameof(IndicatorVisibility));
             button.UpdateVisualState();
         }
     }
@@ -281,7 +278,6 @@ public sealed partial class NavButton : UserControl, INotifyPropertyChanged
             button.NotifyPropertyChanged(nameof(ActualButtonWidth));
             button.NotifyPropertyChanged(nameof(ActualButtonHeight));
             button.NotifyPropertyChanged(nameof(IconSize));
-            button.NotifyPropertyChanged(nameof(IndicatorHeight));
             button.NotifyPropertyChanged(nameof(TextVisibility));
         }
     }

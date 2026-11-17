@@ -23,6 +23,7 @@ public class IsoServiceTests
         _mockFileSystem
             .Setup(fs => fs.CombinePath(It.IsAny<string[]>()))
             .Returns((string[] paths) => string.Join("\\", paths));
+        _mockFileSystem.Setup(fs => fs.ReadDirectoryContents(It.IsAny<string>())).CallBase();
 
         _mockLocalization
             .Setup(l => l.GetString(It.IsAny<string>(), It.IsAny<object[]>()))
@@ -96,6 +97,37 @@ public class IsoServiceTests
             var count = await runner.RunScriptInMemoryAsync($"$errors=$null; [void][System.Management.Automation.Language.Parser]::ParseInput([Text.Encoding]::Unicode.GetString([Convert]::FromBase64String('{encoded}')), [ref]$null, [ref]$errors); $errors.Count");
             Assert.Equal("0", count.Trim());
         }
+    }
+
+    [Fact]
+    public async Task ExtractionListsEachMountedDirectoryOnceAndKeepsFileCopyOrder()
+    {
+        const string source = @"C:\Media\setup.iso";
+        const string work = @"C:\Work";
+        _mockFileSystem.Setup(fs => fs.FileExists(source)).Returns(true);
+        _mockFileSystem.Setup(fs => fs.GetExtension(source)).Returns(".iso");
+        _mockFileSystem.Setup(fs => fs.GetFileSize(source)).Returns(5_000_000);
+        _mockFileSystem.Setup(fs => fs.GetFileName(It.IsAny<string>())).Returns((string path) => Path.GetFileName(path));
+        _mockFileSystem.Setup(fs => fs.ReadDirectoryContents(@"X:\"))
+            .Returns((new[] { @"X:\sources", @"X:\boot" }, new[] { @"X:\setup.exe", @"X:\autorun.inf" }));
+        _mockFileSystem.Setup(fs => fs.ReadDirectoryContents(@"X:\sources"))
+            .Returns((Array.Empty<string>(), new[] { @"X:\sources\install.wim" }));
+        _mockFileSystem.Setup(fs => fs.ReadDirectoryContents(@"X:\boot"))
+            .Returns((Array.Empty<string>(), new[] { @"X:\boot\boot.sdi" }));
+        _mockFileSystem.Setup(fs => fs.GetDirectories(work, "*", SearchOption.TopDirectoryOnly))
+            .Returns([@"C:\Work\sources", @"C:\Work\boot"]);
+        var copied = new List<(string Source, string Destination)>();
+        _mockFileSystem.Setup(fs => fs.CopyFile(It.IsAny<string>(), It.IsAny<string>(), true))
+            .Callback((string from, string to, bool _) => copied.Add((from, to)));
+        _mockProcessExecutor.Setup(process => process.ExecuteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ProcessExecutionResult { StandardOutput = "X" });
+
+        Assert.True(await _service.ExtractIsoAsync(source, work));
+
+        Assert.Equal(new[] { (@"X:\setup.exe", @"C:\Work\setup.exe"), (@"X:\autorun.inf", @"C:\Work\autorun.inf"),
+            (@"X:\sources\install.wim", @"C:\Work\sources\install.wim"), (@"X:\boot\boot.sdi", @"C:\Work\boot\boot.sdi") }, copied);
+        foreach (var directory in new[] { @"X:\", @"X:\sources", @"X:\boot" })
+            _mockFileSystem.Verify(fs => fs.ReadDirectoryContents(directory), Times.Once);
     }
 
     [Fact]

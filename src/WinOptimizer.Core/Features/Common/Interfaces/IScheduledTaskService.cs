@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using WinOptimizer.Core.Features.Common.Models;
@@ -18,4 +19,16 @@ public interface IScheduledTaskService
     Task<OperationResult> EnableTaskAsync(string taskPath);
     Task<OperationResult> DisableTaskAsync(string taskPath);
     Task<bool?> IsTaskEnabledAsync(string taskPath);
+
+    /// <summary>Reads states in input order, keeping failures local to each task.</summary>
+    async Task<(bool? Enabled, Exception? Error)[]> GetTaskStatesAsync(IReadOnlyList<string> taskPaths)
+    {
+        var states = new (bool?, Exception?)[taskPaths.Count];
+        for (var index = 0; index < states.Length; index++)
+        {
+            try { states[index] = (await IsTaskEnabledAsync(taskPaths[index]).ConfigureAwait(false), null); }
+            catch (Exception ex) { states[index] = (null, ex); }
+        }
+        return states;
+    }
 }

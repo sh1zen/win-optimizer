@@ -45,10 +45,11 @@ internal class FeatureRegistryScriptSection
                 continue;
             }
 
+            var definitionsById = settingDefinitions.ToLookup(definition => definition.Id, StringComparer.Ordinal);
             bool hasEntriesForCurrentHive = false;
             foreach (var configItem in configSection.Items)
             {
-                var settingDef = settingDefinitions.FirstOrDefault(s => s.Id == configItem.Id);
+                var settingDef = definitionsById[configItem.Id].FirstOrDefault();
                 if (settingDef == null) continue;
 
                 if (settingDef.Id == SettingIds.PowerPlanSelection) continue;
@@ -103,7 +104,7 @@ internal class FeatureRegistryScriptSection
             // Process each setting in the feature
             foreach (var configItem in configSection.Items)
             {
-                var settingDef = settingDefinitions.FirstOrDefault(s => s.Id == configItem.Id);
+                var settingDef = definitionsById[configItem.Id].FirstOrDefault();
                 if (settingDef == null)
                 {
                     _logService.Log(LogLevel.Warning, $"Could not find SettingDefinition for: {configItem.Id}");
