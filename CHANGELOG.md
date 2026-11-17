@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [v26.11.18] - 2026-11-18
+
 - Use a brief blur-to-sharp animation when navigating between pages.
 - Refresh the app with rounded cards and controls, segmented tabs and a brighter blue accent.
 - Fix hover flashes on cards and controls.
