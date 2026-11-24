@@ -164,7 +164,7 @@ public class AppxPackageSource(
             logService.LogInformation("Fetching installed AppX packages via Get-AppxPackage...");
 
             var output = await powerShellRunner.RunScriptAsync(
-                "Get-AppxPackage | Select-Object -ExpandProperty Name").ConfigureAwait(false);
+                "Get-AppxPackage -ErrorAction Stop | Select-Object -ExpandProperty Name").ConfigureAwait(false);
 
             if (!string.IsNullOrWhiteSpace(output))
             {
@@ -180,7 +180,7 @@ public class AppxPackageSource(
         }
         catch (Exception ex)
         {
-            logService.LogError($"Get-AppxPackage also failed: {ex.Message}");
+            throw new IOException("Get-AppxPackage could not read the installed AppX packages.", ex);
         }
 
         return packageNames;

@@ -146,7 +146,8 @@ public sealed class CleanerPrivacyRegistryTests : IDisposable
         key.Setup(x => x.DeleteValue("0")).Callback(() => _values[path].Clear());
         key.Setup(x => x.SetValue(It.IsAny<CleanerRegistryValue>())).Callback<CleanerRegistryValue>(value => _values[path].Add(value));
         _editor.Setup(x => x.OpenKey(path, false, It.IsAny<bool>())).Returns(key.Object);
-        var backend = new WindowsCleanerBackend(_files, _registry, new(_sessions, _vault, Mock.Of<IRegistryHiveOperations>()), Mock.Of<IProcessExecutor>());
+        var backend = new WindowsCleanerBackend(_files, _registry,
+            new(_sessions, _vault, Mock.Of<IRegistryHiveOperations>(), Mock.Of<IRegistryDefragBoot>()), Mock.Of<IProcessExecutor>());
         var backups = new CleanerBackupService(_vault, _files, _registry);
         var service = new CleanerService(backend, backups);
         var options = new CleanerOptions();

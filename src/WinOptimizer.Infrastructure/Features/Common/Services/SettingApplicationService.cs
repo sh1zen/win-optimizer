@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using WinOptimizer.Core.Features.Common.Enums;
 using WinOptimizer.Core.Features.Common.Events;
 using WinOptimizer.Core.Features.Common.Events.Settings;
+using WinOptimizer.Core.Features.Common.Helpers;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Localization;
 using WinOptimizer.Core.Features.Common.Models;
@@ -28,7 +29,8 @@ public class SettingApplicationService(
     ISystemSettingsDiscoveryService discoveryService,
     ILocalizationService localizationService,
     IHardwareDetectionService hardwareDetectionService,
-    IApplicationModeService applicationModeService) : ISettingApplicationService
+    IApplicationModeService applicationModeService,
+    WindowsRegistryService? timeMachineRegistry = null) : ISettingApplicationService
 {
     // Battery presence doesn't change mid-session, so resolve it once and cache. The async
     // detection is awaited inside ApplySettingAsync (already async-adjacent to the receipt flow)
@@ -77,6 +79,8 @@ public class SettingApplicationService(
         var setting = settingsRegistry.GetById(settingId);
         if (setting == null)
             throw new ArgumentException($"Setting '{settingId}' not found in registry");
+        using var registryTracking = timeMachineRegistry?.TrackSetting(setting,
+            ResolveLocalized(SettingLocalizationKeys.Name(setting)) ?? setting.Name);
 
         var featureId = settingsRegistry.GetFeatureIdForSetting(settingId)
             ?? throw new InvalidOperationException($"Setting '{settingId}' has no feature mapping");
@@ -116,9 +120,20 @@ public class SettingApplicationService(
         }
 
         var specialHandler = specialHandlerRegistry.TryGet(settingId);
-        if (specialHandler != null
-            && await specialHandler.TryApplySpecialSettingAsync(setting, value!, checkboxResult, this).ConfigureAwait(false))
+        if (specialHandler != null)
         {
+            try
+            {
+                if (!await specialHandler.TryApplySpecialSettingAsync(setting, value!, checkboxResult, this).ConfigureAwait(false))
+                    throw new InvalidOperationException($"Windows did not apply '{setting.Name}'.");
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException or System.ComponentModel.Win32Exception)
+            {
+                logService.Log(LogLevel.Warning, $"Could not apply '{settingId}': {ex.Message}");
+                await PublishObservedSettingAsync(setting).ConfigureAwait(false);
+                return OperationResult.Failed(ex.Message, ex);
+            }
+
             await processRestartManager.HandleProcessAndServiceRestartsAsync(setting).ConfigureAwait(false);
 
             eventBus.Publish(new SettingAppliedEvent(settingId, enable, value));
@@ -131,6 +146,13 @@ public class SettingApplicationService(
 
             LogChangeHistory(setting, settingId, enable, value, beforeDisplay);
             return OperationResult.Succeeded();
+        }
+
+        if (setting.InputType == InputType.Selection && value is int selectedIndex &&
+            setting.SettingPresets?.TryGetValue(selectedIndex, out var preset) == true)
+        {
+            var presetResult = await ApplyPresetChildrenAsync(settingId, preset).ConfigureAwait(false);
+            if (!presetResult.Success) return presetResult;
         }
 
         OperationResult operationResult;
@@ -157,69 +179,69 @@ public class SettingApplicationService(
                 .ApplySettingOperationsAsync(setting, enable, value, resetToDefault).ConfigureAwait(false);
         }
 
-        if (setting.SettingPresets != null &&
-            setting.InputType == InputType.Selection &&
-            value is int selectedIndex)
-        {
-            if (setting.SettingPresets.TryGetValue(selectedIndex, out var preset))
-            {
-                logService.Log(LogLevel.Info,
-                    $"[SettingApplicationService] Applying preset for '{settingId}' at index {selectedIndex}");
-
-                foreach (var (childSettingId, childValue) in preset)
-                {
-                    try
-                    {
-                        var childSetting = globalSettingsRegistry.GetSetting(childSettingId);
-                        if (childSetting == null)
-                        {
-                            logService.Log(LogLevel.Debug,
-                                $"[SettingApplicationService] Skipping preset child '{childSettingId}' - not registered (likely OS-filtered)");
-                            continue;
-                        }
-
-                        if (childSetting is SettingDefinition childSettingDef)
-                        {
-                            var compatibleSettings = compatibilityFilter.FilterSettingsByWindowsVersion(new[] { childSettingDef });
-                            if (!compatibleSettings.Any())
-                            {
-                                logService.Log(LogLevel.Info,
-                                    $"[SettingApplicationService] Skipping preset child '{childSettingId}' - not compatible with current OS version");
-                                continue;
-                            }
-                        }
-
-                        await ApplySettingAsync(new ApplySettingRequest { SettingId = childSettingId, Enable = childValue, SkipValuePrerequisites = true }).ConfigureAwait(false);
-                        logService.Log(LogLevel.Info,
-                            $"[SettingApplicationService] Applied preset setting '{childSettingId}' = {childValue}");
-                    }
-                    catch (Exception ex)
-                    {
-                        logService.Log(LogLevel.Warning,
-                            $"[SettingApplicationService] Failed to apply preset setting '{childSettingId}': {ex.Message}");
-                    }
-                }
-            }
-        }
-
-        if (!skipValuePrerequisites)
-        {
-            await dependencyResolver.SyncParentToMatchingPresetAsync(setting, settingId, allSettings, this).ConfigureAwait(false);
-        }
-
-        // Always publish the event — even on partial failure, some operations may
-        // have succeeded and listeners need to re-read actual system state.
-        eventBus.Publish(new SettingAppliedEvent(settingId, enable, value));
-
         if (!operationResult.Success)
         {
             logService.Log(LogLevel.Warning, $"[SettingApplicationService] Setting '{settingId}' partially failed: {operationResult.ErrorMessage}");
+            await PublishObservedSettingAsync(setting).ConfigureAwait(false);
             return operationResult;
         }
+
+        if (!skipValuePrerequisites)
+            await dependencyResolver.SyncParentToMatchingPresetAsync(setting, settingId, allSettings, this).ConfigureAwait(false);
+
+        eventBus.Publish(new SettingAppliedEvent(settingId, enable, value));
 
         logService.Log(LogLevel.Info, $"[SettingApplicationService] Successfully applied setting '{settingId}'");
         LogChangeHistory(setting, settingId, enable, value, beforeDisplay);
         return OperationResult.Succeeded();
+    }
+
+    /// <summary>Applies the preset's compatible children before committing its selection.</summary>
+    private async Task<OperationResult> ApplyPresetChildrenAsync(string settingId, Dictionary<string, bool> preset)
+    {
+        var failures = new List<string>();
+        foreach (var (childId, enabled) in preset)
+        {
+            var child = settingsRegistry.GetById(childId);
+            if (child == null || !compatibilityFilter.FilterSettingsByWindowsVersion([child]).Any())
+                continue;
+
+            try
+            {
+                var result = await ApplySettingAsync(new ApplySettingRequest
+                {
+                    SettingId = childId, Enable = enabled, SkipValuePrerequisites = true
+                }).ConfigureAwait(false);
+                if (result.Success) continue;
+
+                failures.Add($"{child.Name}: {result.ErrorMessage}");
+            }
+            catch (Exception ex)
+            {
+                failures.Add($"{child.Name}: {ex.Message}");
+            }
+        }
+
+        if (failures.Count == 0) return OperationResult.Succeeded();
+        var message = $"Could not apply all settings in preset '{settingId}': {string.Join("; ", failures)}";
+        logService.Log(LogLevel.Warning, message);
+        return OperationResult.Failed(message);
+    }
+
+    /// <summary>Publishes readback when an operation could have committed only some of its writes.</summary>
+    private async Task PublishObservedSettingAsync(SettingDefinition setting)
+    {
+        if (setting.InputType == InputType.Action) return;
+        try
+        {
+            var states = await discoveryService.GetSettingStatesAsync([setting]).ConfigureAwait(false);
+            if (states.TryGetValue(setting.Id, out var state) && state.Success)
+                eventBus.Publish(new SettingAppliedEvent(setting.Id, state.IsEnabled, state.CurrentValue, state));
+        }
+        catch (Exception ex)
+        {
+            logService.Log(LogLevel.Warning, $"Could not refresh '{setting.Id}' after an incomplete setting change: {ex.Message}");
+        }
     }
 
     public Task ApplyRecommendedSettingsForFeatureAsync(string settingId) =>
@@ -338,7 +360,7 @@ public class SettingApplicationService(
                     && acdcNum.TryGetValue("DCValue", out var dcNum)
                     && setting.PowerCfgSettings?.Count > 0)
                 {
-                    var units = RecommendedSettingsResolver.GetPowerCfgDisplayUnits(setting);
+                    var units = PowerSettingUnits.GetDisplayUnits(setting);
                     return FormatPowerNumeric(units, acNum, dcNum, hasBattery);
                 }
                 if (value is Dictionary<string, object?> acdcNumPlain
@@ -377,9 +399,9 @@ public class SettingApplicationService(
             var dcInt = TryToInt(dcRaw);
             if (acInt.HasValue && dcInt.HasValue)
             {
-                var units = RecommendedSettingsResolver.GetPowerCfgDisplayUnits(setting);
-                var ac = RecommendedSettingsResolver.ConvertSystemToDisplayUnits(acInt.Value, units);
-                var dc = RecommendedSettingsResolver.ConvertSystemToDisplayUnits(dcInt.Value, units);
+                var units = PowerSettingUnits.GetDisplayUnits(setting);
+                var ac = PowerSettingUnits.ToDisplayValue(acInt.Value, units);
+                var dc = PowerSettingUnits.ToDisplayValue(dcInt.Value, units);
                 return FormatPowerNumeric(units, ac, dc, hasBattery);
             }
         }

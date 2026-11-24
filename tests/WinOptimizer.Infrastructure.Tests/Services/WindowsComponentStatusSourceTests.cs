@@ -48,6 +48,8 @@ public class WindowsComponentStatusSourceTests
         var result = await source.GetStatusAsync(["test.capability", "missing"], ["test.feature", "test.feat"]);
 
         Assert.Equal(!failCapabilities, result.Capabilities["TEST.CAPABILITY"]);
+        Assert.Equal(!failCapabilities, result.CapabilitiesRead);
+        Assert.True(result.FeaturesRead);
         Assert.False(result.Capabilities["missing"]);
         Assert.True(result.Features["TEST.FEATURE"]);
         Assert.False(result.Features["test.feat"]);

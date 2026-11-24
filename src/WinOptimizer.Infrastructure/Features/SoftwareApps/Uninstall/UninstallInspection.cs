@@ -1,6 +1,7 @@
 using Microsoft.Win32;
 using System.Diagnostics;
 using WinOptimizer.Core.Features.Cleaner.Models;
+using WinOptimizer.Core.Features.SoftwareApps.Interfaces;
 using WinOptimizer.Core.Features.SoftwareApps.Models;
 using WinOptimizer.Infrastructure.Features.Cleaner;
 
@@ -57,7 +58,7 @@ internal sealed record UninstallVerificationContext(UninstallVerification Verifi
 /// <summary>Rechecks installations and enumerates only owned locations and exact executable/path references.</summary>
 internal sealed class UninstallInspection(ICleanerRegistrySessions sessions, IUninstallPackageSource packages,
     IUninstallScanFolders folders, IUninstallProcessSource processes, ICleanerShortcutReader shortcuts,
-    IReadOnlyList<UninstallAccount> accounts, ICollection<string> notices)
+    IReadOnlyList<UninstallAccount> accounts, ICollection<string> notices, IWindowsComponentStatusSource? components)
 {
     private const int MaximumRegistryKeys = 100000;
     private static readonly string[] ReferenceBranches =
@@ -80,9 +81,10 @@ internal sealed class UninstallInspection(ICleanerRegistrySessions sessions, IUn
     public List<UninstallRegistration> CurrentRegistrations { get; } = [];
 
     /// <summary>Builds one installation/process snapshot shared by all selected products.</summary>
-    public IReadOnlyDictionary<string, UninstallVerificationContext> VerifyAll(IReadOnlyList<UninstallProductPlan> plans,
+    public async Task<IReadOnlyDictionary<string, UninstallVerificationContext>> VerifyAllAsync(IReadOnlyList<UninstallProductPlan> plans,
         IReadOnlyList<UninstallNativeOutcome> outcomes, CancellationToken ct)
     {
+        var componentStatus = await ReadComponentsAsync(plans, ct).ConfigureAwait(false);
         var active = plans.ToDictionary(plan => plan.Application.Id, _ => new HashSet<string>(StringComparer.Ordinal));
         var unknown = plans.ToDictionary(plan => plan.Application.Id, plan => new HashSet<string>(plan.UnreadableAccounts, StringComparer.Ordinal));
         CurrentRegistrations.Clear();
@@ -140,6 +142,13 @@ internal sealed class UninstallInspection(ICleanerRegistrySessions sessions, IUn
             var outcome = outcomesById[plan.Application.Id].SingleOrDefault()
                 ?? new UninstallNativeOutcome(plan.Application.Id, false, false, "No native uninstall outcome is available.");
             var id = plan.Application.Id;
+            if (outcome.Success && !outcome.Deferred && outcome.Message is not null && !notices.Contains(outcome.Message))
+                notices.Add(outcome.Message);
+            if (plan.Application.CapabilityName is not null || plan.Application.OptionalFeatureName is not null)
+            {
+                result[id] = VerifyComponent(plan.Application, outcome, componentStatus);
+                continue;
+            }
             var hasProof = plan.Registrations.Count > 0 || plan.Packages.Values.Any(values => values.Length > 0) || plan.Executables.Count > 0;
             foreach (var (executable, sid) in plan.Executables)
             {
@@ -164,6 +173,41 @@ internal sealed class UninstallInspection(ICleanerRegistrySessions sessions, IUn
                 productProcesses.Length > 0, active[id], unknown[id]);
         }
         return result;
+    }
+
+    private async Task<WindowsComponentStatus?> ReadComponentsAsync(IReadOnlyList<UninstallProductPlan> plans, CancellationToken ct)
+    {
+        ct.ThrowIfCancellationRequested();
+        var capabilities = plans.Select(plan => plan.Application.CapabilityName).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        var features = plans.Select(plan => plan.Application.OptionalFeatureName).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
+        if (components is null || capabilities.Length + features.Length == 0) return null;
+        return await components.GetStatusAsync(capabilities, features).WaitAsync(ct).ConfigureAwait(false);
+    }
+
+    /// <summary>Confirms Windows servicing state without authorizing deletion of component-owned files.</summary>
+    private static UninstallVerificationContext VerifyComponent(ItemDefinition app, UninstallNativeOutcome outcome,
+        WindowsComponentStatus? status)
+    {
+        bool? installed = null;
+        if (app.CapabilityName is { } capability && status is { CapabilitiesRead: true } &&
+            status.Capabilities.TryGetValue(capability, out var registered))
+            installed = registered;
+        else if (app.OptionalFeatureName is { } feature && status is { FeaturesRead: true } &&
+            status.Features.TryGetValue(feature, out var enabled))
+            installed = enabled;
+
+        var state = outcome.Deferred ? UninstallVerificationState.Deferred :
+            installed == true ? UninstallVerificationState.StillInstalled :
+            installed == false && outcome.Success ? UninstallVerificationState.Removed : UninstallVerificationState.Unknown;
+        var detail = state switch
+        {
+            UninstallVerificationState.Removed => "Windows servicing confirmed that the component is no longer installed.",
+            UninstallVerificationState.StillInstalled => "Windows servicing reports that the component is still installed.",
+            UninstallVerificationState.Deferred => outcome.Message ?? "Windows must restart to finish removing the component.",
+            _ => outcome.Message ?? "Windows servicing could not verify the component state."
+        };
+        return new(new(app.Id, app.Name, state, detail), outcome.Success, outcome.Deferred, false,
+            installed == true ? ["machine"] : [], ["machine"]);
     }
 
     private void CheckRegistrations(IReadOnlyList<UninstallProductPlan> plans, ICleanerRegistrySession session, string prefix,

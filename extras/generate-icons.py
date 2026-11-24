@@ -89,6 +89,7 @@ SHAPES = {
     "Music": lambda d: (d.poly((8, 18), (8, 5), (20, 3), (20, 16)), d.line(8, 9, 20, 7), d.circle(5, 19, 3), d.circle(17, 17, 3)),
     "Video": lambda d: (d.rect(3, 6, 12, 13), d.poly((15, 10), (22, 7), (22, 18), (15, 15))),
     "Monitor": lambda d: (d.rect(3, 4, 18, 13), d.line(12, 17, 12, 21), d.line(7, 21, 17, 21)),
+    "MonitorInfo": lambda d: (SHAPES["Monitor"](d), d.line(12, 7.3, 12, 7.5), d.line(12, 11, 12, 14)),
     "Laptop": lambda d: (d.rect(5, 4, 14, 13), d.poly((5, 17), (2, 21), (22, 21), (19, 17))),
     "Phone": lambda d: (d.rect(7, 2, 10, 20), d.line(10, 5, 14, 5), d.line(11, 19, 13, 19)),
     "Keyboard": lambda d: (d.rect(2, 6, 20, 13), d.line(5, 10, 6, 10), d.line(10, 10, 11, 10), d.line(15, 10, 16, 10), d.line(19, 10, 19, 10.1), d.line(5, 14, 6, 14), d.line(10, 14, 19, 14)),
@@ -105,6 +106,7 @@ SHAPES = {
     "Moon": lambda d: (d.arc(12, 12, 9, 50, 290), d.arc(16, 8, 8, 80, 260)),
     "Bulb": lambda d: (d.arc(12, 9, 6, 145, 395), d.poly((7, 13), (9, 17), (15, 17), (17, 13)), d.line(9, 20, 15, 20), d.line(11, 23, 13, 23)),
     "Clock": lambda d: (d.circle(12, 12, 9), d.poly((12, 6), (12, 12), (16, 14))),
+    "RestoreClock": lambda d: (d.arc(12, 12, 9, 225, 510), d.poly((5.6, 2.5), (5.6, 5.6), (9.4, 5.6)), d.poly((12, 7), (12, 12), (15.5, 14.5))),
     "Calendar": lambda d: (d.rect(3, 5, 18, 16), d.line(3, 10, 21, 10), d.line(8, 2, 8, 7), d.line(16, 2, 16, 7), d.line(7, 14, 10, 14), d.line(14, 14, 17, 14), d.line(7, 18, 10, 18)),
     "Refresh": lambda d: (d.arc(12, 12, 8, 210, 530), d.poly((4, 4), (5, 9), (10, 8))),
     "Search": lambda d: (d.circle(10, 10, 6), d.line(15, 15, 22, 22)),
@@ -314,6 +316,7 @@ FEATURE_KEYS = {
     ("Grid", ""): "StartMenuIconPath", ("Folder", ""): "ExplorerIconPath",
     ("Package", "Download"): "ExternalAppsIconPath", ("Trash", ""): "DeleteForeverIconPath",
     ("Disc", ""): "WimUtilIconPath", ("CodeFile", ""): "AutounattendXmlIconPath",
+    ("MonitorInfo", ""): "SystemInformationIconPath", ("RestoreClock", ""): "RestoreIconPath",
     ("Memory", "Download"): "MemoryArrowDownIconPath", ("Wrench", "Clock"): "WrenchClockIconPath",
     ("Toolbox", ""): "ToolBoxIconPath",
 }

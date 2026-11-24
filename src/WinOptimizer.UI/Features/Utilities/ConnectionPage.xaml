@@ -13,12 +13,8 @@
             <StackPanel Spacing="8">
                 <TextBlock Text="{x:Bind ViewModel.SectionTitle, Mode=OneWay}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                 <common:PageHeader Title="{x:Bind ViewModel.Title, Mode=OneWay}" Description="{x:Bind ViewModel.Description, Mode=OneWay}" Icon="Globe"/>
-                </StackPanel>
-            <controls:WrapPanel HorizontalSpacing="12" VerticalSpacing="8">
-                <Button Content="{x:Bind ViewModel.SavedWifiLabel, Mode=OneWay}" Click="SavedWifi_Click"/>
-                <TextBlock Text="{x:Bind ViewModel.CapturedAt, Mode=OneWay}" VerticalAlignment="Center" TextWrapping="Wrap"/>
-            </controls:WrapPanel>
-            <InfoBar IsOpen="{x:Bind ViewModel.ShowModeNotice, Mode=OneWay}" Visibility="{x:Bind ViewModel.ShowModeNotice, Mode=OneWay}" Message="{x:Bind ViewModel.ModeNotice, Mode=OneWay}" IsClosable="False"/>
+            </StackPanel>
+            <Button Content="{x:Bind ViewModel.SavedWifiLabel, Mode=OneWay}" Click="SavedWifi_Click" HorizontalAlignment="Left"/>
             <InfoBar IsOpen="{x:Bind ViewModel.HasStatus, Mode=OneWay}" Message="{x:Bind ViewModel.Status, Mode=OneWay}" Visibility="{x:Bind ViewModel.HasStatus, Mode=OneWay}" Severity="{x:Bind ViewModel.StatusSeverity, Mode=OneWay}" IsClosable="False"/>
             <Border Style="{StaticResource PageCardStyle}">
                 <StackPanel Spacing="10">
@@ -54,7 +50,7 @@
                     <!-- Keep loading feedback centered over the usage plot without moving its content. -->
                     <Grid>
                         <Canvas x:Name="DailyChart" Height="180" SizeChanged="Chart_SizeChanged" AutomationProperties.Name="{x:Bind ViewModel.HistoryTitle, Mode=OneWay}"/>
-                        <ProgressRing IsActive="{x:Bind ViewModel.IsBusy, Mode=OneWay}" Visibility="{x:Bind ViewModel.IsBusy, Mode=OneWay}"
+                        <ProgressRing IsActive="{x:Bind ViewModel.IsHistoryLoading, Mode=OneWay}" Visibility="{x:Bind ViewModel.IsHistoryLoading, Mode=OneWay}"
                                       Width="40" Height="40" HorizontalAlignment="Center" VerticalAlignment="Center" IsHitTestVisible="False"/>
                     </Grid>
                     <Grid><Grid.ColumnDefinitions><ColumnDefinition/><ColumnDefinition/></Grid.ColumnDefinitions>
@@ -63,32 +59,6 @@
                     </Grid>
                     <TextBlock Text="{x:Bind ViewModel.HistoryDiagnostic, Mode=OneWay}" Visibility="{x:Bind ViewModel.HasHistoryDiagnostic, Mode=OneWay}" TextWrapping="Wrap" Foreground="{ThemeResource SystemFillColorCautionBrush}"/>
                     <TextBlock Text="{x:Bind ViewModel.HistoryHint, Mode=OneWay}" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                </StackPanel>
-            </Border>
-            <Border Style="{StaticResource PageCardStyle}">
-                <StackPanel Spacing="12">
-                    <TextBlock Text="{x:Bind ViewModel.DnsTitle, Mode=OneWay}" Style="{StaticResource SubtitleTextBlockStyle}"/>
-                    <TextBlock Text="{x:Bind ViewModel.DnsHint, Mode=OneWay}" TextWrapping="Wrap"/>
-                    <ComboBox ItemsSource="{x:Bind ViewModel.DnsChoices, Mode=OneWay}" HorizontalAlignment="Stretch" SelectedIndex="{x:Bind ViewModel.SelectedDnsIndex, Mode=TwoWay}" IsEnabled="{x:Bind ViewModel.CanWrite, Mode=OneWay}" AutomationProperties.Name="{x:Bind ViewModel.DnsTitle, Mode=OneWay}"/>
-                    <TextBlock Text="{x:Bind ViewModel.DnsUnavailable, Mode=OneWay}" Visibility="{x:Bind ViewModel.ShowDnsUnavailable, Mode=OneWay}" TextWrapping="Wrap"/>
-                    <Button Content="{x:Bind ViewModel.DnsApplyLabel, Mode=OneWay}" Command="{x:Bind ViewModel.ApplyDnsCommand}" Style="{StaticResource AccentButtonStyle}"/>
-                </StackPanel>
-            </Border>
-            <Border Style="{StaticResource PageCardStyle}">
-                <StackPanel Spacing="12">
-                    <TextBlock Text="{x:Bind ViewModel.VpnTitle, Mode=OneWay}" Style="{StaticResource SubtitleTextBlockStyle}"/>
-                    <TextBlock Text="{x:Bind ViewModel.VpnHint, Mode=OneWay}" TextWrapping="Wrap"/>
-                    <ItemsControl ItemsSource="{x:Bind ViewModel.VpnProfiles, Mode=OneWay}">
-                        <ItemsControl.ItemTemplate><DataTemplate x:DataType="vm:ConnectionVpnCard">
-                            <StackPanel Spacing="4" Margin="0,4">
-                                <TextBlock Text="{x:Bind Name}" FontWeight="SemiBold" TextWrapping="Wrap"/>
-                                <TextBlock Text="{x:Bind Details}" TextWrapping="Wrap" IsTextSelectionEnabled="True"/>
-                            </StackPanel>
-                        </DataTemplate></ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                    <TextBlock Text="{x:Bind ViewModel.EmptyVpn, Mode=OneWay}" Visibility="{x:Bind ViewModel.ShowEmptyVpn, Mode=OneWay}" TextWrapping="Wrap"/>
-                    <TextBlock Text="{x:Bind ViewModel.VpnDiagnostic, Mode=OneWay}" Visibility="{x:Bind ViewModel.HasVpnDiagnostic, Mode=OneWay}" TextWrapping="Wrap" IsTextSelectionEnabled="True" Foreground="{ThemeResource SystemFillColorCautionBrush}"/>
-                    <Button Content="{x:Bind ViewModel.ManageVpnLabel, Mode=OneWay}" Command="{x:Bind ViewModel.ManageVpnCommand}"/>
                 </StackPanel>
             </Border>
         </StackPanel>

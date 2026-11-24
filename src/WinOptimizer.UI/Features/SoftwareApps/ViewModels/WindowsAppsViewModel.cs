@@ -68,11 +68,7 @@ public partial class WindowsAppsViewModel : BaseViewModel, IWindowsAppsItemsProv
     public AdvancedCollectionView ItemsView { get; }
 
     public IEnumerable<AppItemViewModel> WindowsAppsFiltered => AppSortHelper.Order(
-        Items.Where(a =>
-            a.Definition.AppxPackageName?.Length > 0 &&
-            string.IsNullOrEmpty(a.Definition.CapabilityName) &&
-            string.IsNullOrEmpty(a.Definition.OptionalFeatureName) &&
-            FilterItem(a)),
+        Items.Where(app => IsAppPackage(app) && FilterItem(app)),
         SortMode);
 
     public IEnumerable<AppItemViewModel> CapabilitiesFiltered => AppSortHelper.Order(
@@ -89,6 +85,8 @@ public partial class WindowsAppsViewModel : BaseViewModel, IWindowsAppsItemsProv
 
     [ObservableProperty]
     public partial bool IsLoading { get; set; }
+
+    partial void OnIsLoadingChanged(bool value) => ToggleSelectAllVisibleAppsCommand.NotifyCanExecuteChanged();
 
     [ObservableProperty]
     public partial bool IsInitialized { get; set; }
@@ -130,54 +128,44 @@ public partial class WindowsAppsViewModel : BaseViewModel, IWindowsAppsItemsProv
         NotifyCardViewProperties();
     }
 
-    public string SectionAppsHeader => _localizationService.GetString("WindowsApps_Section_Apps") ?? "Windows Apps";
+    public string SectionAppsHeader => _localizationService.GetString("WindowsApps_Section_Apps") ?? "Installed apps";
+    public string SelectAllLabel => _localizationService.GetString("Common_SelectAll");
     public string SectionCapabilitiesHeader => _localizationService.GetString("WindowsApps_Section_Capabilities") ?? "Windows Capabilities";
     public string SectionOptionalFeaturesHeader => _localizationService.GetString("WindowsApps_Section_OptionalFeatures") ?? "Windows Optional Features";
 
-    public string SelectAllLabel => _localizationService.GetString("Common_SelectAll") ?? "Select All";
-    public string SelectAllInstalledLabel => _localizationService.GetString("Common_SelectAll_Installed") ?? "Select All Installed";
-    public string SelectAllNotInstalledLabel => _localizationService.GetString("Common_SelectAll_NotInstalled") ?? "Select All Not Installed";
+    private static bool IsAppPackage(AppItemViewModel app) =>
+        app.Definition.AppxPackageName?.Length > 0 &&
+        string.IsNullOrEmpty(app.Definition.CapabilityName) &&
+        string.IsNullOrEmpty(app.Definition.OptionalFeatureName);
 
-    public bool IsAllSelected =>
-        Items.Any(a => FilterItem(a)) && Items.Where(a => FilterItem(a)).All(a => a.IsSelected);
-    public bool IsAllSelectedInstalled =>
-        Items.Any(a => a.IsInstalled) && Items.Where(a => a.IsInstalled).All(a => a.IsSelected);
-    public bool IsAllSelectedNotInstalled =>
-        Items.Any(a => !a.IsInstalled) && Items.Where(a => !a.IsInstalled).All(a => a.IsSelected);
+    private IEnumerable<AppItemViewModel> VisibleAppPackages =>
+        ItemsView.OfType<AppItemViewModel>().Where(IsAppPackage);
 
-    [RelayCommand]
-    private void ToggleSelectAll()
+    public bool AreAllVisibleAppsSelected => VisibleAppPackages.Any() && VisibleAppPackages.All(app => app.IsSelected);
+
+    private bool CanToggleSelectAllVisibleApps() => !IsLoading && VisibleAppPackages.Any();
+
+    /// <summary>Changes selection within the filtered app packages and publishes the result once.</summary>
+    [RelayCommand(CanExecute = nameof(CanToggleSelectAllVisibleApps))]
+    private void ToggleSelectAllVisibleApps()
     {
-        var newValue = !IsAllSelected;
-        foreach (var item in Items.Where(a => FilterItem(a)))
-            item.IsSelected = newValue;
-        NotifySelectionStateChanged();
-    }
+        var apps = VisibleAppPackages.ToArray();
+        bool select = apps.Any(app => !app.IsSelected);
 
-    [RelayCommand]
-    private void ToggleSelectAllInstalled()
-    {
-        var newValue = !IsAllSelectedInstalled;
-        foreach (var item in Items.Where(a => a.IsInstalled))
-            item.IsSelected = newValue;
-        NotifySelectionStateChanged();
-    }
-
-    [RelayCommand]
-    private void ToggleSelectAllNotInstalled()
-    {
-        var newValue = !IsAllSelectedNotInstalled;
-        foreach (var item in Items.Where(a => !a.IsInstalled))
-            item.IsSelected = newValue;
+        _updatingRows = true;
+        try
+        {
+            foreach (var app in apps)
+                app.IsSelected = select;
+        }
+        finally { _updatingRows = false; }
         NotifySelectionStateChanged();
     }
 
     private void NotifySelectionStateChanged()
     {
-        OnPropertyChanged(nameof(IsAllSelected));
-        OnPropertyChanged(nameof(IsAllSelectedInstalled));
-        OnPropertyChanged(nameof(IsAllSelectedNotInstalled));
         OnPropertyChanged(nameof(HasSelectedItems));
+        OnPropertyChanged(nameof(AreAllVisibleAppsSelected));
         SelectedItemsChanged?.Invoke(this, EventArgs.Empty);
     }
 
@@ -196,7 +184,6 @@ public partial class WindowsAppsViewModel : BaseViewModel, IWindowsAppsItemsProv
             ItemsView.RefreshFilter();
         }
         NotifyCardViewProperties();
-        OnPropertyChanged(nameof(IsAllSelected));
     }
 
     private void NotifyCardViewProperties()
@@ -204,6 +191,8 @@ public partial class WindowsAppsViewModel : BaseViewModel, IWindowsAppsItemsProv
         OnPropertyChanged(nameof(WindowsAppsFiltered));
         OnPropertyChanged(nameof(CapabilitiesFiltered));
         OnPropertyChanged(nameof(OptionalFeaturesFiltered));
+        OnPropertyChanged(nameof(AreAllVisibleAppsSelected));
+        ToggleSelectAllVisibleAppsCommand.NotifyCanExecuteChanged();
     }
 
     private bool FilterItem(object obj)
@@ -312,20 +301,20 @@ public partial class WindowsAppsViewModel : BaseViewModel, IWindowsAppsItemsProv
         }
     }
 
-    private bool _updatingInventory;
+    private bool _updatingRows;
 
     private void Item_PropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(AppItemViewModel.IsSelected))
         {
-            if (!_updatingInventory) NotifySelectionStateChanged();
+            if (!_updatingRows) NotifySelectionStateChanged();
         }
         else if (e.PropertyName is nameof(AppItemViewModel.IsInstalled) or nameof(AppItemViewModel.IsRetainedOnDevice))
         {
             if (sender is AppItemViewModel app && !app.IsInstalled &&
                 !(ShowHiddenInstalledApps && app.IsRetainedOnDevice))
                 app.IsSelected = false;
-            if (_updatingInventory) return;
+            if (_updatingRows) return;
             ItemsView.RefreshFilter();
             NotifyCardViewProperties();
             NotifySelectionStateChanged();
@@ -335,7 +324,7 @@ public partial class WindowsAppsViewModel : BaseViewModel, IWindowsAppsItemsProv
     /// <summary>Publishes one card/filter/sort update for a batch of installation changes.</summary>
     private void UpdateInventoryRows(Action update)
     {
-        _updatingInventory = true;
+        _updatingRows = true;
         try
         {
             using (ItemsView.DeferRefresh())
@@ -345,7 +334,7 @@ public partial class WindowsAppsViewModel : BaseViewModel, IWindowsAppsItemsProv
                 ItemsView.RefreshSorting();
             }
         }
-        finally { _updatingInventory = false; }
+        finally { _updatingRows = false; }
         NotifyCardViewProperties();
         NotifySelectionStateChanged();
     }
@@ -413,10 +402,7 @@ public partial class WindowsAppsViewModel : BaseViewModel, IWindowsAppsItemsProv
                 {
                     foreach (var item in Items)
                     {
-                        if (statusResults.TryGetValue(item.Definition.Id, out bool isInstalled))
-                        {
-                            item.IsInstalled = isInstalled;
-                        }
+                        item.ApplyInstallationStatus(statusResults.TryGetValue(item.Definition.Id, out var isInstalled) ? isInstalled : null);
                         item.NotifyMetadataChanged();
                         item.IsRetainedOnDevice = devicePackages is not null &&
                             item.Definition.AppxPackageName?.Any(devicePackages.Contains) == true;
@@ -503,10 +489,10 @@ public partial class WindowsAppsViewModel : BaseViewModel, IWindowsAppsItemsProv
     /// <summary>
     /// Removes selected apps with optional confirmation skip (for ConfigurationService compatibility).
     /// </summary>
-    public async Task RemoveApps(bool skipConfirmation = false, bool saveRemovalScripts = true)
+    public async Task<OperationResult<AppUninstallResult>> RemoveApps(bool skipConfirmation = false, bool saveRemovalScripts = true)
     {
         var selectedItems = Items.Where(a => a.IsSelected).ToList();
-        if (selectedItems.Count == 0) return;
+        if (selectedItems.Count == 0) return OperationResult<AppUninstallResult>.Succeeded(new([], []));
 
         if (!skipConfirmation)
         {
@@ -516,11 +502,11 @@ public partial class WindowsAppsViewModel : BaseViewModel, IWindowsAppsItemsProv
                 AppOperationConfirmation.Build(itemNames, checkboxText, _localizationService));
             bool confirmed = r.Confirmed;
             bool checkboxChecked = r.CheckboxChecked;
-            if (!confirmed) return;
+            if (!confirmed) return OperationResult<AppUninstallResult>.Cancelled();
             saveRemovalScripts = checkboxChecked;
         }
 
-        await RemoveAppsInternalAsync(selectedItems, saveRemovalScripts);
+        return await RemoveAppsInternalAsync(selectedItems, saveRemovalScripts);
     }
 
     [RelayCommand]
@@ -546,7 +532,7 @@ public partial class WindowsAppsViewModel : BaseViewModel, IWindowsAppsItemsProv
         await RemoveAppsInternalAsync(selectedItems, saveScripts);
     }
 
-    private async Task RemoveAppsInternalAsync(List<AppItemViewModel> selectedItems, bool saveRemovalScripts = true)
+    private async Task<OperationResult<AppUninstallResult>> RemoveAppsInternalAsync(List<AppItemViewModel> selectedItems, bool saveRemovalScripts)
     {
         IsTaskRunning = true;
         StatusText = _localizationService.GetString("Progress_Task_RemovingWindowsApps");
@@ -559,15 +545,18 @@ public partial class WindowsAppsViewModel : BaseViewModel, IWindowsAppsItemsProv
             var removed = result.Applications.Where(app => app.State == UninstallVerificationState.Removed)
                 .Select(app => app.AppId).ToHashSet(StringComparer.Ordinal);
             StatusText = _localizationService.GetString("UninstallResidue_Outcome", removed.Count, selectedItems.Count);
+            return OperationResult<AppUninstallResult>.Succeeded(result);
         }
         catch (OperationCanceledException)
         {
             StatusText = _localizationService.GetString("UninstallResidue_Cancelled");
+            return OperationResult<AppUninstallResult>.Cancelled(StatusText);
         }
         catch (Exception ex)
         {
             _logService.LogError("Error removing apps", ex);
             StatusText = $"Error: {ex.Message}";
+            return OperationResult<AppUninstallResult>.Failed(ex.Message, ex);
         }
         finally
         {
@@ -599,7 +588,7 @@ public partial class WindowsAppsViewModel : BaseViewModel, IWindowsAppsItemsProv
             {
                 foreach (var item in Items.Where(item => removed.Contains(item.Id)))
                 {
-                    item.IsInstalled = false;
+                    item.ApplyInstallationStatus(false);
                     item.Definition.Metadata = null;
                     item.NotifyMetadataChanged();
                 }
@@ -621,11 +610,9 @@ public partial class WindowsAppsViewModel : BaseViewModel, IWindowsAppsItemsProv
     private void OnLanguageChanged(object? sender, EventArgs e)
     {
         OnPropertyChanged(nameof(SectionAppsHeader));
+        OnPropertyChanged(nameof(SelectAllLabel));
         OnPropertyChanged(nameof(SectionCapabilitiesHeader));
         OnPropertyChanged(nameof(SectionOptionalFeaturesHeader));
-        OnPropertyChanged(nameof(SelectAllLabel));
-        OnPropertyChanged(nameof(SelectAllInstalledLabel));
-        OnPropertyChanged(nameof(SelectAllNotInstalledLabel));
         OnPropertyChanged(nameof(ShowHiddenInstalledAppsLabel));
         OnPropertyChanged(nameof(ShowHiddenInstalledAppsTooltip));
     }

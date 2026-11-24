@@ -11,7 +11,9 @@ public sealed class AcerBatteryFirmwareTests
 {
     [Theory]
     [InlineData(60)]
+    [InlineData(70)]
     [InlineData(85)]
+    [InlineData(90)]
     public async Task DiscoversFixedModesAndConfirmsBothChangesThroughTheNormalService(int unsupportedPercentage)
     {
         var wmi = new AcerWmiFake();
@@ -36,6 +38,42 @@ public sealed class AcerBatteryFirmwareTests
         var service = Service(wmi);
         await Assert.ThrowsAsync<UtilityOperationException>(() => service.SetLimitAsync(80));
         Assert.Equal(100, (await service.ReadAsync()).ActiveLimit);
+        Assert.Single(wmi.Writes);
+    }
+
+    [Fact]
+    public async Task FirmwareWriteRejectionSurfacesEvenWhenHealthModeWasAlreadyEnabled()
+    {
+        var wmi = new AcerWmiFake { Status = [1, 0, 0, 0, 0], WriteResult = 1 };
+        var error = await Assert.ThrowsAsync<UtilityOperationException>(() => Service(wmi).SetLimitAsync(80));
+        Assert.Contains("code 1", error.Message);
+        Assert.Single(wmi.Writes);
+    }
+
+    [Theory]
+    [InlineData(93, true, true, false, 6470, true)]
+    [InlineData(93, false, false, true, 0, false)]
+    [InlineData(93, true, false, false, 0, false)]
+    [InlineData(93, true, true, false, 0, false)]
+    [InlineData(79, true, true, false, 6470, false)]
+    public async Task ObservedChargingIsCheckedIndependentlyOfTheHealthModeReadback(int chargePercent,
+        bool powerOnline, bool charging, bool discharging, int chargeRate, bool aboveLimit)
+    {
+        var wmi = new AcerWmiFake
+        {
+            ChargePercent = chargePercent,
+            TelemetryStatus = new Dictionary<string, object?>
+            {
+                ["InstanceName"] = "Battery", ["PowerOnline"] = powerOnline, ["Charging"] = charging,
+                ["Discharging"] = discharging, ["ChargeRate"] = chargeRate
+            }
+        };
+        var service = Service(wmi);
+        Assert.False((await service.ReadAsync()).IsChargingAboveLimit);
+        var applied = await service.SetLimitAsync(80);
+        Assert.Equal(80, applied.ActiveLimit);
+        Assert.Equal(aboveLimit, applied.IsChargingAboveLimit);
+        Assert.Equal(aboveLimit, (await service.ReadAsync()).IsChargingAboveLimit);
         Assert.Single(wmi.Writes);
     }
 
@@ -170,6 +208,9 @@ public sealed class AcerBatteryFirmwareTests
         public string? OtherEndpoint { get; init; }
         public byte? Functions { get; init; } = 3;
         public byte[]? Status { get; init; } = new byte[5];
+        public ushort WriteResult { get; init; }
+        public int ChargePercent { get; init; } = 72;
+        public IReadOnlyDictionary<string, object?>? TelemetryStatus { get; init; }
         public Exception? ReadError { get; init; }
         public Exception? WriteError { get; init; }
         public int Calls { get; private set; }
@@ -177,12 +218,18 @@ public sealed class AcerBatteryFirmwareTests
 
         public IReadOnlyList<IReadOnlyDictionary<string, object?>> Query(string scope, string query)
         {
+            if (scope == @"root\wmi" && TelemetryStatus is { } status)
+            {
+                if (query == "SELECT * FROM BatteryStatus WHERE Active=TRUE") return [status];
+                if (query == "SELECT * FROM BatteryStaticData WHERE Active=TRUE")
+                    return [new Dictionary<string, object?> { ["InstanceName"] = "Battery", ["Capabilities"] = 0u }];
+            }
             if (scope == @"root\wmi" && new[] { "BatteryStaticData", "BatteryFullChargedCapacity", "BatteryStatus", "BatteryCycleCount", "BatteryTemperature" }
                 .Any(name => query == $"SELECT * FROM {name} WHERE Active=TRUE")) return [];
             if (query.Contains("Win32_ComputerSystem"))
                 return [new Dictionary<string, object?> { ["Manufacturer"] = "Acer", ["Model"] = "Test laptop" }];
             if (query.Contains("Win32_Battery"))
-                return HasBattery ? [new Dictionary<string, object?> { ["EstimatedChargeRemaining"] = 72 }] : [];
+                return HasBattery ? [new Dictionary<string, object?> { ["EstimatedChargeRemaining"] = ChargePercent }] : [];
             Assert.Equal(AcerBatteryFirmware.Scope, scope);
             Assert.Equal("SELECT * FROM BatteryControl WHERE Active=TRUE", query);
             if (!HasEndpoint) return [];
@@ -200,10 +247,10 @@ public sealed class AcerBatteryFirmwareTests
             Assert.Equal(AcerBatteryFirmware.Scope, scope);
             Assert.Equal("BatteryControl", className);
             Assert.Equal(Instance, instanceName);
-            Assert.Null(resultProperty);
             Assert.Equal((byte)1, Assert.IsType<byte>(arguments["uBatteryNo"]));
             if (method == "GetBatteryHealthControlStatus")
             {
+                Assert.Null(resultProperty);
                 Assert.Equal(3, arguments.Count);
                 Assert.Equal((byte)1, Assert.IsType<byte>(arguments["uFunctionQuery"]));
                 Assert.Equal(new byte[2], Assert.IsType<byte[]>(arguments["uReserved"]));
@@ -212,14 +259,16 @@ public sealed class AcerBatteryFirmwareTests
                     ["uReturn"] = new byte[] { 0xff, 0xff } };
             }
             Assert.Equal("SetBatteryHealthControl", method);
+            Assert.Equal("uReturn", resultProperty);
             Assert.Equal(4, arguments.Count);
             Assert.Equal((byte)1, Assert.IsType<byte>(arguments["uFunctionMask"]));
             Assert.Equal(new byte[5], Assert.IsType<byte[]>(arguments["uReservedIn"]));
             var enabled = Assert.IsType<byte>(arguments["uFunctionStatus"]);
             if (WriteError != null) throw WriteError;
             Writes.Add(enabled);
+            if (WriteResult != 0) throw new UtilityOperationException($"The firmware rejected the charge-limit change (code {WriteResult}).");
             if (AcceptWrites && Status is { Length: 5 }) Status[0] = enabled;
-            return new Dictionary<string, object?> { ["uReturn"] = (ushort)0xffff };
+            return new Dictionary<string, object?> { ["uReturn"] = WriteResult };
         }
     }
 }

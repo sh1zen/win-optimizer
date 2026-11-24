@@ -36,10 +36,6 @@ public static partial class ExternalAppDefinitions
                         GroupName = "Browsers",
                         WinGetPackageId = ["Alex313031.Thorium"],
                         WebsiteUrl = "https://thorium.rocks/",
-                        ExternalApp = new ExternalAppMetadata
-                        {
-                            DownloadUrl = "https://github.com/Alex313031/Thorium-Win/releases/latest/download/thorium_SSE3_mini_installer.exe",
-                        },
                     },
                     new ItemDefinition
                     {
@@ -134,10 +130,6 @@ public static partial class ExternalAppDefinitions
                         WinGetPackageId = ["TheBrowserCompany.Arc"],
                         MsStoreId = "XPFMDW72VHTTX9",
                         WebsiteUrl = "https://arc.net/",
-                        ExternalApp = new ExternalAppMetadata
-                        {
-                            DownloadUrl = "https://releases.arc.net/windows/ArcInstaller.exe",
-                        },
                     },
                     new ItemDefinition
                     {
@@ -181,10 +173,6 @@ public static partial class ExternalAppDefinitions
                         GroupName = "Browsers",
                         WinGetPackageId = ["Zen-Team.Zen-Browser"],
                         WebsiteUrl = "https://zen-browser.app/",
-                        ExternalApp = new ExternalAppMetadata
-                        {
-                            DownloadUrl = "https://github.com/zen-browser/desktop/releases/latest/download/zen.installer.exe",
-                        },
                     },
                     new ItemDefinition
                     {
@@ -194,10 +182,6 @@ public static partial class ExternalAppDefinitions
                         GroupName = "Browsers",
                         WinGetPackageId = ["MullvadVPN.MullvadBrowser"],
                         WebsiteUrl = "https://mullvad.net/en/browser",
-                        ExternalApp = new ExternalAppMetadata
-                        {
-                            DownloadUrl = "https://mullvad.net/en/download/browser/win64/latest",
-                        },
                     },
                     new ItemDefinition
                     {
@@ -242,10 +226,6 @@ public static partial class ExternalAppDefinitions
                         WinGetPackageId = ["DuckDuckGo.DesktopBrowser"],
                         MsStoreId = "9N74NHXCH1N6",
                         WebsiteUrl = "https://duckduckgo.com/",
-                        ExternalApp = new ExternalAppMetadata
-                        {
-                            DownloadUrl = "https://staticcdn.duckduckgo.com/windows-desktop-browser/installer/DuckDuckGo.Installer.exe",
-                        },
                     },
                     new ItemDefinition
                     {

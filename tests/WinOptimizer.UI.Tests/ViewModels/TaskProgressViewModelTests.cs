@@ -259,63 +259,6 @@ public class TaskProgressViewModelTests : IDisposable
     }
 
     [Fact]
-    public void OnProgressUpdated_MultiScriptMode_UpdatesActiveScriptCount()
-    {
-        _mockTaskProgressService.Setup(s => s.IsTaskRunning).Returns(true);
-
-        _mockTaskProgressService.Raise(
-            s => s.ProgressUpdated += null,
-            this,
-            new TaskProgressDetail { ScriptSlotCount = 3, ScriptSlotIndex = 0 });
-
-        _sut.ActiveScriptCount.Should().Be(3);
-    }
-
-    [Fact]
-    public void OnProgressUpdated_MultiScriptMode_RaisesScriptProgressReceived()
-    {
-        int receivedSlotIndex = -1;
-        TaskProgressDetail? receivedDetail = null;
-        _sut.ScriptProgressReceived += (index, detail) =>
-        {
-            receivedSlotIndex = index;
-            receivedDetail = detail;
-        };
-
-        _mockTaskProgressService.Setup(s => s.IsTaskRunning).Returns(true);
-        var progressDetail = new TaskProgressDetail { ScriptSlotCount = 2, ScriptSlotIndex = 1, StatusText = "Script 2" };
-
-        _mockTaskProgressService.Raise(
-            s => s.ProgressUpdated += null,
-            this,
-            progressDetail);
-
-        receivedSlotIndex.Should().Be(1);
-        receivedDetail.Should().BeSameAs(progressDetail);
-    }
-
-    [Fact]
-    public void OnProgressUpdated_MultiScriptComplete_ResetsActiveScriptCount()
-    {
-        _mockTaskProgressService.Setup(s => s.IsTaskRunning).Returns(true);
-
-        // First, enter multi-script mode
-        _mockTaskProgressService.Raise(
-            s => s.ProgressUpdated += null,
-            this,
-            new TaskProgressDetail { ScriptSlotCount = 2, ScriptSlotIndex = 0 });
-        _sut.ActiveScriptCount.Should().Be(2);
-
-        // Then, receive completion (ScriptSlotCount = 0, ScriptSlotIndex = -1)
-        _mockTaskProgressService.Raise(
-            s => s.ProgressUpdated += null,
-            this,
-            new TaskProgressDetail { ScriptSlotCount = 0, ScriptSlotIndex = -1 });
-
-        _sut.ActiveScriptCount.Should().Be(0);
-    }
-
-    [Fact]
     public void CloseFailedTaskCommand_ResetsLoadingAndFailedState()
     {
         // Set up failed state

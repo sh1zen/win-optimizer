@@ -3,6 +3,8 @@ using WinOptimizer.Core.Features.SoftwareApps.Interfaces;
 using WinOptimizer.Core.Features.SoftwareApps.Models;
 using WinOptimizer.Infrastructure.Features.Cleaner;
 using WinOptimizer.Core.Features.Common.Interfaces;
+using WinOptimizer.Core.Features.Common.Models;
+using WinOptimizer.Infrastructure.Features.Common.Services;
 
 namespace WinOptimizer.Infrastructure.Features.SoftwareApps.Uninstall;
 
@@ -10,7 +12,7 @@ namespace WinOptimizer.Infrastructure.Features.SoftwareApps.Uninstall;
 public sealed class UninstallResidueService(IUninstallAccountSessions sessions, IUninstallRegistryProfiles profiles,
     IUninstallPackageSource packages, IUninstallScanFolders folders, IUninstallProcessSource processes,
     ICleanerShortcutReader shortcuts, ICleanerBackupVault vault, IApplicationModeService mode,
-    TimeProvider? clock = null) : IUninstallResidueService
+    TimeProvider? clock = null, TimeMachineStore? timeMachine = null, IWindowsComponentStatusSource? components = null) : IUninstallResidueService
 {
     private readonly SemaphoreSlim _mutationGate = new(1, 1);
 
@@ -20,7 +22,7 @@ public sealed class UninstallResidueService(IUninstallAccountSessions sessions, 
         var discovery = new UninstallDiscovery(sessions, profiles, packages, folders, shortcuts);
         var plans = discovery.Capture(applications, progress, ct);
         var session = new Session(sessions, packages, folders, processes, shortcuts, vault, discovery, plans, mode,
-            _mutationGate, clock ?? TimeProvider.System);
+            _mutationGate, clock ?? TimeProvider.System, timeMachine, components);
         try { session.CaptureBaseline(progress, ct); return session; }
         catch { session.StopMonitors(); throw; }
     }, ct);
@@ -49,6 +51,7 @@ public sealed class UninstallResidueService(IUninstallAccountSessions sessions, 
         private readonly IApplicationModeService _mode;
         private readonly SemaphoreSlim _mutationGate;
         private readonly TimeProvider _clock;
+        private readonly TimeMachineStore? _timeMachine;
         private readonly List<FileSystemWatcher> _monitors = [];
         private readonly ConcurrentQueue<string> _monitorNotices = new();
         private readonly SemaphoreSlim _gate = new(1, 1);
@@ -62,14 +65,15 @@ public sealed class UninstallResidueService(IUninstallAccountSessions sessions, 
         public Session(ICleanerRegistrySessions sessions, IUninstallPackageSource packages, IUninstallScanFolders folders,
             IUninstallProcessSource processes, ICleanerShortcutReader shortcuts, ICleanerBackupVault vault,
             UninstallDiscovery discovery, IReadOnlyList<UninstallProductPlan> plans, IApplicationModeService mode,
-            SemaphoreSlim mutationGate, TimeProvider clock)
+            SemaphoreSlim mutationGate, TimeProvider clock, TimeMachineStore? timeMachine, IWindowsComponentStatusSource? components)
         {
             _discovery = discovery;
             _plans = plans;
-            _inspection = new(sessions, packages, folders, processes, shortcuts, discovery.Accounts, discovery.Notices);
+            _inspection = new(sessions, packages, folders, processes, shortcuts, discovery.Accounts, discovery.Notices, components);
             _editor = new(sessions, folders, shortcuts);
             _backups = new(vault, _editor);
             _mode = mode; _mutationGate = mutationGate; _clock = clock;
+            _timeMachine = timeMachine;
             _lastChangeAt = clock.GetTimestamp();
         }
 
@@ -126,7 +130,7 @@ public sealed class UninstallResidueService(IUninstallAccountSessions sessions, 
                 await WaitForCompletionAsync(progress, ct).ConfigureAwait(false);
                 StopMonitors();
                 _discovery.RefreshLocations(_plans, ct);
-                var verification = _inspection.VerifyAll(_plans, _outcomes, ct);
+                var verification = await _inspection.VerifyAllAsync(_plans, _outcomes, ct).ConfigureAwait(false);
                 _verified = true;
                 return new AppUninstallResult(verification.Values.Select(context => context.Verification).ToArray(),
                     _discovery.Notices.Concat(_monitorNotices).Distinct().ToArray());
@@ -144,7 +148,7 @@ public sealed class UninstallResidueService(IUninstallAccountSessions sessions, 
                 if (!_verified) throw new InvalidOperationException("Verify uninstall completion before scanning leftovers.");
                 _evidence.Clear();
                 _discovery.RefreshLocations(_plans, ct);
-                var verification = _inspection.VerifyAll(_plans, _outcomes, ct);
+                var verification = await _inspection.VerifyAllAsync(_plans, _outcomes, ct).ConfigureAwait(false);
                 List<UninstallEvidence> findings = [];
                 foreach (var plan in _plans) findings.AddRange(_inspection.ScanFiles(plan, verification, progress, ct));
                 findings.AddRange(_inspection.ScanRegistry(_plans, verification, ct));
@@ -183,25 +187,27 @@ public sealed class UninstallResidueService(IUninstallAccountSessions sessions, 
         }, ct);
 
         /// <summary>Allows launcher/child-process work to settle before the final resource scan; never treats a timeout as success.</summary>
-        private async Task<IReadOnlyDictionary<string, UninstallVerificationContext>> WaitForCompletionAsync(
+        private async Task WaitForCompletionAsync(
             IProgress<UninstallResidueProgress>? progress, CancellationToken ct)
         {
+            var appPlans = _plans.Where(plan => plan.Application.CapabilityName is null && plan.Application.OptionalFeatureName is null).ToArray();
+            if (appPlans.Length == 0) return;
             var started = _clock.GetTimestamp();
             var quietSince = started;
             while (true)
             {
                 ct.ThrowIfCancellationRequested();
                 progress?.Report(new("Monitoring uninstaller completion and remaining application registrations..."));
-                var verification = _inspection.VerifyAll(_plans, _outcomes, ct);
+                var verification = await _inspection.VerifyAllAsync(appPlans, _outcomes, ct).ConfigureAwait(false);
                 var now = _clock.GetTimestamp();
                 var busy = verification.Values.Any(context => context.NativeSucceeded && !context.Deferred &&
                     (context.ProcessRunning || context.Active.Count > 0 && !SomeInstallationRemoved(context)));
                 if (_clock.GetElapsedTime(quietSince, now) >= TimeSpan.FromSeconds(2) &&
-                    _clock.GetElapsedTime(Interlocked.Read(ref _lastChangeAt), now) >= TimeSpan.FromSeconds(2) && !busy) return verification;
+                    _clock.GetElapsedTime(Interlocked.Read(ref _lastChangeAt), now) >= TimeSpan.FromSeconds(2) && !busy) return;
                 if (_clock.GetElapsedTime(started, now) >= TimeSpan.FromSeconds(30))
                 {
                     if (busy) _discovery.Notices.Add("Uninstall monitoring reached its deadline. Remaining installations/processes are reported and their resources are protected.");
-                    return verification;
+                    return;
                 }
                 await Task.Delay(TimeSpan.FromSeconds(1), _clock, ct).ConfigureAwait(false);
             }
@@ -232,7 +238,7 @@ public sealed class UninstallResidueService(IUninstallAccountSessions sessions, 
                 await _mutationGate.WaitAsync(ct).ConfigureAwait(false);
                 try
                 {
-                var verification = _inspection.VerifyAll(_plans, _outcomes, ct);
+                var verification = await _inspection.VerifyAllAsync(_plans, _outcomes, ct).ConfigureAwait(false);
                 foreach (var entry in entries)
                 {
                     ct.ThrowIfCancellationRequested();
@@ -263,6 +269,9 @@ public sealed class UninstallResidueService(IUninstallAccountSessions sessions, 
                         await _editor.DeleteAsync(entry, backup.Hashes.GetValueOrDefault(entry.Finding.Id), ct).ConfigureAwait(false);
                         removed.Add(entry.Finding.Id);
                         _evidence.Remove(entry.Finding.Id);
+                        _timeMachine?.Record(LogTopic.Software, entry.Finding.Path,
+                            entry.Finding.Kind is UninstallArtifactKind.File or UninstallArtifactKind.Directory
+                                ? "Uninstall file or folder deleted" : "Uninstall registry entry deleted");
                     }
                     catch (OperationCanceledException)
                     {

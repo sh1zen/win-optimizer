@@ -35,34 +35,46 @@ public class ConfigReviewService : IConfigReviewService, IConfigReviewModeServic
     private readonly Dictionary<string, BuilderEdit> _builderEdits = new();
     private readonly object _modeLock = new();
     private int _systemOperations;
+    private int _normalModeOperations;
     public bool IsSystemOperationRunning { get { lock (_modeLock) return _systemOperations > 0; } }
     public event EventHandler? SystemOperationChanged;
 
     /// <summary>Serializes test-mode entry against real, possibly nested setting operations.</summary>
-    public IDisposable BeginSystemOperation()
+    public IDisposable BeginSystemOperation() => BeginSystemOperation(normalModeOnly: false);
+
+    public IDisposable BeginNormalModeSystemOperation() => BeginSystemOperation(normalModeOnly: true);
+
+    private IDisposable BeginSystemOperation(bool normalModeOnly)
     {
         bool notify;
         lock (_modeLock)
         {
             if (CurrentMode == WinOptimizerMode.Builder)
                 throw new InvalidOperationException(_localizationService.GetString("TrialMode_Blocked"));
+            if (normalModeOnly && CurrentMode != WinOptimizerMode.Normal)
+                throw new InvalidOperationException(_localizationService.GetString("Experimental_NormalMode"));
+            if (normalModeOnly) _normalModeOperations++;
             notify = ++_systemOperations == 1;
         }
         if (notify) SystemOperationChanged?.Invoke(this, EventArgs.Empty);
-        return new SystemOperationLease(this);
+        return new SystemOperationLease(this, normalModeOnly);
     }
 
-    private void EndSystemOperation()
+    private void EndSystemOperation(bool normalModeOnly)
     {
         bool notify;
-        lock (_modeLock) notify = --_systemOperations == 0;
+        lock (_modeLock)
+        {
+            if (normalModeOnly) _normalModeOperations--;
+            notify = --_systemOperations == 0;
+        }
         if (notify) SystemOperationChanged?.Invoke(this, EventArgs.Empty);
     }
 
-    private sealed class SystemOperationLease(ConfigReviewService owner) : IDisposable
+    private sealed class SystemOperationLease(ConfigReviewService owner, bool normalModeOnly) : IDisposable
     {
         private ConfigReviewService? _owner = owner;
-        public void Dispose() => Interlocked.Exchange(ref _owner, null)?.EndSystemOperation();
+        public void Dispose() => Interlocked.Exchange(ref _owner, null)?.EndSystemOperation(normalModeOnly);
     }
 
     // Action settings that always need confirmation, even when current matches config
@@ -122,19 +134,21 @@ public class ConfigReviewService : IConfigReviewService, IConfigReviewModeServic
 
     public async Task EnterReviewModeAsync(UnifiedConfigurationFile config, bool isWindowsDefaults = false)
     {
-        // Fully tear down whatever mode we're leaving (clears Builder edits / prior review
-        // state) before seeding review. Review entry is the one async transition, so it
-        // drives the teardown itself rather than routing through SetMode.
-        LeaveCurrentMode();
-
-        ActiveConfig = config;
-        IsWindowsDefaults = isWindowsDefaults;
-        _diffs.Clear();
-        _configItemCounts.Clear();
-        _featuresInConfig.Clear();
-        _visitedFeatures.Clear();
-        CurrentMode = WinOptimizerMode.ConfigReview;
-        _compatibleSettingsRegistry.SetFilterEnabled(true);
+        lock (_modeLock)
+        {
+            if (_normalModeOperations > 0)
+                throw new InvalidOperationException(_localizationService.GetString("Experimental_OperationRunning"));
+            // Reserve review mode before asynchronous discovery.
+            LeaveCurrentMode();
+            ActiveConfig = config;
+            IsWindowsDefaults = isWindowsDefaults;
+            _diffs.Clear();
+            _configItemCounts.Clear();
+            _featuresInConfig.Clear();
+            _visitedFeatures.Clear();
+            CurrentMode = WinOptimizerMode.ConfigReview;
+            _compatibleSettingsRegistry.SetFilterEnabled(true);
+        }
 
         // First compute total config item counts and populate _featuresInConfig
         ComputeConfigItemCounts(config);

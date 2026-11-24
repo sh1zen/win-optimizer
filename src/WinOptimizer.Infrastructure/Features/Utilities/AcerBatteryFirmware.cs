@@ -24,12 +24,12 @@ internal sealed class AcerBatteryFirmware(IBatteryWmi wmi) : IBatteryFirmwarePro
             throw new UtilityOperationException("Acer returned no battery health-mode capabilities. Check the OEM firmware and driver.");
         if ((functions & 1) == 0) return new(Provider, [], null, BatteryControlIssue.FirmwareUnsupported);
         if (output.GetValueOrDefault("uFunctionStatus") is not byte[] { Length: 5 } status)
-            throw new UtilityOperationException("Acer returned an invalid battery health-mode status. Refresh before retrying.");
+            throw new UtilityOperationException("Acer returned an invalid battery health-mode status. Check the OEM firmware and driver.");
         return new(Provider, [80, 100], status[0] != 0 ? 80 : 100);
     }
 
     /// <summary>Changes health mode alone; the service confirms the resulting setting through a fresh read.</summary>
-    public void SetLimit(int percentage)
+    public void SetLimit(int percentage, int? resumeThreshold = null)
     {
         var enabled = percentage switch
         {
@@ -38,12 +38,11 @@ internal sealed class AcerBatteryFirmware(IBatteryWmi wmi) : IBatteryFirmwarePro
             _ => throw new ArgumentOutOfRangeException(nameof(percentage))
         };
         var instance = FindInstance() ?? throw new UtilityOperationException("The Acer battery control endpoint is unavailable.");
-        // Acer's uReturn bytes have no documented success convention. A fresh health-mode read is authoritative.
         wmi.Invoke(Scope, ClassName, "SetBatteryHealthControl", new Dictionary<string, object>
         {
             ["uBatteryNo"] = (byte)1, ["uFunctionMask"] = (byte)1,
             ["uFunctionStatus"] = enabled, ["uReservedIn"] = new byte[5]
-        }, null, instance);
+        }, "uReturn", instance);
     }
 
     /// <summary>Prefers the active APGe endpoint used by Predator firmware and rejects ambiguous controls.</summary>

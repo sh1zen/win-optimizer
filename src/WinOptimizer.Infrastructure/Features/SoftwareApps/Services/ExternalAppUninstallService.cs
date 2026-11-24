@@ -32,9 +32,8 @@ public class ExternalAppUninstallService(
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var (found, command) = await uninstallCommands.GetAsync(item).ConfigureAwait(false);
-            if (found && !string.IsNullOrWhiteSpace(command))
-                return await UninstallViaRegistryAsync(item, command, cancellationToken).ConfigureAwait(false);
+            var registered = await TryUninstallRegisteredAsync(item, cancellationToken).ConfigureAwait(false);
+            if (registered is not null) return registered;
 
             var method = await DetermineAutomaticMethodAsync(item).ConfigureAwait(false);
             if (method == UninstallMethod.None)
@@ -59,6 +58,25 @@ public class ExternalAppUninstallService(
         {
             return OperationResult<bool>.Cancelled("Uninstall cancelled");
         }
+    }
+
+    /// <summary>Distinguishes an unavailable registration read from a verified absence of a desktop command.</summary>
+    public async Task<OperationResult<bool>?> TryUninstallRegisteredAsync(ItemDefinition item, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        bool found;
+        string command;
+        try { (found, command) = await uninstallCommands.GetAsync(item).ConfigureAwait(false); }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or ArgumentException
+            or System.Security.SecurityException or System.ComponentModel.Win32Exception)
+        {
+            var message = $"Could not read the registered uninstaller for {item.Name}: {ex.Message}";
+            logService.LogError(message, ex);
+            return OperationResult<bool>.Failed(message, ex);
+        }
+        return found && !string.IsNullOrWhiteSpace(command)
+            ? await UninstallViaRegistryAsync(item, command, cancellationToken).ConfigureAwait(false)
+            : null;
     }
 
     /// <summary>Chooses an automatic provider only after native command discovery found none.</summary>
@@ -216,7 +234,6 @@ public class ExternalAppUninstallService(
             {
                 exitCode = await processExecutor.ShellExecuteAsync(fileName, arguments, waitForExit: true, CancellationToken.None).ConfigureAwait(false);
             }
-            cancellationToken.ThrowIfCancellationRequested();
             if (exitCode is 3010 or 1641)
                 return OperationResult<bool>.DeferredSuccess(true, "The uninstaller requires a restart; inspect leftovers after restarting Windows.");
             if (exitCode != 0)
@@ -225,7 +242,13 @@ public class ExternalAppUninstallService(
             logService.LogInformation($"Uninstall process for {item.Name} completed successfully");
             taskProgressService.UpdateProgress(100, $"Uninstall process for {item.Name} completed successfully");
 
-            await CleanupStaleChocoRecordAsync(item, cancellationToken).ConfigureAwait(false);
+            // Cancellation can skip follow-up cleanup after the native uninstall has already completed.
+            try
+            {
+                if (!cancellationToken.IsCancellationRequested)
+                    await CleanupStaleChocoRecordAsync(item, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { }
             return OperationResult<bool>.Succeeded(true);
         }
         catch (OperationCanceledException)

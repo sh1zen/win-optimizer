@@ -87,11 +87,10 @@ public class CleanerServiceTests
     }
 
     [Fact]
-    public void ExistingPreferencesWithoutBackupFields_EnableBothBackups()
+    public void ExistingPreferencesWithoutBackupFields_EnableFileAndValueBackup()
     {
         var options = System.Text.Json.JsonSerializer.Deserialize<CleanerOptions>("{\"DeepClean\":true}")!;
         options.BackupBeforeCleaning.Should().BeTrue();
-        options.BackupBeforeRegistryDefrag.Should().BeTrue();
         options.PrivacyAccountSids.Should().BeNull();
         options.JunkAccountSids.Should().BeNull();
         options.ShortcutAccountSids.Should().BeNull();
@@ -117,9 +116,17 @@ public class CleanerServiceTests
         List<CleanerProgress> reports = [];
         var progress = new Mock<IProgress<CleanerProgress>>();
         progress.Setup(x => x.Report(It.IsAny<CleanerProgress>())).Callback<CleanerProgress>(reports.Add);
-        await new CleanerService(_backend.Object, _backups.Object).ScanAsync(new(), [CleanerArea.Privacy, CleanerArea.Registry], progress.Object, default);
-        reports.Single(x => x.Message == "privacy registry").Percentage.Should().Be(37.5);
+        await new CleanerService(_backend.Object, _backups.Object).ScanAsync(new(), [CleanerArea.Registry, CleanerArea.Privacy], progress.Object, default);
+        var privacy = reports.Single(x => x.Message == "privacy registry");
+        privacy.Percentage.Should().Be(37.5);
+        privacy.ScanStage!.ActiveArea.Should().Be(CleanerArea.Privacy);
+        privacy.ScanStage.Areas.Should().Equal(CleanerArea.Privacy, CleanerArea.Registry);
+        var registry = reports.Single(x => x is { Message: "Cleaner_Registry", Total: 0 });
+        registry.ScanStage!.ActiveArea.Should().Be(CleanerArea.Registry);
+        registry.ScanStage.CompletedAreas.Should().Be(1);
         reports[^1].Percentage.Should().Be(100);
+        reports[^1].ScanStage!.ActiveArea.Should().BeNull();
+        reports[^1].ScanStage!.CompletedAreas.Should().Be(2);
     }
 
     [Fact]
@@ -217,10 +224,29 @@ public class CleanerServiceTests
     public async Task DisabledBackup_IsPassedToBackend_AndDoesNotCreateSession()
     {
         var item = Finding(); var service = SetupScan(item);
-        await service.ScanAsync(new() { BackupBeforeCleaning = false, BackupBeforeRegistryDefrag = false }, [CleanerArea.JunkFiles], null, default);
+        await service.ScanAsync(new() { BackupBeforeCleaning = false }, [CleanerArea.JunkFiles], null, default);
         await service.ApplyAsync([item.Id], null, default);
         _backups.Verify(x => x.CreateAsync(It.IsAny<IReadOnlyList<CleanerFinding>>(), It.IsAny<CancellationToken>()), Times.Never);
-        _backend.Verify(x => x.CleanAsync(item, It.Is<CleanerOptions>(o => !o.BackupBeforeRegistryDefrag), It.IsAny<CancellationToken>()), Times.Once);
+        _backend.Verify(x => x.CleanAsync(item, It.Is<CleanerOptions>(o => !o.BackupBeforeCleaning), It.IsAny<CancellationToken>()), Times.Once);
+    }
+    [Fact]
+    public async Task SelectedHivesAreScheduledTogetherAndReportedAsPending()
+    {
+        var first = Finding() with { Area = CleanerArea.RegistryDefrag, Target = new CleanerHiveTarget(@"HKEY_LOCAL_MACHINE\SYSTEM") };
+        var second = Finding() with { Area = CleanerArea.RegistryDefrag, Target = new CleanerHiveTarget("HKEY_CURRENT_USER") };
+        var service = SetupScan(first, second);
+        await service.ScanAsync(new(), [CleanerArea.RegistryDefrag], null, default);
+        var targets = new[] { (CleanerHiveTarget)first.Target, (CleanerHiveTarget)second.Target };
+        _backend.Setup(x => x.ScheduleRegistryDefragAsync(targets, It.IsAny<CancellationToken>())).Returns(Task.CompletedTask);
+
+        var result = await service.ApplyAsync([first.Id, second.Id], null, default);
+
+        Assert.Equal(0, result.Completed);
+        Assert.Equal(2, result.Scheduled);
+        Assert.Empty(result.Errors);
+        _backend.Verify(x => x.ScheduleRegistryDefragAsync(
+            It.Is<IReadOnlyList<CleanerHiveTarget>>(items => items.SequenceEqual(targets)), It.IsAny<CancellationToken>()), Times.Once);
+        _backend.Verify(x => x.CleanAsync(It.IsAny<CleanerFinding>(), It.IsAny<CleanerOptions>(), It.IsAny<CancellationToken>()), Times.Never);
     }
     [Fact]
     public async Task BackupCompletesBeforeAnySelectedResourceIsCleaned()
@@ -247,15 +273,18 @@ public class CleanerServiceTests
     }
 
     [Fact]
-    public async Task Apply_PerformsRegistryCorrectionsBeforeCompaction()
+    public async Task Apply_PerformsRegistryCorrectionsBeforeSchedulingCompaction()
     {
-        var registry = Finding() with { Area = CleanerArea.Registry };
-        var defrag = Finding() with { Area = CleanerArea.RegistryDefrag };
+        var registry = Finding() with { Area = CleanerArea.Registry,
+            Target = new CleanerRegistryTarget(@"HKEY_CURRENT_USER\Software\Example", "value", "data", 1, false, "missing") };
+        var defrag = Finding() with { Area = CleanerArea.RegistryDefrag, Target = new CleanerHiveTarget("HKEY_CURRENT_USER") };
         var service = new CleanerService(_backend.Object, _backups.Object);
         _backend.Setup(x => x.ScanAsync(CleanerArea.Registry, It.IsAny<CleanerOptions>(), It.IsAny<IProgress<CleanerProgress>>(), It.IsAny<CancellationToken>())).ReturnsAsync(new CleanerScanResult([registry], []));
         _backend.Setup(x => x.ScanAsync(CleanerArea.RegistryDefrag, It.IsAny<CleanerOptions>(), It.IsAny<IProgress<CleanerProgress>>(), It.IsAny<CancellationToken>())).ReturnsAsync(new CleanerScanResult([defrag], []));
         List<CleanerArea> order = [];
         _backend.Setup(x => x.CleanAsync(It.IsAny<CleanerFinding>(), It.IsAny<CleanerOptions>(), It.IsAny<CancellationToken>())).Callback<CleanerFinding, CleanerOptions, CancellationToken>((item, options, token) => order.Add(item.Area)).Returns(Task.CompletedTask);
+        _backend.Setup(x => x.ScheduleRegistryDefragAsync(It.IsAny<IReadOnlyList<CleanerHiveTarget>>(), It.IsAny<CancellationToken>()))
+            .Callback(() => order.Add(CleanerArea.RegistryDefrag)).Returns(Task.CompletedTask);
         await service.ScanAsync(new(), [CleanerArea.RegistryDefrag, CleanerArea.Registry], null, default);
         await service.ApplyAsync([defrag.Id, registry.Id], null, default);
         order.Should().Equal(CleanerArea.Registry, CleanerArea.RegistryDefrag);

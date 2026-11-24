@@ -235,21 +235,22 @@ public sealed class CleanerAccountScopeTests : IDisposable
     }
 
     [Fact]
-    public void HiveCompactionUsesSelectedAccounts_RevalidatesBackingFile_AndPreservesEmptySelection()
+    public async Task HiveCompactionUsesSelectedAccounts_RevalidatesBackingFile_AndPreservesEmptySelection()
     {
         foreach (var sid in new[] { First, Second }) Write(Path.Combine(_accounts.Profiles[sid], "NTUSER.DAT"), 16384);
-        _native.SetupGet(native => native.IsAvailable).Returns(true);
+        var boot = new Mock<IRegistryDefragBoot>();
         _native.Setup(native => native.Save(It.IsAny<string>(), It.IsAny<string>())).Callback<string, string>((_, path) => File.WriteAllBytes(path, new byte[4096]));
-        var compactor = new RegistryHiveCompactor(_accounts, new TestCleanerBackupVault(Path.Combine(_root, "vault")), _native.Object);
+        var compactor = new RegistryHiveCompactor(_accounts, new TestCleanerBackupVault(Path.Combine(_root, "vault")), _native.Object, boot.Object);
         var report = compactor.Scan(new() { RegistryAccountSids = [First, Second, First] }, default);
         report.Findings.Should().HaveCount(2);
         report.CheckedItems.Should().Be(2);
         report.Findings.Select(finding => ((CleanerHiveTarget)finding.Target).KeyPath).Should().BeEquivalentTo(@"HKEY_USERS\" + First, @"HKEY_USERS\" + Second);
         var target = (CleanerHiveTarget)report.Findings[0].Target;
-        compactor.Clean(target, default, createBackup: false);
-        _native.Verify(native => native.Compact(target.KeyPath), Times.Once);
+        await compactor.ScheduleAsync([target], default);
+        boot.Verify(x => x.ScheduleAsync(It.Is<IReadOnlyList<string>>(paths => paths.SequenceEqual(new[] { target.SourcePath! })),
+            It.IsAny<CancellationToken>()), Times.Once);
         _accounts.Profiles[First] = Path.Combine(_root, "changed-first");
-        Assert.Throws<IOException>(() => compactor.Clean(target, default, createBackup: false));
+        await Assert.ThrowsAsync<IOException>(async () => await compactor.ScheduleAsync([target], default));
         compactor.Scan(new() { RegistryAccountSids = [] }, default).Findings.Should().BeEmpty();
         _accounts.Opened.Should().NotContainNulls();
         _accounts.Opened.Count.Should().Be(_accounts.Closed.Count);

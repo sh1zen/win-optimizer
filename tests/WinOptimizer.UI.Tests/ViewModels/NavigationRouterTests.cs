@@ -4,6 +4,7 @@ using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.UI.Features.AdvancedTools;
 using WinOptimizer.UI.Features.Cleaner;
 using WinOptimizer.UI.Features.Extensions;
+using WinOptimizer.UI.Features.Extensions.Preview;
 using WinOptimizer.UI.Features.Restore;
 using WinOptimizer.UI.Features.SystemInformation;
 using WinOptimizer.UI.Features.Utilities;
@@ -25,13 +26,14 @@ public sealed class NavigationRouterTests
         var router = new NavigationRouter(null, null, new ExtensionTestDispatcher());
         Assert.Equal("Cleaner", router.GetTagForCurrentPage(typeof(CleanerResultsPage)));
         Assert.Equal("Cleaner", router.GetTagForCurrentPage(typeof(EventsCleanupPage)));
+        Assert.Equal("TimeMachine", router.GetTagForCurrentPage(typeof(WinOptimizer.UI.Features.TimeMachine.TimeMachinePage)));
         Assert.Equal("Security", router.GetTagForCurrentPage(typeof(WinOptimizer.UI.Features.Security.SecurityPage)));
         Assert.Equal("Customize", router.GetTagForCurrentPage(typeof(WinOptimizer.UI.Features.Customize.Pages.ContextMenuCustomizePage)));
-        Assert.Equal("Optimize", router.GetTagForCurrentPage(typeof(WinOptimizer.UI.Features.Optimize.Pages.NetworkOptimizePage)));
+        Assert.Equal("Internet", router.GetTagForCurrentPage(typeof(WinOptimizer.UI.Features.Optimize.Pages.NetworkOptimizePage)));
         Assert.Equal("Optimize", router.GetTagForCurrentPage(typeof(WinOptimizer.UI.Features.Optimize.Pages.FeaturesOptimizePage)));
         Assert.Equal("AdvancedTools", router.GetTagForCurrentPage(typeof(RestorePage)));
         Assert.Equal("AdvancedTools", router.GetTagForCurrentPage(typeof(SystemInformationPage)));
-        foreach (var page in new[] { typeof(UtilitiesPage), typeof(SystemMonitorSettingsPage) })
+        foreach (var page in new[] { typeof(UtilitiesPage), typeof(SystemMonitorSettingsPage), typeof(PreviewPage) })
             Assert.Equal("Functionalities", router.GetTagForCurrentPage(page));
         foreach (var page in new[] { typeof(ManagementPage), typeof(EnvironmentEditorPage), typeof(HostsEditorPage), typeof(BatteryChargePage), typeof(ConnectionPage), typeof(SavedWifiPage), typeof(WindowsStatusPage), typeof(AutorunsPage), typeof(ProcessMonitorPage) })
             Assert.Equal("Management", router.GetTagForCurrentPage(page));

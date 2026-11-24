@@ -1,6 +1,9 @@
 using System.Text;
 using FluentAssertions;
+using Moq;
+using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Infrastructure.Features.AdvancedTools.ScriptSections;
+using WinOptimizer.Infrastructure.Features.Common.Utilities;
 using Xunit;
 
 namespace WinOptimizer.Infrastructure.Tests.AdvancedTools;
@@ -47,17 +50,31 @@ public class ScriptPreambleSectionTests
     }
 
     [Fact]
-    public void AppendStartProcessAsUser_ContainsInteropAndSessionDetection()
+    public async Task AppendStartProcessAsUser_CompilesInteropInWindowsPowerShell()
     {
         var sb = new StringBuilder();
 
         ScriptPreambleSection.AppendStartProcessAsUser(sb);
 
-        var output = sb.ToString();
+        // Run the emitted Add-Type command without invoking the native process launcher.
+        sb.AppendLine("""
+            $ErrorActionPreference = 'Stop'
+            $compile = ${function:Start-ProcessAsUser}.Ast.Find({
+                param($node)
+                $node -is [System.Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Add-Type'
+            }, $true)
+            & ([scriptblock]::Create($compile.Extent.Text))
+            [WinOptimizer.TL].GetMethod('CreateProcessAsUserW').Name
+            [WinOptimizer.TL].GetMethod('WTSGetActiveConsoleSessionId').Name
+            (New-Object WinOptimizer.TL+SI).GetType().FullName
+            (New-Object WinOptimizer.TL+PI).GetType().FullName
+            """);
 
-        output.Should().Contain("DllImport");
-        output.Should().Contain("advapi32.dll");
-        output.Should().Contain("CreateProcessAsUserW");
-        output.Should().Contain("WTSGetActiveConsoleSessionId");
+        var runner = new PowerShellRunner(Mock.Of<IFileSystemService>());
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var output = await runner.RunScriptInMemoryAsync(sb.ToString(), ct: timeout.Token);
+
+        output.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Should().Equal("CreateProcessAsUserW", "WTSGetActiveConsoleSessionId", "WinOptimizer.TL+SI", "WinOptimizer.TL+PI");
     }
 }

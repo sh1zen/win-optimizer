@@ -1,4 +1,3 @@
-using FluentAssertions;
 using Moq;
 using WinOptimizer.Core.Features.Common.Enums;
 using WinOptimizer.Core.Features.Common.Interfaces;
@@ -11,735 +10,170 @@ using Xunit;
 
 namespace WinOptimizer.Infrastructure.Tests.Services;
 
-public class WindowsAppUninstallServiceTests
+public sealed class WindowsAppUninstallServiceTests
 {
-    private readonly Mock<ILogService> _logService = new();
-    private readonly Mock<IWindowsAppsService> _windowsAppsService = new();
-    private readonly Mock<IBloatRemovalService> _bloatRemovalService = new();
-    private readonly Mock<ITaskProgressService> _taskProgressService = new();
-    private readonly Mock<IMultiScriptProgressService> _multiScriptProgressService = new();
-    private readonly Mock<IChangeHistoryService> _changeHistoryService = new();
-
-    private WindowsAppUninstallService CreateSut() => new(
-        _logService.Object,
-        _windowsAppsService.Object,
-        _bloatRemovalService.Object,
-        _taskProgressService.Object,
-        _multiScriptProgressService.Object,
-        _changeHistoryService.Object);
-
-    // --- UninstallAppAsync ---
+    private readonly Mock<IExternalAppUninstallService> _desktop = new();
+    private readonly Mock<IBloatRemovalService> _packages = new();
+    private readonly Mock<ITaskProgressService> _tasks = new();
+    private readonly Mock<IChangeHistoryService> _history = new();
+    private WindowsAppUninstallService Service => new(Mock.Of<ILogService>(), _packages.Object,
+        _desktop.Object, _tasks.Object, Mock.Of<ILocalizationService>(), _history.Object);
 
     [Fact]
-    public async Task PerAppOutcomesPreserveDedicatedFailureAndDeferredBatch_AndAggregateDoesNotClaimFullSuccess()
+    public async Task UnavailableRegistrationDoesNotEraseCompletedRemovalsOrSkipOtherApps()
     {
-        var script = new ItemDefinition { Id = "script", Name = "Script app", Description = "Dedicated", RemovalScript = () => "echo uninstall" };
-        var regular = new ItemDefinition { Id = "regular", Name = "Regular app", Description = "Batch" };
-        _multiScriptProgressService.Setup(service => service.StartMultiScriptTask(It.IsAny<string[]>())).Returns(() => new CancellationTokenSource());
-        _multiScriptProgressService.Setup(service => service.CreateScriptProgress(It.IsAny<int>())).Returns(Mock.Of<IProgress<TaskProgressDetail>>());
-        _bloatRemovalService.Setup(service => service.ExecuteDedicatedScriptAsync(script, It.IsAny<IProgress<TaskProgressDetail>>(), It.IsAny<CancellationToken>())).ReturnsAsync(RemovalOutcome.Failed);
-        _bloatRemovalService.Setup(service => service.ExecuteBloatRemovalAsync(It.IsAny<List<ItemDefinition>>(), It.IsAny<IProgress<TaskProgressDetail>>(), It.IsAny<CancellationToken>())).ReturnsAsync(RemovalOutcome.DeferredToScheduledTask);
-        var sut = CreateSut();
-        var result = await sut.UninstallAppsWithOutcomesAsync([script, regular]);
+        var first = new ItemDefinition { Id = "first", Name = "First desktop app", Description = "" };
+        var unreadable = new ItemDefinition { Id = "unreadable", Name = "Unreadable app", Description = "",
+            AppxPackageName = ["Example.Unreadable"], RegistryDisplayName = "Unreadable" };
+        var packaged = new ItemDefinition { Id = "package", Name = "Packaged app", Description = "", AppxPackageName = ["Example.Package"] };
+        var commands = new Mock<IUninstallCommandSource>();
+        commands.Setup(source => source.GetAsync(first)).ReturnsAsync((true, @"C:\Fixture\Uninstall.exe"));
+        commands.Setup(source => source.GetAsync(unreadable)).ThrowsAsync(new UnauthorizedAccessException("Registration denied."));
+        var processes = new Mock<IProcessExecutor>();
+        processes.Setup(executor => executor.ShellExecuteAsync(@"C:\Fixture\Uninstall.exe", "", true, default)).ReturnsAsync(0);
+        var review = new Mock<IUninstallResidueReview>();
+        review.Setup(source => source.SuspendForUninstallAsync(default)).ReturnsAsync(Mock.Of<IAsyncDisposable>());
+        var desktop = new ExternalAppUninstallService(Mock.Of<IWinGetPackageInstaller>(), Mock.Of<IChocolateyService>(),
+            Mock.Of<ILogService>(), commands.Object, _tasks.Object, processes.Object, review.Object,
+            Mock.Of<IAppxDeployment>(), Mock.Of<IInteractiveUserService>());
+        var service = new WindowsAppUninstallService(Mock.Of<ILogService>(), _packages.Object,
+            desktop, _tasks.Object, Mock.Of<ILocalizationService>(), _history.Object);
+        _packages.Setup(source => source.ExecuteBloatRemovalAsync(
+                It.Is<IReadOnlyList<ItemDefinition>>(items => items.Count == 1 && items[0] == packaged), false, null, default))
+            .ReturnsAsync([new(packaged.Id, true, false, null)]);
+
+        var result = await service.UninstallAppsWithOutcomesAsync([first, unreadable, packaged], saveRemovalScripts: false);
+
         Assert.True(result.Success);
-        Assert.False(result.Result!.Single(outcome => outcome.AppId == "script").Success);
-        Assert.True(result.Result!.Single(outcome => outcome.AppId == "regular").Deferred);
-        var aggregate = await sut.UninstallAppsInParallelAsync([script, regular]);
-        Assert.False(aggregate.Success);
+        Assert.Collection(result.Result!,
+            outcome => { Assert.Equal(first.Id, outcome.AppId); Assert.True(outcome.Success); },
+            outcome => { Assert.Equal(unreadable.Id, outcome.AppId); Assert.False(outcome.Success); Assert.Contains("Registration denied.", outcome.Message); },
+            outcome => { Assert.Equal(packaged.Id, outcome.AppId); Assert.True(outcome.Success); });
+        _history.Verify(history => history.LogAppChange(first.Name, AppChangeKind.Removed), Times.Once);
+        _history.Verify(history => history.LogAppChange(packaged.Name, AppChangeKind.Removed), Times.Once);
+        _history.VerifyNoOtherCalls();
+    }
+
+    [Theory]
+    [InlineData("windows-app-onedrive", "Microsoft OneDrive")]
+    [InlineData("windows-app-edge", "Microsoft Edge")]
+    [InlineData("windows-app-onenote", "Microsoft OneNote - {locale}")]
+    public async Task DesktopCatalogueEntriesUseTheRegisteredUninstaller(string id, string displayName)
+    {
+        var app = WindowsAppDefinitions.GetWindowsApps().Items.Single(item => item.Id == id);
+        Assert.Equal(displayName, app.RegistryDisplayName);
+        _desktop.Setup(service => service.TryUninstallRegisteredAsync(app, default))
+            .ReturnsAsync(OperationResult<bool>.DeferredSuccess(true, "Restart Windows."));
+
+        var result = await Service.UninstallAppsWithOutcomesAsync([app], saveRemovalScripts: false);
+
+        Assert.True(result.Success);
+        var outcome = Assert.Single(result.Result!);
+        Assert.Equal(id, outcome.AppId);
+        Assert.True(outcome.Success);
+        Assert.True(outcome.Deferred);
+        Assert.Equal("Restart Windows.", outcome.Message);
+        _packages.VerifyNoOtherCalls();
+        _history.VerifyNoOtherCalls();
     }
 
     [Fact]
-    public async Task UninstallAppAsync_AppNotFound_ReturnsFailed()
+    public async Task BatchUsesWindowsPackagesAndReportsAnIndependentNativeFailureInInputOrder()
     {
-        var sut = CreateSut();
+        var packaged = new ItemDefinition
+        {
+            Id = "store", Name = "Store app", Description = "", AppxPackageName = ["Example.Store"],
+            DetectedVia = DetectionSource.AppX
+        };
+        var desktop = new ItemDefinition { Id = "desktop", Name = "Desktop app", Description = "", RegistryUninstallKeyPath = "test" };
+        var feature = new ItemDefinition { Id = "feature", Name = "Feature", Description = "", OptionalFeatureName = "ExampleFeature" };
+        _desktop.Setup(service => service.UninstallAsync(desktop, null, default))
+            .ReturnsAsync(OperationResult<bool>.Failed("The native uninstaller denied removal."));
+        _packages.Setup(service => service.ExecuteBloatRemovalAsync(
+                It.Is<IReadOnlyList<ItemDefinition>>(apps => apps.SequenceEqual(new[] { packaged, feature })), false, null, default))
+            .ReturnsAsync([new(feature.Id, false, false, "DISM refused removal."), new(packaged.Id, true, false, null)]);
 
-        _windowsAppsService
-            .Setup(x => x.GetAppByIdAsync("nonexistent"))
-            .ReturnsAsync((ItemDefinition?)null);
+        var result = await Service.UninstallAppsWithOutcomesAsync([packaged, desktop, feature], saveRemovalScripts: false);
 
-        var result = await sut.UninstallAppAsync("nonexistent");
-
-        result.Success.Should().BeFalse();
-        result.ErrorMessage.Should().Contain("App not found");
+        Assert.True(result.Success);
+        Assert.Collection(result.Result!,
+            item => { Assert.Equal(packaged.Id, item.AppId); Assert.True(item.Success); },
+            item => { Assert.Equal(desktop.Id, item.AppId); Assert.False(item.Success); Assert.Contains("denied", item.Message); },
+            item => { Assert.Equal(feature.Id, item.AppId); Assert.False(item.Success); Assert.Contains("DISM", item.Message); });
+        _history.Verify(service => service.LogAppChange(packaged.Name, AppChangeKind.Removed), Times.Once);
+        _history.VerifyNoOtherCalls();
+        _tasks.Verify(service => service.CompleteTask(), Times.Once);
     }
 
     [Fact]
-    public async Task UninstallAppAsync_AppWithRemovalScript_RoutesDedicatedScript()
+    public async Task OneTimeDesktopRemovalDoesNotTouchTheSharedPackagePlan()
     {
-        var sut = CreateSut();
+        var app = new ItemDefinition { Id = "desktop", Name = "Desktop app", Description = "", RegistryUninstallKeyPath = "test" };
+        _desktop.Setup(service => service.UninstallAsync(app, null, default)).ReturnsAsync(OperationResult<bool>.Succeeded(true));
+
+        var result = await Service.UninstallAppsWithOutcomesAsync([app], saveRemovalScripts: false);
+
+        Assert.True(Assert.Single(result.Result!).Success);
+        _packages.VerifyNoOtherCalls();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DesktopOutcomeSurvivesCancellationBeforeOrDuringThePackageBatch(bool cancelDuringPackages)
+    {
+        using var cancellation = new CancellationTokenSource();
+        _tasks.SetupGet(service => service.CurrentTaskCancellationSource).Returns(cancellation);
+        var desktop = new ItemDefinition { Id = "desktop", Name = "Desktop app", Description = "" };
+        var package = new ItemDefinition { Id = "package", Name = "Packaged app", Description = "", AppxPackageName = ["Example.App"] };
+        _desktop.Setup(service => service.UninstallAsync(desktop, null, cancellation.Token))
+            .ReturnsAsync(() =>
+            {
+                if (!cancelDuringPackages) cancellation.Cancel();
+                return OperationResult<bool>.Succeeded(true);
+            });
+        if (cancelDuringPackages)
+        {
+            _packages.Setup(service => service.ExecuteBloatRemovalAsync(It.IsAny<IReadOnlyList<ItemDefinition>>(), false, null, cancellation.Token))
+                .Returns(() =>
+                {
+                    cancellation.Cancel();
+                    return Task.FromCanceled<IReadOnlyList<UninstallNativeOutcome>>(cancellation.Token);
+                });
+        }
+
+        var result = await Service.UninstallAppsWithOutcomesAsync([desktop, package], saveRemovalScripts: false);
+
+        Assert.True(result.Success);
+        Assert.Collection(result.Result!,
+            first => { Assert.Equal(desktop.Id, first.AppId); Assert.True(first.Success); Assert.False(first.Cancelled); },
+            second => { Assert.Equal(package.Id, second.AppId); Assert.False(second.Success); Assert.True(second.Cancelled); });
+        _history.Verify(service => service.LogAppChange(desktop.Name, AppChangeKind.Removed), Times.Once);
+        _history.VerifyNoOtherCalls();
+        _packages.Verify(service => service.ExecuteBloatRemovalAsync(It.IsAny<IReadOnlyList<ItemDefinition>>(), false, null, cancellation.Token),
+            cancelDuringPackages ? Times.Once() : Times.Never());
+    }
+
+    [Fact]
+    public async Task PackagedCatalogueEntryUsesTheSharedPackageBatchWhenNoDesktopCommandExists()
+    {
         var app = new ItemDefinition
         {
-            Id = "windows-app-edge",
-            Name = "Microsoft Edge",
-            Description = "Edge browser",
-            RemovalScript = () => "echo removal"
+            Id = "catalogue", Name = "Shared catalogue entry", Description = "", RegistryDisplayName = "Example Desktop",
+            AppxPackageName = ["Example.Package"]
         };
-
-        _windowsAppsService
-            .Setup(x => x.GetAppByIdAsync("windows-app-edge"))
-            .ReturnsAsync(app);
-
-        _bloatRemovalService
-            .Setup(x => x.ExecuteDedicatedScriptAsync(app, It.IsAny<IProgress<TaskProgressDetail>?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(RemovalOutcome.Success);
-
-        var result = await sut.UninstallAppAsync("windows-app-edge");
-
-        result.Success.Should().BeTrue();
-        _bloatRemovalService.Verify(
-            x => x.ExecuteDedicatedScriptAsync(app, It.IsAny<IProgress<TaskProgressDetail>?>(), It.IsAny<CancellationToken>()),
-            Times.Once);
-        _bloatRemovalService.Verify(
-            x => x.ExecuteBloatRemovalAsync(It.IsAny<List<ItemDefinition>>(), It.IsAny<IProgress<TaskProgressDetail>?>(), It.IsAny<CancellationToken>()),
-            Times.Never);
-    }
-
-    [Fact]
-    public async Task UninstallAppAsync_AppWithoutRemovalScript_RoutesBloatRemovalAndLogsRemoval()
-    {
-        var sut = CreateSut();
-        var app = new ItemDefinition
-        {
-            Id = "windows-app-calc",
-            Name = "Calculator",
-            Description = "Windows calculator",
-            AppxPackageName = ["Microsoft.WindowsCalculator"]
-        };
-
-        _windowsAppsService
-            .Setup(x => x.GetAppByIdAsync("windows-app-calc"))
-            .ReturnsAsync(app);
-
-        _bloatRemovalService
-            .Setup(x => x.ExecuteBloatRemovalAsync(
-                It.Is<List<ItemDefinition>>(l => l.Count == 1 && l[0] == app),
-                It.IsAny<IProgress<TaskProgressDetail>?>(),
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync(RemovalOutcome.Success);
-
-        var result = await sut.UninstallAppAsync("windows-app-calc");
-
-        result.Success.Should().BeTrue();
-        _bloatRemovalService.Verify(
-            x => x.ExecuteBloatRemovalAsync(
-                It.Is<List<ItemDefinition>>(l => l.Count == 1),
-                It.IsAny<IProgress<TaskProgressDetail>?>(),
-                It.IsAny<CancellationToken>()),
-            Times.Once);
-        _changeHistoryService.Verify(
-            x => x.LogAppChange("Calculator", AppChangeKind.Removed), Times.Once);
-    }
-
-    [Fact]
-    public async Task UninstallAppAsync_DeferredOutcome_ReturnsDeferredSuccess()
-    {
-        var sut = CreateSut();
-        var app = new ItemDefinition
-        {
-            Id = "windows-app-test",
-            Name = "Test App",
-            Description = "Test",
-            AppxPackageName = ["Microsoft.TestApp"]
-        };
-
-        _windowsAppsService
-            .Setup(x => x.GetAppByIdAsync("windows-app-test"))
-            .ReturnsAsync(app);
-
-        _bloatRemovalService
-            .Setup(x => x.ExecuteBloatRemovalAsync(
-                It.IsAny<List<ItemDefinition>>(),
-                It.IsAny<IProgress<TaskProgressDetail>?>(),
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync(RemovalOutcome.DeferredToScheduledTask);
-
-        var result = await sut.UninstallAppAsync("windows-app-test");
-
-        result.Success.Should().BeTrue();
-        result.InfoMessage.Should().Contain("next startup");
-    }
-
-    [Fact]
-    public async Task UninstallAppAsync_FailedOutcome_ReturnsFailed()
-    {
-        var sut = CreateSut();
-        var app = new ItemDefinition
-        {
-            Id = "windows-app-test",
-            Name = "Test App",
-            Description = "Test",
-            AppxPackageName = ["Microsoft.TestApp"]
-        };
-
-        _windowsAppsService
-            .Setup(x => x.GetAppByIdAsync("windows-app-test"))
-            .ReturnsAsync(app);
-
-        _bloatRemovalService
-            .Setup(x => x.ExecuteBloatRemovalAsync(
-                It.IsAny<List<ItemDefinition>>(),
-                It.IsAny<IProgress<TaskProgressDetail>?>(),
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync(RemovalOutcome.Failed);
-
-        var result = await sut.UninstallAppAsync("windows-app-test");
-
-        result.Success.Should().BeFalse();
-        result.ErrorMessage.Should().Contain("Removal failed");
-    }
-
-    [Fact]
-    public async Task UninstallAppAsync_OperationCancelled_ReturnsCancelled()
-    {
-        var sut = CreateSut();
-
-        _windowsAppsService
-            .Setup(x => x.GetAppByIdAsync(It.IsAny<string>()))
-            .ThrowsAsync(new OperationCanceledException());
-
-        var result = await sut.UninstallAppAsync("some-app");
-
-        result.Success.Should().BeFalse();
-        result.ErrorMessage.Should().Contain("cancelled");
-    }
-
-    [Fact]
-    public async Task UninstallAppAsync_GenericException_ReturnsFailed()
-    {
-        var sut = CreateSut();
-
-        _windowsAppsService
-            .Setup(x => x.GetAppByIdAsync(It.IsAny<string>()))
-            .ThrowsAsync(new InvalidOperationException("Something broke"));
-
-        var result = await sut.UninstallAppAsync("some-app");
-
-        result.Success.Should().BeFalse();
-        result.ErrorMessage.Should().Contain("Something broke");
-    }
-
-    // --- UninstallAppsAsync ---
-
-    [Fact]
-    public async Task UninstallAppsAsync_EmptyList_ReturnsFailed()
-    {
-        var sut = CreateSut();
-
-        var result = await sut.UninstallAppsAsync(new List<ItemDefinition>());
-
-        result.Success.Should().BeFalse();
-        result.ErrorMessage.Should().Contain("No apps provided");
-    }
-
-    [Fact]
-    public async Task UninstallAppsAsync_NullList_ReturnsFailed()
-    {
-        var sut = CreateSut();
-
-        var result = await sut.UninstallAppsAsync(null!);
-
-        result.Success.Should().BeFalse();
-        result.ErrorMessage.Should().Contain("No apps provided");
-    }
-
-    [Fact]
-    public async Task UninstallAppsAsync_RegularApps_ExecutesBloatRemoval()
-    {
-        var sut = CreateSut();
-        var apps = new List<ItemDefinition>
-        {
-            new() { Id = "app1", Name = "App1", Description = "Desc1", AppxPackageName = ["Microsoft.App1"] },
-            new() { Id = "app2", Name = "App2", Description = "Desc2", AppxPackageName = ["Microsoft.App2"] }
-        };
-
-        _bloatRemovalService
-            .Setup(x => x.ExecuteBloatRemovalAsync(
-                It.IsAny<List<ItemDefinition>>(),
-                It.IsAny<IProgress<TaskProgressDetail>?>(),
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync(RemovalOutcome.Success);
-
-        var result = await sut.UninstallAppsAsync(apps);
-
-        result.Success.Should().BeTrue();
-        result.Result.Should().Be(2);
-        _bloatRemovalService.Verify(
-            x => x.ExecuteBloatRemovalAsync(
-                It.Is<List<ItemDefinition>>(l => l.Count == 2),
-                It.IsAny<IProgress<TaskProgressDetail>?>(),
-                It.IsAny<CancellationToken>()),
-            Times.Once);
-    }
-
-    [Fact]
-    public async Task UninstallAppsAsync_ScriptApps_ExecutesDedicatedScripts()
-    {
-        var sut = CreateSut();
-        var apps = new List<ItemDefinition>
-        {
-            new()
-            {
-                Id = "windows-app-edge",
-                Name = "Edge",
-                Description = "Edge",
-                RemovalScript = () => "echo edge"
-            }
-        };
-
-        _bloatRemovalService
-            .Setup(x => x.ExecuteDedicatedScriptAsync(
-                It.IsAny<ItemDefinition>(),
-                It.IsAny<IProgress<TaskProgressDetail>?>(),
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync(RemovalOutcome.Success);
-
-        var result = await sut.UninstallAppsAsync(apps);
-
-        result.Success.Should().BeTrue();
-        _bloatRemovalService.Verify(
-            x => x.ExecuteDedicatedScriptAsync(
-                It.IsAny<ItemDefinition>(),
-                It.IsAny<IProgress<TaskProgressDetail>?>(),
-                It.IsAny<CancellationToken>()),
-            Times.Once);
-    }
-
-    [Fact]
-    public async Task UninstallAppsAsync_MixedApps_ExecutesBothPaths()
-    {
-        var sut = CreateSut();
-        var apps = new List<ItemDefinition>
-        {
-            new()
-            {
-                Id = "windows-app-edge",
-                Name = "Edge",
-                Description = "Edge",
-                RemovalScript = () => "echo edge"
-            },
-            new()
-            {
-                Id = "app1",
-                Name = "App1",
-                Description = "Desc1",
-                AppxPackageName = ["Microsoft.App1"]
-            }
-        };
-
-        _bloatRemovalService
-            .Setup(x => x.ExecuteDedicatedScriptAsync(
-                It.IsAny<ItemDefinition>(),
-                It.IsAny<IProgress<TaskProgressDetail>?>(),
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync(RemovalOutcome.Success);
-
-        _bloatRemovalService
-            .Setup(x => x.ExecuteBloatRemovalAsync(
-                It.IsAny<List<ItemDefinition>>(),
-                It.IsAny<IProgress<TaskProgressDetail>?>(),
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync(RemovalOutcome.Success);
-
-        var result = await sut.UninstallAppsAsync(apps);
-
-        result.Success.Should().BeTrue();
-        result.Result.Should().Be(2);
-        _bloatRemovalService.Verify(
-            x => x.ExecuteDedicatedScriptAsync(
-                It.IsAny<ItemDefinition>(),
-                It.IsAny<IProgress<TaskProgressDetail>?>(),
-                It.IsAny<CancellationToken>()),
-            Times.Once);
-        _bloatRemovalService.Verify(
-            x => x.ExecuteBloatRemovalAsync(
-                It.Is<List<ItemDefinition>>(l => l.Count == 1),
-                It.IsAny<IProgress<TaskProgressDetail>?>(),
-                It.IsAny<CancellationToken>()),
-            Times.Once);
-    }
-
-    [Fact]
-    public async Task UninstallAppsAsync_SaveRemovalScripts_PersistsScripts()
-    {
-        var sut = CreateSut();
-        var apps = new List<ItemDefinition>
-        {
-            new() { Id = "app1", Name = "App1", Description = "Desc1", AppxPackageName = ["Microsoft.App1"] }
-        };
-
-        _bloatRemovalService
-            .Setup(x => x.ExecuteBloatRemovalAsync(
-                It.IsAny<List<ItemDefinition>>(),
-                It.IsAny<IProgress<TaskProgressDetail>?>(),
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync(RemovalOutcome.Success);
-
-        await sut.UninstallAppsAsync(apps, saveRemovalScripts: true);
-
-        _bloatRemovalService.Verify(x => x.PersistRemovalScriptsAsync(apps), Times.Once);
-        _bloatRemovalService.Verify(x => x.CleanupAllRemovalArtifactsAsync(), Times.Never);
-    }
-
-    [Fact]
-    public async Task UninstallAppsAsync_DontSaveRemovalScripts_CleansUp()
-    {
-        var sut = CreateSut();
-        var apps = new List<ItemDefinition>
-        {
-            new() { Id = "app1", Name = "App1", Description = "Desc1", AppxPackageName = ["Microsoft.App1"] }
-        };
-
-        _bloatRemovalService
-            .Setup(x => x.ExecuteBloatRemovalAsync(
-                It.IsAny<List<ItemDefinition>>(),
-                It.IsAny<IProgress<TaskProgressDetail>?>(),
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync(RemovalOutcome.Success);
-
-        await sut.UninstallAppsAsync(apps, saveRemovalScripts: false);
-
-        _bloatRemovalService.Verify(x => x.CleanupAllRemovalArtifactsAsync(), Times.Once);
-        _bloatRemovalService.Verify(x => x.PersistRemovalScriptsAsync(It.IsAny<List<ItemDefinition>>()), Times.Never);
-    }
-
-    [Fact]
-    public async Task UninstallAppsAsync_DeferredOutcome_ReturnsDeferredSuccess()
-    {
-        var sut = CreateSut();
-        var apps = new List<ItemDefinition>
-        {
-            new()
-            {
-                Id = "windows-app-edge",
-                Name = "Edge",
-                Description = "Edge",
-                RemovalScript = () => "echo edge"
-            }
-        };
-
-        _bloatRemovalService
-            .Setup(x => x.ExecuteDedicatedScriptAsync(
-                It.IsAny<ItemDefinition>(),
-                It.IsAny<IProgress<TaskProgressDetail>?>(),
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync(RemovalOutcome.DeferredToScheduledTask);
-
-        var result = await sut.UninstallAppsAsync(apps);
-
-        result.Success.Should().BeTrue();
-        result.InfoMessage.Should().Contain("next startup");
-    }
-
-    [Fact]
-    public async Task UninstallAppsAsync_OperationCancelled_ReturnsCancelled()
-    {
-        var sut = CreateSut();
-        var apps = new List<ItemDefinition>
-        {
-            new() { Id = "app1", Name = "App1", Description = "Desc1", AppxPackageName = ["Microsoft.App1"] }
-        };
-
-        _bloatRemovalService
-            .Setup(x => x.ExecuteBloatRemovalAsync(
-                It.IsAny<List<ItemDefinition>>(),
-                It.IsAny<IProgress<TaskProgressDetail>?>(),
-                It.IsAny<CancellationToken>()))
-            .ThrowsAsync(new OperationCanceledException());
-
-        var result = await sut.UninstallAppsAsync(apps);
-
-        result.Success.Should().BeFalse();
-        result.ErrorMessage.Should().Contain("cancelled");
-    }
-
-    // --- UninstallAppsInParallelAsync ---
-
-    [Fact]
-    public async Task UninstallAppsInParallelAsync_EmptyList_ReturnsFailed()
-    {
-        var sut = CreateSut();
-
-        var result = await sut.UninstallAppsInParallelAsync(new List<ItemDefinition>());
-
-        result.Success.Should().BeFalse();
-        result.ErrorMessage.Should().Contain("No apps provided");
-    }
-
-    [Fact]
-    public async Task UninstallAppsInParallelAsync_NullList_ReturnsFailed()
-    {
-        var sut = CreateSut();
-
-        var result = await sut.UninstallAppsInParallelAsync(null!);
-
-        result.Success.Should().BeFalse();
-        result.ErrorMessage.Should().Contain("No apps provided");
-    }
-
-    [Fact]
-    public async Task UninstallAppsInParallelAsync_RegularApps_ExecutesBloatRemovalInParallel()
-    {
-        var sut = CreateSut();
-        var apps = new List<ItemDefinition>
-        {
-            new() { Id = "app1", Name = "App1", Description = "Desc1", AppxPackageName = ["Microsoft.App1"] },
-            new() { Id = "app2", Name = "App2", Description = "Desc2", AppxPackageName = ["Microsoft.App2"] }
-        };
-
-        var cts = new CancellationTokenSource();
-        _multiScriptProgressService
-            .Setup(x => x.StartMultiScriptTask(It.IsAny<string[]>()))
-            .Returns(cts);
-
-        _multiScriptProgressService
-            .Setup(x => x.CreateScriptProgress(It.IsAny<int>()))
-            .Returns(new Progress<TaskProgressDetail>());
-
-        _bloatRemovalService
-            .Setup(x => x.ExecuteBloatRemovalAsync(
-                It.IsAny<List<ItemDefinition>>(),
-                It.IsAny<IProgress<TaskProgressDetail>?>(),
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync(RemovalOutcome.Success);
-
-        var result = await sut.UninstallAppsInParallelAsync(apps);
-
-        result.Success.Should().BeTrue();
-        result.Result.Should().Be(2);
-        _multiScriptProgressService.Verify(x => x.CompleteMultiScriptTask(), Times.Once);
-    }
-
-    [Fact]
-    public async Task UninstallAppsInParallelAsync_ScriptApps_ExecutesDedicatedScriptsInParallel()
-    {
-        var sut = CreateSut();
-        var apps = new List<ItemDefinition>
-        {
-            new()
-            {
-                Id = "windows-app-edge",
-                Name = "Edge",
-                Description = "Edge",
-                RemovalScript = () => "echo edge"
-            },
-            new()
-            {
-                Id = "windows-app-onedrive",
-                Name = "OneDrive",
-                Description = "OneDrive",
-                RemovalScript = () => "echo onedrive"
-            }
-        };
-
-        var cts = new CancellationTokenSource();
-        _multiScriptProgressService
-            .Setup(x => x.StartMultiScriptTask(It.IsAny<string[]>()))
-            .Returns(cts);
-
-        _multiScriptProgressService
-            .Setup(x => x.CreateScriptProgress(It.IsAny<int>()))
-            .Returns(new Progress<TaskProgressDetail>());
-
-        _bloatRemovalService
-            .Setup(x => x.ExecuteDedicatedScriptAsync(
-                It.IsAny<ItemDefinition>(),
-                It.IsAny<IProgress<TaskProgressDetail>?>(),
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync(RemovalOutcome.Success);
-
-        var result = await sut.UninstallAppsInParallelAsync(apps);
-
-        result.Success.Should().BeTrue();
-        result.Result.Should().Be(2);
-        _multiScriptProgressService.Verify(
-            x => x.StartMultiScriptTask(It.Is<string[]>(s => s.Length == 2)),
-            Times.Once);
-    }
-
-    [Fact]
-    public async Task UninstallAppsInParallelAsync_MixedApps_HandlesScriptsAndRegularInParallel()
-    {
-        var sut = CreateSut();
-        var apps = new List<ItemDefinition>
-        {
-            new()
-            {
-                Id = "windows-app-edge",
-                Name = "Edge",
-                Description = "Edge",
-                RemovalScript = () => "echo edge"
-            },
-            new()
-            {
-                Id = "app1",
-                Name = "App1",
-                Description = "Desc1",
-                AppxPackageName = ["Microsoft.App1"]
-            }
-        };
-
-        var cts = new CancellationTokenSource();
-        _multiScriptProgressService
-            .Setup(x => x.StartMultiScriptTask(It.IsAny<string[]>()))
-            .Returns(cts);
-
-        _multiScriptProgressService
-            .Setup(x => x.CreateScriptProgress(It.IsAny<int>()))
-            .Returns(new Progress<TaskProgressDetail>());
-
-        _bloatRemovalService
-            .Setup(x => x.ExecuteDedicatedScriptAsync(
-                It.IsAny<ItemDefinition>(),
-                It.IsAny<IProgress<TaskProgressDetail>?>(),
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync(RemovalOutcome.Success);
-
-        _bloatRemovalService
-            .Setup(x => x.ExecuteBloatRemovalAsync(
-                It.IsAny<List<ItemDefinition>>(),
-                It.IsAny<IProgress<TaskProgressDetail>?>(),
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync(RemovalOutcome.Success);
-
-        var result = await sut.UninstallAppsInParallelAsync(apps);
-
-        result.Success.Should().BeTrue();
-        result.Result.Should().Be(2);
-        // Slot names: "EdgeRemoval" + "BloatRemoval"
-        _multiScriptProgressService.Verify(
-            x => x.StartMultiScriptTask(It.Is<string[]>(s =>
-                s.Length == 2 && s[0] == "EdgeRemoval" && s[1] == "BloatRemoval")),
-            Times.Once);
-    }
-
-    [Fact]
-    public async Task UninstallAppsInParallelAsync_SaveRemovalScripts_PersistsScripts()
-    {
-        var sut = CreateSut();
-        var apps = new List<ItemDefinition>
-        {
-            new() { Id = "app1", Name = "App1", Description = "Desc1", AppxPackageName = ["Microsoft.App1"] }
-        };
-
-        var cts = new CancellationTokenSource();
-        _multiScriptProgressService
-            .Setup(x => x.StartMultiScriptTask(It.IsAny<string[]>()))
-            .Returns(cts);
-
-        _multiScriptProgressService
-            .Setup(x => x.CreateScriptProgress(It.IsAny<int>()))
-            .Returns(new Progress<TaskProgressDetail>());
-
-        _bloatRemovalService
-            .Setup(x => x.ExecuteBloatRemovalAsync(
-                It.IsAny<List<ItemDefinition>>(),
-                It.IsAny<IProgress<TaskProgressDetail>?>(),
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync(RemovalOutcome.Success);
-
-        await sut.UninstallAppsInParallelAsync(apps, saveRemovalScripts: true);
-
-        _bloatRemovalService.Verify(x => x.PersistRemovalScriptsAsync(apps), Times.Once);
-        _bloatRemovalService.Verify(x => x.CleanupAllRemovalArtifactsAsync(), Times.Never);
-    }
-
-    [Fact]
-    public async Task UninstallAppsInParallelAsync_DontSaveRemovalScripts_CleansUp()
-    {
-        var sut = CreateSut();
-        var apps = new List<ItemDefinition>
-        {
-            new() { Id = "app1", Name = "App1", Description = "Desc1", AppxPackageName = ["Microsoft.App1"] }
-        };
-
-        var cts = new CancellationTokenSource();
-        _multiScriptProgressService
-            .Setup(x => x.StartMultiScriptTask(It.IsAny<string[]>()))
-            .Returns(cts);
-
-        _multiScriptProgressService
-            .Setup(x => x.CreateScriptProgress(It.IsAny<int>()))
-            .Returns(new Progress<TaskProgressDetail>());
-
-        _bloatRemovalService
-            .Setup(x => x.ExecuteBloatRemovalAsync(
-                It.IsAny<List<ItemDefinition>>(),
-                It.IsAny<IProgress<TaskProgressDetail>?>(),
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync(RemovalOutcome.Success);
-
-        await sut.UninstallAppsInParallelAsync(apps, saveRemovalScripts: false);
-
-        _bloatRemovalService.Verify(x => x.CleanupAllRemovalArtifactsAsync(), Times.Once);
-        _bloatRemovalService.Verify(x => x.PersistRemovalScriptsAsync(It.IsAny<List<ItemDefinition>>()), Times.Never);
-    }
-
-    [Fact]
-    public async Task UninstallAppsInParallelAsync_DeferredOutcome_ReturnsDeferredSuccess()
-    {
-        var sut = CreateSut();
-        var apps = new List<ItemDefinition>
-        {
-            new()
-            {
-                Id = "windows-app-edge",
-                Name = "Edge",
-                Description = "Edge",
-                RemovalScript = () => "echo edge"
-            }
-        };
-
-        var cts = new CancellationTokenSource();
-        _multiScriptProgressService
-            .Setup(x => x.StartMultiScriptTask(It.IsAny<string[]>()))
-            .Returns(cts);
-
-        _multiScriptProgressService
-            .Setup(x => x.CreateScriptProgress(It.IsAny<int>()))
-            .Returns(new Progress<TaskProgressDetail>());
-
-        _bloatRemovalService
-            .Setup(x => x.ExecuteDedicatedScriptAsync(
-                It.IsAny<ItemDefinition>(),
-                It.IsAny<IProgress<TaskProgressDetail>?>(),
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync(RemovalOutcome.DeferredToScheduledTask);
-
-        var result = await sut.UninstallAppsInParallelAsync(apps);
-
-        result.Success.Should().BeTrue();
-        result.InfoMessage.Should().Contain("next startup");
-    }
-
-    [Fact]
-    public async Task UninstallAppsInParallelAsync_AlwaysCallsCompleteMultiScriptTask()
-    {
-        var sut = CreateSut();
-        var apps = new List<ItemDefinition>
-        {
-            new() { Id = "app1", Name = "App1", Description = "Desc1", AppxPackageName = ["Microsoft.App1"] }
-        };
-
-        var cts = new CancellationTokenSource();
-        _multiScriptProgressService
-            .Setup(x => x.StartMultiScriptTask(It.IsAny<string[]>()))
-            .Returns(cts);
-
-        _multiScriptProgressService
-            .Setup(x => x.CreateScriptProgress(It.IsAny<int>()))
-            .Returns(new Progress<TaskProgressDetail>());
-
-        _bloatRemovalService
-            .Setup(x => x.ExecuteBloatRemovalAsync(
-                It.IsAny<List<ItemDefinition>>(),
-                It.IsAny<IProgress<TaskProgressDetail>?>(),
-                It.IsAny<CancellationToken>()))
-            .ThrowsAsync(new InvalidOperationException("Test error"));
-
-        var result = await sut.UninstallAppsInParallelAsync(apps);
-
-        result.Success.Should().BeFalse();
-        // Verify cleanup still called even when exception occurs (finally block)
-        _multiScriptProgressService.Verify(x => x.CompleteMultiScriptTask(), Times.Once);
+        _desktop.Setup(service => service.TryUninstallRegisteredAsync(app, default))
+            .ReturnsAsync((OperationResult<bool>?)null);
+        _packages.Setup(service => service.ExecuteBloatRemovalAsync(
+                It.Is<IReadOnlyList<ItemDefinition>>(apps => apps.Count == 1 && apps[0] == app), false, null, default))
+            .ReturnsAsync([new(app.Id, true, false, null)]);
+
+        var result = await Service.UninstallAppsWithOutcomesAsync([app], saveRemovalScripts: false);
+
+        Assert.True(result.Success);
+        var outcome = Assert.Single(result.Result!);
+        Assert.Equal(app.Id, outcome.AppId);
+        Assert.True(outcome.Success);
+        _desktop.Verify(service => service.TryUninstallRegisteredAsync(app, default), Times.Once);
     }
 }

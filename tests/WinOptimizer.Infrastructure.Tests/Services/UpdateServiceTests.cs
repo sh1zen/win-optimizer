@@ -2,6 +2,7 @@ using FluentAssertions;
 using Moq;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Models;
+using WinOptimizer.Core.Features.Optimize.Models;
 using WinOptimizer.Infrastructure.Features.Optimize.Services;
 using Xunit;
 
@@ -159,6 +160,24 @@ public class UpdateServiceTests
     }
 
     #endregion
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task NormalModeReportsRejectedServiceOrPolicyWrite(bool serviceDenied)
+    {
+        SetupProcessExecutor();
+        _mockProcessExecutor.Setup(p => p.ExecuteAsync("cmd.exe",
+            It.Is<string>(command => command.Contains("sc config wuauserv")), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ProcessExecutionResult { ExitCode = serviceDenied ? 5 : 0 });
+        var setting = UpdateOptimizations.GetUpdateOptimizations().Settings.Single(s => s.Id == "updates-policy-mode");
+
+        var error = await Assert.ThrowsAsync<IOException>(() => _service.TryApplySpecialSettingAsync(setting, 0));
+
+        Assert.Contains(serviceDenied ? "sc config wuauserv" : "Windows Update policy", error.Message);
+        _mockRegistryService.Verify(registry => registry.ApplySetting(It.IsAny<RegistrySetting>(), It.IsAny<bool>(),
+            It.IsAny<object?>(), false), serviceDenied ? Times.Never() : Times.Once());
+    }
 
     #region GetCurrentUpdatePolicyIndexAsync
 

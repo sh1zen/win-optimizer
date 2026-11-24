@@ -55,7 +55,7 @@ DisableDirPage=yes
 Uninstallable=WizardIsTaskSelected('regularinstall')
 ; Close applications before installation/uninstallation
 CloseApplications=yes
-CloseApplicationsFilter=*{#MyAppExeName}
+CloseApplicationsFilter=*{#MyAppExeName},*win-optimizer-preview.exe,*win-optimizer-widgets.exe
 RestartIfNeededByRun=no
 
 [Languages]
@@ -185,6 +185,19 @@ begin
   end;
 end;
 
+// Keep registrations for another portable or installed copy.
+procedure RemoveExtensionStartup(Root: Integer; const Prefix: String);
+var
+  SubKey, ValueName, Command: String;
+begin
+  ValueName := 'WinOptimizer.Preview';
+  SubKey := Prefix + 'Software\Microsoft\Windows\CurrentVersion\Run';
+  if RegQueryStringValue(Root, SubKey, ValueName, Command) and
+    (CompareText(Command, '"' + AddBackslash(ExpandConstant('{app}')) + 'win-optimizer-preview.exe" --startup') = 0) then
+    if not RegDeleteValue(Root, SubKey, ValueName) then
+      RaiseException('Cannot remove the extension sign-in entry ' + ValueName + ' at ' + SubKey);
+end;
+
 // HKCU and each loaded/offline HKU profile use the same value-level cleanup.
 procedure CleanupUserTraces(Root: Integer; const Prefix: String);
 var
@@ -192,6 +205,10 @@ var
   Names: TArrayOfString;
   I: Integer;
 begin
+  RemoveExtensionStartup(Root, Prefix);
+  FeatureKey := Prefix + 'Software\win-optimizer\Preview';
+  if CleanupKeyExists(Root, FeatureKey) and not RegDeleteKeyIncludingSubkeys(Root, FeatureKey) then
+    RaiseException('Cannot remove Preview preferences at ' + FeatureKey);
   FeatureKey := Prefix + 'Software\Microsoft\Windows\CurrentVersion\Explorer\FeatureUsage';
   if CleanupKeyExists(Root, FeatureKey) then
   begin
@@ -461,16 +478,22 @@ end;
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   DataRoot, ErrorMessage: String;
+  LoadedProfiles: TArrayOfString;
+  I: Integer;
 begin
   if CurUninstallStep <> usUninstall then
     Exit;
   DataRoot := ApplicationDataRoot();
-  if not RemoveAppData then
-  begin
-    Log('Application data kept for reinstalling: ' + DataRoot);
-    Exit;
-  end;
   try
+    if not RemoveAppData then
+    begin
+      RemoveExtensionStartup(HKCU64, '');
+      if RegGetSubkeyNames(HKU64, '', LoadedProfiles) then
+        for I := 0 to GetArrayLength(LoadedProfiles) - 1 do
+          if IsCleanupAccount(LoadedProfiles[I]) then RemoveExtensionStartup(HKU64, LoadedProfiles[I] + '\');
+      Log('Application data kept for reinstalling: ' + DataRoot);
+      Exit;
+    end;
     ValidateDataCleanupPath();
     CleanupScheduledTasks();
     CleanupRegistryTraces();

@@ -14,6 +14,8 @@ public interface IFileSystemService
     bool FileExists(string path);
     /// <summary>Opens a seekable read stream shared with active writers and log clearing.</summary>
     System.IO.Stream OpenReadShared(string path);
+    /// <summary>Acquires an exclusive file handle shared by the application and its companions.</summary>
+    Task<System.IO.Stream> OpenExclusiveFileAsync(string path);
     string ReadAllText(string path);
     Task<string> ReadAllTextAsync(string path, CancellationToken ct = default);
     void WriteAllText(string path, string contents);

@@ -987,12 +987,55 @@ public class SettingItemViewModelTests : IDisposable
         // per-mode emitter must produce only the DC Recommended pill — not a phantom AC pill.
         var def = BuildPowerCfgSeparateNumericDefinition(
             "acdc-dc-only-rec", recAc: null, recDc: 600, defAc: null, defDc: 1200);
-        var sut = CreateSut(BuildNumericConfig(def));
-        sut.HasBattery = true;
-        sut.ComputeBadgeState();
+        using var sut = CreateSut(BuildNumericConfig(def));
+        sut.DcNumericValue = 600;
+        var visibilityChanges = new List<bool>();
+        sut.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(sut.ShowInfoBadge))
+                visibilityChanges.Add(sut.ShowInfoBadge);
+        };
+        sut.ShowInfoBadge.Should().BeFalse();
+        sut.BadgeRow.Should().BeEmpty();
 
-        sut.BadgeRow.Should().NotContain(p => p.Kind == SettingBadgeKind.Recommended && p.Mode == SettingBadgeMode.AC);
-        sut.BadgeRow.Should().ContainSingle(p => p.Kind == SettingBadgeKind.Recommended && p.Mode == SettingBadgeMode.DC);
+        sut.HasBattery = true;
+
+        sut.ShowInfoBadge.Should().BeTrue();
+        sut.BadgeRow.Should().OnlyContain(p => p.Mode == SettingBadgeMode.DC);
+        sut.BadgeRow.Should().ContainSingle(p => p.Kind == SettingBadgeKind.Recommended && p.IsHighlighted);
+        sut.BadgeRow.Should().ContainSingle(p => p.Kind == SettingBadgeKind.Default && !p.IsHighlighted);
+
+        sut.HasBattery = false;
+
+        sut.ShowInfoBadge.Should().BeFalse();
+        sut.BadgeRow.Should().BeEmpty();
+        visibilityChanges.Should().Equal(true, false);
+        _mockSettingApplicationService.VerifyNoOtherCalls();
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void BadgeRow_AcDcSeparate_HiddenBatteryValueDoesNotProduceAnAcBadge(bool batteryRecommendation)
+    {
+        var def = BuildPowerCfgSeparateNumericDefinition("acdc-mixed",
+            recAc: batteryRecommendation ? null : 50,
+            recDc: batteryRecommendation ? 25 : null,
+            defAc: batteryRecommendation ? 50 : null,
+            defDc: batteryRecommendation ? null : 25);
+        using var sut = CreateSut(BuildNumericConfig(def));
+        sut.AcNumericValue = 50;
+        sut.DcNumericValue = 25;
+        var batteryKind = batteryRecommendation ? SettingBadgeKind.Recommended : SettingBadgeKind.Default;
+        var acKind = batteryRecommendation ? SettingBadgeKind.Default : SettingBadgeKind.Recommended;
+
+        sut.HasBattery = true;
+        sut.BadgeRow.Should().ContainSingle(p => p.Kind == batteryKind && p.Mode == SettingBadgeMode.DC && p.IsHighlighted);
+
+        sut.HasBattery = false;
+        sut.ShowInfoBadge.Should().BeTrue();
+        sut.BadgeRow.Should().NotContain(p => p.Kind == batteryKind);
+        sut.BadgeRow.Should().ContainSingle(p => p.Kind == acKind && p.Mode == SettingBadgeMode.None && p.IsHighlighted);
     }
 
     [Fact]
@@ -1344,20 +1387,6 @@ public class SettingItemViewModelTests : IDisposable
     }
 
     [Fact]
-    public void EnteringReviewMode_ForcesExpanderExpanded()
-    {
-        // A parent collapsed before a config import would hide its children behind a
-        // disabled card. Entering Review Mode must force every expander open so all
-        // child diffs are reachable.
-        var sut = CreateSut();
-        sut.IsExpanderExpanded = false;
-
-        sut.IsInReviewMode = true;
-
-        sut.IsExpanderExpanded.Should().BeTrue();
-    }
-
-    [Fact]
     public void ExitingReviewMode_DoesNotCollapseExpander()
     {
         // Leaving Review Mode should not touch the expander state — whatever the user
@@ -1372,12 +1401,13 @@ public class SettingItemViewModelTests : IDisposable
     }
 
     [Fact]
-    public void EnteringReviewMode_UserCanStillCollapseAfter()
+    public void EnteringReviewModeExpandsTheCardAndAllowsTheUserToCollapseIt()
     {
         // The auto-expand only fires on the transition into Review Mode. After that,
         // the user retains full control via the chevron overlay — collapsing is allowed
         // and must stick (the auto-expand doesn't keep re-firing).
-        var sut = CreateSut();
+        using var sut = CreateSut();
+        sut.IsExpanderExpanded = false;
 
         sut.IsInReviewMode = true;
         sut.IsExpanderExpanded.Should().BeTrue();

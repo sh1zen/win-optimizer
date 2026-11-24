@@ -2,9 +2,10 @@ using System;
 using System.Linq;
 using WinOptimizer.Core.Features.Common.Constants;
 using WinOptimizer.Core.Features.Common.Enums;
+using WinOptimizer.Core.Features.Common.Helpers;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Models;
-using WinOptimizer.Infrastructure.Features.Common.Helpers;
+using WinOptimizer.Infrastructure.Features.Customize.Services;
 
 namespace WinOptimizer.Infrastructure.Features.Common.Services;
 
@@ -14,18 +15,23 @@ public class ConfigurationApplicationBridgeService : IConfigurationApplicationBr
     private readonly ICompatibleSettingsRegistry _compatibleSettingsRegistry;
     private readonly ILogService _logService;
     private readonly IConfigImportState _configImportState;
+    private readonly ThemeWallpaperApplier _themeWallpaper;
 
     public ConfigurationApplicationBridgeService(
         ISettingApplicationService settingApplicationService,
         ICompatibleSettingsRegistry compatibleSettingsRegistry,
         ILogService logService,
-        IConfigImportState configImportState)
+        IConfigImportState configImportState,
+        ThemeWallpaperApplier themeWallpaper)
     {
         _settingApplicationService = settingApplicationService;
         _compatibleSettingsRegistry = compatibleSettingsRegistry;
         _logService = logService;
         _configImportState = configImportState;
+        _themeWallpaper = themeWallpaper;
     }
+
+    public Task ApplyDefaultWallpaperForCurrentThemeAsync() => _themeWallpaper.ApplyDefaultForCurrentThemeAsync();
 
     public async Task<bool> ApplyConfigurationSectionAsync(
         ConfigSection section,
@@ -149,12 +155,10 @@ public class ConfigurationApplicationBridgeService : IConfigurationApplicationBr
 
         // PowerCfg-backed NumericRange settings are exported in SYSTEM units (raw powercfg
         // reads, e.g. seconds). PowerCfgApplier treats incoming dict/scalar values as DISPLAY
-        // units and converts display→system itself, so we must convert system→display here —
-        // exactly as RecommendedSettingsResolver.BuildPowerCfgApplyValue does for the manual
-        // quick-set path. Non-PowerCfg NumericRange settings carry no PowerCfgSettings and pass
-        // through unchanged.
+        // units. Convert PowerCfg values here so import and the recommendation path supply
+        // the same units to the applier. Other numeric settings keep their stored values.
         bool isPowerCfg = setting.PowerCfgSettings?.Count > 0;
-        string? displayUnits = isPowerCfg ? RecommendedSettingsResolver.GetPowerCfgDisplayUnits(setting) : null;
+        string? displayUnits = isPowerCfg ? PowerSettingUnits.GetDisplayUnits(setting) : null;
 
         var hasAcValue = item.PowerSettings.TryGetValue("ACValue", out var acVal);
         var hasDcValue = item.PowerSettings.TryGetValue("DCValue", out var dcVal);
@@ -177,7 +181,7 @@ public class ConfigurationApplicationBridgeService : IConfigurationApplicationBr
     }
 
     // Converts a stored system-unit numeric value to display units for PowerCfg NumericRange
-    // settings, reusing RecommendedSettingsResolver's conversion table. Leaves the value
+    // settings, using the shared PowerSettingUnits conversions. Leaves the value
     // untouched for non-PowerCfg settings or non-numeric values.
     private static object? ConvertToDisplayIfPowerCfg(object? value, bool isPowerCfg, string? displayUnits)
     {
@@ -187,7 +191,7 @@ public class ConfigurationApplicationBridgeService : IConfigurationApplicationBr
         try
         {
             int systemValue = Convert.ToInt32(value);
-            return RecommendedSettingsResolver.ConvertSystemToDisplayUnits(systemValue, displayUnits);
+            return PowerSettingUnits.ToDisplayValue(systemValue, displayUnits);
         }
         catch
         {
@@ -216,6 +220,7 @@ public class ConfigurationApplicationBridgeService : IConfigurationApplicationBr
     private enum ApplyStatus
     {
         Applied,
+        Skipped,
         SkippedOsIncompatible,
         Failed
     }
@@ -309,7 +314,7 @@ public class ConfigurationApplicationBridgeService : IConfigurationApplicationBr
                 if (!confirmed)
                 {
                     _logService.Log(LogLevel.Info, $"User skipped setting '{item.Id}' during config import");
-                    return (ApplyStatus.Applied, item.Name);
+                    return (ApplyStatus.Skipped, item.Name);
                 }
 
                 checkboxResult = checkbox;
@@ -326,37 +331,25 @@ public class ConfigurationApplicationBridgeService : IConfigurationApplicationBr
                 valueToApply = ResolveNumericRangeValue(setting, item);
             }
 
-            if (setting.InputType == InputType.Action)
+            bool isAction = setting.InputType == InputType.Action;
+            if (isAction && item.IsSelected != true)
             {
-                // Action settings only apply when explicitly selected. An unselected Action has
-                // no "reverse" semantic — falling through with Enable=false would write
-                // DisabledValue (delete the keys the action set), which is destructive.
-                if (!(item.IsSelected ?? false))
-                {
-                    _logService.Log(LogLevel.Debug, $"Skipping unselected Action setting: {item.Name}");
-                    return (ApplyStatus.Applied, item.Name);
-                }
-
-                // Catalog path: operations declared directly on the SettingDefinition.
-                // Enable=true matches the runtime button-click flow (RunActionAsync).
-                await _settingApplicationService.ApplySettingAsync(new ApplySettingRequest
-                {
-                    SettingId = item.Id,
-                    Enable = true,
-                    CheckboxResult = checkboxResult,
-                    SkipValuePrerequisites = true
-                }).ConfigureAwait(false);
+                _logService.Log(LogLevel.Debug, $"Skipping unselected Action setting: {item.Name}");
+                return (ApplyStatus.Skipped, item.Name);
             }
-            else
+
+            var result = await _settingApplicationService.ApplySettingAsync(new ApplySettingRequest
             {
-                await _settingApplicationService.ApplySettingAsync(new ApplySettingRequest
-                {
-                    SettingId = item.Id,
-                    Enable = item.IsSelected ?? false,
-                    Value = valueToApply,
-                    CheckboxResult = checkboxResult,
-                    SkipValuePrerequisites = true
-                }).ConfigureAwait(false);
+                SettingId = item.Id,
+                Enable = isAction || item.IsSelected == true,
+                Value = valueToApply,
+                CheckboxResult = checkboxResult,
+                SkipValuePrerequisites = true
+            }).ConfigureAwait(false);
+            if (!result.Success)
+            {
+                _logService.Log(LogLevel.Error, $"Failed to apply setting '{item.Name}': {result.ErrorMessage}");
+                return (ApplyStatus.Failed, item.Name);
             }
 
             _logService.Log(LogLevel.Debug, $"Applied setting: {item.Name}");

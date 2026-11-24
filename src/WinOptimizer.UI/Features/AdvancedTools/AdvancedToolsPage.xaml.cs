@@ -49,6 +49,7 @@ public sealed partial class AdvancedToolsPage : Page, ISectionNavigationPage
         {
             "WimUtil" => typeof(WimUtilPage),
             "AutounattendXml" => typeof(AutounattendGeneratorPage),
+            "ExperimentalFeatures" => typeof(ExperimentalFeaturesPage),
             _ => null
         };
 
@@ -76,6 +77,7 @@ public sealed partial class AdvancedToolsPage : Page, ISectionNavigationPage
         {
             nameof(WimUtilPage) => "WimUtil",
             nameof(AutounattendGeneratorPage) => "AutounattendXml",
+            nameof(ExperimentalFeaturesPage) => "ExperimentalFeatures",
             _ => "Overview"
         };
 
@@ -85,7 +87,11 @@ public sealed partial class AdvancedToolsPage : Page, ISectionNavigationPage
     private void UpdateContentVisibility()
     {
         var isInDetailPage = ViewModel.IsInDetailPage;
+        var hasOwnHeading = ViewModel.CurrentSectionKey == "ExperimentalFeatures";
 
+        SectionHeader.Visibility = hasOwnHeading ? Visibility.Collapsed : Visibility.Visible;
+        Grid.SetRow(ContentHost, hasOwnHeading ? 0 : 1);
+        Grid.SetRowSpan(ContentHost, hasOwnHeading ? 2 : 1);
         OverviewContent.Visibility = isInDetailPage ? Visibility.Collapsed : Visibility.Visible;
         InnerContentFrame.Visibility = isInDetailPage ? Visibility.Visible : Visibility.Collapsed;
     }
@@ -100,6 +106,8 @@ public sealed partial class AdvancedToolsPage : Page, ISectionNavigationPage
     {
         NavigateToSection("AutounattendXml");
     }
+
+    private void ExperimentalCard_Click(object sender, RoutedEventArgs e) => NavigateToSection("ExperimentalFeatures");
 
     /// <summary>Opens recovery in the shell's Back/Forward navigation history.</summary>
     private void RestoreCard_Click(object sender, RoutedEventArgs e)

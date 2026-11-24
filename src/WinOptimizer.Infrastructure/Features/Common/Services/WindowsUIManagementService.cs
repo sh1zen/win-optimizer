@@ -39,26 +39,28 @@ public class WindowsUIManagementService : IWindowsUIManagementService
         }
     }
 
-    public void KillProcess(string processName)
+    public void KillProcess(string processName, bool waitForExit = false)
     {
+        var processes = Process.GetProcessesByName(processName);
         try
         {
-            var processes = Process.GetProcessesByName(processName);
             foreach (var process in processes)
             {
                 try
                 {
                     process.Kill();
+                    if (waitForExit && !process.WaitForExit(5000))
+                        throw new TimeoutException($"Waiting for '{processName}' to exit timed out.");
                 }
-                finally
+                catch (InvalidOperationException) when (process.HasExited)
                 {
-                    process.Dispose();
+                    // The matching process may have exited after it was enumerated.
                 }
             }
         }
-        catch (Exception ex)
+        finally
         {
-            _logService.LogError($"Failed to kill process {processName}", ex);
+            foreach (var process in processes) process.Dispose();
         }
     }
 

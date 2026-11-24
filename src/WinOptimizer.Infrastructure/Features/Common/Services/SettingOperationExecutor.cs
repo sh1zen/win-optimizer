@@ -22,7 +22,8 @@ public class SettingOperationExecutor(
     IProcessExecutor processExecutor,
     IPowerShellRunner powerShellRunner,
     IFileSystemService fileSystemService,
-    ILogService logService) : ISettingOperationExecutor
+    ILogService logService,
+    TimeMachineScheduledTasks? timeMachineTasks = null) : ISettingOperationExecutor
 {
     public async Task<OperationResult> ApplySettingOperationsAsync(SettingDefinition setting, bool enable, object? value, bool resetToDefault = false)
     {
@@ -142,9 +143,10 @@ public class SettingOperationExecutor(
 
             foreach (var taskSetting in setting.ScheduledTaskSettings)
             {
-                var taskResult = enable
-                    ? await scheduledTaskService.EnableTaskAsync(taskSetting.TaskPath).ConfigureAwait(false)
-                    : await scheduledTaskService.DisableTaskAsync(taskSetting.TaskPath).ConfigureAwait(false);
+                var taskResult = timeMachineTasks is not null
+                    ? await timeMachineTasks.SetAsync(taskSetting.TaskPath, setting.Name, enable).ConfigureAwait(false)
+                    : await (enable ? scheduledTaskService.EnableTaskAsync(taskSetting.TaskPath)
+                        : scheduledTaskService.DisableTaskAsync(taskSetting.TaskPath)).ConfigureAwait(false);
 
                 if (!taskResult.Success)
                 {
@@ -269,7 +271,12 @@ public class SettingOperationExecutor(
 
         if (setting.PowerCfgSettings?.Count > 0)
         {
-            await powerCfgApplier.ApplyPowerCfgSettingsAsync(setting, enable, value).ConfigureAwait(false);
+            var powerResult = await powerCfgApplier.ApplyPowerCfgSettingsAsync(setting, enable, value).ConfigureAwait(false);
+            if (!powerResult.Success)
+            {
+                allSucceeded = false;
+                failedOperations.Add($"PowerCfg: {powerResult.ErrorMessage}");
+            }
         }
 
         if (setting.NativePowerApiSettings?.Count > 0)

@@ -12,26 +12,25 @@ public sealed partial class SecurityPage : Page
     public SecurityPage() : this(App.Services.GetRequiredService<SecurityViewModel>()) { }
     public SecurityPage(SecurityViewModel viewModel) { ViewModel = viewModel; InitializeComponent(); }
 
-    /// <summary>Uses a category sidebar on wide pages and a picker when space is limited.</summary>
+    /// <summary>Places the scan action beside its guidance and shows a category sidebar when the page is wide.</summary>
     private void LayoutRoot_SizeChanged(object sender, SizeChangedEventArgs e)
     {
         var wide = e.NewSize.Width >= 900;
-        CategoryColumn.Width = new GridLength(wide ? 230 : 0);
-        ResultsLayout.ColumnSpacing = wide ? 16 : 0;
-        CategoryList.Visibility = wide ? Visibility.Visible : Visibility.Collapsed;
+        WideLayoutTrigger.IsActive = wide;
+        CompactLayoutTrigger.IsActive = !wide;
+        CategoryColumn.Width = new GridLength(wide ? 264 : 0);
+        ResultsLayout.ColumnSpacing = wide ? (double)Microsoft.UI.Xaml.Application.Current.Resources["PageCardSpacing"] : 0;
+        CategorySidebar.Visibility = wide ? Visibility.Visible : Visibility.Collapsed;
         CategoryPicker.Visibility = wide ? Visibility.Collapsed : Visibility.Visible;
+        Grid.SetRow(ResultsCard, wide ? 0 : 1);
+        Grid.SetRowSpan(ResultsCard, wide ? 2 : 1);
     }
 
-    /// <summary>Keeps finding descriptions readable by stacking status/recommendations in narrow result tables.</summary>
-    private void FindingLayout_SizeChanged(object sender, SizeChangedEventArgs e)
+    /// <summary>Reveals the unavailable finding after its category is bound to the list.</summary>
+    private void ViewUnavailable_Click(object sender, RoutedEventArgs e)
     {
-        var row = (Grid)sender;
-        var wide = e.NewSize.Width >= 650;
-        TableHeaders.Visibility = wide ? Visibility.Visible : Visibility.Collapsed;
-        Grid.SetColumnSpan((FrameworkElement)row.FindName("FindingContent"), wide ? 1 : 3);
-        ((FrameworkElement)row.FindName("FindingState")).Visibility = wide ? Visibility.Visible : Visibility.Collapsed;
-        ((FrameworkElement)row.FindName("FindingRecommendation")).Visibility = wide ? Visibility.Visible : Visibility.Collapsed;
-        ((FrameworkElement)row.FindName("CompactReview")).Visibility = wide ? Visibility.Collapsed : Visibility.Visible;
+        if (ViewModel.ViewUnavailable() is { } row)
+            DispatcherQueue.TryEnqueue(() => FindingsList.ScrollIntoView(row));
     }
 
     protected override void OnNavigatedFrom(NavigationEventArgs e) { ViewModel.Deactivate(); base.OnNavigatedFrom(e); }

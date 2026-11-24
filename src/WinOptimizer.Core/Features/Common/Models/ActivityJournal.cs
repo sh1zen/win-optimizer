@@ -19,12 +19,12 @@ public sealed class JournalRecord
     private JournalRecord(string fileName, ChangeHistoryEntry entry)
     {
         FileName = fileName; Change = entry;
-        Topic = entry.Kind switch
+        Topic = entry.Topic ?? (entry.Kind switch
         {
             HistoryEntryKind.AppInstalled or HistoryEntryKind.AppRemoved => LogTopic.Software,
             HistoryEntryKind.SettingChange or HistoryEntryKind.SettingAction => LogTopic.Settings,
             _ => LogTopic.General
-        };
+        });
     }
 
     public string FileName { get; }
@@ -39,6 +39,7 @@ public sealed class JournalRecord
     /// <summary>Filters typed fields, including full exception details and original change values.</summary>
     public bool Matches(JournalQuery query)
     {
+        if (Change?.AccountSid is not null) return false; // Personal recovery receipts are opened through TimeMachine.
         if (query.Topic is { } topic && Topic != topic) return false;
         if (query.Filter == JournalFilter.Changes && Change is null ||
             query.Filter == JournalFilter.Diagnostics && Diagnostic is null ||

@@ -13,10 +13,6 @@ namespace WinOptimizer.UI.Features.Common.Controls;
 /// </summary>
 public sealed partial class NavSidebar : UserControl, INotifyPropertyChanged
 {
-    // Sidebar dimensions (matching NavigationView defaults)
-    private const double ExpandedWidth = 80;
-    private const double CompactWidth = 48;
-
     public event PropertyChangedEventHandler? PropertyChanged;
     public event EventHandler<NavButtonClickedEventArgs>? ItemClicked;
 
@@ -84,7 +80,15 @@ public sealed partial class NavSidebar : UserControl, INotifyPropertyChanged
     /// <summary>
     /// Computed property: actual width based on pane state.
     /// </summary>
-    public double ActualSidebarWidth => IsPaneOpen ? ExpandedWidth : CompactWidth;
+    public double ActualSidebarWidth
+    {
+        get
+        {
+            var padding = NavPanelPadding;
+            var buttonWidth = IsPaneOpen ? NavButton.ExpandedWidth : NavButton.CompactWidth;
+            return buttonWidth + padding.Left + padding.Right;
+        }
+    }
 
     /// <summary>
     /// Computed property: padding for nav panels based on pane state.
@@ -106,6 +110,7 @@ public sealed partial class NavSidebar : UserControl, INotifyPropertyChanged
         {
             { "SoftwareApps", SoftwareAppsButton },
             { "Optimize", OptimizeButton },
+            { "Internet", InternetButton },
             { "Cleaner", CleanerButton },
             { "Drivers", DriversButton },
             { "Functionalities", FunctionalitiesButton },
@@ -113,6 +118,7 @@ public sealed partial class NavSidebar : UserControl, INotifyPropertyChanged
             { "Security", SecurityButton },
             { "Customize", CustomizeButton },
             { "AdvancedTools", AdvancedToolsButton },
+            { "TimeMachine", TimeMachineButton },
             { "Settings", SettingsButton }
         };
     }

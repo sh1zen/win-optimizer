@@ -1,11 +1,13 @@
 using WinOptimizer.Core.Features.Common.Enums;
 using WinOptimizer.Core.Features.Common.Interfaces;
+using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.Core.Features.Management;
+using WinOptimizer.Infrastructure.Features.Common.Services;
 
 namespace WinOptimizer.Infrastructure.Features.Management;
 
 /// <summary>Serializes cleanup, validates the entire request and preserves partial outcomes on cancellation.</summary>
-internal sealed class EventLogCleanupService(IEventLogStore store, IApplicationModeService mode) : IEventLogCleanupService
+internal sealed class EventLogCleanupService(IEventLogStore store, IApplicationModeService mode, TimeMachineStore? timeMachine = null) : IEventLogCleanupService
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
 
@@ -46,7 +48,9 @@ internal sealed class EventLogCleanupService(IEventLogStore store, IApplicationM
         foreach (var name in names)
         {
             if (token.IsCancellationRequested) return new(outcomes, true);
-            outcomes.Add(store.ClearWithBackup(name, backupDirectory));
+            var outcome = store.ClearWithBackup(name, backupDirectory);
+            outcomes.Add(outcome);
+            if (outcome.Cleared) timeMachine?.Record(LogTopic.Cleaner, name, "Event log cleared");
             progress?.Report(new(outcomes.Count, names.Length, name));
         }
         return new(outcomes, false);

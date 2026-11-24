@@ -2,11 +2,11 @@ using System.Linq;
 using WinOptimizer.Core.Features.Common.Constants;
 using WinOptimizer.Core.Features.Common.Enums;
 using WinOptimizer.Core.Features.Common.Events;
+using WinOptimizer.Core.Features.Common.Helpers;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.UI.Features.Common.Interfaces;
 using WinOptimizer.UI.Features.Common.Models;
-using WinOptimizer.UI.Features.Common.Utilities;
 using WinOptimizer.UI.Features.Optimize.ViewModels;
 
 namespace WinOptimizer.UI.Features.Common.Services;
@@ -234,9 +234,6 @@ public class SettingViewModelFactory : ISettingViewModelFactory
         return viewModel;
     }
 
-    private static int ConvertFromSystemUnits(int systemValue, SettingDefinition setting)
-    {
-        var displayUnits = setting.NumericRange?.Units;
-        return UnitConversionHelper.ConvertFromSystemUnits(systemValue, displayUnits);
-    }
+    private static int ConvertFromSystemUnits(int systemValue, SettingDefinition setting) =>
+        PowerSettingUnits.ToDisplayValue(systemValue, setting.NumericRange?.Units);
 }

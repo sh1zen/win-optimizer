@@ -18,6 +18,7 @@ public sealed class ExtensionsViewModelTests
 
     public ExtensionsViewModelTests()
     {
+        _host.As<ISystemMonitorWidgetInput>();
         _startup.Setup(s => s.ApplyAsync(It.IsAny<SystemMonitorOptions>())).ReturnsAsync(OperationResult.Succeeded());
         _host.Setup(h => h.ApplyOptionsAsync(It.IsAny<SystemMonitorOptions>())).Returns(Task.CompletedTask);
         _host.Setup(h => h.ShowAsync()).Returns(Task.CompletedTask);
@@ -41,6 +42,27 @@ public sealed class ExtensionsViewModelTests
         Assert.True(await vm.LoadAsync());
         Assert.True(await vm.LoadAsync());
         _host.Verify(h => h.ApplyOptionsAsync(options), Times.Once);
+        _preferences.Verify(p => p.SetPreferenceAsync(It.IsAny<string>(), It.IsAny<SystemMonitorOptions>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task ShellRefreshAcceptsCompanionChangesWithoutSavingOrRelaunching()
+    {
+        var saved = new SystemMonitorOptions { Enabled = true };
+        _preferences.Setup(p => p.GetPreferenceAsync(SystemMonitorOptions.PreferenceKey, It.IsAny<SystemMonitorOptions>()))
+            .ReturnsAsync(() => saved);
+        using var vm = Create();
+        Assert.True(await vm.LoadAsync());
+        var initial = saved;
+        saved = saved with { Enabled = false, IsCompact = false };
+
+        await vm.RefreshAsync(automaticLaunch: false, applyToWidget: false);
+
+        Assert.False(vm.IsEnabled);
+        Assert.False(vm.IsCompact);
+        Assert.Equal(saved, vm.Options);
+        _host.Verify(h => h.ApplyOptionsAsync(initial), Times.Once);
+        _host.Verify(h => h.ApplyOptionsAsync(saved), Times.Never);
         _preferences.Verify(p => p.SetPreferenceAsync(It.IsAny<string>(), It.IsAny<SystemMonitorOptions>()), Times.Never);
     }
 
@@ -198,8 +220,8 @@ public sealed class ExtensionsViewModelTests
         saved.SetResult(OperationResult.Succeeded());
         Assert.True(await vm.FlushAsync());
         _host.Verify(h => h.ApplyOptionsAsync(It.Is<SystemMonitorOptions>(o => o.Enabled)), Times.Once);
-        _host.Raise(h => h.ToggleSizeRequested += null, EventArgs.Empty);
-        _host.Raise(h => h.DisableRequested += null, EventArgs.Empty);
+        _host.As<ISystemMonitorWidgetInput>().Raise(h => h.ToggleSizeRequested += null, EventArgs.Empty);
+        _host.As<ISystemMonitorWidgetInput>().Raise(h => h.DisableRequested += null, EventArgs.Empty);
         Assert.True(await vm.FlushAsync());
         Assert.False(vm.Options.Enabled);
         Assert.False(vm.Options.IsCompact);
@@ -286,7 +308,7 @@ public sealed class ExtensionsViewModelTests
         Assert.Contains(nameof(vm.ScaleText), changed);
         var enlarged = saved with { ScalePercent = 150 };
         _host.Verify(h => h.ApplyOptionsAsync(enlarged), Times.Once);
-        _host.Raise(h => h.ToggleSizeRequested += null, EventArgs.Empty);
+        _host.As<ISystemMonitorWidgetInput>().Raise(h => h.ToggleSizeRequested += null, EventArgs.Empty);
         vm.ThemeIndex = 1;
         Assert.True(await vm.FlushAsync());
         Assert.Equal(saved with { ScalePercent = 150, IsCompact = false, Theme = SystemMonitorTheme.Light }, vm.Options);

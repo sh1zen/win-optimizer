@@ -40,44 +40,35 @@ public class RecommendedSettingsApplier(
                         IsActive = true
                     });
 
+                    var enable = true;
+                    object? value = null;
                     if (setting.InputType == InputType.Toggle)
                     {
                         var toggleState = SettingDefinitionToggleState.GetRecommendedToggleState(setting);
-                        if (toggleState is not bool enableValue) continue; // no recommendation
-                        await apply.ApplySettingAsync(new ApplySettingRequest
-                        {
-                            SettingId = setting.Id, Enable = enableValue, SkipValuePrerequisites = true
-                        }).ConfigureAwait(false);
+                        if (toggleState is not bool enableValue) continue;
+                        enable = enableValue;
                     }
                     else if (setting.InputType == InputType.Selection)
                     {
-                        var powerCfgValue = RecommendedSettingsResolver.BuildPowerCfgApplyValue(setting, useRecommended: true);
-                        if (powerCfgValue != null)
-                        {
-                            await apply.ApplySettingAsync(new ApplySettingRequest
-                            {
-                                SettingId = setting.Id, Enable = true, Value = powerCfgValue, SkipValuePrerequisites = true
-                            }).ConfigureAwait(false);
-                        }
-                        else
-                        {
-                            var idx = RecommendedSettingsResolver.GetRecommendedIndex(setting);
-                            if (idx is not int recommendedIndex) continue; // no IsRecommended option
-                            await apply.ApplySettingAsync(new ApplySettingRequest
-                            {
-                                SettingId = setting.Id, Enable = true, Value = recommendedIndex, SkipValuePrerequisites = true
-                            }).ConfigureAwait(false);
-                        }
+                        value = RecommendedSettingsResolver.BuildPowerCfgApplyValue(setting)
+                            ?? RecommendedSettingsResolver.GetRecommendedIndex(setting);
+                        if (value == null) continue;
                     }
                     else
                     {
-                        var valueToApply = RecommendedSettingsResolver.GetRecommendedValueForSetting(setting)
-                            ?? RecommendedSettingsResolver.BuildPowerCfgApplyValue(setting, useRecommended: true);
-                        if (valueToApply == null) continue; // nothing recommended
-                        await apply.ApplySettingAsync(new ApplySettingRequest
-                        {
-                            SettingId = setting.Id, Enable = true, Value = valueToApply, SkipValuePrerequisites = true
-                        }).ConfigureAwait(false);
+                        value = RecommendedSettingsResolver.GetRecommendedValueForSetting(setting)
+                            ?? RecommendedSettingsResolver.BuildPowerCfgApplyValue(setting);
+                        if (value == null) continue;
+                    }
+
+                    var result = await apply.ApplySettingAsync(new ApplySettingRequest
+                    {
+                        SettingId = setting.Id, Enable = enable, Value = value, SkipValuePrerequisites = true
+                    }).ConfigureAwait(false);
+                    if (!result.Success)
+                    {
+                        logService.Log(LogLevel.Warning, $"[RecommendedSettingsApplier] Failed to apply recommended for '{setting.Id}': {result.ErrorMessage}");
+                        continue;
                     }
 
                     appliedForRestart.Add(setting);

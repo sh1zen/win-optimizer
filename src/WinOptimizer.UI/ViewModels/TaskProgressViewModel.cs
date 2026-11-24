@@ -9,7 +9,7 @@ namespace WinOptimizer.UI.ViewModels;
 
 /// <summary>
 /// Child ViewModel for task progress display in the main window.
-/// Manages progress bar state, queue info, and multi-script slots.
+/// Manages footer progress, queue information and task controls.
 /// </summary>
 public partial class TaskProgressViewModel : ObservableObject, IDisposable
 {
@@ -47,15 +47,6 @@ public partial class TaskProgressViewModel : ObservableObject, IDisposable
 
     [ObservableProperty]
     public partial bool IsQueueVisible { get; set; }
-
-    [ObservableProperty]
-    public partial int ActiveScriptCount { get; set; }
-
-    /// <summary>
-    /// Event raised when a multi-script progress update is received.
-    /// Parameters: (slotIndex, detail).
-    /// </summary>
-    public event Action<int, TaskProgressDetail>? ScriptProgressReceived;
 
     public string CancelButtonLabel =>
         _localizationService.GetString("Button_Cancel") ?? "Cancel";
@@ -150,7 +141,6 @@ public partial class TaskProgressViewModel : ObservableObject, IDisposable
                 IsLoading = false;
                 IsTaskFailed = false;
                 IsTaskRunning = running;
-                ActiveScriptCount = 0;
                 IsQueueVisible = false;
                 QueueStatusText = "";
                 QueueNextItemName = "";
@@ -158,84 +148,67 @@ public partial class TaskProgressViewModel : ObservableObject, IDisposable
                 LastTerminalLine = "";
                 return;
             }
-            if (detail.ScriptSlotCount > 0)
-            {
-                // Multi-script mode: update slot count and raise per-slot event
-                ActiveScriptCount = detail.ScriptSlotCount;
-                ScriptProgressReceived?.Invoke(detail.ScriptSlotIndex, detail);
-            }
-            else if (ActiveScriptCount > 0 && detail.ScriptSlotIndex == -1)
-            {
-                // Multi-script task completed (ScriptSlotCount went to 0)
-                ActiveScriptCount = 0;
-            }
-            else
-            {
-                var wasRunning = IsLoading;
-                var wasTaskRunning = IsTaskRunning;
-                var isNowRunning = running;
-                IsTaskRunning = running;
-                if (detail.Progress.HasValue) ProgressValue = detail.Progress.Value;
-                IsIndeterminate = detail.IsIndeterminate || !detail.Progress.HasValue;
+            var wasRunning = IsLoading;
+            var wasTaskRunning = IsTaskRunning;
+            IsTaskRunning = running;
+            if (detail.Progress.HasValue) ProgressValue = detail.Progress.Value;
+            IsIndeterminate = detail.IsIndeterminate || !detail.Progress.HasValue;
 
-                if (isNowRunning)
+            if (running)
+            {
+                // Cancel any pending hide-delay from a previous task
+                _hideDelayCts?.Cancel();
+                _hideDelayCts = null;
+                if (!wasTaskRunning) IsTaskFailed = false;
+
+                IsLoading = true;
+                if (!string.IsNullOrEmpty(detail.StatusText))
+                    AppName = detail.StatusText;
+                LastTerminalLine = detail.TerminalOutput ?? string.Empty;
+
+                // Zero percent is normal task startup; failures have an explicit severity.
+                if (detail.LogLevel == LogLevel.Error)
+                    IsTaskFailed = true;
+            }
+            else if (wasRunning)
+            {
+                // Task just stopped running -- handle completion
+                if (cancelled)
                 {
-                    // Cancel any pending hide-delay from a previous task
-                    _hideDelayCts?.Cancel();
-                    _hideDelayCts = null;
-                    if (!wasTaskRunning) IsTaskFailed = false;
-
+                    // Cancelled by user: hide the control immediately
+                    IsTaskFailed = false;
+                    IsLoading = false;
+                }
+                else if (IsTaskFailed)
+                {
+                    // Failed: keep the control visible with "click to see details"
                     IsLoading = true;
-                    if (!string.IsNullOrEmpty(detail.StatusText))
-                        AppName = detail.StatusText;
-                    LastTerminalLine = detail.TerminalOutput ?? string.Empty;
-
-                    // Zero percent is normal task startup; failures have an explicit severity.
-                    if (detail.LogLevel == LogLevel.Error)
-                        IsTaskFailed = true;
-                }
-                else if (wasRunning)
-                {
-                    // Task just stopped running -- handle completion
-                    var wasCancelled = cancelled;
-
-                    if (wasCancelled)
-                    {
-                        // Cancelled by user: hide the control immediately
-                        IsTaskFailed = false;
-                        IsLoading = false;
-                    }
-                    else if (IsTaskFailed)
-                    {
-                        // Failed: keep the control visible with "click to see details"
-                        IsLoading = true;
-                        LastTerminalLine = _localizationService.GetString("Progress_ClickToSeeDetails");
-                    }
-                    else
-                    {
-                        // Success: show the completion state briefly, then hide after 2 seconds
-                        if (!string.IsNullOrEmpty(detail.StatusText))
-                            AppName = detail.StatusText;
-                        LastTerminalLine = detail.TerminalOutput ?? string.Empty;
-                        _ = ScheduleHideProgressAsync();
-                    }
-                }
-
-                // Queue display
-                if (detail.QueueTotal > 1)
-                {
-                    IsQueueVisible = true;
-                    QueueStatusText = $"{detail.QueueCurrent} / {detail.QueueTotal}";
-                    QueueNextItemName = !string.IsNullOrEmpty(detail.QueueNextItemName)
-                        ? $"Next: {detail.QueueNextItemName}"
-                        : string.Empty;
+                    LastTerminalLine = _localizationService.GetString("Progress_ClickToSeeDetails");
                 }
                 else
                 {
-                    IsQueueVisible = false;
-                    QueueStatusText = string.Empty;
-                    QueueNextItemName = string.Empty;
+                    // Success: show the completion state briefly, then hide after 2 seconds
+                    if (!string.IsNullOrEmpty(detail.StatusText))
+                        AppName = detail.StatusText;
+                    LastTerminalLine = detail.TerminalOutput ?? string.Empty;
+                    _ = ScheduleHideProgressAsync();
                 }
+            }
+
+            // Queue display
+            if (detail.QueueTotal > 1)
+            {
+                IsQueueVisible = true;
+                QueueStatusText = $"{detail.QueueCurrent} / {detail.QueueTotal}";
+                QueueNextItemName = !string.IsNullOrEmpty(detail.QueueNextItemName)
+                    ? $"Next: {detail.QueueNextItemName}"
+                    : string.Empty;
+            }
+            else
+            {
+                IsQueueVisible = false;
+                QueueStatusText = string.Empty;
+                QueueNextItemName = string.Empty;
             }
         });
     }

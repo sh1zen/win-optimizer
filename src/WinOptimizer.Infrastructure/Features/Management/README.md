@@ -6,6 +6,10 @@ and normal application mode; Test mode and configuration review block execution.
 
 ## Choosing an operation
 
+The Windows status page shows repair source options, component cleanup, and
+requirements and logs in cards below diagnosis and any completed results.
+When a result reports repairable corruption, choose **Repair** in its banner.
+
 | Action | Ordered operations | Meaning |
 | --- | --- | --- |
 | Quick status | DISM CheckHealth | Reads corruption already flagged by servicing; it is not a new full scan. |

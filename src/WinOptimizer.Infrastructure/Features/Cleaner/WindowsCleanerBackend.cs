@@ -1,12 +1,14 @@
 using WinOptimizer.Core.Features.Cleaner.Interfaces;
 using WinOptimizer.Core.Features.Cleaner.Models;
 using WinOptimizer.Core.Features.Common.Interfaces;
+using WinOptimizer.Core.Features.Common.Models;
+using WinOptimizer.Infrastructure.Features.Common.Services;
 
 namespace WinOptimizer.Infrastructure.Features.Cleaner;
 
 /// <summary>Dispatches cleanup to the component that owns each Windows resource.</summary>
 public sealed class WindowsCleanerBackend(CleanerFileScanner files, CleanerRegistryScanner registry,
-    RegistryHiveCompactor compactor, IProcessExecutor processes) : ICleanerBackend
+    RegistryHiveCompactor compactor, IProcessExecutor processes, TimeMachineStore? timeMachine = null) : ICleanerBackend
 {
     public string BackupDirectory => registry.BackupDirectory;
     public Task<IReadOnlyList<CleanerApplication>> GetApplicationsAsync(CancellationToken ct) => files.GetApplicationsAsync(ct);
@@ -54,6 +56,7 @@ public sealed class WindowsCleanerBackend(CleanerFileScanner files, CleanerRegis
         {
             case CleanerFileTarget file:
                 await Task.Run(() => files.Clean(file), ct).ConfigureAwait(false);
+                timeMachine?.Record(LogTopic.Cleaner, file.Path, "File deleted");
                 break;
             case CleanerRegistryTarget value:
                 await registry.CleanAsync(value, ct).ConfigureAwait(false);
@@ -62,13 +65,18 @@ public sealed class WindowsCleanerBackend(CleanerFileScanner files, CleanerRegis
                 ValidateDrive(disk.Root);
                 var result = await processes.ExecuteAsync(SystemTool("defrag.exe"), $"{disk.Root[..2]} /O /U /V", ct).ConfigureAwait(false);
                 if (!result.Succeeded) throw new IOException($"Disk optimization failed: {result.StandardError} {result.StandardOutput}");
-                break;
-            case CleanerHiveTarget hive:
-                await Task.Run(() => compactor.Clean(hive, ct, options.BackupBeforeRegistryDefrag), ct).ConfigureAwait(false);
+                timeMachine?.Record(LogTopic.Cleaner, disk.Root, "Drive optimized");
                 break;
             default:
                 throw new InvalidOperationException("Unsupported cleanup target.");
         }
+    }
+
+    public async Task ScheduleRegistryDefragAsync(IReadOnlyList<CleanerHiveTarget> hives, CancellationToken ct)
+    {
+        await Task.Run(() => compactor.ScheduleAsync(hives, ct), ct).ConfigureAwait(false);
+        foreach (var hive in hives)
+            timeMachine?.Record(LogTopic.Cleaner, hive.KeyPath, "Registry hive compaction scheduled");
     }
 
     internal static void ValidateDrive(string root)

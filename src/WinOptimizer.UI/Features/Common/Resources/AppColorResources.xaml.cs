@@ -73,6 +73,13 @@ public sealed partial class AppColorResources : ResourceDictionary
         _ => throw new ArgumentOutOfRangeException(nameof(color))
     };
 
+    /// <summary>Returns the shell canvas color for the desktop acrylic tint.</summary>
+    internal Color GetCanvasColor(bool dark)
+    {
+        var theme = (ResourceDictionary)ThemeDictionaries[dark ? "Default" : "Light"];
+        return ((SolidColorBrush)theme["AppCanvasBrush"]).Color;
+    }
+
     /// <summary>Mutates the shared brushes while retaining theme bindings and Windows high-contrast resources.</summary>
     public void Apply(AppColor color)
     {

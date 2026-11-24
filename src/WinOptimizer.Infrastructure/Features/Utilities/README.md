@@ -2,9 +2,11 @@
 
 `BatteryChargeService` discovers the manufacturer and installed batteries, queries
 the matching `IBatteryFirmwareProvider`, validates the requested percentage, applies
-the setting and rereads it. Only matching firmware readback reports success. Discovery
-does not apply settings. Normal application mode and the appropriate firmware/Windows
-permissions are required for writes.
+the setting and rereads it. Only matching firmware readback confirms the settings.
+When Windows reports one battery, the service also checks whether it is still
+charging above the reported limit. The page checks that condition when opened
+and after applying a limit. Discovery does not apply settings. Writes require
+normal application mode and the appropriate firmware/Windows permissions.
 
 ## Battery readings
 
@@ -24,8 +26,8 @@ it varies with workload. These readings do not measure total AC wall power.
 The page displays the reading time. Initial discovery, support rechecks and applying
 a charge limit collect fresh readings. Charge-limit controls sit above battery
 details and power readings. The selector offers firmware-supported percentages:
-60% is available on compatible Dell custom ranges and ASUS endpoints; Acer's health
-mode provides fixed 80%/100% choices.
+60%, 70%, and 90% are available on compatible Dell custom ranges and ASUS endpoints.
+Acer's health mode provides fixed 80%/100% choices.
 
 Windows contracts: [static battery data](https://learn.microsoft.com/en-us/windows/win32/api/batclass/ns-batclass-battery_wmi_static_data),
 [status and rate units](https://learn.microsoft.com/en-us/windows/win32/power/battery-status-str),
@@ -40,6 +42,18 @@ Windows contracts: [static battery data](https://learn.microsoft.com/en-us/windo
 | Acer | `root\wmi:BatteryControl` | Fixed 80%/100% when health mode is advertised |
 | Lenovo, MSI, Samsung, LG, Surface | OEM app installation guidance | Charging controls in the manufacturer's app on supported models |
 | Other manufacturers | Manufacturer guidance | No direct control without a compatible provider |
+
+## Restart threshold
+
+Dell's Custom mode provides separate start and stop thresholds. The **Resume
+charging** selector offers fixed levels below the stop limit, relative options
+10 or 20 percentage points below it, and **Soonest supported** for the highest
+accepted restart threshold. The choices follow the advertised start range
+and increment and must be at least five points below the selected stop limit.
+For example, with an 80% stop limit, 20 points below the limit sets a 60% restart
+threshold. A 100% stop limit can use **100% (Standard charging)** or a supported restart
+threshold in Custom mode. Apply verifies firmware readback, and the firmware retains
+the settings after the app closes. See [Dell's charging attribute reference](https://dl.dell.com/topicspdf/command-powershell-provider_reference-guide4_en-us.pdf).
 
 ## Installing OEM support
 
@@ -83,9 +97,8 @@ the shared WMI boundary:
 4. Invoke `SetBatteryHealthControl` with `uBatteryNo=1`, `uFunctionMask=1`,
    `uFunctionStatus=1` for 80% or `0` for 100%, and five zero `uReservedIn` bytes.
    Calibration and other firmware functions are independent of this mask.
-5. Reread health mode through the service before confirming the requested setting.
-   The Acer `uReturn` fields have no established success-code convention in the
-   protocol reference, so their numeric values are not treated as confirmation.
+5. Require a zero `uReturn` value from `SetBatteryHealthControl` and reread
+   health mode through the service before confirming the requested setting.
 
 The protocol addresses battery number 1. Its firmware capabilities and permission
 requirements vary by model. The endpoint being present does not establish that
@@ -94,7 +107,7 @@ publishes the diagnostic. OEM tools or firmware resets can change the setting la
 No service configuration or driver installation is part of this workflow.
 
 References: [Acer's feature documentation](https://community.acer.com/en/kb/articles/19027-battery-charge-limit-function-on-acer-notebooks),
-[original protocol implementation](https://github.com/frederik-h/acer-wmi-battery/blob/main/acer-wmi-battery.c).
+[Acer WMI battery driver](https://github.com/torvalds/linux/blob/master/drivers/platform/x86/acer-wmi-battery.c).
 
 ## Cross-manufacturer limits
 

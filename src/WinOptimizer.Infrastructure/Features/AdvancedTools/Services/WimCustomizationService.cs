@@ -1,6 +1,8 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Xml;
+using System.Xml.Linq;
 using WinOptimizer.Core.Features.AdvancedTools.Interfaces;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Models;
@@ -169,16 +171,38 @@ public class WimCustomizationService : IWimCustomizationService
 
             var destPath = _fileSystemService.CombinePath(workingDirectory, "autounattend.xml");
 
-            var xmlContent = await _fileSystemService.ReadAllTextAsync(xmlPath).ConfigureAwait(false);
-            await _fileSystemService.WriteAllTextAsync(destPath, xmlContent).ConfigureAwait(false);
+            var bytes = await _fileSystemService.ReadAllBytesAsync(xmlPath).ConfigureAwait(false);
+            ValidateAnswerFile(bytes);
+            await _fileSystemService.WriteAllBytesAsync(destPath, bytes).ConfigureAwait(false);
 
             _logService.LogInformation($"Added autounattend.xml to image: {destPath}");
             return true;
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not InvalidDataException)
         {
             _logService.LogError($"Error adding XML to image: {ex.Message}", ex);
             return false;
+        }
+    }
+
+    /// <summary>Validates the original bytes before copying them into the installation media.</summary>
+    private static void ValidateAnswerFile(byte[] bytes)
+    {
+        try
+        {
+            using var stream = new MemoryStream(bytes, writable: false);
+            using var reader = XmlReader.Create(stream, new XmlReaderSettings
+            {
+                DtdProcessing = DtdProcessing.Prohibit,
+                XmlResolver = null
+            });
+            var document = XDocument.Load(reader);
+            if (document.Root?.Name != XName.Get("unattend", "urn:schemas-microsoft-com:unattend"))
+                throw new InvalidDataException("The XML file is not a Windows answer file.");
+        }
+        catch (XmlException ex)
+        {
+            throw new InvalidDataException("The Windows answer file contains invalid XML.", ex);
         }
     }
 

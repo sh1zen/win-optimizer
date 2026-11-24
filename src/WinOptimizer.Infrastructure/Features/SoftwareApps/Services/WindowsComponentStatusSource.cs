@@ -43,7 +43,11 @@ public sealed class WindowsComponentStatusSource : IWindowsComponentStatusSource
         var capabilityResult = capabilities.Count == 0 ? null : results[0];
         var featureResult = features.Count == 0 ? null : results[^1];
         return new(Match(capabilities, capabilityResult, isCapability: true),
-            Match(features, featureResult, isCapability: false));
+            Match(features, featureResult, isCapability: false))
+        {
+            CapabilitiesRead = capabilities.Count == 0 || capabilityResult?.Value is not null,
+            FeaturesRead = features.Count == 0 || featureResult?.Value is not null
+        };
     }
 
     private Dictionary<string, bool> Match(IReadOnlyList<string> names,
@@ -59,7 +63,7 @@ public sealed class WindowsComponentStatusSource : IWindowsComponentStatusSource
         foreach (var name in names)
         {
             var match = read?.Value is { } installed && (isCapability
-                ? installed.Any(entry => entry.StartsWith(name, StringComparison.OrdinalIgnoreCase))
+                ? installed.Contains(name) || installed.Any(entry => entry.StartsWith(name + "~", StringComparison.OrdinalIgnoreCase))
                 : installed.Contains(name));
             result[name] = match;
             if (read?.Value is not null) _log.LogInformation($"[DISM-Detect] {kind} match: '{name}' => {match}");

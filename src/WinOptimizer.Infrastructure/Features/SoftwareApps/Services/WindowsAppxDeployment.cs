@@ -18,44 +18,12 @@ public interface IAppxDeployment
     async Task<(IReadOnlyList<AppxPackageIdentity> Packages, IReadOnlyList<AppxRegistration>? Registrations)> ReadAccountInventoryAsync(
         string accountSid, CancellationToken ct) => (await GetPackagesAsync(accountSid, ct).ConfigureAwait(false), null);
     Task RemovePackageAsync(string fullName, string accountSid, Action<int> progress, CancellationToken ct);
-    Task InstallPackageAsync(string packagePath, IReadOnlyList<string> dependencyPaths, CancellationToken ct);
 }
 
 /// <summary>Uses WinRT for the calling account and explicit SID removal for another signed-in account.</summary>
 public sealed class WindowsAppxDeployment(IInteractiveUserService user, IProcessExecutor processes,
     ILogService log) : IAppxDeployment
 {
-    /// <summary>Registers downloaded packages for the interactive account, refusing another-account fallback.</summary>
-    public async Task InstallPackageAsync(string packagePath, IReadOnlyList<string> dependencyPaths, CancellationToken ct)
-    {
-        ct.ThrowIfCancellationRequested();
-        var path = AppPaths.ResolveDetectionPath(packagePath, user);
-        var dependencies = dependencyPaths.Select(dependency => AppPaths.ResolveDetectionPath(dependency, user)).ToArray();
-        var accountSid = InteractiveAccountSid;
-        if (accountSid.Length > 0)
-        {
-            if (!user.HasInteractiveUserToken)
-                throw new IOException("Store installation requires the interactive user's token. Restart the app as the signed-in user.");
-            var script = $"Add-AppxPackage -Path '{path.Replace("'", "''")}' -ErrorAction Stop";
-            if (dependencies.Length > 0)
-                script += " -DependencyPath @(" + string.Join(",", dependencies.Select(dependency => "'" + dependency.Replace("'", "''") + "'")) + ")";
-            var arguments = "-NoProfile -NonInteractive -EncodedCommand " + Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
-            var result = await user.RunProcessAsInteractiveUserAsync(
-                Path.Combine(Environment.SystemDirectory, @"WindowsPowerShell\v1.0\powershell.exe"), arguments,
-                cancellationToken: ct, timeoutMs: Timeout.Infinite).ConfigureAwait(false);
-            ct.ThrowIfCancellationRequested();
-            if (result.ExitCode != 0)
-                throw new IOException($"Store installation for {accountSid} failed (exit {result.ExitCode}): {result.StandardError} {result.StandardOutput}".Trim());
-            return;
-        }
-
-        var deployment = await new PackageManager().AddPackageAsync(new Uri(path), dependencies.Select(dependency => new Uri(dependency)),
-            DeploymentOptions.None).AsTask(ct).ConfigureAwait(false);
-        ct.ThrowIfCancellationRequested();
-        if (deployment.ExtendedErrorCode is { } error)
-            throw new IOException(string.IsNullOrEmpty(deployment.ErrorText) ? error.Message : deployment.ErrorText, error);
-    }
-
     public string InteractiveAccountSid
     {
         get

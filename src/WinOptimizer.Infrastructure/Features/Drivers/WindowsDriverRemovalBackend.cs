@@ -1,13 +1,15 @@
 using System.ComponentModel;
 using System.Text.RegularExpressions;
 using WinOptimizer.Core.Features.Common.Interfaces;
+using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.Core.Features.Drivers.Interfaces;
 using WinOptimizer.Core.Features.Drivers.Models;
+using WinOptimizer.Infrastructure.Features.Common.Services;
 
 namespace WinOptimizer.Infrastructure.Features.Drivers;
 
 /// <summary>Uses PnPUtil for exact removals without force, device-tree removal or automatic reboot.</summary>
-public sealed class WindowsDriverRemovalBackend(IProcessExecutor processes) : IDriverRemovalBackend
+public sealed partial class WindowsDriverRemovalBackend(IProcessExecutor processes, TimeMachineStore? timeMachine = null) : IDriverRemovalBackend
 {
     public async Task<DriverRemovalOutcome> RemoveAsync(DriverRemovalTarget target, CancellationToken ct)
     {
@@ -22,11 +24,27 @@ public sealed class WindowsDriverRemovalBackend(IProcessExecutor processes) : ID
         else throw new DriverScanException("Windows driver removal requires a valid published INF name or exact device instance ID.");
         try
         {
-            // Do not kill PnPUtil midway through a native change; cancellation stops the next item.
-            var result = await processes.ExecuteAsync(Path.Combine(Environment.SystemDirectory, "pnputil.exe"), arguments,
-                CancellationToken.None).ConfigureAwait(false);
-            return new(target, result.ExitCode is 0 or 3010, result.ExitCode == 3010,
-                result.ExitCode is 0 or 3010 ? "" : $"PnPUtil ({result.ExitCode}): {result.StandardOutput.Trim()} {result.StandardError.Trim()}".Trim());
+            await _driverGate.WaitAsync(ct).ConfigureAwait(false);
+            try
+            {
+                var undo = target.Kind == DriverRemovalKind.Package && timeMachine is not null
+                    ? await ExportForRemovalAsync(target.Id, ct).ConfigureAwait(false) : null;
+                // Let a native write finish; cancellation stops the next item.
+                var result = await processes.ExecuteAsync(PnpUtil, arguments, CancellationToken.None).ConfigureAwait(false);
+                var success = result.ExitCode is 0 or 3010;
+                if (result.ExitCode == 3010)
+                    timeMachine?.Record(LogTopic.Drivers, target.Id, "Driver removal pending restart", undo);
+                else if (success)
+                    timeMachine?.Record(LogTopic.Drivers, target.Id, target.Kind == DriverRemovalKind.Package
+                        ? "Driver package removed" : "Disconnected device removed", undo);
+                else if (undo is not null && DriverIsStaged(DriverEvidence(undo).InfHash))
+                    timeMachine!.DiscardUndo(undo.Id);
+                else if (undo is not null)
+                    timeMachine!.Record(LogTopic.Drivers, target.Id, "Driver removal requires review", undo);
+                return new(target, success, result.ExitCode == 3010, success ? "" :
+                    $"PnPUtil ({result.ExitCode}): {result.StandardOutput.Trim()} {result.StandardError.Trim()}".Trim());
+            }
+            finally { _driverGate.Release(); }
         }
         catch (Exception ex) when (ex is Win32Exception or IOException or UnauthorizedAccessException)
         { throw new DriverScanException($"Unable to remove {target.Id}: {ex.Message}", ex); }

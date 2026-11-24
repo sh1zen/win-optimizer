@@ -12,20 +12,23 @@
                     <Setter Target="CategoryNavigation.(Grid.ColumnSpan)" Value="2"/>
                     <Setter Target="DetailsPanel.(Grid.Column)" Value="0"/>
                     <Setter Target="DetailsPanel.(Grid.ColumnSpan)" Value="2"/>
+                    <Setter Target="ShowCategoryListButton.Visibility" Value="Visible"/>
                 </VisualState.Setters>
             </VisualState>
         </VisualStateGroup></VisualStateManager.VisualStateGroups>
         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
         <common:PageHeader Title="{x:Bind ViewModel.PageTitle, Mode=OneWay}" Description="{x:Bind ViewModel.PageDescription, Mode=OneWay}" Icon="Settings"/>
-        <Grid Grid.Row="1" ColumnSpacing="24">
+        <Grid Grid.Row="1" ColumnSpacing="{StaticResource PageCardSpacing}">
             <Grid.ColumnDefinitions><ColumnDefinition Width="320"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
             <Grid x:Name="CategoryNavigation" RowSpacing="12" Visibility="{x:Bind ViewModel.ShowCategories, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
                 <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
                 <AutoSuggestBox HorizontalAlignment="Stretch" Text="{x:Bind ViewModel.Query, Mode=TwoWay}" QueryIcon="Find" PlaceholderText="{x:Bind ViewModel.SearchLabel, Mode=OneWay}" AutomationProperties.Name="{x:Bind ViewModel.SearchLabel, Mode=OneWay}"/>
                 <ListView Padding="{StaticResource ScrollContentPadding}" x:Name="CategoryList" Grid.Row="1" ItemsSource="{x:Bind CategoryGroups.View, Mode=OneWay}" SelectedItem="{x:Bind ViewModel.SelectedCategory, Mode=OneWay}" IsSynchronizedWithCurrentItem="False" SelectionChanged="CategoryList_SelectionChanged" SelectionMode="Single" Background="Transparent" ScrollViewer.HorizontalScrollBarVisibility="Disabled" helpers:ScrollBarAutoHide.HideAfter="0:0:2" HorizontalContentAlignment="Stretch" AutomationProperties.Name="{x:Bind ViewModel.PageTitle, Mode=OneWay}">
-                    <ListView.ItemContainerStyle><Style TargetType="ListViewItem">
-                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Padding" Value="12"/>
-                        <Setter Property="Margin" Value="0,0,0,3"/><Setter Property="CornerRadius" Value="10"/>
+                    <ListView.ItemContainerStyle><Style TargetType="ListViewItem" BasedOn="{StaticResource ListViewItemExpanded}">
+                        <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                        <Setter Property="Padding" Value="8,10"/>
+                        <Setter Property="Margin" Value="4,2,4,5"/>
+                        <Setter Property="CornerRadius" Value="{StaticResource ControlCornerRadius}"/>
                         <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}"/>
                     </Style></ListView.ItemContainerStyle>
                     <ListView.GroupStyle><GroupStyle>
@@ -55,35 +58,63 @@
                     <TextBlock Text="{x:Bind ViewModel.SelectCategoryLabel, Mode=OneWay}" FontSize="18" TextWrapping="Wrap" TextAlignment="Center"/>
                 </StackPanel>
             </Border>
-            <Grid x:Name="DetailsPanel" Grid.Column="1" RowSpacing="16" Visibility="{x:Bind ViewModel.ShowDetails, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <Grid x:Name="DetailsPanel" Grid.Column="1" RowSpacing="{StaticResource PageCardSpacing}" Visibility="{x:Bind ViewModel.ShowDetails, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
                 <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                 <Grid ColumnSpacing="12">
-                    <Grid.ColumnDefinitions><ColumnDefinition Width="40"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
-                    <Border Width="40" Height="40" CornerRadius="10" Background="{ThemeResource PageIconBackgroundBrush}" VerticalAlignment="Top">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="40"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <Button x:Name="ShowCategoryListButton" Grid.ColumnSpan="3" HorizontalAlignment="Left" Margin="0,0,0,8"
+                            Style="{StaticResource SubtleButtonStyle}" Visibility="Collapsed" Click="ShowCategoryList_Click"
+                            Content="{x:Bind ViewModel.SelectCategoryLabel, Mode=OneWay}"/>
+                    <Border Grid.Row="1" Width="40" Height="40" CornerRadius="10" Background="{ThemeResource PageIconBackgroundBrush}" VerticalAlignment="Top">
                         <fluent:FluentIcon Icon="{x:Bind ViewModel.SelectedIcon, Mode=OneWay}" IconVariant="Regular" IconSize="Size20" FontSize="24" Foreground="{ThemeResource PageIconForegroundBrush}"/>
                     </Border>
-                    <StackPanel Grid.Column="1" Spacing="5">
+                    <StackPanel Grid.Row="1" Grid.Column="1" Spacing="5">
                         <TextBlock Text="{x:Bind ViewModel.SelectedTitle, Mode=OneWay}" FontSize="22" FontWeight="SemiBold" TextWrapping="Wrap" AutomationProperties.HeadingLevel="Level2"/>
                         <TextBlock Text="{x:Bind ViewModel.SelectedDescription, Mode=OneWay}" FontSize="13" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     </StackPanel>
+                    <Button x:Name="CategoryResetButton" Grid.Row="1" Grid.Column="2" VerticalAlignment="Top" Width="36" Height="36" Padding="0"
+                            Style="{StaticResource SubtleButtonStyle}" Command="{x:Bind ViewModel.ResetCommand}"
+                            IsEnabled="{x:Bind ViewModel.CanReset, Mode=OneWay}"
+                            Visibility="{x:Bind ViewModel.ShowCategoryReset, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
+                            ToolTipService.ToolTip="{x:Bind ViewModel.ResetLabel, Mode=OneWay}" AutomationProperties.Name="{x:Bind ViewModel.ResetLabel, Mode=OneWay}">
+                        <fluent:FluentIcon Icon="ArrowReset" IconVariant="Regular" IconSize="Size20"/>
+                    </Button>
                 </Grid>
                 <settings:LogsAndHistoryControl Grid.Row="1" ViewModel="{x:Bind ViewModel.Logs}" Visibility="{x:Bind ViewModel.ShowLogsAndHistory, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
                 <ScrollViewer Padding="{StaticResource ScrollContentPadding}" Grid.Row="1" Visibility="{x:Bind ViewModel.ShowPreferenceDetails, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto" helpers:ScrollBarAutoHide.HideAfter="0:0:2">
-                    <StackPanel Spacing="12">
-                        <StackPanel Spacing="6" Visibility="{x:Bind ViewModel.ShowAppearance, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <StackPanel Spacing="{StaticResource PageCardSpacing}">
+                        <StackPanel x:Name="GeneralSettings" Spacing="{StaticResource PageCardSpacing}" Visibility="{x:Bind ViewModel.ShowGeneral, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <TextBlock Text="{x:Bind ViewModel.AppearanceHeading, Mode=OneWay}" FontWeight="SemiBold" AutomationProperties.HeadingLevel="Level3"/>
                             <controls:SettingsCard Header="{x:Bind ViewModel.LanguageHeader, Mode=OneWay}" Description="{x:Bind ViewModel.LanguageDescription, Mode=OneWay}" Style="{StaticResource PageSettingsCardStyle}">
                                 <controls:SettingsCard.HeaderIcon><fluent:FluentIcon Icon="LocalLanguage" IconVariant="Regular" IconSize="Size20"/></controls:SettingsCard.HeaderIcon>
-                                <ComboBox MinWidth="180" ItemsSource="{x:Bind ViewModel.Languages}" SelectedValue="{x:Bind ViewModel.SelectedLanguage, Mode=TwoWay}" SelectedValuePath="Value" FlowDirection="LeftToRight">
+                                <ComboBox x:Name="LanguagePicker" MinWidth="180"
+                                          ItemsSource="{x:Bind ViewModel.Languages}" SelectedValue="{x:Bind ViewModel.SelectedLanguage, Mode=TwoWay}"
+                                          SelectedValuePath="Value" FlowDirection="LeftToRight" AutomationProperties.Name="{x:Bind ViewModel.LanguageHeader, Mode=OneWay}">
                                     <ComboBox.ItemTemplate><DataTemplate><TextBlock Text="{Binding DisplayText}" TextReadingOrder="UseFlowDirection"/></DataTemplate></ComboBox.ItemTemplate>
                                 </ComboBox>
                             </controls:SettingsCard>
                             <controls:SettingsCard Header="{x:Bind ViewModel.ThemeHeader, Mode=OneWay}" Description="{x:Bind ViewModel.ThemeDescription, Mode=OneWay}" Style="{StaticResource PageSettingsCardStyle}">
                                 <controls:SettingsCard.HeaderIcon><fluent:FluentIcon Icon="PaintBrushSparkle" IconVariant="Regular" IconSize="Size20"/></controls:SettingsCard.HeaderIcon>
-                                <ComboBox MinWidth="180" ItemsSource="{x:Bind ViewModel.Themes}" SelectedItem="{x:Bind ViewModel.SelectedThemeOption, Mode=TwoWay}" DisplayMemberPath="DisplayText"/>
+                                <ComboBox x:Name="ThemePicker" MinWidth="180" ItemsSource="{x:Bind ViewModel.Themes}" SelectedItem="{x:Bind ViewModel.SelectedThemeOption, Mode=TwoWay}" DisplayMemberPath="DisplayText" AutomationProperties.Name="{x:Bind ViewModel.ThemeHeader, Mode=OneWay}"/>
                             </controls:SettingsCard>
+                            <controls:SettingsCard Header="{x:Bind ViewModel.WindowBackgroundPreferences.Label, Mode=OneWay}" Description="{x:Bind ViewModel.WindowBackgroundPreferences.Description, Mode=OneWay}" Style="{StaticResource PageSettingsCardStyle}">
+                                <controls:SettingsCard.HeaderIcon><fluent:FluentIcon Icon="Window" IconVariant="Regular" IconSize="Size20"/></controls:SettingsCard.HeaderIcon>
+                                <ToggleSwitch x:Name="WindowBackgroundToggle" IsOn="{x:Bind ViewModel.WindowBackgroundPreferences.IsBlurEnabled, Mode=TwoWay}" IsEnabled="{x:Bind ViewModel.WindowBackgroundPreferences.CanEdit, Mode=OneWay}" AutomationProperties.Name="{x:Bind ViewModel.WindowBackgroundPreferences.Label, Mode=OneWay}"/>
+                            </controls:SettingsCard>
+                            <TextBlock Text="{x:Bind ViewModel.WindowBackgroundPreferences.Status, Mode=OneWay}"
+                                       Visibility="{x:Bind StatusVisibility(ViewModel.WindowBackgroundPreferences.Status), Mode=OneWay}"
+                                       TextWrapping="Wrap" Foreground="{ThemeResource SystemFillColorCriticalBrush}" AutomationProperties.LiveSetting="Polite"/>
+                            <controls:SettingsCard Header="{x:Bind ViewModel.SidebarPreferences.ExpandedLabel, Mode=OneWay}" Description="{x:Bind ViewModel.SidebarPreferences.ExpandedDescription, Mode=OneWay}" Style="{StaticResource PageSettingsCardStyle}">
+                                <controls:SettingsCard.HeaderIcon><fluent:FluentIcon Icon="Navigation" IconVariant="Regular" IconSize="Size20"/></controls:SettingsCard.HeaderIcon>
+                                <ToggleSwitch IsOn="{x:Bind ViewModel.SidebarPreferences.IsExpanded, Mode=TwoWay}" IsEnabled="{x:Bind ViewModel.SidebarPreferences.CanEdit, Mode=OneWay}" AutomationProperties.Name="{x:Bind ViewModel.SidebarPreferences.ExpandedLabel, Mode=OneWay}"/>
+                            </controls:SettingsCard>
+                            <TextBlock Text="{x:Bind ViewModel.SidebarPreferences.Status, Mode=OneWay}"
+                                       Visibility="{x:Bind StatusVisibility(ViewModel.SidebarPreferences.Status), Mode=OneWay}"
+                                       TextWrapping="Wrap" Foreground="{ThemeResource SystemFillColorCriticalBrush}" AutomationProperties.LiveSetting="Polite"/>
                             <controls:SettingsCard Header="{x:Bind ViewModel.AppColorPreferences.Label, Mode=OneWay}" Description="{x:Bind ViewModel.AppColorPreferences.Description, Mode=OneWay}" Style="{StaticResource PageSettingsCardStyle}">
                                 <controls:SettingsCard.HeaderIcon><fluent:FluentIcon Icon="PaintBrushSparkle" IconVariant="Regular" IconSize="Size20"/></controls:SettingsCard.HeaderIcon>
-                                <ComboBox MinWidth="180" ItemsSource="{x:Bind ViewModel.AppColorPreferences.Colors}" SelectedItem="{x:Bind ViewModel.AppColorPreferences.SelectedOption, Mode=TwoWay}" IsEnabled="{x:Bind ViewModel.AppColorPreferences.CanEdit, Mode=OneWay}" AutomationProperties.Name="{x:Bind ViewModel.AppColorPreferences.Label, Mode=OneWay}">
+                                <ComboBox x:Name="AppColorPicker" MinWidth="180" ItemsSource="{x:Bind ViewModel.AppColorPreferences.Colors}" SelectedItem="{x:Bind ViewModel.AppColorPreferences.SelectedOption, Mode=TwoWay}" IsEnabled="{x:Bind ViewModel.AppColorPreferences.CanEdit, Mode=OneWay}" AutomationProperties.Name="{x:Bind ViewModel.AppColorPreferences.Label, Mode=OneWay}">
                                     <ComboBox.ItemTemplate><DataTemplate x:DataType="vm:AppColorOption">
                                         <StackPanel Orientation="Horizontal" Spacing="10">
                                             <Ellipse Width="16" Height="16" Fill="{x:Bind Swatch}" VerticalAlignment="Center"/>
@@ -92,46 +123,64 @@
                                     </DataTemplate></ComboBox.ItemTemplate>
                                 </ComboBox>
                             </controls:SettingsCard>
-                            <TextBlock Text="{x:Bind ViewModel.AppColorPreferences.Status, Mode=OneWay}" TextWrapping="Wrap" Foreground="{ThemeResource SystemFillColorCriticalBrush}" AutomationProperties.LiveSetting="Polite"/>
-                            <controls:SettingsCard Header="{x:Bind ViewModel.SidebarPreferences.ExpandedLabel, Mode=OneWay}" Description="{x:Bind ViewModel.SidebarPreferences.ExpandedDescription, Mode=OneWay}" Style="{StaticResource PageSettingsCardStyle}">
-                                <controls:SettingsCard.HeaderIcon><fluent:FluentIcon Icon="Navigation" IconVariant="Regular" IconSize="Size20"/></controls:SettingsCard.HeaderIcon>
-                                <ToggleSwitch IsOn="{x:Bind ViewModel.SidebarPreferences.IsExpanded, Mode=TwoWay}" IsEnabled="{x:Bind ViewModel.SidebarPreferences.CanEdit, Mode=OneWay}" AutomationProperties.Name="{x:Bind ViewModel.SidebarPreferences.ExpandedLabel, Mode=OneWay}"/>
-                            </controls:SettingsCard>
-                            <TextBlock Text="{x:Bind ViewModel.SidebarPreferences.Status, Mode=OneWay}" TextWrapping="Wrap" Foreground="{ThemeResource SystemFillColorCriticalBrush}" AutomationProperties.LiveSetting="Polite"/>
+                            <TextBlock Text="{x:Bind ViewModel.AppColorPreferences.Status, Mode=OneWay}"
+                                       Visibility="{x:Bind StatusVisibility(ViewModel.AppColorPreferences.Status), Mode=OneWay}"
+                                       TextWrapping="Wrap" Foreground="{ThemeResource SystemFillColorCriticalBrush}" AutomationProperties.LiveSetting="Polite"/>
+                            <StackPanel Margin="0,12,0,0" Spacing="{StaticResource PageCardSpacing}">
+                                <TextBlock Text="{x:Bind ViewModel.UpdatesHeading, Mode=OneWay}" FontWeight="SemiBold" AutomationProperties.HeadingLevel="Level3"/>
+                                <TextBlock Text="{x:Bind ViewModel.UpdatePreferences.ScheduleDescription, Mode=OneWay}" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                <controls:SettingsCard Header="{x:Bind ViewModel.UpdatePreferences.ApplicationUpdatesLabel, Mode=OneWay}" Style="{StaticResource PageSettingsCardStyle}">
+                                    <controls:SettingsCard.HeaderIcon><fluent:FluentIcon Icon="ArrowSync" IconVariant="Regular" IconSize="Size20"/></controls:SettingsCard.HeaderIcon>
+                                    <ToggleSwitch IsOn="{x:Bind ViewModel.UpdatePreferences.CheckApplicationUpdatesAutomatically, Mode=TwoWay}" IsEnabled="{x:Bind ViewModel.UpdatePreferences.CanEdit, Mode=OneWay}" AutomationProperties.Name="{x:Bind ViewModel.UpdatePreferences.ApplicationUpdatesLabel, Mode=OneWay}"/>
+                                </controls:SettingsCard>
+                                <controls:SettingsCard Header="{x:Bind ViewModel.UpdatePreferences.ScriptUpdatesLabel, Mode=OneWay}" Style="{StaticResource PageSettingsCardStyle}">
+                                    <controls:SettingsCard.HeaderIcon><fluent:FluentIcon Icon="DocumentText" IconVariant="Regular" IconSize="Size20"/></controls:SettingsCard.HeaderIcon>
+                                    <ToggleSwitch IsOn="{x:Bind ViewModel.UpdatePreferences.UpdateRemovalScriptsAutomatically, Mode=TwoWay}" IsEnabled="{x:Bind ViewModel.UpdatePreferences.CanEdit, Mode=OneWay}" AutomationProperties.Name="{x:Bind ViewModel.UpdatePreferences.ScriptUpdatesLabel, Mode=OneWay}"/>
+                                </controls:SettingsCard>
+                                <TextBlock Text="{x:Bind ViewModel.UpdatePreferences.Status, Mode=OneWay}"
+                                           Visibility="{x:Bind StatusVisibility(ViewModel.UpdatePreferences.Status), Mode=OneWay}"
+                                           TextWrapping="Wrap" Foreground="{ThemeResource SystemFillColorCriticalBrush}" AutomationProperties.LiveSetting="Polite"/>
+                            </StackPanel>
+                            <StackPanel Margin="0,12,0,0" Spacing="{StaticResource PageCardSpacing}">
+                                <StackPanel.Resources>
+                                    <ResourceDictionary Source="ms-appx:///Features/Common/Resources/InteractiveSurfaceResources.xaml"/>
+                                </StackPanel.Resources>
+                                <TextBlock Text="{x:Bind ViewModel.InfoHeading, Mode=OneWay}" FontWeight="SemiBold" AutomationProperties.HeadingLevel="Level3"/>
+                                <controls:SettingsCard x:Name="ApplicationStartupCard" Header="{x:Bind ViewModel.ApplicationStartup.Title, Mode=OneWay}" Description="{x:Bind ViewModel.ApplicationStartup.Description, Mode=OneWay}" Style="{StaticResource PageSettingsCardStyle}">
+                                    <controls:SettingsCard.HeaderIcon><fluent:FluentIcon Icon="PlayCircle" IconVariant="Regular" IconSize="Size20"/></controls:SettingsCard.HeaderIcon>
+                                    <ToggleSwitch IsOn="{x:Bind ViewModel.ApplicationStartup.IsOn, Mode=OneWay}"
+                                                  IsEnabled="{x:Bind ViewModel.ApplicationStartup.CanChange, Mode=OneWay}"
+                                                  OnContent="{x:Bind ViewModel.ApplicationStartup.OnLabel, Mode=OneWay}"
+                                                  OffContent="{x:Bind ViewModel.ApplicationStartup.OffLabel, Mode=OneWay}"
+                                                  AutomationProperties.Name="{x:Bind ViewModel.ApplicationStartup.Title, Mode=OneWay}"
+                                                  Toggled="ApplicationStartup_Toggled"/>
+                                </controls:SettingsCard>
+                                <InfoBar IsOpen="{x:Bind ViewModel.ApplicationStartup.ShowModeNotice, Mode=OneWay}" IsClosable="False"
+                                         Message="{x:Bind ViewModel.ApplicationStartup.ModeNotice, Mode=OneWay}"/>
+                                <InfoBar IsOpen="{x:Bind ViewModel.ApplicationStartup.HasStatus, Mode=OneWay}" IsClosable="False"
+                                         Message="{x:Bind ViewModel.ApplicationStartup.Status, Mode=OneWay}" Severity="{x:Bind ViewModel.ApplicationStartup.StatusSeverity, Mode=OneWay}"/>
+                                <controls:SettingsCard Header="{x:Bind ViewModel.Info.VersionLabel, Mode=OneWay}" Description="{x:Bind ViewModel.Info.VersionInfo, Mode=OneWay}"
+                                                       IsClickEnabled="True" Command="{x:Bind ViewModel.Info.Updates.CheckForUpdatesCommand}" Style="{StaticResource PageSettingsCardStyle}"
+                                                       ToolTipService.ToolTip="{x:Bind ViewModel.Info.Updates.CheckForUpdatesLabel, Mode=OneWay}"
+                                                       AutomationProperties.HelpText="{x:Bind ViewModel.Info.Updates.CheckForUpdatesLabel, Mode=OneWay}">
+                                    <controls:SettingsCard.HeaderIcon><fluent:FluentIcon Icon="Info" IconVariant="Regular" IconSize="Size20"/></controls:SettingsCard.HeaderIcon>
+                                    <ProgressRing Width="20" Height="20" IsActive="{x:Bind ViewModel.Info.Updates.IsUpdateCheckInProgress, Mode=OneWay}" Visibility="{x:Bind ViewModel.Info.Updates.IsUpdateCheckInProgress, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                                </controls:SettingsCard>
+                                <controls:SettingsCard x:Name="SupportCard" Header="{x:Bind ViewModel.Info.SupportLabel, Mode=OneWay}" AutomationProperties.Name="{x:Bind ViewModel.Info.SupportLabel, Mode=OneWay}" IsClickEnabled="True" Command="{x:Bind ViewModel.Info.SupportWinOptimizerCommand}" Style="{StaticResource PageSettingsCardStyle}">
+                                    <controls:SettingsCard.HeaderIcon><fluent:FluentIcon Icon="Heart" IconVariant="Regular" IconSize="Size20"/></controls:SettingsCard.HeaderIcon>
+                                </controls:SettingsCard>
+                                <controls:SettingsCard Header="{x:Bind ViewModel.Info.DocumentationLabel, Mode=OneWay}" IsClickEnabled="True" Command="{x:Bind ViewModel.Info.OpenDocsCommand}" Style="{StaticResource PageSettingsCardStyle}">
+                                    <controls:SettingsCard.HeaderIcon><fluent:FluentIcon Icon="BookQuestionMark" IconVariant="Regular" IconSize="Size20"/></controls:SettingsCard.HeaderIcon>
+                                </controls:SettingsCard>
+                                <controls:SettingsCard Header="{x:Bind ViewModel.Info.ReportBugLabel, Mode=OneWay}" IsClickEnabled="True" Command="{x:Bind ViewModel.Info.ReportBugCommand}" Style="{StaticResource PageSettingsCardStyle}">
+                                    <controls:SettingsCard.HeaderIcon><fluent:FluentIcon Icon="Bug" IconVariant="Regular" IconSize="Size20"/></controls:SettingsCard.HeaderIcon>
+                                </controls:SettingsCard>
+                            </StackPanel>
                         </StackPanel>
                         <cleaner:CleanerSettingsControl ViewModel="{x:Bind ViewModel.Cleaner}" Section="{x:Bind ViewModel.SelectedCleanerSection, Mode=OneWay}" Visibility="{x:Bind ViewModel.ShowCleaner, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
                         <drivers:DriverSettingsControl ViewModel="{x:Bind ViewModel.Drivers}" Visibility="{x:Bind ViewModel.ShowDrivers, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
-                        <StackPanel Spacing="6" Visibility="{x:Bind ViewModel.ShowInfo, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
-                            <StackPanel.Resources>
-                                <ResourceDictionary Source="ms-appx:///Features/Common/Resources/InteractiveSurfaceResources.xaml"/>
-                            </StackPanel.Resources>
-                            <controls:SettingsCard Header="{x:Bind ViewModel.Info.VersionLabel, Mode=OneWay}" Description="{x:Bind ViewModel.Info.VersionInfo, Mode=OneWay}" Style="{StaticResource PageSettingsCardStyle}">
-                                <controls:SettingsCard.HeaderIcon><fluent:FluentIcon Icon="Info" IconVariant="Regular" IconSize="Size20"/></controls:SettingsCard.HeaderIcon>
-                            </controls:SettingsCard>
-                            <controls:SettingsCard Header="{x:Bind ViewModel.Info.CheckForUpdatesLabel, Mode=OneWay}" IsClickEnabled="True" Command="{x:Bind ViewModel.Info.Updates.CheckForUpdatesCommand}" Style="{StaticResource PageSettingsCardStyle}">
-                                <controls:SettingsCard.HeaderIcon><fluent:FluentIcon Icon="ArrowSync" IconVariant="Regular" IconSize="Size20"/></controls:SettingsCard.HeaderIcon>
-                                <ProgressRing Width="20" Height="20" IsActive="{x:Bind ViewModel.Info.Updates.IsUpdateCheckInProgress, Mode=OneWay}" Visibility="{x:Bind ViewModel.Info.Updates.IsUpdateCheckInProgress, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
-                            </controls:SettingsCard>
-                            <TextBlock Text="{x:Bind ViewModel.UpdatePreferences.ScheduleDescription, Mode=OneWay}" TextWrapping="Wrap" Margin="0,8,0,4" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                            <controls:SettingsCard Header="{x:Bind ViewModel.UpdatePreferences.ApplicationUpdatesLabel, Mode=OneWay}" Style="{StaticResource PageSettingsCardStyle}">
-                                <controls:SettingsCard.HeaderIcon><fluent:FluentIcon Icon="ArrowSync" IconVariant="Regular" IconSize="Size20"/></controls:SettingsCard.HeaderIcon>
-                                <ToggleSwitch IsOn="{x:Bind ViewModel.UpdatePreferences.CheckApplicationUpdatesAutomatically, Mode=TwoWay}" IsEnabled="{x:Bind ViewModel.UpdatePreferences.CanEdit, Mode=OneWay}" AutomationProperties.Name="{x:Bind ViewModel.UpdatePreferences.ApplicationUpdatesLabel, Mode=OneWay}"/>
-                            </controls:SettingsCard>
-                            <controls:SettingsCard Header="{x:Bind ViewModel.UpdatePreferences.ScriptUpdatesLabel, Mode=OneWay}" Style="{StaticResource PageSettingsCardStyle}">
-                                <controls:SettingsCard.HeaderIcon><fluent:FluentIcon Icon="DocumentText" IconVariant="Regular" IconSize="Size20"/></controls:SettingsCard.HeaderIcon>
-                                <ToggleSwitch IsOn="{x:Bind ViewModel.UpdatePreferences.UpdateRemovalScriptsAutomatically, Mode=TwoWay}" IsEnabled="{x:Bind ViewModel.UpdatePreferences.CanEdit, Mode=OneWay}" AutomationProperties.Name="{x:Bind ViewModel.UpdatePreferences.ScriptUpdatesLabel, Mode=OneWay}"/>
-                            </controls:SettingsCard>
-                            <TextBlock Text="{x:Bind ViewModel.UpdatePreferences.Status, Mode=OneWay}" TextWrapping="Wrap" Foreground="{ThemeResource SystemFillColorCriticalBrush}" AutomationProperties.LiveSetting="Polite"/>
-                            <controls:SettingsCard x:Name="SupportCard" Header="{x:Bind ViewModel.Info.SupportLabel, Mode=OneWay}" AutomationProperties.Name="{x:Bind ViewModel.Info.SupportLabel, Mode=OneWay}" IsClickEnabled="True" Command="{x:Bind ViewModel.Info.SupportWinOptimizerCommand}" Margin="0,8,0,0" Style="{StaticResource PageSettingsCardStyle}">
-                                <controls:SettingsCard.HeaderIcon><fluent:FluentIcon Icon="Heart" IconVariant="Regular" IconSize="Size20"/></controls:SettingsCard.HeaderIcon>
-                            </controls:SettingsCard>
-                            <controls:SettingsCard Header="{x:Bind ViewModel.Info.DocumentationLabel, Mode=OneWay}" IsClickEnabled="True" Command="{x:Bind ViewModel.Info.OpenDocsCommand}" Style="{StaticResource PageSettingsCardStyle}">
-                                <controls:SettingsCard.HeaderIcon><fluent:FluentIcon Icon="BookQuestionMark" IconVariant="Regular" IconSize="Size20"/></controls:SettingsCard.HeaderIcon>
-                            </controls:SettingsCard>
-                            <controls:SettingsCard Header="{x:Bind ViewModel.Info.ReportBugLabel, Mode=OneWay}" IsClickEnabled="True" Command="{x:Bind ViewModel.Info.ReportBugCommand}" Style="{StaticResource PageSettingsCardStyle}">
-                                <controls:SettingsCard.HeaderIcon><fluent:FluentIcon Icon="Bug" IconVariant="Regular" IconSize="Size20"/></controls:SettingsCard.HeaderIcon>
-                            </controls:SettingsCard>
-                        </StackPanel>
+                        <settings:TimeMachineRetentionControl DataContext="{x:Bind ViewModel}"
+                            Visibility="{x:Bind ViewModel.ShowTimeMachine, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
                         <Border x:Name="FullResetCard" Visibility="{x:Bind ViewModel.ShowResetAll, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}" Style="{StaticResource PageCardStyle}">
                             <Grid ColumnSpacing="16">
                                 <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
@@ -141,7 +190,7 @@
                         </Border>
                     </StackPanel>
                 </ScrollViewer>
-                <StackPanel Grid.Row="2" Spacing="10">
+                <StackPanel Grid.Row="2" Spacing="{StaticResource PageCardSpacing}">
                     <Border Padding="16" Visibility="{x:Bind ViewModel.ShowCleanerAccounts, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}" Style="{StaticResource PageCardStyle}">
                         <StackPanel Spacing="8">
                             <TextBlock Text="{x:Bind ViewModel.Cleaner.RegistryAccountsLabel, Mode=OneWay}" FontWeight="SemiBold" AutomationProperties.HeadingLevel="Level3"/>
@@ -160,7 +209,6 @@
                         </StackPanel>
                     </Border>
                     <TextBlock Text="{x:Bind ViewModel.Status, Mode=OneWay}" TextWrapping="Wrap" Foreground="{ThemeResource SystemFillColorCriticalBrush}" AutomationProperties.LiveSetting="Polite"/>
-                    <Button Content="{x:Bind ViewModel.ResetLabel, Mode=OneWay}" Command="{x:Bind ViewModel.ResetCommand}" IsEnabled="{x:Bind ViewModel.CanReset, Mode=OneWay}" Visibility="{x:Bind ViewModel.ShowCategoryReset, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
                 </StackPanel>
             </Grid>
         </Grid>

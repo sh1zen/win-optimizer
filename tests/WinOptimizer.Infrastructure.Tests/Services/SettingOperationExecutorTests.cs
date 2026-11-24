@@ -354,6 +354,25 @@ public class SettingOperationExecutorTests
     }
 
     [Fact]
+    public async Task ApplySettingOperationsAsync_PreservesPowerCfgFailure()
+    {
+        var setting = CreateSetting("powercfg") with
+        {
+            PowerCfgSettings = [new()
+            {
+                RecommendedValueAC = null, RecommendedValueDC = null, DefaultValueAC = null, DefaultValueDC = null
+            }]
+        };
+        _mockPowerCfg.Setup(x => x.ApplyPowerCfgSettingsAsync(setting, true, 30))
+            .ReturnsAsync(OperationResult.Failed("DC write rejected"));
+
+        var result = await _executor.ApplySettingOperationsAsync(setting, true, 30);
+
+        result.Success.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("DC write rejected");
+    }
+
+    [Fact]
     public async Task ApplySettingOperationsAsync_NoPowerCfgSettings_DoesNotCallPowerCfgApplier()
     {
         var setting = CreateSetting("no-powercfg");

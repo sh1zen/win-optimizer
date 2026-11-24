@@ -1,3 +1,5 @@
+using System.Security.AccessControl;
+using System.Security.Principal;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -25,12 +27,63 @@ public sealed class AutorunTests : IDisposable
     private readonly Backend _backend = new();
     private readonly Mock<IApplicationModeService> _mode = new();
     private readonly Mock<IInteractiveUserService> _user = new();
+    private readonly Mock<IScheduledTaskService> _scheduledTasks = new(MockBehavior.Strict);
     internal static readonly AutorunEntry Entry = new("registry:1", "Example", "Logon", "HKCU\\Run", "example.exe --start", "example.exe", "Example Ltd", "", "User", true, true, "Original entry");
 
-    private AutorunService Create()
+    private AutorunService Create(Func<string>? startupExecutable = null)
     {
         _mode.Setup(mode => mode.BeginSystemOperation()).Returns(Mock.Of<IDisposable>());
-        return new(_backend, _mode.Object, _user.Object);
+        return startupExecutable is null
+            ? new(_backend, _mode.Object, _user.Object, _scheduledTasks.Object)
+            : new(_backend, _mode.Object, _user.Object, _scheduledTasks.Object, startupExecutable);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ApplicationStartupUsesTheSignedInAccountsTaskAndNormalShellLaunch(bool enable)
+    {
+        const string sid = "S-1-5-21-1-2-3-1001";
+        const string executable = @"C:\Program Files\win-optimizer\win-optimizer.exe";
+        _user.SetupGet(user => user.InteractiveUserSid).Returns(sid);
+        _scheduledTasks.Setup(tasks => tasks.ConfigureUserLogonApplicationAsync($"WinOptimizer-{sid}",
+                enable ? executable : "", "", sid, enable)).ReturnsAsync(OperationResult.Succeeded());
+        _scheduledTasks.Setup(tasks => tasks.IsUserLogonApplicationEnabledAsync($"WinOptimizer-{sid}")).ReturnsAsync(enable);
+        var service = Create(() => enable ? executable : throw new InvalidOperationException("Disabling only needs the task name."));
+
+        await service.SetApplicationStartupAsync(enable);
+
+        Assert.Equal(enable, await service.ReadApplicationStartupAsync());
+        _scheduledTasks.VerifyAll();
+    }
+
+    [Fact]
+    public async Task AlternateAccountCannotConfigureAnElevatedLogonTask()
+    {
+        _user.SetupGet(user => user.IsOtsElevation).Returns(true);
+        var service = Create();
+
+        Assert.Null(await service.ReadApplicationStartupAsync());
+        await Assert.ThrowsAsync<InvalidOperationException>(() => service.SetApplicationStartupAsync(true));
+        _scheduledTasks.VerifyNoOtherCalls();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ApplicationStartupRequiresAnAdministratorControlledPayload(bool allowUserWrites)
+    {
+        var administrators = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
+        var users = new SecurityIdentifier(WellKnownSidType.BuiltinUsersSid, null);
+        var security = new FileSecurity();
+        security.SetOwner(administrators);
+        security.AddAccessRule(new FileSystemAccessRule(administrators, FileSystemRights.FullControl, AccessControlType.Allow));
+        security.AddAccessRule(new FileSystemAccessRule(users,
+            allowUserWrites ? FileSystemRights.Modify : FileSystemRights.ReadAndExecute, AccessControlType.Allow));
+
+        if (allowUserWrites)
+            Assert.Throws<UnauthorizedAccessException>(() => ApplicationStartupExecutable.ValidatePermissions(security, "win-optimizer.dll"));
+        else ApplicationStartupExecutable.ValidatePermissions(security, "win-optimizer.dll");
     }
 
     [Fact]

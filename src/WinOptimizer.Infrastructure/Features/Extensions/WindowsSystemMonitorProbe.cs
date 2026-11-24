@@ -9,9 +9,13 @@ using WinOptimizer.Core.Features.Extensions;
 namespace WinOptimizer.Infrastructure.Features.Extensions;
 
 /// <summary>Reads native counters and built-in hardware sensors, supplementing missing types from local WMI providers.</summary>
-public sealed class WindowsSystemMonitorProbe(HardwareMonitorSensors sensors) : ISystemMonitorProbe
+public sealed class WindowsSystemMonitorProbe(HardwareMonitorSensors? sensors, bool useExternalSensors = true) : ISystemMonitorProbe
 {
     private readonly SensorQueries _queries = new(provider => new WmiSensorQuery(provider));
+    private readonly Func<bool>? _includeSensors;
+
+    internal WindowsSystemMonitorProbe(HardwareMonitorSensors sensors, Func<bool> includeSensors)
+        : this(sensors, useExternalSensors: false) => _includeSensors = includeSensors;
 
     public SystemMonitorCounters Read(CancellationToken cancellationToken)
     {
@@ -48,8 +52,10 @@ public sealed class WindowsSystemMonitorProbe(HardwareMonitorSensors sensors) : 
         // Timestamp the fast counters before optional sensor queries, whose latency is unrelated to their rates.
         var timestamp = DateTimeOffset.Now;
         var elapsed = TimeSpan.FromSeconds((double)Stopwatch.GetTimestamp() / Stopwatch.Frequency);
-        var (temperatures, fans, metrics) = sensors.Read(cancellationToken, notices);
-        if (temperatures.Count == 0 || fans.Count == 0)
+        var includeSensors = _includeSensors?.Invoke() != false;
+        if (!includeSensors) sensors?.Dispose();
+        var (temperatures, fans, metrics) = (includeSensors ? sensors?.Read(cancellationToken, notices) : null) ?? ([], [], []);
+        if (useExternalSensors && (temperatures.Count == 0 || fans.Count == 0))
         {
             var (providerTemperatures, providerFans) = ReadSensors(
                 provider => _queries.Read(provider, cancellationToken, notices), cancellationToken, notices,
@@ -57,8 +63,8 @@ public sealed class WindowsSystemMonitorProbe(HardwareMonitorSensors sensors) : 
             if (temperatures.Count == 0) temperatures = providerTemperatures;
             if (fans.Count == 0) fans = providerFans;
         }
-        if (temperatures.Count == 0) notices.Add("Temperatures: no supported sensor is reporting a value. Check hardware sensor setup in SysMonitor settings.");
-        if (fans.Count == 0) notices.Add("Fans: no supported RPM sensor is reporting a value. Firmware may not expose fan speeds; check hardware sensor setup in SysMonitor settings.");
+        if (useExternalSensors && temperatures.Count == 0) notices.Add("Temperatures: no supported sensor is reporting a value. Check hardware sensor setup in SysMonitor settings.");
+        if (useExternalSensors && fans.Count == 0) notices.Add("Fans: no supported RPM sensor is reporting a value. Firmware may not expose fan speeds; check hardware sensor setup in SysMonitor settings.");
         return new(timestamp, elapsed, idle, kernel, user, totalMemory, availableMemory,
             network, temperatures, fans, notices) { HardwareMetrics = metrics };
     }
@@ -179,7 +185,7 @@ public sealed class WindowsSystemMonitorProbe(HardwareMonitorSensors sensors) : 
     public void Close()
     {
         _queries.Dispose();
-        sensors.Dispose();
+        sensors?.Dispose();
     }
 
     [StructLayout(LayoutKind.Sequential)]

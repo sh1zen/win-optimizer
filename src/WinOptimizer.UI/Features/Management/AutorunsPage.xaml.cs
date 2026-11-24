@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using WinOptimizer.UI.Features.Management.ViewModels;
 
@@ -13,9 +14,26 @@ public sealed partial class AutorunsPage : Page
     {
         ViewModel = viewModel;
         InitializeComponent();
-        // Keep the virtualized list finitely sized, with whole-page scrolling on short windows.
-        PageRoot.Height = 1000;
-        SizeChanged += (_, args) => PageRoot.Height = Math.Max(1000, args.NewSize.Height);
-        Loaded += async (_, _) => await ViewModel.LoadAsync();
+        SizeChanged += (_, args) => UpdateLayoutMode(args.NewSize.Width);
+        Loaded += async (_, _) =>
+        {
+            UpdateLayoutMode(ActualWidth);
+            await ViewModel.LoadAsync();
+        };
+    }
+
+    /// <summary>Measures the available page width after accounting for the application sidebar.</summary>
+    private void UpdateLayoutMode(double width) => VisualStateManager.GoToState(this, width >= 1000 ? "Wide" : "Narrow", false);
+
+    /// <summary>Keeps the switch on the scanned state until the user confirms and the scan finishes.</summary>
+    private async void StartupToggle_Toggled(object sender, RoutedEventArgs e)
+    {
+        var toggle = (ToggleSwitch)sender;
+        var requested = toggle.IsOn;
+        if (requested == ViewModel.SelectedEnabled) return;
+
+        toggle.IsOn = ViewModel.SelectedEnabled;
+        var action = requested ? ViewModel.EnableCommand : ViewModel.DisableCommand;
+        if (action.CanExecute(null)) await action.ExecuteAsync(null);
     }
 }

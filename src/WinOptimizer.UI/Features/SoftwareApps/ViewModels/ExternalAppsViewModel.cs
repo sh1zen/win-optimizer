@@ -396,10 +396,7 @@ public partial class ExternalAppsViewModel : BaseViewModel, IExternalAppsItemsPr
                 {
                     foreach (var item in Items)
                     {
-                        if (statusResults.TryGetValue(item.Definition.Id, out bool isInstalled))
-                        {
-                            item.IsInstalled = isInstalled;
-                        }
+                        item.ApplyInstallationStatus(statusResults.TryGetValue(item.Definition.Id, out var isInstalled) ? isInstalled : null);
                         item.NotifyMetadataChanged();
                     }
                 });
@@ -538,7 +535,7 @@ public partial class ExternalAppsViewModel : BaseViewModel, IExternalAppsItemsPr
             {
                 foreach (var item in Items.Where(item => removed.Contains(item.Id)).ToList())
                 {
-                    item.IsInstalled = false;
+                    item.ApplyInstallationStatus(false);
                     item.Definition.Metadata = null;
                     item.NotifyMetadataChanged();
                     if (item.Definition.RegistryUninstallKeyPath is not null)

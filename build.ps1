@@ -10,6 +10,7 @@ workloads (or Build Tools).
 The executable is written to build/win-optimizer.exe; the build log is saved
 to build/logs/build.log. Version.props supplies the YY.MM.DD build-date version;
 -Version selects an explicit date for a release.
+Only one build can use an output directory at a time.
 .EXAMPLE
 .\build.ps1
 .EXAMPLE
@@ -48,53 +49,73 @@ if (-not (Test-Path -LiteralPath $projectPath -PathType Leaf)) {
     throw "UI project not found: $projectPath"
 }
 
-$MSBuildPath = & (Join-Path $PSScriptRoot 'extras\Resolve-MSBuild.ps1') -MSBuildPath $MSBuildPath
-
-$null = New-Item -ItemType Directory -Path (Split-Path -Parent $buildLog) -Force
-$target = if ($Clean) { 'Rebuild' } else { 'Build' }
-$buildArguments = @(
-    $projectPath
-    '-maxCpuCount'
-    '-graphBuild'
-    "-target:$target"
-    "-property:Configuration=$Configuration"
-    '-property:Platform=x64'
-    "-property:WinOptimizerBuildRoot=$BuildRoot"
-    '-verbosity:minimal'
-    '-nologo'
-    '-fileLogger'
-    "-fileLoggerParameters:LogFile=$buildLog;Verbosity=normal;Encoding=UTF-8"
-)
-if (-not $NoRestore) { $buildArguments += @('-restore', '-property:RestoreUseStaticGraphEvaluation=true') }
-if ($Version) { $buildArguments += "-property:WinOptimizerVersion=$Version" }
-
-Write-Host "Building win-optimizer ($Configuration/x64) using $MSBuildPath" -ForegroundColor Cyan
-# Resolve relative project paths from the repository root.
-$originalPath = $env:PATH
-Push-Location -LiteralPath $PSScriptRoot
+$null = [IO.Directory]::CreateDirectory($BuildRoot)
+$lockPath = Join-Path $BuildRoot '.win-optimizer-build.lock'
+$buildLock = $null
 try {
-    # MSBuild's SDK resolver needs dotnet even when its directory is absent from PATH.
-    if (-not (Get-Command dotnet.exe -CommandType Application -ErrorAction SilentlyContinue)) {
-        $programFiles64 = if ($env:ProgramW6432) { $env:ProgramW6432 } else { $env:ProgramFiles }
-        $dotnetDirectory = Join-Path $programFiles64 'dotnet'
-        if (-not (Test-Path -LiteralPath (Join-Path $dotnetDirectory 'dotnet.exe') -PathType Leaf)) {
-            throw 'dotnet.exe not found. Install the x64 .NET 11 SDK or add its directory to PATH.'
+    try {
+        # Windows deletes the lock when the handle closes, including on process termination.
+        $buildLock = [IO.FileStream]::new($lockPath, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite,
+            [IO.FileShare]::None, 1, [IO.FileOptions]::DeleteOnClose)
+    }
+    catch [IO.IOException] {
+        if ($_.Exception.HResult -eq 0x80070020) { # ERROR_SHARING_VIOLATION
+            throw "Another build is already running in '$BuildRoot'. Retry when it finishes or use a different -BuildRoot."
         }
-        $env:PATH = "$dotnetDirectory;$originalPath"
+        throw
     }
 
-    & $MSBuildPath @buildArguments
-    if ($LASTEXITCODE -ne 0) {
-        throw "MSBuild failed with exit code $LASTEXITCODE. Full log: $buildLog"
+    $MSBuildPath = & (Join-Path $PSScriptRoot 'extras\Resolve-MSBuild.ps1') -MSBuildPath $MSBuildPath
+
+    $null = New-Item -ItemType Directory -Path (Split-Path -Parent $buildLog) -Force
+    $target = if ($Clean) { 'Rebuild' } else { 'Build' }
+    $buildArguments = @(
+        $projectPath
+        '-maxCpuCount'
+        '-graphBuild'
+        "-target:$target"
+        "-property:Configuration=$Configuration"
+        '-property:Platform=x64'
+        "-property:WinOptimizerBuildRoot=$BuildRoot"
+        '-verbosity:minimal'
+        '-nologo'
+        '-fileLogger'
+        "-fileLoggerParameters:LogFile=$buildLog;Verbosity=normal;Encoding=UTF-8"
+    )
+    if (-not $NoRestore) { $buildArguments += @('-restore', '-property:RestoreUseStaticGraphEvaluation=true') }
+    if ($Version) { $buildArguments += "-property:WinOptimizerVersion=$Version" }
+
+    Write-Host "Building win-optimizer ($Configuration/x64) using $MSBuildPath" -ForegroundColor Cyan
+    # Resolve relative project paths from the repository root.
+    $originalPath = $env:PATH
+    Push-Location -LiteralPath $PSScriptRoot
+    try {
+        # MSBuild's SDK resolver needs dotnet even when its directory is absent from PATH.
+        if (-not (Get-Command dotnet.exe -CommandType Application -ErrorAction SilentlyContinue)) {
+            $programFiles64 = if ($env:ProgramW6432) { $env:ProgramW6432 } else { $env:ProgramFiles }
+            $dotnetDirectory = Join-Path $programFiles64 'dotnet'
+            if (-not (Test-Path -LiteralPath (Join-Path $dotnetDirectory 'dotnet.exe') -PathType Leaf)) {
+                throw 'dotnet.exe not found. Install the x64 .NET 11 SDK or add its directory to PATH.'
+            }
+            $env:PATH = "$dotnetDirectory;$originalPath"
+        }
+
+        & $MSBuildPath @buildArguments
+        if ($LASTEXITCODE -ne 0) {
+            throw "MSBuild failed with exit code $LASTEXITCODE. Full log: $buildLog"
+        }
+        if (-not (Test-Path -LiteralPath $exePath -PathType Leaf)) {
+            throw "MSBuild completed but the executable was not found: $exePath"
+        }
     }
-    if (-not (Test-Path -LiteralPath $exePath -PathType Leaf)) {
-        throw "MSBuild completed but the executable was not found: $exePath"
+    finally {
+        $env:PATH = $originalPath
+        Pop-Location
     }
+
+    Write-Host "Build succeeded: $exePath" -ForegroundColor Green
+    Write-Host "Build log: $buildLog"
 }
 finally {
-    $env:PATH = $originalPath
-    Pop-Location
+    if ($null -ne $buildLock) { $buildLock.Dispose() }
 }
-
-Write-Host "Build succeeded: $exePath" -ForegroundColor Green
-Write-Host "Build log: $buildLog"

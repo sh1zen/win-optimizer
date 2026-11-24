@@ -3,7 +3,7 @@ using System.Runtime.InteropServices;
 namespace WinOptimizer.Infrastructure.Features.Common.Utilities;
 
 /// <summary>
-/// Shared architecture detection logic used by StoreDownloadService and WinGetInstaller.
+/// Shared architecture detection logic used by WinGet dependency selection.
 /// Uses OSArchitecture to detect the native OS architecture.
 /// </summary>
 internal static class ArchitectureHelper

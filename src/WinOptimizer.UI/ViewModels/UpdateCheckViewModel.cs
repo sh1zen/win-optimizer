@@ -2,6 +2,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI.Xaml.Controls;
 using WinOptimizer.Core.Features.Common.Interfaces;
+using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.UI.Features.Common.Interfaces;
 
 namespace WinOptimizer.UI.ViewModels;
@@ -16,6 +17,7 @@ internal enum UpdateInfoBarState
     NoUpdates,
     CheckError,
     Downloading,
+    DownloadFailed,
     UpdateDownloaded
 }
 
@@ -46,8 +48,10 @@ public partial class UpdateCheckViewModel : ObservableObject, IDisposable
 
     // Tracks InfoBar state for re-rendering on language change
     private UpdateInfoBarState _updateInfoBarState = UpdateInfoBarState.None;
-    private string _cachedCurrentVersion = string.Empty;
-    private string _cachedLatestVersion = string.Empty;
+    private string? _currentVersion;
+    private VersionInfo? _latestVersion;
+    private VersionInfo? _notifiedVersion;
+    private bool _lastCheckFailed;
     private string _cachedErrorMessage = string.Empty;
 
     [ObservableProperty]
@@ -56,11 +60,39 @@ public partial class UpdateCheckViewModel : ObservableObject, IDisposable
     [ObservableProperty]
     public partial bool IsUpdateActionButtonVisible { get; set; }
 
-    [ObservableProperty]
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(UpdateStatusText))]
     public partial bool IsUpdateCheckInProgress { get; set; }
 
     [ObservableProperty]
     public partial bool IsRelaunchButtonVisible { get; set; }
+
+    public string CheckForUpdatesLabel =>
+        _localizationService.GetString("Menu_CheckForUpdates") ?? "Check for Updates";
+
+    private string CurrentVersion => _currentVersion ??= _versionService.GetCurrentVersion()?.Version ?? string.Empty;
+    private string CurrentVersionLabel => _localizationService.GetString("Dialog_Update_CurrentVersion") ?? "Current Version:";
+    private string LatestVersionLabel => _localizationService.GetString("Dialog_Update_LatestVersion") ?? "Latest Version:";
+
+    public string CurrentVersionText => $"{CurrentVersionLabel} {(string.IsNullOrWhiteSpace(CurrentVersion) ? "—" : CurrentVersion)}";
+    public string LatestVersionText => $"{LatestVersionLabel} {_latestVersion?.Version ?? "—"}";
+
+    /// <summary>Describes update checks independently of the dismissible notification.</summary>
+    public string UpdateStatusText
+    {
+        get
+        {
+            if (IsUpdateCheckInProgress)
+                return _localizationService.GetString("Menu_Update_Checking") ?? "Checking for updates…";
+            if (_lastCheckFailed)
+                return _localizationService.GetString("Dialog_Update_CheckError_Title") ?? "Update Check Error";
+            return _latestVersion?.IsUpdateAvailable switch
+            {
+                true => _localizationService.GetString("Dialog_Update_Title") ?? "Update Available",
+                false => _localizationService.GetString("Dialog_Update_NoUpdates_Title") ?? "No Updates Available",
+                null => _localizationService.GetString("Menu_Update_NotChecked") ?? "Latest release has yet to be verified."
+            };
+        }
+    }
 
     public string InstallNowButtonText =>
         _localizationService.GetString("Dialog_Update_Button_InstallNow") ?? "Install Now";
@@ -99,6 +131,10 @@ public partial class UpdateCheckViewModel : ObservableObject, IDisposable
 
     private void OnLanguageChanged(object? sender, EventArgs e)
     {
+        OnPropertyChanged(nameof(CheckForUpdatesLabel));
+        OnPropertyChanged(nameof(CurrentVersionText));
+        OnPropertyChanged(nameof(LatestVersionText));
+        OnPropertyChanged(nameof(UpdateStatusText));
         OnPropertyChanged(nameof(InstallNowButtonText));
         OnPropertyChanged(nameof(RelaunchButtonText));
         if (IsUpdateInfoBarOpen)
@@ -120,36 +156,18 @@ public partial class UpdateCheckViewModel : ObservableObject, IDisposable
             var latestVersion = await _versionService.CheckForUpdateAsync();
             if (latestVersion is null || string.IsNullOrWhiteSpace(latestVersion.Version))
                 throw new InvalidOperationException(_localizationService.GetString("Dialog_Update_CheckError_Title") ?? "The update check did not return a supported release.");
-            var currentVersion = _versionService.GetCurrentVersion();
-
-            if (latestVersion != null && latestVersion.IsUpdateAvailable)
-            {
-                _logService.Log(Core.Features.Common.Enums.LogLevel.Info, $"Update available: {latestVersion.Version}");
-
-                _cachedCurrentVersion = currentVersion.Version;
-                _cachedLatestVersion = latestVersion.Version;
-                _updateInfoBarState = UpdateInfoBarState.UpdateAvailable;
-                RefreshUpdateInfoBarText();
-                UpdateInfoBarSeverity = InfoBarSeverity.Success;
-                IsUpdateActionButtonVisible = true;
-                IsUpdateInfoBarOpen = true;
-            }
-            else
-            {
-                _logService.Log(Core.Features.Common.Enums.LogLevel.Info, "No updates available");
-
-                _updateInfoBarState = UpdateInfoBarState.NoUpdates;
-                RefreshUpdateInfoBarText();
-                UpdateInfoBarSeverity = InfoBarSeverity.Success;
-                IsUpdateActionButtonVisible = false;
-                IsUpdateInfoBarOpen = true;
-            }
+            _logService.Log(Core.Features.Common.Enums.LogLevel.Info, latestVersion.IsUpdateAvailable
+                ? $"Update available: {latestVersion.Version}"
+                : "No updates available");
+            RecordVersionCheck(latestVersion);
+            ShowVersionCheckNotification(latestVersion);
         }
         catch (Exception ex)
         {
             _logService.Log(Core.Features.Common.Enums.LogLevel.Error, $"Error checking for updates: {ex.Message}");
 
             _cachedErrorMessage = ex.Message;
+            _lastCheckFailed = true;
             _updateInfoBarState = UpdateInfoBarState.CheckError;
             RefreshUpdateInfoBarText();
             UpdateInfoBarSeverity = InfoBarSeverity.Error;
@@ -183,10 +201,9 @@ public partial class UpdateCheckViewModel : ObservableObject, IDisposable
         {
             _logService.Log(Core.Features.Common.Enums.LogLevel.Error, $"Error installing update: {ex.Message}");
 
-            var errorMessageTemplate = _localizationService.GetString("Dialog_Update_Status_Error") ?? "Error downloading update: {0}";
-            var errorMessage = string.Format(errorMessageTemplate, ex.Message);
-
-            UpdateInfoBarMessage = errorMessage;
+            _cachedErrorMessage = ex.Message;
+            _updateInfoBarState = UpdateInfoBarState.DownloadFailed;
+            RefreshUpdateInfoBarText();
             UpdateInfoBarSeverity = InfoBarSeverity.Error;
             IsUpdateActionButtonVisible = false;
             IsRelaunchButtonVisible = false;
@@ -207,7 +224,7 @@ public partial class UpdateCheckViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
-    /// Starts the deferred daily checks and marshals available-update notifications to the UI.
+    /// Starts the deferred daily checks and presents the results on the UI thread.
     /// </summary>
     public Task StartBackgroundUpdateChecksAsync()
     {
@@ -216,14 +233,30 @@ public partial class UpdateCheckViewModel : ObservableObject, IDisposable
             _dispatcher.RunOnUIThread(() =>
             {
                 if (_disposed) return;
-                _cachedCurrentVersion = _versionService.GetCurrentVersion().Version;
-                _cachedLatestVersion = latestVersion.Version;
-                _updateInfoBarState = UpdateInfoBarState.UpdateAvailable;
-                RefreshUpdateInfoBarText();
-                UpdateInfoBarSeverity = InfoBarSeverity.Success;
-                IsUpdateActionButtonVisible = true;
-                IsUpdateInfoBarOpen = true;
+                RecordVersionCheck(latestVersion);
+                if (latestVersion.IsUpdateAvailable)
+                    ShowVersionCheckNotification(latestVersion);
             }), _backgroundCancellation.Token);
+    }
+
+    /// <summary>Keeps the verified release visible after the notification is dismissed.</summary>
+    private void RecordVersionCheck(VersionInfo latestVersion)
+    {
+        _latestVersion = latestVersion;
+        _lastCheckFailed = false;
+        OnPropertyChanged(nameof(LatestVersionText));
+        OnPropertyChanged(nameof(UpdateStatusText));
+    }
+
+    /// <summary>Shows the shared update notification for a completed check.</summary>
+    private void ShowVersionCheckNotification(VersionInfo latestVersion)
+    {
+        _notifiedVersion = latestVersion;
+        _updateInfoBarState = latestVersion.IsUpdateAvailable ? UpdateInfoBarState.UpdateAvailable : UpdateInfoBarState.NoUpdates;
+        RefreshUpdateInfoBarText();
+        UpdateInfoBarSeverity = InfoBarSeverity.Success;
+        IsUpdateActionButtonVisible = latestVersion.IsUpdateAvailable;
+        IsUpdateInfoBarOpen = true;
     }
 
     /// <summary>
@@ -245,10 +278,8 @@ public partial class UpdateCheckViewModel : ObservableObject, IDisposable
         {
             case UpdateInfoBarState.UpdateAvailable:
                 var message = _localizationService.GetString("Dialog_Update_Message") ?? "Good News! A New Version of win-optimizer is available.";
-                var currentVersionLabel = _localizationService.GetString("Dialog_Update_CurrentVersion") ?? "Current Version:";
-                var latestVersionLabel = _localizationService.GetString("Dialog_Update_LatestVersion") ?? "Latest Version:";
                 UpdateInfoBarTitle = _localizationService.GetString("Dialog_Update_Title") ?? "Update Available";
-                UpdateInfoBarMessage = $"{message}  {currentVersionLabel} {_cachedCurrentVersion}  →  {latestVersionLabel} {_cachedLatestVersion}";
+                UpdateInfoBarMessage = $"{message}  {CurrentVersionText}  →  {LatestVersionLabel} {_notifiedVersion?.Version}";
                 break;
 
             case UpdateInfoBarState.NoUpdates:
@@ -265,6 +296,12 @@ public partial class UpdateCheckViewModel : ObservableObject, IDisposable
             case UpdateInfoBarState.Downloading:
                 UpdateInfoBarTitle = _localizationService.GetString("Dialog_Update_Status_Downloading") ?? "Downloading update...";
                 UpdateInfoBarMessage = string.Empty;
+                break;
+
+            case UpdateInfoBarState.DownloadFailed:
+                UpdateInfoBarTitle = _localizationService.GetString("Dialog_Update_CheckError_Title") ?? "Update Error";
+                var downloadError = _localizationService.GetString("Dialog_Update_Status_Error") ?? "Error downloading update: {0}";
+                UpdateInfoBarMessage = string.Format(downloadError, _cachedErrorMessage);
                 break;
 
             case UpdateInfoBarState.UpdateDownloaded:

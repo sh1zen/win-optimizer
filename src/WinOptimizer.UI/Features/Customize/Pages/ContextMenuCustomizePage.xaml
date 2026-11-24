@@ -56,7 +56,8 @@
                 <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="vm:ContextMenuProgramViewModel">
                         <Grid>
-                            <Border Style="{StaticResource PageCardStyle}" Padding="16" Visibility="{x:Bind IsSingle, Mode=OneTime}">
+                            <!-- Match the native Expander header's 60-DIP chevron slot. -->
+                            <Border Style="{StaticResource PageCardStyle}" Padding="16,16,60,16" Visibility="{x:Bind IsSingle, Mode=OneTime}">
                                 <Grid ColumnSpacing="12" MinHeight="40">
                                     <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
                                     <ContentControl Content="{x:Bind Mode=OneTime}" ContentTemplate="{StaticResource ProgramIconTemplate}" IsTabStop="False"/>

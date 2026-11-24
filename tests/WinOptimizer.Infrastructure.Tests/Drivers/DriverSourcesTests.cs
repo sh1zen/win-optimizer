@@ -1,11 +1,13 @@
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Runtime.InteropServices;
 using Moq;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.Core.Features.Drivers.Models;
 using WinOptimizer.Infrastructure.Features.Drivers;
+using WinOptimizer.Infrastructure.Features.Common.Services;
 using Xunit;
 
 namespace WinOptimizer.Infrastructure.Tests.Drivers;
@@ -19,6 +21,10 @@ public sealed class DriverSourcesTests
     private const string Id = "d4335ba6-fd4e-4081-9bb5-379f7fa346bc";
     private static string Offers(string error = "") => JsonSerializer.Serialize(new { Updates = new[] { new {
         Id, Title = "Official update", Provider = "OEM", ClassName = "Net", HardwareId = "PCI\\TEST", Date = "2026-01-01", SizeBytes = 4096, PayloadError = error } } });
+    private static DriverDiscoveryContext Context() => new(new DriverInventory([], [], true, []), new());
+    private static DriverComponent Component(DriverCertification certification) =>
+        new("driver.inf", "Net", "OEM", "2.0", "2026-01-01", [new("PCI\\TEST", DriverIdentifierKind.Hardware, 0)],
+            ["Models.NTamd64"], "", "", "", certification == DriverCertification.Whql, certification);
 
     [Fact]
     public async Task Inventory_UsesCancellableBundledQuery_AndReturnsWindowsEvidence()
@@ -77,8 +83,10 @@ public sealed class DriverSourcesTests
                 return Task.FromResult(new ProcessExecutionResult { StandardOutput = Offers() });
             });
         var inspector = new Mock<IDriverInfInspector>(MockBehavior.Strict);
-        inspector.Setup(x => x.Inspect(It.Is<string>(path => path.EndsWith("driver.inf")), "PCI\\TEST")).Returns(new DriverInfInspection("2.0", certification));
-        var result = await new WindowsDriverUpdateSource(new(_process.Object), _process.Object, inspector.Object, Path.GetTempPath()).SearchAsync(null, default);
+        inspector.Setup(x => x.InspectAsync(It.IsAny<string>(),
+            It.Is<string[]>(paths => paths.Length == 1 && paths[0].EndsWith("driver.inf")), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([Component(certification)]);
+        var result = await new WindowsDriverUpdateSource(new(_process.Object), inspector.Object, Path.GetTempPath()).SearchAsync(Context(), null, default);
         var update = Assert.Single(result.Updates);
         Assert.Equal(certification, update.Certification);
         Assert.Equal("2.0", update.Version);
@@ -145,7 +153,7 @@ public sealed class DriverSourcesTests
     public async Task UnavailablePayload_IsExplicitlyUnverified_AndPreservesTheOffer()
     {
         Output(Offers("license needs review"));
-        var result = await new WindowsDriverUpdateSource(new(_process.Object), _process.Object, Mock.Of<IDriverInfInspector>(), Path.GetTempPath()).SearchAsync(null, default);
+        var result = await new WindowsDriverUpdateSource(new(_process.Object), Mock.Of<IDriverInfInspector>(), Path.GetTempPath()).SearchAsync(Context(), null, default);
         Assert.Equal(DriverCertification.Unverified, Assert.Single(result.Updates).Certification);
         Assert.Contains(result.Notices, notice => notice.Contains("license needs review"));
     }
@@ -164,10 +172,10 @@ public sealed class DriverSourcesTests
                 return Task.FromResult(new ProcessExecutionResult { StandardOutput = Offers() });
             });
         var inspector = new Mock<IDriverInfInspector>();
-        inspector.Setup(x => x.Inspect(It.IsAny<string>(), "PCI\\TEST"))
-            .Returns(() => { cts.Cancel(); return new DriverInfInspection("2.0", DriverCertification.Whql); });
+        inspector.Setup(x => x.InspectAsync(It.IsAny<string>(), It.IsAny<string[]>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => { cts.Cancel(); return [Component(DriverCertification.Whql)]; });
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
-            new WindowsDriverUpdateSource(new(_process.Object), _process.Object, inspector.Object, Path.GetTempPath()).SearchAsync(null, cts.Token));
+            new WindowsDriverUpdateSource(new(_process.Object), inspector.Object, Path.GetTempPath()).SearchAsync(Context(), null, cts.Token));
         Assert.False(Directory.Exists(root));
     }
     [Theory]
@@ -176,11 +184,14 @@ public sealed class DriverSourcesTests
     public void Certification_RequiresWhqlClassification_NotJustASignature(uint score, bool expected) => Assert.Equal(expected, WindowsDriverInfInspector.IsWhqlScore(score));
 
     [Fact]
-    public void NativeInfInspection_MatchesArchitectureAndHardware_WithoutCertifyingUnsignedFixtures()
+    public async Task NativeInfInspection_MatchesArchitectureAndHardware_WithoutCertifyingUnsignedFixtures()
     {
         using var workspace = new DriverScanWorkspace(Path.GetTempPath());
         var path = Path.Combine(workspace.Root, "test.inf");
-        File.WriteAllText(path, """
+        var architecture = RuntimeInformation.OSArchitecture switch
+        { Architecture.X64 => "NTamd64", Architecture.Arm64 => "NTarm64", _ => "NTx86" };
+        var futureBuild = Environment.OSVersion.Version.Build + 1;
+        File.WriteAllText(path, $$"""
             [Version]
             Signature="$Windows NT$"
             Class=Net
@@ -188,20 +199,22 @@ public sealed class DriverSourcesTests
             Provider=Test
             DriverVer=01/01/2026,2.0.0.0
             [Manufacturer]
-            Test=Models,NTamd64,NTarm64,NTx86
+            Test=Models,NTamd64,NTarm64,NTx86,{{architecture}}.10.0...{{futureBuild}}
             [Models.NTamd64]
             Test=Install,PCI\TEST
             [Models.NTarm64]
             Test=Install,PCI\TEST
             [Models.NTx86]
             Test=Install,PCI\TEST
+            [Models.{{architecture}}.10.0...{{futureBuild}}]
+            Test=Install,PCI\FUTURE_ONLY
             """);
-        var inspector = new WindowsDriverInfInspector();
-        var info = inspector.Inspect(path, "pci\\test");
-        Assert.NotNull(info);
+        var inspector = new WindowsDriverInfInspector(new(new ProcessExecutor()));
+        var info = Assert.Single(await inspector.InspectAsync(workspace.Root, [path], default));
         Assert.Equal("2.0.0.0", info.Version);
         Assert.Equal(DriverCertification.Unverified, info.Certification);
-        Assert.Null(inspector.Inspect(path, "PCI\\OTHER"));
+        Assert.Equal("PCI\\TEST", Assert.Single(info.Identifiers).Value);
+        Assert.Contains("Models." + architecture, info.ModelsSections);
     }
     [Fact]
     public void Workspace_RejectsEscapePaths_AndDisposesOnlyItsOwnedDirectory()

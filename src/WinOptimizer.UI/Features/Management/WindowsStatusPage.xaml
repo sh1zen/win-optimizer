@@ -9,6 +9,27 @@
     xmlns:fluent="using:FluentIcons.WinUI">
     <Page.Resources>
         <converters:BooleanToVisibilityConverter x:Key="ReportVisibilityConverter"/>
+        <Style x:Key="ServicingCardIconStyle" TargetType="Border">
+            <Setter Property="Width" Value="40"/>
+            <Setter Property="Height" Value="40"/>
+            <Setter Property="CornerRadius" Value="{StaticResource ControlCornerRadius}"/>
+            <Setter Property="Background" Value="{ThemeResource PageIconBackgroundBrush}"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+        <Style x:Key="ServicingCardTitleStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="16"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+        </Style>
+        <Style x:Key="ServicingCardTextStyle" TargetType="TextBlock">
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}"/>
+        </Style>
+        <Style x:Key="ServicingCardDividerStyle" TargetType="Border">
+            <Setter Property="Height" Value="1"/>
+            <Setter Property="Background" Value="{ThemeResource DividerStrokeColorDefaultBrush}"/>
+        </Style>
     </Page.Resources>
     <Grid SizeChanged="LayoutRoot_SizeChanged">
         <VisualStateManager.VisualStateGroups>
@@ -24,6 +45,24 @@
                 </VisualState>
                 <VisualState x:Name="CompactLayout">
                     <VisualState.StateTriggers><StateTrigger x:Name="CompactLayoutTrigger" IsActive="True"/></VisualState.StateTriggers>
+                </VisualState>
+            </VisualStateGroup>
+            <VisualStateGroup>
+                <VisualState x:Name="SideBySideCards">
+                    <VisualState.StateTriggers><StateTrigger x:Name="SideBySideCardsTrigger"/></VisualState.StateTriggers>
+                    <VisualState.Setters>
+                        <Setter Target="ServicingCards.RowSpacing" Value="0"/>
+                        <Setter Target="RepairCard.(Grid.ColumnSpan)" Value="1"/>
+                        <Setter Target="CleanupCard.(Grid.ColumnSpan)" Value="1"/>
+                        <Setter Target="CleanupCard.(Grid.Column)" Value="1"/>
+                        <Setter Target="CleanupCard.(Grid.Row)" Value="0"/>
+                        <Setter Target="GuidanceCard.(Grid.ColumnSpan)" Value="1"/>
+                        <Setter Target="GuidanceCard.(Grid.Column)" Value="2"/>
+                        <Setter Target="GuidanceCard.(Grid.Row)" Value="0"/>
+                    </VisualState.Setters>
+                </VisualState>
+                <VisualState x:Name="StackedCards">
+                    <VisualState.StateTriggers><StateTrigger x:Name="StackedCardsTrigger" IsActive="True"/></VisualState.StateTriggers>
                 </VisualState>
             </VisualStateGroup>
         </VisualStateManager.VisualStateGroups>
@@ -65,9 +104,16 @@
                 <InfoBar IsOpen="{x:Bind ViewModel.HasStatus, Mode=OneWay}" Message="{x:Bind ViewModel.Status, Mode=OneWay}" Severity="{x:Bind ViewModel.StatusSeverity, Mode=OneWay}" IsClosable="False" Visibility="{x:Bind ViewModel.HasStatus, Mode=OneWay, Converter={StaticResource ReportVisibilityConverter}}"/>
 
                 <!-- Completed receipts stay ahead of optional settings, including repair guidance. -->
-                <StackPanel x:Name="ResultsPanel" Spacing="12" Visibility="{x:Bind ViewModel.HasReport, Mode=OneWay, Converter={StaticResource ReportVisibilityConverter}}">
+                <StackPanel x:Name="ResultsPanel" Spacing="{StaticResource PageCardSpacing}" Visibility="{x:Bind ViewModel.HasReport, Mode=OneWay, Converter={StaticResource ReportVisibilityConverter}}">
                     <TextBlock Text="{x:Bind ViewModel.ResultsLabel, Mode=OneWay}" FontSize="18" FontWeight="SemiBold" AutomationProperties.HeadingLevel="Level2"/>
-                    <InfoBar x:Name="ReportNotice" IsOpen="{x:Bind ViewModel.HasReport, Mode=OneWay}" Message="{x:Bind ViewModel.ReportSummary, Mode=OneWay}" Severity="{x:Bind ViewModel.ReportSeverity, Mode=OneWay}" IsClosable="False"/>
+                    <InfoBar x:Name="ReportNotice" IsOpen="{x:Bind ViewModel.HasReport, Mode=OneWay}" Message="{x:Bind ViewModel.ReportSummary, Mode=OneWay}" Severity="{x:Bind ViewModel.ReportSeverity, Mode=OneWay}" IsClosable="False">
+                        <InfoBar.ActionButton>
+                            <Button Content="{x:Bind ViewModel.PrimaryActionLabel, Mode=OneWay}"
+                                    Command="{x:Bind ViewModel.RunCommand}" CommandParameter="Repair"
+                                    Style="{StaticResource AccentButtonStyle}"
+                                    Visibility="{x:Bind ViewModel.NeedsRepair, Mode=OneWay, Converter={StaticResource ReportVisibilityConverter}}"/>
+                        </InfoBar.ActionButton>
+                    </InfoBar>
                     <TextBlock Text="{x:Bind ViewModel.HealthSummary, Mode=OneWay}" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                     <ItemsControl ItemsSource="{x:Bind ViewModel.Steps, Mode=OneWay}">
                         <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Spacing="{StaticResource PageCardSpacing}"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
@@ -80,34 +126,73 @@
                     </ItemsControl>
                 </StackPanel>
 
-                <StackPanel Spacing="{StaticResource PageCardSpacing}">
-                    <Expander x:Name="RepairOptionsExpander" Header="{x:Bind ViewModel.RepairOptionsLabel, Mode=OneWay}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                <Grid x:Name="ServicingCards" ColumnSpacing="{StaticResource PageCardSpacing}" RowSpacing="{StaticResource PageCardSpacing}">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <Border x:Name="RepairCard" Grid.ColumnSpan="3" Style="{StaticResource PageCardStyle}">
                         <StackPanel Spacing="12">
-                            <TextBox Header="{x:Bind ViewModel.SourceLabel, Mode=OneWay}" Text="{x:Bind ViewModel.SourcePath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{x:Bind ViewModel.IsIdle, Mode=OneWay}"/>
-                            <TextBlock Text="{x:Bind ViewModel.SourceHint, Mode=OneWay}" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <Grid ColumnSpacing="12">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <Border Style="{StaticResource ServicingCardIconStyle}">
+                                    <fluent:FluentIcon Icon="WrenchScrewdriver" IconVariant="Regular" FontSize="20" Foreground="{ThemeResource PageIconForegroundBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
+                                <TextBlock Grid.Column="1" Style="{StaticResource ServicingCardTitleStyle}" Text="{x:Bind ViewModel.RepairOptionsLabel, Mode=OneWay}" AutomationProperties.HeadingLevel="Level2"/>
+                            </Grid>
+                            <TextBlock Style="{StaticResource ServicingCardTextStyle}" Text="{x:Bind ViewModel.SourceHint, Mode=OneWay}"/>
+                            <Border Style="{StaticResource ServicingCardDividerStyle}"/>
+                            <TextBox Text="{x:Bind ViewModel.SourcePath, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" IsEnabled="{x:Bind ViewModel.IsIdle, Mode=OneWay}" AutomationProperties.Name="{x:Bind ViewModel.SourceLabel, Mode=OneWay}">
+                                <TextBox.Header><TextBlock Text="{x:Bind ViewModel.SourceLabel, Mode=OneWay}" TextWrapping="Wrap"/></TextBox.Header>
+                            </TextBox>
                             <controls:WrapPanel HorizontalSpacing="12" VerticalSpacing="8">
                                 <Button Content="{x:Bind ViewModel.BrowseWimLabel, Mode=OneWay}" Command="{x:Bind ViewModel.BrowseWimCommand}"/>
                                 <Button Content="{x:Bind ViewModel.BrowseFolderLabel, Mode=OneWay}" Command="{x:Bind ViewModel.BrowseFolderCommand}"/>
-                                <NumberBox Header="{x:Bind ViewModel.IndexLabel, Mode=OneWay}" Value="{x:Bind ViewModel.WimIndex, Mode=TwoWay}" Minimum="1" Maximum="2147483647" SpinButtonPlacementMode="Inline" SmallChange="1" Width="180" IsEnabled="{x:Bind ViewModel.IsIdle, Mode=OneWay}"/>
                             </controls:WrapPanel>
+                            <NumberBox Header="{x:Bind ViewModel.IndexLabel, Mode=OneWay}" Value="{x:Bind ViewModel.WimIndex, Mode=TwoWay}" Minimum="1" Maximum="2147483647" SpinButtonPlacementMode="Inline" SmallChange="1" Width="180" HorizontalAlignment="Left" IsEnabled="{x:Bind ViewModel.IsIdle, Mode=OneWay}"/>
                             <CheckBox IsChecked="{x:Bind ViewModel.LimitAccess, Mode=TwoWay}" IsEnabled="{x:Bind ViewModel.IsIdle, Mode=OneWay}"><TextBlock Text="{x:Bind ViewModel.LimitAccessLabel, Mode=OneWay}" TextWrapping="Wrap"/></CheckBox>
                             <Button x:Name="RepairWindowsButton" Content="{x:Bind ViewModel.RepairLabel, Mode=OneWay}" Command="{x:Bind ViewModel.RunCommand}" CommandParameter="Repair" Style="{StaticResource AccentButtonStyle}"/>
                         </StackPanel>
-                    </Expander>
-                    <Expander Header="{x:Bind ViewModel.CleanupLabel, Mode=OneWay}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                    </Border>
+                    <Border x:Name="CleanupCard" Grid.Row="1" Grid.ColumnSpan="3" Style="{StaticResource PageCardStyle}">
                         <StackPanel Spacing="12">
+                            <Grid ColumnSpacing="12">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <Border Style="{StaticResource ServicingCardIconStyle}">
+                                    <fluent:FluentIcon Icon="Database" IconVariant="Regular" FontSize="20" Foreground="{ThemeResource PageIconForegroundBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
+                                <TextBlock Grid.Column="1" Style="{StaticResource ServicingCardTitleStyle}" Text="{x:Bind ViewModel.CleanupLabel, Mode=OneWay}" AutomationProperties.HeadingLevel="Level2"/>
+                            </Grid>
+                            <TextBlock Style="{StaticResource ServicingCardTextStyle}" Text="{x:Bind ViewModel.CleanupDescription, Mode=OneWay}"/>
+                            <Border Style="{StaticResource ServicingCardDividerStyle}"/>
                             <CheckBox IsChecked="{x:Bind ViewModel.ResetBase, Mode=TwoWay}" IsEnabled="{x:Bind ViewModel.IsIdle, Mode=OneWay}"><TextBlock Text="{x:Bind ViewModel.ResetBaseLabel, Mode=OneWay}" TextWrapping="Wrap"/></CheckBox>
-                            <Button Content="{x:Bind ViewModel.CleanupLabel, Mode=OneWay}" Command="{x:Bind ViewModel.RunCommand}" CommandParameter="Cleanup"/>
+                            <Button x:Name="CleanupWindowsButton" Content="{x:Bind ViewModel.CleanupLabel, Mode=OneWay}" Command="{x:Bind ViewModel.RunCommand}" CommandParameter="Cleanup"/>
                         </StackPanel>
-                    </Expander>
-                    <Expander Header="{x:Bind ViewModel.MaintenanceLabel, Mode=OneWay}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                    </Border>
+                    <Border x:Name="GuidanceCard" Grid.Row="2" Grid.ColumnSpan="3" Style="{StaticResource PageCardStyle}">
                         <StackPanel Spacing="12">
-                            <TextBlock Text="{x:Bind ViewModel.Hint, Mode=OneWay}" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                            <TextBlock Text="{x:Bind ViewModel.LogsHint, Mode=OneWay}" TextWrapping="Wrap" IsTextSelectionEnabled="True" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                            <HyperlinkButton Content="{x:Bind ViewModel.DocsLabel, Mode=OneWay}" NavigateUri="https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/repair-a-windows-image"/>
+                            <Grid ColumnSpacing="12">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <Border Style="{StaticResource ServicingCardIconStyle}">
+                                    <fluent:FluentIcon Icon="DocumentText" IconVariant="Regular" FontSize="20" Foreground="{ThemeResource PageIconForegroundBrush}" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
+                                <TextBlock Grid.Column="1" Style="{StaticResource ServicingCardTitleStyle}" Text="{x:Bind ViewModel.MaintenanceLabel, Mode=OneWay}" AutomationProperties.HeadingLevel="Level2"/>
+                            </Grid>
+                            <TextBlock Style="{StaticResource ServicingCardTextStyle}" Text="{x:Bind ViewModel.Hint, Mode=OneWay}"/>
+                            <Border Style="{StaticResource ServicingCardDividerStyle}"/>
+                            <TextBlock Style="{StaticResource ServicingCardTextStyle}" Text="{x:Bind ViewModel.LogsHint, Mode=OneWay}" IsTextSelectionEnabled="True"/>
+                            <HyperlinkButton x:Name="GuidanceLink" Padding="0,6" NavigateUri="https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/repair-a-windows-image">
+                                <TextBlock Text="{x:Bind ViewModel.DocsLabel, Mode=OneWay}" TextWrapping="Wrap"/>
+                            </HyperlinkButton>
                         </StackPanel>
-                    </Expander>
-                </StackPanel>
+                    </Border>
+                </Grid>
             </StackPanel>
         </ScrollViewer>
     </Grid>

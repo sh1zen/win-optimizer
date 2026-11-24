@@ -106,7 +106,6 @@ public static class SettingServicesExtensions
         services.AddSingleton<WinOptimizer.Infrastructure.Features.SoftwareApps.Leftover.ILeftoverSource,
             WinOptimizer.Infrastructure.Features.SoftwareApps.Leftover.WindowsLeftoverSource>();
         services.AddSingleton<ILeftoverService, WinOptimizer.Infrastructure.Features.SoftwareApps.Leftover.LeftoverService>();
-        services.AddSingleton<IAppInstallationService, AppInstallationService>();
         services.AddSingleton<IWindowsAppUninstallService, WindowsAppUninstallService>();
 
         // AppX package source (PackageManager COM â†’ WMI â†’ PowerShell fallback)
@@ -132,24 +131,13 @@ public static class SettingServicesExtensions
         services.AddSingleton<IWinGetDetectionService, WinGetDetectionService>();
         services.AddSingleton<IWinGetPackageInstaller, WinGetPackageInstaller>();
 
-        // Chocolatey Services (Fallback package manager)
+        // Chocolatey inventory and removal
         services.AddSingleton<IChocolateyService, ChocolateyService>();
 
         // App Uninstall Service
         services.AddSingleton<IExternalAppUninstallService, ExternalAppUninstallService>();
         services.AddSingleton<IUninstallCommandSource, WindowsUninstallCommandSource>();
 
-        // Store Download Service (Fallback for market-restricted apps)
-        services.AddSingleton<IStoreDownloadService, StoreDownloadService>();
-
-        // Direct Download Service (For non-WinGet apps)
-        services.AddSingleton<IDirectDownloadService, DirectDownloadService>();
-
-        // Legacy Capability and Optional Feature Services (Singleton)
-        services.AddSingleton<ILegacyCapabilityService, LegacyCapabilityService>();
-        services.AddSingleton<IOptionalFeatureService, OptionalFeatureService>();
-
-        // App Removal Service (Singleton - Simplified removal logic)
         services.AddSingleton<IBloatRemovalService, BloatRemovalService>();
 
         return services;

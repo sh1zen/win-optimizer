@@ -185,10 +185,6 @@ public static partial class ExternalAppDefinitions
                         WinGetPackageId = ["ByteDance.CapCut"],
                         MsStoreId = "XP9KN75RRB9NHS",
                         WebsiteUrl = "https://www.capcut.com/",
-                        ExternalApp = new ExternalAppMetadata
-                        {
-                            DownloadUrl = "https://www.capcut.com/activity/download_pc",
-                        },
                     },
                     new ItemDefinition
                     {
@@ -282,10 +278,6 @@ public static partial class ExternalAppDefinitions
                         ChocoPackageId = "fxsound",
                         MsStoreId = "XP8JK4TBQ03LZ4",
                         WebsiteUrl = "https://www.fxsound.com/",
-                        ExternalApp = new ExternalAppMetadata
-                        {
-                            DownloadUrl = "https://github.com/fxsound2/fxsound-app/releases/download/latest/fxsound_setup.exe",
-                        },
                     },
                     new ItemDefinition
                     {

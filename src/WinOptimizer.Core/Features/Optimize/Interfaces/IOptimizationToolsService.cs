@@ -22,7 +22,7 @@ public interface IOptimizationToolsService
     Task<NetworkPerformanceState> ReadNetworkAsync();
     Task<NetworkPerformanceState> EnhanceNetworkAsync();
     Task<IReadOnlyList<NetworkTuningState>> ReadNetworkTuningsAsync();
-    /// <summary>Compares the displayed baseline, changes one setting and returns verified native readback.</summary>
+    /// <summary>Checks the expected live value, changes one setting and returns verified native readback.</summary>
     Task<IReadOnlyList<NetworkTuningState>> SetNetworkTuningAsync(string id, string? value, string? expectedValue);
     Task ApplyFeatureAsync(WindowsFeatureOptimization feature);
     /// <summary>Reads whether all applicable restrictions are on; null means no optional targets are installed.</summary>

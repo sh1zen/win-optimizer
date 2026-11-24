@@ -8,6 +8,7 @@
 
     <ItemGroup>
         <InternalsVisibleTo Include="WinOptimizer.Infrastructure.Tests" />
+        <InternalsVisibleTo Include="WinOptimizer.IntegrationTests" />
     </ItemGroup>
 
   <ItemGroup>
@@ -27,6 +28,7 @@
         <PackageReference Include="System.Diagnostics.EventLog" Version="10.0.7" />
         <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="8.0.0" />
         <PackageReference Include="System.ServiceProcess.ServiceController" Version="8.0.1" />
+        <PackageReference Include="SharpCompress" Version="0.50.11" />
     </ItemGroup>
 
   <ItemGroup>
@@ -39,5 +41,6 @@
     <EmbeddedResource Include="Features\Security\Scripts\*.ps1" LogicalName="WinOptimizer.Security.%(Filename)%(Extension)" />
     <EmbeddedResource Include="Features\Drivers\Scripts\*.ps1" LogicalName="WinOptimizer.Drivers.%(Filename)%(Extension)" />
     <EmbeddedResource Include="Features\Management\Scripts\*.ps1" LogicalName="WinOptimizer.Autoruns.%(Filename)%(Extension)" />
+    <EmbeddedResource Include="Features\Cleaner\Scripts\*.ps1" LogicalName="WinOptimizer.Cleaner.%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>

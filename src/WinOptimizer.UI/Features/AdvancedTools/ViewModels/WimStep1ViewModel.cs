@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using WinOptimizer.Core.Features.AdvancedTools.Interfaces;
+using WinOptimizer.Core.Features.AdvancedTools;
 using WinOptimizer.Core.Features.Common.Exceptions;
 using WinOptimizer.Core.Features.Common.Extensions;
 using WinOptimizer.Core.Features.Common.Interfaces;
@@ -193,11 +194,7 @@ public partial class WimStep1ViewModel : ObservableObject
             }
             catch (Exception ex) { _logService.LogDebug($"Write test failed for directory '{path}': {ex.Message}"); return false; }
 
-            var extractedDirs = _fileSystemService.GetDirectories(path);
-            var hasSourcesDir = extractedDirs.Any(d => _fileSystemService.GetFileName(d)?.Equals("sources", StringComparison.OrdinalIgnoreCase) == true);
-            var hasBootDir = extractedDirs.Any(d => _fileSystemService.GetFileName(d)?.Equals("boot", StringComparison.OrdinalIgnoreCase) == true);
-
-            return hasSourcesDir && hasBootDir;
+            return WindowsSetupMedia.HasRequiredFiles(_fileSystemService, path);
         }
         catch (Exception ex) { _logService.LogDebug($"ISO directory validation failed for '{path}': {ex.Message}"); return false; }
     }

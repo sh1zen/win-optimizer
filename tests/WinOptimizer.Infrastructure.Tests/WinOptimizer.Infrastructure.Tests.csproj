@@ -23,6 +23,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="..\Fixtures\PrivateRegistryHive.cs" Link="Fixtures\PrivateRegistryHive.cs" />
     <ProjectReference Include="..\..\src\WinOptimizer.Core\WinOptimizer.Core.csproj" />
     <ProjectReference Include="..\..\src\WinOptimizer.Infrastructure\WinOptimizer.Infrastructure.csproj" />
   </ItemGroup>

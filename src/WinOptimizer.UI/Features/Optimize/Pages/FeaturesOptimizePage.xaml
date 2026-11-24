@@ -7,12 +7,12 @@
         <StackPanel Style="{StaticResource PageStackStyle}">
             <TextBlock Text="{x:Bind ViewModel.SectionTitle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
             <common:PageHeader Title="{x:Bind ViewModel.Title}" Description="{x:Bind ViewModel.Description}" Icon="Apps"/>
-            <InfoBar IsOpen="{x:Bind ViewModel.ShowModeNotice}" Message="{x:Bind ViewModel.ModeNotice}" IsClosable="False"/>
-            <InfoBar IsOpen="{x:Bind ViewModel.HasStatus}" Message="{x:Bind ViewModel.Status}" Severity="{x:Bind ViewModel.StatusSeverity}" IsClosable="False"/>
-            <ProgressRing Width="24" Height="24" IsActive="{x:Bind ViewModel.IsBusy}"/>
+            <InfoBar IsOpen="{x:Bind ViewModel.ShowModeNotice}" Visibility="{x:Bind ViewModel.ShowModeNotice}" Message="{x:Bind ViewModel.ModeNotice}" IsClosable="False"/>
+            <InfoBar IsOpen="{x:Bind ViewModel.HasStatus}" Visibility="{x:Bind ViewModel.HasStatus}" Message="{x:Bind ViewModel.Status}" Severity="{x:Bind ViewModel.StatusSeverity}" IsClosable="False"/>
+            <ProgressRing Width="24" Height="24" IsActive="{x:Bind ViewModel.IsBusy}" Visibility="{x:Bind ViewModel.IsBusy}"/>
             <Button Content="{x:Bind ViewModel.RefreshLabel}" Command="{x:Bind ViewModel.RefreshCommand}"/>
             <ItemsControl ItemsSource="{x:Bind ViewModel.Choices}" IsEnabled="{x:Bind ViewModel.CanWrite}">
-                <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Spacing="8"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Spacing="{StaticResource PageCardSpacing}"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate><DataTemplate x:DataType="vm:FeatureOptimizationChoice">
                     <Border Style="{StaticResource PageCardStyle}">
                         <Grid ColumnSpacing="24">

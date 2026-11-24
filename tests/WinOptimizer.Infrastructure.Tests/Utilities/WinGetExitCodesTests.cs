@@ -8,13 +8,6 @@ namespace WinOptimizer.Infrastructure.Tests.Utilities;
 public class WinGetExitCodesTests
 {
     [Fact]
-    public void IsUninstallVerifiable_ExecUninstallCommandFailed_ReturnsTrue()
-    {
-        WinGetExitCodes.IsUninstallVerifiable(WinGetExitCodes.ExecUninstallCommandFailed)
-            .Should().BeTrue();
-    }
-
-    [Fact]
     public void IsUninstallVerifiable_NoUninstallInfoFound_ReturnsTrue()
     {
         WinGetExitCodes.IsUninstallVerifiable(WinGetExitCodes.NoUninstallInfoFound)

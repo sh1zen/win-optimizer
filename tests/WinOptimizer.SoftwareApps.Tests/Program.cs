@@ -9,7 +9,13 @@ using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Automation.Peers;
+using Microsoft.UI.Xaml.Automation.Provider;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using WinOptimizer.UI.Tests.ViewModels;
 using WinOptimizer.UI.Tests.Services;
 using Xunit;
@@ -17,7 +23,8 @@ using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.SoftwareApps.Interfaces;
 using WinOptimizer.Core.Features.SoftwareApps.Models;
 using WinOptimizer.UI.Features.Common.Interfaces;
-using WinOptimizer.UI.Features.Common.Converters;
+using WinOptimizer.UI.Features.Common.Controls;
+using WinOptimizer.UI.Features.Common.Resources;
 using WinOptimizer.UI.Features.SoftwareApps;
 using WinOptimizer.UI.Features.SoftwareApps.ViewModels;
 using WinOptimizer.UI.Features.SoftwareApps.Services;
@@ -42,15 +49,59 @@ internal static class Program
     }
 }
 
-public sealed partial class SortingTestApplication(string resultPath) : WinUIApplication
+public sealed partial class SortingTestApplication(string resultPath) : WinOptimizer.UI.App(CreateTestHost())
 {
     private Window? _window;
+
+    private static IHost CreateTestHost() => new HostBuilder().ConfigureServices(services =>
+    {
+        services.AddTransient(_ => new AppSortingTests().Create(EnglishText(), PreviewApps()));
+        services.AddSingleton(Mock.Of<IThemeService>());
+    }).Build();
+
+    private static ILocalizationService EnglishText()
+    {
+        using var resource = Assembly.GetExecutingAssembly().GetManifestResourceStream("en.json")!;
+        var strings = JsonSerializer.Deserialize<Dictionary<string, string>>(resource)!;
+        var text = new Mock<ILocalizationService>();
+        text.Setup(source => source.GetString(It.IsAny<string>()))
+            .Returns((string key) => strings.GetValueOrDefault(key, $"[{key}]"));
+        text.Setup(source => source.GetString(It.IsAny<string>(), It.IsAny<object[]>()))
+            .Returns((string key, object[] args) => string.Format(strings[key], args));
+        return text.Object;
+    }
+
+    private static IReadOnlyList<ItemDefinition> PreviewApps() =>
+        new (string Name, string Description, bool Reinstallable)[]
+        {
+            ("AI Manager", "Local AI requests for Office apps", false),
+            ("Edge Game Assist", "Browse guides while you play", false),
+            ("Office Actions Server", "AI-powered Office actions", false),
+            ("Bing Search", "Web results in Windows Search", true),
+            ("MSN Weather", "Forecasts, radar, and local weather", true),
+            ("Camera", "Take photos and record videos", true),
+            ("Xbox Game Bar", "Capture gameplay and monitor performance", true),
+            ("Xbox Game Bar Plugin", "Components for Xbox Game Bar", false),
+            ("Xbox Identity Provider", "Sign in to Xbox services", true),
+            ("Paint", "Draw, edit, and create images", true),
+            ("Photos", "View, edit, and organize photos", true),
+            ("Snipping Tool", "Capture and annotate your screen", true)
+        }.Select((app, index) => new ItemDefinition
+        {
+            Id = $"app-{index}",
+            Name = app.Name,
+            Description = app.Description,
+            GroupName = $"{index:00}",
+            AppxPackageName = [$"Test.App{index}"],
+            CanBeReinstalled = app.Reinstallable,
+            IsInstalled = true
+        }).ToArray();
 
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
         UnhandledException += (_, error) => Finish(error.Exception.ToString());
         InitializeComponent();
-        Resources["BooleanToVisibilityConverter"] = new BooleanToVisibilityConverter();
+        InitializeShellResources();
         var shell = new Grid();
         _window = new Window { Content = shell };
         var deadline = _window.DispatcherQueue.CreateTimer();
@@ -66,12 +117,162 @@ public sealed partial class SortingTestApplication(string resultPath) : WinUIApp
         try
         {
             var count = await NativeTestCases.RunAsync(typeof(AppSortingTests), typeof(WindowsAppsViewModelTests), typeof(ExternalAppsViewModelTests), typeof(LeftoverAppsViewModelTests), typeof(UninstallResidueViewModelTests), typeof(UninstallResidueReviewTests), typeof(SoftwareAppsViewModelTests), typeof(SelectedAppsProviderTests), typeof(ConfigExportServiceTests), typeof(UniformWrapLayoutTests));
+            await VerifyActiveTabHighlightAsync();
             await VerifyCardLayoutAsync();
+            await VerifyInventoryLayoutAsync();
             await CaptureLeftoverPreviewsAsync();
             await CaptureUninstallPreviewsAsync();
-            Finish($"PASS: {count} Software & Apps cases on the WinUI dispatcher; card layout and English/Italian Leftover and uninstall-result previews at two widths.", true);
+            Finish($"PASS: {count} Software & Apps cases on the WinUI dispatcher; active tab underline, responsive inventory and card layout, and English/Italian Leftover and uninstall-result previews.", true);
         }
         catch (Exception ex) { Finish(ex.ToString()); }
+    }
+
+    /// <summary>Checks the active tab underline after selection and pointer transitions.</summary>
+    private async Task VerifyActiveTabHighlightAsync()
+    {
+        var shell = (Grid)(_window?.Content ?? throw new InvalidOperationException("The test window is unavailable."));
+        var page = new SoftwareAppsPage();
+        shell.Children.Add(page);
+        try
+        {
+            await Task.Yield();
+            shell.UpdateLayout();
+            var tabs = new[] { "WindowsAppsTab", "ExternalAppsTab", "LeftoverTab" }
+                .Select(name => (Button: Assert.IsType<Button>(page.FindName(name)),
+                    Indicator: Assert.IsType<Border>(page.FindName(name + "Indicator")))).ToArray();
+            void AssertHighlight(Button selected)
+            {
+                Assert.True(selected.ApplyTemplate() || VisualTreeHelper.GetChildrenCount(selected) > 0);
+                Assert.True(VisualStateManager.GoToState(selected, "PointerOver", false));
+                Assert.True(VisualStateManager.GoToState(selected, "Normal", false));
+                foreach (var tab in tabs)
+                    Assert.Equal(tab.Button == selected ? Visibility.Visible : Visibility.Collapsed, tab.Indicator.Visibility);
+                var indicator = tabs.Single(tab => tab.Button == selected).Indicator;
+                Assert.Equal(VerticalAlignment.Bottom, indicator.VerticalAlignment);
+                Assert.NotEqual((byte)0, Assert.IsType<SolidColorBrush>(indicator.Background).Color.A);
+            }
+
+            AssertHighlight(tabs[0].Button);
+            tabs[1].Button.Command.Execute(null);
+            AssertHighlight(tabs[1].Button);
+            await page.ViewModel.SelectLeftoverTabCommand.ExecuteAsync(null);
+            AssertHighlight(tabs[2].Button);
+            tabs[0].Button.Command.Execute(null);
+            AssertHighlight(tabs[0].Button);
+        }
+        finally { shell.Children.Remove(page); }
+    }
+
+    /// <summary>Measures the production inventory and checks filter, selection and card placement.</summary>
+    private async Task VerifyInventoryLayoutAsync()
+    {
+        var window = _window ?? throw new InvalidOperationException("The test window is unavailable.");
+        var shell = (Grid)window.Content;
+        var colors = Resources.MergedDictionaries.OfType<AppColorResources>().Single();
+        colors.Apply(AppColor.Purple);
+        shell.Background = new SolidColorBrush(colors.GetCanvasColor(true));
+        shell.RequestedTheme = ElementTheme.Dark;
+        var page = new SoftwareAppsPage { Margin = new Thickness(14, 0, 14, 0) };
+        shell.Children.Add(page);
+        try
+        {
+            await page.ViewModel.InitializeWindowsAppsAsync();
+            Assert.True(page.ViewModel.WindowsAppsViewModel.IsInitialized);
+            Assert.Equal(12, page.ViewModel.WindowsAppsViewModel.WindowsAppsFiltered.Count());
+            var searchGroup = Assert.IsType<Grid>(page.FindName("AppSearchGroup"));
+            var search = Assert.IsType<TextBox>(page.FindName("AppSearchBox"));
+            var filters = Assert.IsAssignableFrom<FrameworkElement>(page.FindName("InventoryFilters"));
+            var hiddenApps = Assert.IsType<ToggleButton>(page.FindName("ShowHiddenInstalledAppsToggle"));
+            var hiddenAppsIcon = Assert.IsType<FluentIcons.WinUI.FluentIcon>(hiddenApps.Content);
+            var sortLabel = Assert.IsType<TextBlock>(page.FindName("SortButtonLabel"));
+            var heading = Assert.IsType<TextBlock>(page.FindName("InstalledAppsHeading"));
+            var selectionActions = Assert.IsAssignableFrom<FrameworkElement>(page.FindName("InventorySelectionActions"));
+            var list = Assert.IsType<ItemsControl>(page.FindName("WindowsAppsCards"));
+            var selectAll = Assert.IsType<CheckBox>(page.FindName("SelectAllWindowsApps"));
+            var uninstall = Assert.IsType<Button>(page.FindName("UninstallSelectedButton"));
+
+            foreach (var (width, columns) in new[] { (1054, 3), (620, 2), (460, 1), (380, 1) })
+            {
+                var scale = shell.XamlRoot.RasterizationScale;
+                window.AppWindow.ResizeClient(new SizeInt32((int)Math.Ceiling((width + 28) * scale), (int)Math.Ceiling(670 * scale)));
+                await Task.Delay(350);
+                shell.UpdateLayout();
+
+                var panel = Assert.Single(Descendants<UniformWrapPanel>(list));
+                Assert.Equal(12, panel.Children.Count);
+                var first = Assert.IsAssignableFrom<FrameworkElement>(panel.Children[0]);
+                var endOfRow = Assert.IsAssignableFrom<FrameworkElement>(panel.Children[columns - 1]);
+                var nextRow = Assert.IsAssignableFrom<FrameworkElement>(panel.Children[columns]);
+                var firstPosition = first.TransformToVisual(panel).TransformPoint(default);
+                var endPosition = endOfRow.TransformToVisual(panel).TransformPoint(default);
+                var nextPosition = nextRow.TransformToVisual(panel).TransformPoint(default);
+                Assert.Equal(firstPosition.Y, endPosition.Y);
+                Assert.InRange(endPosition.X + endOfRow.ActualWidth, panel.ActualWidth - 2, panel.ActualWidth + 2);
+                Assert.Equal(firstPosition.X, nextPosition.X);
+                Assert.True(nextPosition.Y > firstPosition.Y);
+
+                var searchPosition = search.TransformToVisual(page).TransformPoint(default);
+                var filterPosition = filters.TransformToVisual(page).TransformPoint(default);
+                var headingY = heading.TransformToVisual(page).TransformPoint(default).Y;
+                var selectionY = selectionActions.TransformToVisual(page).TransformPoint(default).Y;
+                Assert.InRange(search.TransformToVisual(searchGroup).TransformPoint(default).X, -1, 1);
+                Assert.Equal(width < 620 ? Visibility.Collapsed : Visibility.Visible, sortLabel.Visibility);
+                Assert.True(headingY > filterPosition.Y);
+                if (width >= 460)
+                {
+                    Assert.InRange(filterPosition.Y - searchPosition.Y, -2, 2);
+                    Assert.True(filterPosition.X >= searchPosition.X + search.ActualWidth);
+                    Assert.True(search.ActualWidth >= 160);
+                    Assert.InRange(selectionY + selectionActions.ActualHeight / 2 - headingY - heading.ActualHeight / 2, -2, 2);
+                }
+                else
+                {
+                    Assert.True(filterPosition.Y >= searchPosition.Y + search.ActualHeight);
+                    Assert.True(selectionY >= headingY + heading.ActualHeight);
+                }
+
+                if (width < 460) continue;
+                var bitmap = new RenderTargetBitmap();
+                await bitmap.RenderAsync(shell);
+                Assert.True(bitmap.PixelWidth > 0 && bitmap.PixelHeight > 0);
+                await using var output = File.Create(Path.Combine(Path.GetDirectoryName(resultPath)!, $"software-apps-{width}.png"));
+                var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, output.AsRandomAccessStream());
+                encoder.SetPixelData(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied, (uint)bitmap.PixelWidth,
+                    (uint)bitmap.PixelHeight, 96, 96, (await bitmap.GetPixelsAsync()).ToArray());
+                await encoder.FlushAsync();
+            }
+
+            Assert.Equal("Search apps", search.PlaceholderText);
+            Assert.Equal("Search", AutomationProperties.GetName(search));
+            Assert.Equal("Show hidden or inactive apps", AutomationProperties.GetName(hiddenApps));
+            Assert.Equal(page.ViewModel.WindowsAppsViewModel.ShowHiddenInstalledAppsTooltip, ToolTipService.GetToolTip(hiddenApps));
+            Assert.False(hiddenApps.IsChecked);
+            Assert.Equal(FluentIcons.Common.Icon.EyeOff, hiddenAppsIcon.Icon);
+
+            var toggle = Assert.IsAssignableFrom<IToggleProvider>(new ToggleButtonAutomationPeer(hiddenApps).GetPattern(PatternInterface.Toggle));
+            toggle.Toggle();
+            Assert.True(page.ViewModel.WindowsAppsViewModel.ShowHiddenInstalledApps);
+            Assert.Equal(FluentIcons.Common.Icon.Eye, hiddenAppsIcon.Icon);
+            toggle.Toggle();
+            Assert.False(page.ViewModel.WindowsAppsViewModel.ShowHiddenInstalledApps);
+            Assert.Equal(FluentIcons.Common.Icon.EyeOff, hiddenAppsIcon.Icon);
+
+            search.Text = "Camera";
+            Assert.Equal("Camera", page.ViewModel.SearchText);
+            Assert.False(uninstall.IsEnabled);
+            selectAll.Command.Execute(null);
+            Assert.True(selectAll.IsChecked == true);
+            Assert.True(uninstall.IsEnabled);
+            Assert.Equal("Camera", Assert.Single(page.ViewModel.WindowsAppsViewModel.Items, app => app.IsSelected).Name);
+            selectAll.Command.Execute(null);
+            Assert.True(selectAll.IsChecked == false);
+            Assert.False(uninstall.IsEnabled);
+        }
+        finally
+        {
+            shell.Children.Remove(page);
+            colors.Apply(AppColor.Blue);
+        }
     }
 
     /// <summary>Checks row height and spacing with the production panel in a real WinUI visual tree.</summary>

@@ -11,10 +11,15 @@ public interface ISystemMonitorWidgetHost
     string? LastError { get; }
     bool IsRunning { get; }
     event EventHandler? StateChanged;
-    event EventHandler? DisableRequested;
-    event EventHandler? ToggleSizeRequested;
-    event EventHandler? SettingsRequested;
     Task ApplyOptionsAsync(SystemMonitorOptions options);
     Task ShowAsync();
     Task StopAsync();
+}
+
+/// <summary>Input raised by an actual widget in its host process.</summary>
+public interface ISystemMonitorWidgetInput
+{
+    event EventHandler? DisableRequested;
+    event EventHandler? ToggleSizeRequested;
+    event EventHandler? SettingsRequested;
 }

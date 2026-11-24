@@ -24,7 +24,6 @@ public class ConfigReviewOrchestrationService : IConfigReviewOrchestrationServic
     private readonly ICompatibleSettingsRegistry _compatibleSettingsRegistry;
     private readonly IEventBus _eventBus;
     private readonly IReviewModeViewModelCoordinator _vmCoordinator;
-    private readonly IPolicyCleanupService _policyCleanupService;
     private readonly IChangeHistoryService _changeHistoryService;
     private readonly IUninstallResidueReview _uninstallReview;
 
@@ -42,7 +41,6 @@ public class ConfigReviewOrchestrationService : IConfigReviewOrchestrationServic
         ICompatibleSettingsRegistry compatibleSettingsRegistry,
         IEventBus eventBus,
         IReviewModeViewModelCoordinator vmCoordinator,
-        IPolicyCleanupService policyCleanupService,
         IChangeHistoryService changeHistoryService,
         IUninstallResidueReview uninstallReview)
     {
@@ -59,7 +57,6 @@ public class ConfigReviewOrchestrationService : IConfigReviewOrchestrationServic
         _compatibleSettingsRegistry = compatibleSettingsRegistry;
         _eventBus = eventBus;
         _vmCoordinator = vmCoordinator;
-        _policyCleanupService = policyCleanupService;
         _changeHistoryService = changeHistoryService;
         _uninstallReview = uninstallReview;
 
@@ -148,6 +145,7 @@ public class ConfigReviewOrchestrationService : IConfigReviewOrchestrationServic
         await using var deferredReviews = _uninstallReview.Defer();
         var config = _configReviewModeService.ActiveConfig;
         var approvedDiffs = _configReviewDiffService.GetApprovedDiffs();
+        var overlayDismissed = false;
 
         try
         {
@@ -199,12 +197,13 @@ public class ConfigReviewOrchestrationService : IConfigReviewOrchestrationServic
                 ApplyThemeWallpaper = approvedDiffs.Any(d => d.SettingId == SettingIds.ThemeModeWindows && d.IsActionApproved),
                 ApplyCleanTaskbar = approvedSettingIds.Contains("taskbar-clean"),
                 ApplyCleanStartMenu = approvedSettingIds.Contains("start-menu-clean-10") || approvedSettingIds.Contains("start-menu-clean-11"),
+                IsWindowsDefaults = _configReviewModeService.IsWindowsDefaults,
             };
 
             // Ensure action settings add their parent feature sections even if no regular settings approved
             importOptions = ConfigActionSelection.IncludeSections(selectedSections, importOptions);
 
-            if (selectedSections.Count == 0)
+            if (selectedSections.Count == 0 && !importOptions.ApplyThemeWallpaper)
             {
                 _dialogService.ShowMessage(
                     _localizationService.GetString("Config_Import_Error_NoSelection") ?? "No changes to apply.",
@@ -224,16 +223,16 @@ public class ConfigReviewOrchestrationService : IConfigReviewOrchestrationServic
             }
 
             // Confirm Windows Apps removal if remove action is chosen
-            bool saveRemovalScripts = true;
             if (hasWindowsApps && windowsAppsRemove)
             {
                 var (shouldContinue, saveScripts) = await _configAppSelectionService.ConfirmWindowsAppsRemovalAsync();
-                saveRemovalScripts = saveScripts;
+                importOptions = importOptions with { ProcessWindowsAppsRemoval = shouldContinue, SaveRemovalScripts = saveScripts };
                 if (!shouldContinue)
                 {
                     await _configAppSelectionService.ClearWindowsAppsSelectionAsync();
                     selectedSections.Remove("WindowsApps");
                     _logService.Log(LogLevel.Info, "User cancelled Windows Apps removal during review apply");
+                    if (selectedSections.Count == 0 && !importOptions.ApplyThemeWallpaper) return;
                 }
             }
 
@@ -249,18 +248,6 @@ public class ConfigReviewOrchestrationService : IConfigReviewOrchestrationServic
             try
             {
                 await _configExecutionService.ApplyConfigurationWithOptionsAsync(filteredConfig, selectedSections, importOptions);
-
-                // When restoring Windows defaults, clean up all policy registry keys AFTER
-                // applying settings, because applying "disabled" values can re-create the keys
-                if (_configReviewModeService.IsWindowsDefaults)
-                {
-                    _logService.Log(LogLevel.Info, "Windows Defaults import (review mode): cleaning up policy registry keys");
-                    await Task.Run(() => _policyCleanupService.CleanupPolicyKeys());
-                }
-            }
-            catch (Exception ex)
-            {
-                _logService.Log(LogLevel.Error, $"Error applying reviewed config: {ex.Message}");
             }
             finally
             {
@@ -268,6 +255,7 @@ public class ConfigReviewOrchestrationService : IConfigReviewOrchestrationServic
                 _configImportState.ImportSuppliesPowerValues = false;
                 changeBatch.Dispose();
                 _overlayService.HideOverlay();
+                overlayDismissed = true;
             }
 
             // Exit review mode after applying
@@ -288,7 +276,7 @@ public class ConfigReviewOrchestrationService : IConfigReviewOrchestrationServic
         catch (Exception ex)
         {
             _logService.Log(LogLevel.Error, $"Error in ApplyReviewedConfigAsync: {ex.Message}");
-            _overlayService.HideOverlay();
+            if (!overlayDismissed) _overlayService.HideOverlay();
             _configReviewModeService.ExitReviewMode();
             _dialogService.ShowMessage($"Error applying configuration: {ex.Message}", "Error");
         }

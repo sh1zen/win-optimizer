@@ -2,6 +2,67 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Offer the soonest supported charging restart and keep valid resume selections when changing the charge limit.
+
+### Fixed
+
+- Report rejected Acer battery settings and warn when charging continues above the reported limit.
+- Exit win-optimizer when the main window closes while SysMonitor and Notch run in a separate desktop companion.
+- Complete missing UI translations and clarify battery charge limits.
+
+## [v26.11.24] - 2026-11-24
+
+### Added
+
+- Measure and compare internet speeds, adjust TCP auto-tuning and RSS, and limit Windows background downloads on the Internet page.
+- Add TimeMachine with a daily change timeline, settings snapshots, selective restore for supported changes, and configurable retention.
+- Add Notch as an attached or floating desktop widget with a choice of display, customizable Overview tiles, media scrubbing, a focus timer, and a calendar.
+- Pin and reorder Notch readings, including system metrics, game FPS, audio activity, and PC and Bluetooth battery levels. Only the clock is pinned by default.
+- Show system charts, live network rates, and daily network usage in Notch Sys info.
+- Pin apps and files in Notch Quick access and send files to a linked phone through Windows Share.
+- Show local weather in Notch with hourly and seven-day forecasts.
+- Adjust volume, brightness, Wi-Fi, Bluetooth, Night light, Do not disturb, and power mode from Notch Quick Settings where supported.
+- Show Notch alerts for battery, Bluetooth, USB, audio devices, volume, and brightness changes.
+- Preview files, folders, and shortcuts with Space in File Explorer or on the desktop. Open items from the preview and inspect folder contents, totals, and size on disk.
+- Manage experimental Windows features with importable compatibility profiles, technical details, restart status, and undo.
+- Schedule registry compaction for the next restart with verified backups, automatic rollback during maintenance, and status reporting in Cleaner.
+
+### Changed
+
+- Show progress, live details, and cancellation during Cleaner scans, and open cleanup results by category.
+- Show Security scan progress and coverage, deep scan options, and results by category with expandable evidence and navigation to unavailable checks.
+- Check multiple official driver catalogs, save source and NVIDIA channel preferences, and show progress and coverage by source.
+- Compare driver versions, verify or download selected packages, and search disconnected devices.
+- Start Windows repair from the health result and access component cleanup from the Windows status page.
+- Configure elevated app startup in Autorun management and manage sign-in startup for SysMonitor, Notch, and Preview in Extension.
+- Reorganize Software & Apps with responsive cards, a selection toolbar, and individual Windows app and feature selection in each layout.
+- Use registered desktop uninstallers and Windows package servicing with individual removal results.
+- Refresh the title bar and sidebar, add brief page fades, and show installed and latest versions with update status in the title bar.
+- Add optional background blur for the main window and adjustable blur opacity for Preview.
+- Consolidate the Environment Variables and Hosts controls into toolbars and add a reset action to Settings category headers.
+- Leave the high-contrast keyboard shortcut under Windows control.
+- Update Cleaner, Connection, and Security translations.
+- Load connection history independently and reduce background work on the Connection page.
+- Resume charging on compatible Dell laptops at a fixed level or 10 or 20 percentage points below the charge limit.
+- Clarify SysMonitor readings and show expanded reading choices as labeled icons.
+- Report when another build is using the output directory.
+- Include the Apache 2.0 license and updated third-party notices in the app package.
+
+### Fixed
+
+- Preserve verified app removal results on cancellation, keep saved sign-in plans during one-time use, and confirm the scheduled task before reporting deferred removal.
+- Honor configuration review selections and cancellation, keep Explorer open during selection-only imports, and use the current theme for wallpaper-only imports.
+- Report unsuccessful configuration and quick actions, and preserve unrelated registry policies when applying Windows Defaults.
+- Keep confirmed power settings and require all necessary changes to succeed before reporting a visual effects preset as applied.
+- Show recommended and default badges for battery power settings on devices with a battery.
+- Keep confirmed TimeMachine restore results after cancellation and readable snapshots accessible when other recovery data is damaged.
+- Verify driver backups during restore review and report restart-pending removals separately from completed removals.
+- Protect registry branches when Cleaner runs under another administrator account and retain access to Cleaner if offline maintenance reporting is incomplete.
+- Reject incomplete or invalid update downloads before marking an installer ready.
+- Apply first-logon customizations correctly in generated answer files, preserve imported answer-file encodings, validate setup media, and report failed ISO dismounts.
+
 ## [v26.11.18] - 2026-11-18
 
 - Use a brief blur-to-sharp animation when navigating between pages.
@@ -15,6 +76,7 @@
 - Reduce repeated preference reads when opening power settings.
 - Reduce startup storage writes, preference reads and catalogue preparation time.
 - Speed up installed app inventory, metadata matching, icons, searches and card layout.
+- Save space in the Software & Apps toolbar and use an eye button to show hidden or inactive apps.
 - Reuse a DISM session when checking capabilities and optional features.
 - Bound WinGet activation time before falling back to the command line.
 - Download driver offers together while preserving individual results.

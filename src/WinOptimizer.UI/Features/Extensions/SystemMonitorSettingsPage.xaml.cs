@@ -7,10 +7,13 @@ namespace WinOptimizer.UI.Features.Extensions;
 /// <summary>Displays SysMonitor preferences with a dedicated page heading.</summary>
 public sealed partial class SystemMonitorSettingsPage : Page
 {
-    public ExtensionsViewModel ViewModel { get; } = App.Services.GetRequiredService<ExtensionsViewModel>();
+    public ExtensionsViewModel ViewModel { get; }
 
-    public SystemMonitorSettingsPage()
+    public SystemMonitorSettingsPage() : this(App.Services.GetRequiredService<ExtensionsViewModel>()) { }
+
+    public SystemMonitorSettingsPage(ExtensionsViewModel viewModel)
     {
+        ViewModel = viewModel;
         InitializeComponent();
         Loaded += async (_, _) => await ViewModel.LoadAsync();
     }

@@ -32,8 +32,7 @@ public sealed partial class CleanerSettingsControl : UserControl
     /// <summary>Shows one preference category while retaining its shared settings owner.</summary>
     private void UpdateSection()
     {
-        if (BackupsSection is null) return;
-        BackupsSection.Visibility = Visible(CleanerSettingsSection.Backups);
+        if (RegistrySection is null) return;
         RegistrySection.Visibility = Visible(CleanerSettingsSection.Registry);
         PrivacySection.Visibility = Visible(CleanerSettingsSection.Privacy);
         JunkSection.Visibility = Visible(CleanerSettingsSection.Junk);

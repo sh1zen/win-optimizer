@@ -1,0 +1,85 @@
+<Page x:Class="WinOptimizer.UI.Features.Extensions.Notch.NotchSettingsPage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:local="using:WinOptimizer.UI.Features.Extensions.Notch"
+      xmlns:fluent="using:FluentIcons.WinUI"
+      xmlns:common="using:WinOptimizer.UI.Features.Common.Controls"
+      xmlns:controls="using:CommunityToolkit.WinUI.Controls">
+    <ScrollViewer Style="{StaticResource PageScrollViewerStyle}">
+        <StackPanel Style="{StaticResource PageStackStyle}">
+            <common:PageHeader Title="Notch" Description="{x:Bind ViewModel.Description, Mode=OneWay}" Icon="Window"/>
+            <controls:SettingsCard Header="{x:Bind ViewModel.EnableLabel, Mode=OneWay}" Style="{StaticResource PageSettingsCardStyle}">
+                <controls:SettingsCard.HeaderIcon><fluent:FluentIcon Icon="Power" IconVariant="Regular" IconSize="Size20"/></controls:SettingsCard.HeaderIcon>
+                <ToggleSwitch x:Name="EnableToggle" IsOn="{x:Bind ViewModel.IsEnabled, Mode=OneWay}"
+                              IsEnabled="{x:Bind ViewModel.CanEdit, Mode=OneWay}"
+                              AutomationProperties.Name="{x:Bind ViewModel.EnableLabel, Mode=OneWay}" Toggled="OnEnabledToggled"/>
+            </controls:SettingsCard>
+            <controls:SettingsCard Header="{x:Bind ViewModel.StartupLabel, Mode=OneWay}" Description="{x:Bind ViewModel.StartupDescription, Mode=OneWay}"
+                                   Style="{StaticResource PageSettingsCardStyle}">
+                <controls:SettingsCard.HeaderIcon><fluent:FluentIcon Icon="Desktop" IconVariant="Regular" IconSize="Size20"/></controls:SettingsCard.HeaderIcon>
+                <ToggleSwitch x:Name="StartupToggle" IsOn="{x:Bind ViewModel.StartWithWindows, Mode=OneWay}"
+                              IsEnabled="{x:Bind ViewModel.CanEdit, Mode=OneWay}"
+                              AutomationProperties.Name="{x:Bind ViewModel.StartupLabel, Mode=OneWay}" Toggled="OnStartupToggled"/>
+            </controls:SettingsCard>
+            <InfoBar IsOpen="{x:Bind ViewModel.HasError, Mode=OneWay}" Severity="Error"
+                     Visibility="{x:Bind ViewModel.HasError, Mode=OneWay}"
+                     Message="{x:Bind ViewModel.Error, Mode=OneWay}" IsClosable="False"/>
+            <controls:SettingsCard x:Name="ShapeSetting" Style="{StaticResource PageSettingsCardStyle}">
+                <controls:SettingsCard.HeaderIcon><fluent:FluentIcon Icon="Window" IconVariant="Regular" IconSize="Size20"/></controls:SettingsCard.HeaderIcon>
+                <ComboBox x:Name="ShapeChoice" MinWidth="170" SelectionChanged="OnPlacementChanged"
+                          IsEnabled="{x:Bind ViewModel.CanEdit, Mode=OneWay}"/>
+            </controls:SettingsCard>
+            <controls:SettingsCard x:Name="DisplaySetting" Style="{StaticResource PageSettingsCardStyle}">
+                <controls:SettingsCard.HeaderIcon><fluent:FluentIcon Icon="Desktop" IconVariant="Regular" IconSize="Size20"/></controls:SettingsCard.HeaderIcon>
+                <ComboBox x:Name="DisplayChoice" MinWidth="170" SelectionChanged="OnPlacementChanged"
+                          DropDownOpened="OnDisplayDropDownOpened" IsEnabled="{x:Bind ViewModel.CanEdit, Mode=OneWay}"/>
+            </controls:SettingsCard>
+            <controls:SettingsCard x:Name="WeatherSetting" Style="{StaticResource PageSettingsCardStyle}">
+                <controls:SettingsCard.HeaderIcon><fluent:FluentIcon Icon="WeatherSunny" IconVariant="Regular" IconSize="Size20"/></controls:SettingsCard.HeaderIcon>
+                <StackPanel Spacing="4">
+                    <StackPanel Orientation="Horizontal" Spacing="8">
+                        <AutoSuggestBox x:Name="WeatherCityBox" MinWidth="220" MaxWidth="350" QueryIcon="Find"
+                                        DisplayMemberPath="Label" TextMemberPath="Label"
+                                        TextChanged="OnWeatherSearchChanged" SuggestionChosen="OnWeatherSuggestionChosen"
+                                        QuerySubmitted="OnWeatherQuerySubmitted"
+                                        IsEnabled="{x:Bind ViewModel.CanEdit, Mode=OneWay}"/>
+                        <Button x:Name="SaveWeatherCity" Click="OnSaveWeatherCity" IsEnabled="{x:Bind ViewModel.CanEdit, Mode=OneWay}"/>
+                    </StackPanel>
+                    <TextBlock x:Name="WeatherSearchStatus" TextWrapping="Wrap" Visibility="Collapsed"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}" AutomationProperties.LiveSetting="Polite"/>
+                    <HyperlinkButton Padding="0" FontSize="11" Content="Photon · © OpenStreetMap"
+                                     NavigateUri="https://www.openstreetmap.org/copyright"/>
+                </StackPanel>
+            </controls:SettingsCard>
+            <StackPanel Spacing="{StaticResource PageCardSpacing}">
+                <StackPanel Spacing="8">
+                    <TextBlock Text="{x:Bind ViewModel.ModulesLabel, Mode=OneWay}" Style="{StaticResource SubtitleTextBlockStyle}" AutomationProperties.HeadingLevel="Level2"/>
+                    <TextBlock Text="{x:Bind ViewModel.ModulesDescription, Mode=OneWay}" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </StackPanel>
+                <controls:SettingsCard Header="{x:Bind ViewModel.OverviewLabel, Mode=OneWay}"
+                                       Description="{x:Bind ViewModel.OverviewDescription, Mode=OneWay}"
+                                       Style="{StaticResource PageSettingsCardStyle}">
+                    <controls:SettingsCard.HeaderIcon><fluent:FluentIcon Icon="Grid" IconVariant="Regular" FontSize="20"/></controls:SettingsCard.HeaderIcon>
+                    <ToggleSwitch x:Name="OverviewToggle" IsOn="{x:Bind ViewModel.IsOverviewEnabled, Mode=OneWay}"
+                                  IsEnabled="{x:Bind ViewModel.CanEdit, Mode=OneWay}"
+                                  AutomationProperties.Name="{x:Bind ViewModel.OverviewLabel, Mode=OneWay}" Toggled="OnOverviewToggled"/>
+                </controls:SettingsCard>
+                <controls:SettingsCard Header="{x:Bind ViewModel.SysInfoLabel, Mode=OneWay}"
+                                       Description="{x:Bind ViewModel.SysInfoDescription, Mode=OneWay}"
+                                       Style="{StaticResource PageSettingsCardStyle}">
+                    <controls:SettingsCard.HeaderIcon><fluent:FluentIcon Icon="DesktopPulse" IconVariant="Regular" FontSize="20"/></controls:SettingsCard.HeaderIcon>
+                    <StackPanel Orientation="Horizontal" Spacing="10">
+                        <ToggleSwitch x:Name="SysInfoToggle" IsOn="{x:Bind ViewModel.IsSysInfoEnabled, Mode=OneWay}"
+                                      IsEnabled="{x:Bind ViewModel.CanEdit, Mode=OneWay}"
+                                      AutomationProperties.Name="{x:Bind ViewModel.SysInfoLabel, Mode=OneWay}" Toggled="OnSysInfoToggled"/>
+                        <Button x:Name="OpenSysInfo" Click="OnOpenSysInfo" Padding="8" VerticalAlignment="Center"
+                                AutomationProperties.Name="{x:Bind ViewModel.SysInfoLabel, Mode=OneWay}">
+                            <fluent:FluentIcon Icon="ChevronRight" IconVariant="Regular" FontSize="16" AutomationProperties.AccessibilityView="Raw"/>
+                        </Button>
+                    </StackPanel>
+                </controls:SettingsCard>
+                <local:NotchModuleSettingsList Options="{x:Bind ViewModel.GeneralModuleOptions}"/>
+            </StackPanel>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

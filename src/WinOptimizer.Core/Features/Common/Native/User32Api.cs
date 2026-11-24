@@ -14,9 +14,6 @@ public static class User32Api
     // SendMessageTimeout flags
     public const uint SMTO_ABORTIFHUNG = 0x0002;
 
-    // Window management constants
-    public const int SW_RESTORE = 9;
-
     [DllImport("user32.dll", CharSet = CharSet.Auto, SetLastError = true)]
     public static extern IntPtr SendMessageTimeout(
         IntPtr hWnd,
@@ -26,15 +23,6 @@ public static class User32Api
         uint fuFlags,
         uint uTimeout,
         out IntPtr lpdwResult);
-
-    [DllImport("user32.dll")]
-    public static extern bool SetForegroundWindow(IntPtr hWnd);
-
-    [DllImport("user32.dll")]
-    public static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
-
-    [DllImport("user32.dll")]
-    public static extern bool IsIconic(IntPtr hWnd);
 
     [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Auto)]
     public static extern int SystemParametersInfo(int uAction, int uParam, string? lpvParam, int fuWinIni);

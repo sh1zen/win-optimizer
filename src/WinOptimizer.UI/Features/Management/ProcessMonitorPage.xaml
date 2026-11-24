@@ -28,29 +28,33 @@
                 <Setter Target="Inspector.(Grid.Column)" Value="1"/><Setter Target="Inspector.(Grid.ColumnSpan)" Value="1"/>
             </VisualState.Setters></VisualState>
         </VisualStateGroup></VisualStateManager.VisualStateGroups>
-        <Grid x:Name="PageRoot" Style="{StaticResource PageGridStyle}" RowSpacing="12">
-            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-            <common:PageHeader Title="{x:Bind ViewModel.Title, Mode=OneWay}" Description="{x:Bind ViewModel.Description, Mode=OneWay}" Icon="Board"/>
-            <StackPanel Grid.Row="1" Spacing="10">
-                <TextBlock Text="{x:Bind ViewModel.Hint, Mode=OneWay}" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                    <TextBox x:Name="SearchBox" PlaceholderText="{x:Bind ViewModel.SearchLabel, Mode=OneWay}" AutomationProperties.Name="{x:Bind ViewModel.SearchLabel, Mode=OneWay}" Text="{x:Bind ViewModel.SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
-                    <Button Grid.Column="1" Content="{x:Bind ViewModel.RefreshLabel, Mode=OneWay}" Command="{x:Bind ViewModel.RefreshCommand}"/>
-                </Grid>
-                <controls:WrapPanel HorizontalSpacing="12" VerticalSpacing="8">
-                    <ComboBox x:Name="SortSelector" SelectedIndex="{x:Bind ViewModel.SortMode, Mode=TwoWay}" MinWidth="180" AutomationProperties.Name="{x:Bind ViewModel.SortLabel, Mode=OneWay}">
-                        <ComboBoxItem Content="{x:Bind ViewModel.TreeLabel, Mode=OneWay}"/>
-                        <ComboBoxItem Content="CPU"/>
-                        <ComboBoxItem Content="{x:Bind ViewModel.MemoryLabel, Mode=OneWay}"/>
-                        <ComboBoxItem Content="{x:Bind ViewModel.NameLabel, Mode=OneWay}"/>
-                        <ComboBoxItem Content="PID"/>
-                    </ComboBox>
-                    <TextBlock Text="{x:Bind ViewModel.Summary, Mode=OneWay}" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                    <ProgressRing IsActive="{x:Bind ViewModel.IsBusy, Mode=OneWay}" Width="24" Height="24"/>
-                </controls:WrapPanel>
+        <Grid x:Name="PageRoot" Style="{StaticResource PageGridStyle}">
+            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+            <StackPanel Spacing="{StaticResource PageCardSpacing}">
+                <common:PageHeader Title="{x:Bind ViewModel.Title, Mode=OneWay}" Description="{x:Bind ViewModel.Description, Mode=OneWay}" Icon="Board"/>
+                <Border Style="{StaticResource PageCardStyle}">
+                    <StackPanel Spacing="10">
+                        <TextBlock Text="{x:Bind ViewModel.Hint, Mode=OneWay}" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                            <TextBox x:Name="SearchBox" PlaceholderText="{x:Bind ViewModel.SearchLabel, Mode=OneWay}" AutomationProperties.Name="{x:Bind ViewModel.SearchLabel, Mode=OneWay}" Text="{x:Bind ViewModel.SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                            <Button Grid.Column="1" Content="{x:Bind ViewModel.RefreshLabel, Mode=OneWay}" Command="{x:Bind ViewModel.RefreshCommand}"/>
+                        </Grid>
+                        <controls:WrapPanel HorizontalSpacing="12" VerticalSpacing="8">
+                            <ComboBox x:Name="SortSelector" MinWidth="180" SelectedIndex="{x:Bind ViewModel.SortMode, Mode=TwoWay}" AutomationProperties.Name="{x:Bind ViewModel.SortLabel, Mode=OneWay}">
+                                <ComboBoxItem Content="{x:Bind ViewModel.TreeLabel, Mode=OneWay}"/>
+                                <ComboBoxItem Content="CPU"/>
+                                <ComboBoxItem Content="{x:Bind ViewModel.MemoryLabel, Mode=OneWay}"/>
+                                <ComboBoxItem Content="{x:Bind ViewModel.NameLabel, Mode=OneWay}"/>
+                                <ComboBoxItem Content="PID"/>
+                            </ComboBox>
+                            <TextBlock Text="{x:Bind ViewModel.Summary, Mode=OneWay}" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <ProgressRing IsActive="{x:Bind ViewModel.IsBusy, Mode=OneWay}" Width="24" Height="24"/>
+                        </controls:WrapPanel>
+                    </StackPanel>
+                </Border>
+                <InfoBar IsOpen="{x:Bind ViewModel.HasStatus, Mode=OneWay}" Visibility="{x:Bind ViewModel.HasStatus, Mode=OneWay}" Message="{x:Bind ViewModel.Status, Mode=OneWay}" Severity="{x:Bind ViewModel.StatusSeverity, Mode=OneWay}" IsClosable="False"/>
             </StackPanel>
-            <InfoBar Grid.Row="2" IsOpen="{x:Bind ViewModel.HasStatus, Mode=OneWay}" Message="{x:Bind ViewModel.Status, Mode=OneWay}" Severity="{x:Bind ViewModel.StatusSeverity, Mode=OneWay}" IsClosable="False"/>
-            <Grid Grid.Row="3" ColumnSpacing="14" RowSpacing="12">
+            <Grid Grid.Row="1" ColumnSpacing="{StaticResource PageCardSpacing}" RowSpacing="{StaticResource PageCardSpacing}">
                 <Grid.ColumnDefinitions><ColumnDefinition Width="11*"/><ColumnDefinition Width="9*"/></Grid.ColumnDefinitions>
                 <Grid.RowDefinitions><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
                 <Grid x:Name="ProcessList" RowSpacing="6"><Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>

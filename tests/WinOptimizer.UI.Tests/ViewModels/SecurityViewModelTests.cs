@@ -92,5 +92,64 @@ public sealed class SecurityViewModelTests : IDisposable
         Assert.True(vm.IsIdle); Assert.False(vm.HasReport); Assert.Equal("Security_Cancelled", vm.Status);
     }
 
+    [Fact]
+    public async Task ScanActionsShowCurrentTaskOutputAndRejectALateCancelledReport()
+    {
+        using var vm = Create();
+        var worker = new TaskCompletionSource<SecurityScanReport>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var output = new List<string>();
+        _tasks.Setup(tasks => tasks.UpdateDetailedProgress(It.IsAny<TaskProgressDetail>()))
+            .Callback<TaskProgressDetail>(detail =>
+            {
+                if (detail.TerminalOutput is { } line) output.Add(line);
+            });
+        _tasks.Setup(tasks => tasks.GetTerminalOutputLines()).Returns(output);
+        _service.Setup(service => service.ScanAsync(true, It.IsAny<CancellationToken>())).Returns(worker.Task);
+
+        var scan = vm.DeepScanCommand.ExecuteAsync(null);
+        Assert.True(vm.IsScanning);
+        Assert.False(vm.ShowIntroduction);
+        Assert.True(vm.CancelScanCommand.CanExecute(null));
+        await vm.ShowScanDetailsCommand.ExecuteAsync(null);
+        _dialogs.Verify(dialog => dialog.ShowTaskOutputDialogAsync("Dialog_TerminalOutput_Title",
+            It.Is<IReadOnlyList<string>>(lines => lines.Any(line => line.Contains("Security_Check_Firefox", StringComparison.Ordinal)))), Times.Once);
+        var token = _current!.Token;
+        vm.CancelScanCommand.Execute(null);
+        Assert.True(token.IsCancellationRequested);
+        Assert.False(vm.CancelScanCommand.CanExecute(null));
+        Assert.True(vm.IsScanning);
+        Assert.Equal("Progress_Cancelling", vm.ScanProgressHint);
+
+        worker.SetResult(new SecurityScanReport(Guid.NewGuid(), DateTimeOffset.UnixEpoch, true, []));
+        await scan;
+        Assert.False(vm.IsScanning);
+        Assert.False(vm.HasReport);
+        Assert.True(vm.ShowIntroduction);
+        Assert.False(vm.ShowScanDetailsCommand.CanExecute(null));
+        Assert.Equal("Security_Cancelled", vm.Status);
+        _tasks.Verify(tasks => tasks.CompleteTask(), Times.Once);
+    }
+
+    [Fact]
+    public async Task ReplacedScanLeavesTheNewTaskOutputAndLifetimeAlone()
+    {
+        using var vm = Create();
+        var worker = new TaskCompletionSource<SecurityScanReport>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _service.Setup(service => service.ScanAsync(false, It.IsAny<CancellationToken>())).Returns(worker.Task);
+        var scan = vm.ScanCommand.ExecuteAsync(null);
+        var scanOwner = _current!;
+
+        _current = new CancellationTokenSource();
+        _sources.Add(_current);
+        scanOwner.Cancel();
+        Assert.False(vm.ShowScanDetailsCommand.CanExecute(null));
+        worker.SetCanceled(scanOwner.Token);
+        await scan;
+
+        _tasks.Verify(tasks => tasks.UpdateDetailedProgress(It.IsAny<TaskProgressDetail>()), Times.Once);
+        _tasks.Verify(tasks => tasks.CompleteTask(), Times.Never);
+        Assert.False(vm.HasReport);
+    }
+
     public void Dispose() { foreach (var source in _sources) source.Dispose(); }
 }

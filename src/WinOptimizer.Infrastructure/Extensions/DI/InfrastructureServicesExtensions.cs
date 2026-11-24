@@ -7,6 +7,10 @@ using WinOptimizer.Infrastructure.Features.Common.EventHandlers;
 using WinOptimizer.Infrastructure.Features.Common.Services;
 using WinOptimizer.Core.Features.Utilities;
 using WinOptimizer.Infrastructure.Features.Utilities;
+using WinOptimizer.Core.Features.Drivers.Interfaces;
+using WinOptimizer.Core.Features.Optimize.Interfaces;
+using WinOptimizer.Infrastructure.Features.Drivers;
+using WinOptimizer.Infrastructure.Features.Optimize.Services;
 
 namespace WinOptimizer.Infrastructure.Extensions.DI;
 
@@ -32,14 +36,44 @@ public static class InfrastructureServicesExtensions
         services.AddSingleton<IConfigReviewBadgeService>(sp => sp.GetRequiredService<WinOptimizer.Core.Features.Common.Services.ConfigReviewService>());
         services.AddSingleton<IApplicationModeService>(sp => sp.GetRequiredService<WinOptimizer.Core.Features.Common.Services.ConfigReviewService>());
         services.AddSingleton<IProcessExecutor, ProcessExecutor>();
+        services.AddSingleton<IInternetSpeedTest>(_ => new CloudflareInternetSpeedTest(new HttpClient(new SocketsHttpHandler
+        {
+            AllowAutoRedirect = false,
+            UseCookies = false,
+            MaxResponseDrainSize = 0,
+            PooledConnectionIdleTimeout = TimeSpan.FromSeconds(15)
+        }) { Timeout = Timeout.InfiniteTimeSpan }, TimeProvider.System));
         services.AddSingleton<WinOptimizer.Core.Features.Security.ISecurityBackend, WinOptimizer.Infrastructure.Features.Security.WindowsSecurityBackend>();
         services.AddSingleton<WinOptimizer.Core.Features.Security.ISecurityScanService, WinOptimizer.Core.Features.Security.SecurityScanService>();
         services.AddSingleton<WinOptimizer.Infrastructure.Features.Drivers.DriverPowerShell>();
         services.AddSingleton<WinOptimizer.Infrastructure.Features.Drivers.IDriverInfInspector, WinOptimizer.Infrastructure.Features.Drivers.WindowsDriverInfInspector>();
         services.AddSingleton<WinOptimizer.Core.Features.Drivers.Interfaces.IDriverInventorySource, WinOptimizer.Infrastructure.Features.Drivers.WindowsDriverInventorySource>();
-        services.AddSingleton<WinOptimizer.Core.Features.Drivers.Interfaces.IDriverUpdateSource, WinOptimizer.Infrastructure.Features.Drivers.WindowsDriverUpdateSource>();
+        services.AddSingleton<WindowsDriverUpdateSource>();
+        services.AddSingleton<IDriverUpdateSource>(sp => sp.GetRequiredService<WindowsDriverUpdateSource>());
+        services.AddSingleton(_ => new OfficialDriverHttp(new HttpClient(new SocketsHttpHandler
+        {
+            AllowAutoRedirect = false, UseCookies = false,
+            AutomaticDecompression = System.Net.DecompressionMethods.All,
+            PooledConnectionLifetime = TimeSpan.FromMinutes(10),
+            MaxConnectionsPerServer = 3
+        }) { Timeout = Timeout.InfiniteTimeSpan }));
+        services.AddSingleton<IDriverUpdateSource, MicrosoftDriverCatalogSource>();
+        services.AddSingleton<IDriverUpdateSource, NvidiaDriverSource>();
+        services.AddSingleton<IDriverUpdateSource, AmdDriverSource>();
+        services.AddSingleton<IDriverUpdateSource, IntelDriverSource>();
+        services.AddSingleton<IDriverUpdateSource, RealtekDriverSource>();
+        services.AddSingleton<IDriverUpdateSource, AsusDriverSource>();
+        services.AddSingleton<IDriverUpdateSource, MsiDriverSource>();
+        services.AddSingleton<IDriverUpdateSource, GigabyteDriverSource>();
+        services.AddSingleton<IDriverUpdateSource, AsRockDriverSource>();
+        services.AddSingleton<IDriverUpdateSource, DellDriverSource>();
+        services.AddSingleton<IDriverUpdateSource, HpDriverSource>();
+        services.AddSingleton<IDriverUpdateSource, LenovoDriverSource>();
+        services.AddSingleton<IDriverPackageService, OfficialDriverPackageService>();
         services.AddSingleton<WinOptimizer.Core.Features.Drivers.Interfaces.IDriverScanService, WinOptimizer.Core.Features.Drivers.Services.DriverScanService>();
-        services.AddSingleton<WinOptimizer.Core.Features.Drivers.Interfaces.IDriverRemovalBackend, WinOptimizer.Infrastructure.Features.Drivers.WindowsDriverRemovalBackend>();
+        services.AddSingleton<WinOptimizer.Infrastructure.Features.Drivers.WindowsDriverRemovalBackend>();
+        services.AddSingleton<WinOptimizer.Core.Features.Drivers.Interfaces.IDriverRemovalBackend>(sp =>
+            sp.GetRequiredService<WinOptimizer.Infrastructure.Features.Drivers.WindowsDriverRemovalBackend>());
         services.AddSingleton<WinOptimizer.Core.Features.Drivers.Interfaces.IDriverRemovalService, WinOptimizer.Core.Features.Drivers.Services.DriverRemovalService>();
         services.AddSingleton<WinOptimizer.Infrastructure.Features.Cleaner.CleanerFileScanner>();
         services.AddSingleton<WinOptimizer.Core.Features.SoftwareApps.Interfaces.IUninstallResidueService,
@@ -68,11 +102,18 @@ public static class InfrastructureServicesExtensions
         services.AddSingleton<WinOptimizer.Infrastructure.Features.Cleaner.ICleanerRegistryRecovery>(sp => sp.GetRequiredService<WinOptimizer.Infrastructure.Features.Cleaner.CleanerRegistryScanner>());
         services.AddSingleton<WinOptimizer.Infrastructure.Features.Cleaner.IRegistryHiveOperations, WinOptimizer.Infrastructure.Features.Cleaner.WindowsRegistryHiveOperations>();
         services.AddSingleton<WinOptimizer.Infrastructure.Features.Cleaner.RegistryHiveCompactor>();
+        services.AddSingleton<WinOptimizer.Infrastructure.Features.Cleaner.IRegistryDefragBoot, WinOptimizer.Infrastructure.Features.Cleaner.WindowsRegistryDefragBoot>();
         services.AddSingleton<WinOptimizer.Core.Features.Cleaner.Interfaces.ICleanerBackend, WinOptimizer.Infrastructure.Features.Cleaner.WindowsCleanerBackend>();
         services.AddSingleton<WinOptimizer.Core.Features.Cleaner.Interfaces.ICleanerService, WinOptimizer.Core.Features.Cleaner.Services.CleanerService>();
         services.AddSingleton<ILogService, WinOptimizer.Core.Features.Common.Services.LogService>();
         services.AddSingleton<IInteractiveUserService, InteractiveUserService>();
         services.AddSingleton<AppDataStorage>();
+        services.AddSingleton<WinOptimizer.Core.Features.AdvancedTools.Experimental.IExperimentalFeatureBackend,
+            WinOptimizer.Infrastructure.Features.AdvancedTools.Experimental.WindowsExperimentalFeatureBackend>();
+        services.AddSingleton<WinOptimizer.Core.Features.AdvancedTools.Experimental.IExperimentalRecoveryStore,
+            WinOptimizer.Infrastructure.Features.AdvancedTools.Experimental.ExperimentalRecoveryStore>();
+        services.AddSingleton<WinOptimizer.Core.Features.AdvancedTools.Experimental.IExperimentalProfileFile,
+            WinOptimizer.Infrastructure.Features.AdvancedTools.Experimental.ExperimentalProfileFile>();
         services.AddSingleton<ISystemInfoProvider, SystemInfoProvider>();
         services.AddSingleton<WinOptimizer.Infrastructure.Features.SystemInformation.ISystemInformationQuery, WinOptimizer.Infrastructure.Features.SystemInformation.WindowsSystemInformationQuery>();
         services.AddSingleton<WinOptimizer.Core.Features.SystemInformation.Interfaces.ISystemInformationService, WinOptimizer.Infrastructure.Features.SystemInformation.WindowsSystemInformationService>();
@@ -80,7 +121,10 @@ public static class InfrastructureServicesExtensions
         services.AddSingleton<WinOptimizer.Infrastructure.Features.Extensions.ISystemMonitorProbe, WinOptimizer.Infrastructure.Features.Extensions.WindowsSystemMonitorProbe>();
         services.AddSingleton<WinOptimizer.Core.Features.Extensions.ISystemMonitorService, WinOptimizer.Infrastructure.Features.Extensions.WindowsSystemMonitorService>();
         services.AddSingleton<WinOptimizer.Core.Features.Extensions.ISystemMonitorStartupService, WinOptimizer.Infrastructure.Features.Extensions.SystemMonitorStartupService>();
-        services.AddSingleton<IWindowsRegistryService, WindowsRegistryService>();
+        services.AddSingleton<WinOptimizer.Core.Features.Extensions.INotchStartupService, WinOptimizer.Infrastructure.Features.Extensions.NotchStartupService>();
+        services.AddSingleton<WindowsRegistryService>();
+        services.AddSingleton<IWindowsRegistryService>(sp => sp.GetRequiredService<WindowsRegistryService>());
+        services.AddSingleton<WinOptimizer.Infrastructure.Features.Optimize.Services.NetworkTuningOriginalStore>();
         services.AddSingleton<WinOptimizer.Core.Features.Optimize.Interfaces.IOptimizationToolsService, WinOptimizer.Infrastructure.Features.Optimize.Services.OptimizationToolsService>();
         services.AddSingleton<WinOptimizer.Infrastructure.Features.Customize.Services.IContextMenuStore, WinOptimizer.Infrastructure.Features.Customize.Services.WindowsContextMenuStore>();
         services.AddSingleton<WinOptimizer.Core.Features.Customize.Interfaces.IContextMenuService, WinOptimizer.Infrastructure.Features.Customize.Services.ContextMenuService>();
@@ -120,7 +164,8 @@ public static class InfrastructureServicesExtensions
         services.AddSingleton<IWindowsUIManagementService, WindowsUIManagementService>();
 
         // User Preferences Service
-        services.AddSingleton<IUserPreferencesService, UserPreferencesService>();
+        services.AddSingleton<UserPreferencesService>();
+        services.AddSingleton<IUserPreferencesService>(sp => sp.GetRequiredService<UserPreferencesService>());
 
         // New Badge Service (tracks which settings are new in current release)
 
@@ -145,11 +190,12 @@ public static class InfrastructureServicesExtensions
         // Power Scheme Operations (P/Invoke wrapper for plan-level power operations)
         services.AddSingleton<IPowerSchemeOperations, PowerSchemeOperations>();
 
-        // Explorer Window Manager (open/focus folders in Explorer)
-        services.AddSingleton<IExplorerWindowManager, ExplorerWindowManager>();
-
         // User-facing structured change receipts (ChangeHistory.jsonl)
         services.AddSingleton<IChangeHistoryService, ChangeHistoryService>();
+        services.AddSingleton<TimeMachineStore>();
+        services.AddSingleton<TimeMachineScheduledTasks>();
+        services.AddSingleton<TimeMachineService>();
+        services.AddSingleton<ITimeMachineRetentionService>(provider => provider.GetRequiredService<TimeMachineService>());
 
         // System Parameters (wraps User32 SystemParametersInfo P/Invoke)
         services.AddSingleton<ISystemParametersService, SystemParametersService>();
@@ -168,7 +214,6 @@ public static class InfrastructureServicesExtensions
         services.AddSingleton<IPowerCfgApplier, PowerCfgApplier>();
         services.AddSingleton<ISettingDependencyResolver, SettingDependencyResolver>();
         services.AddSingleton<IRecommendedSettingsApplier, RecommendedSettingsApplier>();
-        services.AddSingleton<IBulkSettingsActionService, BulkSettingsActionService>();
         services.AddSingleton<ISettingOperationExecutor, SettingOperationExecutor>();
         services.AddSingleton<ISettingApplicationService, SettingApplicationService>();
 
@@ -198,9 +243,7 @@ public static class InfrastructureServicesExtensions
         services.AddSingleton<IRemovalScriptUpdateService, RemovalScriptUpdateService>();
 
         // Task Progress Service
-        services.AddSingleton<TaskProgressService>();
-        services.AddSingleton<ITaskProgressService>(sp => sp.GetRequiredService<TaskProgressService>());
-        services.AddSingleton<IMultiScriptProgressService>(sp => sp.GetRequiredService<TaskProgressService>());
+        services.AddSingleton<ITaskProgressService, TaskProgressService>();
 
         // Tooltip Services
         services.AddSingleton<ITooltipDataService, TooltipDataService>();

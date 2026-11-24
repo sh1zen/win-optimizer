@@ -5,33 +5,43 @@
     xmlns:controls="using:CommunityToolkit.WinUI.Controls"
     xmlns:fluent="using:FluentIcons.WinUI"
     xmlns:helpers="using:WinOptimizer.UI.Features.Common.Helpers">
-    <Grid DataContext="{x:Bind ViewModel, Mode=OneWay}" RowSpacing="12">
+    <Grid DataContext="{x:Bind ViewModel, Mode=OneWay}" RowSpacing="{StaticResource PageCardSpacing}">
         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-        <StackPanel Spacing="10">
-            <TextBox x:Name="JournalSearch" Text="{Binding SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
-                     PlaceholderText="{Binding SearchPlaceholder}" AutomationProperties.Name="{Binding SearchPlaceholder}"
-                     HorizontalAlignment="Stretch"/>
-            <controls:WrapPanel HorizontalSpacing="8" VerticalSpacing="8">
-                <ComboBox x:Name="TopicFilter" ItemsSource="{Binding Topics}" DisplayMemberPath="Title" SelectedIndex="{Binding TopicIndex, Mode=TwoWay}"
-                          Width="220" AutomationProperties.Name="{Binding TopicLabel}"/>
-                <ComboBox x:Name="KindFilter" ItemsSource="{Binding Filters}" DisplayMemberPath="Title" SelectedIndex="{Binding FilterIndex, Mode=TwoWay}"
-                          Width="190" AutomationProperties.Name="{Binding FilterLabel}"/>
-                <Button Content="{Binding RefreshLabel}" Command="{Binding RefreshCommand}"/>
-                <Button x:Name="ClearLogsButton" Content="{Binding ClearLabel}" Command="{Binding ClearAppLogsCommand}"/>
-                <ProgressRing Width="22" Height="22" IsActive="{Binding IsBusy}"
-                              Visibility="{Binding IsBusy, Converter={StaticResource BooleanToVisibilityConverter}}"/>
-            </controls:WrapPanel>
+        <StackPanel Spacing="{StaticResource PageCardSpacing}" Margin="{StaticResource ScrollContentPadding}">
+            <Border Style="{StaticResource PageCardStyle}">
+                <StackPanel Spacing="12">
+                    <TextBox x:Name="JournalSearch" Text="{Binding SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                             PlaceholderText="{Binding SearchPlaceholder}" AutomationProperties.Name="{Binding SearchPlaceholder}"/>
+                    <controls:WrapPanel HorizontalSpacing="8" VerticalSpacing="8">
+                        <ComboBox x:Name="TopicFilter" Width="220" ItemsSource="{Binding Topics}" DisplayMemberPath="Title"
+                                  SelectedIndex="{Binding TopicIndex, Mode=TwoWay}" AutomationProperties.Name="{Binding TopicLabel}"/>
+                        <ComboBox x:Name="KindFilter" Width="190" ItemsSource="{Binding Filters}" DisplayMemberPath="Title"
+                                  SelectedIndex="{Binding FilterIndex, Mode=TwoWay}" AutomationProperties.Name="{Binding FilterLabel}"/>
+                        <Button AutomationProperties.Name="{Binding RefreshLabel}" Command="{Binding RefreshCommand}">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <fluent:FluentIcon Icon="ArrowClockwise" IconVariant="Regular" IconSize="Size16"/>
+                                <TextBlock Text="{Binding RefreshLabel}"/>
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="ClearLogsButton" Content="{Binding ClearLabel}" Command="{Binding ClearAppLogsCommand}"/>
+                        <ProgressRing Width="22" Height="22" IsActive="{Binding IsBusy}"
+                                      Visibility="{Binding IsBusy, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                    </controls:WrapPanel>
+                </StackPanel>
+            </Border>
             <TextBlock Text="{Binding Summary}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                        AutomationProperties.LiveSetting="Polite" TextWrapping="Wrap"/>
         </StackPanel>
         <ListView x:Name="TopicGroups" Grid.Row="1" ItemsSource="{Binding Groups}" SelectionMode="None" HorizontalContentAlignment="Stretch"
                   Padding="{StaticResource ScrollContentPadding}" Background="Transparent" helpers:ScrollBarAutoHide.HideAfter="0:0:2" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+            <ListView.ItemsPanel><ItemsPanelTemplate><StackPanel Spacing="{StaticResource PageCardSpacing}"/></ItemsPanelTemplate></ListView.ItemsPanel>
             <ListView.ItemContainerStyle><Style TargetType="ListViewItem">
                 <Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Padding" Value="0"/><Setter Property="MinHeight" Value="0"/>
             </Style></ListView.ItemContainerStyle>
             <ListView.ItemTemplate><DataTemplate x:DataType="vm:LogTopicGroup">
-                <Expander IsExpanded="{x:Bind IsExpanded, Mode=TwoWay}" Margin="0,0,0,8" HorizontalAlignment="Stretch"
-                          HorizontalContentAlignment="Stretch" Background="{ThemeResource CardBackgroundFillColorDefaultBrush}">
+                <Expander IsExpanded="{x:Bind IsExpanded, Mode=TwoWay}" HorizontalAlignment="Stretch"
+                          HorizontalContentAlignment="Stretch" Background="{ThemeResource AppSurfaceBrush}"
+                          BorderBrush="{ThemeResource AppSurfaceStrokeBrush}" CornerRadius="14">
                     <Expander.Header>
                         <Grid ColumnSpacing="12"><Grid.ColumnDefinitions><ColumnDefinition Width="24"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
                             <fluent:FluentIcon Icon="{x:Bind Icon}" IconVariant="Regular" IconSize="Size20" VerticalAlignment="Center"
@@ -76,9 +86,11 @@
                                     <TextBlock Text="{x:Bind Batch, Mode=OneWay}" FontSize="12" TextWrapping="Wrap" IsTextSelectionEnabled="True"
                                                Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                                Visibility="{x:Bind HasBatch, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
-                                    <Expander Header="{x:Bind DetailsLabel, Mode=OneWay}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch">
+                                    <ToggleButton x:Name="ShowDetails" Content="{x:Bind DetailsLabel, Mode=OneWay}" Padding="10,4" FontSize="12"/>
+                                    <Border x:Name="TechnicalDetails" Padding="10" CornerRadius="8" Background="{ThemeResource SubtleFillColorSecondaryBrush}"
+                                            Visibility="{Binding IsChecked, ElementName=ShowDetails, Converter={StaticResource BooleanToVisibilityConverter}}">
                                         <TextBlock Text="{x:Bind Details, Mode=OneWay}" TextWrapping="Wrap" IsTextSelectionEnabled="True" FontFamily="Consolas" FontSize="12"/>
-                                    </Expander>
+                                    </Border>
                                 </StackPanel>
                             </Border>
                         </DataTemplate></ListView.ItemTemplate>

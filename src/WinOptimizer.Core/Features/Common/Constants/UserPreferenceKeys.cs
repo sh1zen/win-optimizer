@@ -16,5 +16,6 @@ public static class UserPreferenceKeys
     public const string UiZoomFactor = "UiZoomFactor";
     public const string SidebarExpanded = "SidebarExpanded";
     public const string AppColor = "AppColor";
+    public const string BlurWindowBackground = "BlurWindowBackground";
     public const string AdvancedPowerSettingsUnlocked = "AdvancedPowerSettingsUnlocked";
 }

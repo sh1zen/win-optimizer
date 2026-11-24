@@ -4,6 +4,7 @@ using WinOptimizer.Core.Features.Common.Enums;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Customize.Interfaces;
 using WinOptimizer.Infrastructure.Features.Customize.Services;
+using WinOptimizer.Tests.Fixtures;
 using Xunit;
 
 namespace WinOptimizer.Infrastructure.Tests.Services;
@@ -11,17 +12,19 @@ namespace WinOptimizer.Infrastructure.Tests.Services;
 /// <summary>Exercises production discovery and edits against a private disposable registry fixture.</summary>
 public sealed class WindowsContextMenuStoreTests : IDisposable
 {
-    private readonly string _path = @"Software\WinOptimizer.Tests\ContextMenus\" + Guid.NewGuid().ToString("N");
+    private readonly PrivateRegistryHive _hive = new();
+    private const string FixtureRoot = "Classes";
     private readonly WindowsContextMenuStore _store;
+    private int _notifications;
     public WindowsContextMenuStoreTests()
     {
-        using var root = Registry.CurrentUser.CreateSubKey(_path);
-        _store = new(() => [new("Fixture", Registry.CurrentUser.OpenSubKey(_path)!)]);
+        using var root = _hive.Root.CreateSubKey(FixtureRoot);
+        _store = new(() => [new("Fixture", _hive.Root.OpenSubKey(FixtureRoot)!)], () => _notifications++);
     }
 
     private void Value(string path, string name, string value, RegistryValueKind kind = RegistryValueKind.String)
     {
-        using var key = Registry.CurrentUser.CreateSubKey(_path + "\\" + path);
+        using var key = _hive.Root.CreateSubKey(FixtureRoot + "\\" + path);
         key.SetValue(name, value, kind);
     }
 
@@ -42,7 +45,8 @@ public sealed class WindowsContextMenuStoreTests : IDisposable
         Assert.False(Assert.Single(_store.Read(), item => item.ProgramName == "alpha").IsEnabled);
         var enabled = _store.SetEnabled(disabled, true);
         Assert.True(enabled.IsEnabled);
-        using var command = Registry.CurrentUser.OpenSubKey(_path + @"\*\shell\Alpha\command");
+        Assert.Equal(2, _notifications);
+        using var command = _hive.Root.OpenSubKey(FixtureRoot + @"\*\shell\Alpha\command");
         Assert.Equal("\"C:\\Fixture\\alpha.exe\" \"%1\"", command!.GetValue(""));
     }
 
@@ -62,7 +66,7 @@ public sealed class WindowsContextMenuStoreTests : IDisposable
         Assert.False(disabled.IsEnabled);
         Assert.Equal(disabled, Assert.Single(_store.Read()));
         Assert.True(_store.SetEnabled(disabled, true).IsEnabled);
-        using var key = Registry.CurrentUser.OpenSubKey(_path + @"\Directory\shellex\ContextMenuHandlers\Alpha");
+        using var key = _hive.Root.OpenSubKey(FixtureRoot + @"\Directory\shellex\ContextMenuHandlers\Alpha");
         Assert.Equal(clsid, key!.GetValue(""));
         Assert.Equal("retain", key.GetValue("Other"));
     }
@@ -100,9 +104,9 @@ public sealed class WindowsContextMenuStoreTests : IDisposable
         Value(@"Machine\Directory\shellex\ContextMenuHandlers\Alpha", "", clsid);
         var store = new WindowsContextMenuStore(() =>
         [
-            new("User", Registry.CurrentUser.OpenSubKey(_path + @"\User")!),
-            new("Machine (64-bit)", Registry.CurrentUser.OpenSubKey(_path + @"\Machine")!)
-        ]);
+            new("User", _hive.Root.OpenSubKey(FixtureRoot + @"\User")!),
+            new("Machine (64-bit)", _hive.Root.OpenSubKey(FixtureRoot + @"\Machine")!)
+        ], () => _notifications++);
         var entries = store.Read();
         Assert.Equal(2, entries.Count);
         store.SetEnabled(Assert.Single(entries, entry => entry.Location.StartsWith("User")), false);
@@ -131,7 +135,7 @@ public sealed class WindowsContextMenuStoreTests : IDisposable
     public void ParsesTargetsWithoutExecutingThem(string command, string expected) =>
         Assert.Equal(expected, WindowsContextMenuStore.ExecutablePath(command));
 
-    public void Dispose() => Registry.CurrentUser.DeleteSubKeyTree(_path, false);
+    public void Dispose() => _hive.Dispose();
 }
 
 /// <summary>Checks inventory authority and application-mode guards with no Windows access.</summary>

@@ -26,20 +26,7 @@ public class AppxPackageSourceTests
 
     public AppxPackageSourceTests()
     {
-        _deployment.SetupGet(source => source.InteractiveAccountSid).Returns("");
-        _deployment.Setup(source => source.GetPackagesAsync("", It.IsAny<CancellationToken>()))
-            .ReturnsAsync([new AppxPackageIdentity("Test.App", "Test.App_1.0_x64__publisher")]);
         _service = new AppxPackageSource(_mockLog.Object, _mockPowerShellRunner.Object, _deployment.Object);
-    }
-
-    [Fact]
-    public async Task GetInstalledPackageNamesAsync_ReturnsCaseInsensitiveSet()
-    {
-        var result = await _service.GetInstalledPackageNamesAsync();
-
-        result.Should().NotBeNull();
-        // Verify the comparer is case-insensitive
-        result.Comparer.Should().Be(StringComparer.OrdinalIgnoreCase);
     }
 
     [Fact]
@@ -84,6 +71,7 @@ public class AppxPackageSourceTests
         var result = await _service.GetInstalledPackageNamesAsync();
 
         Assert.Equal(new[] { "Interactive.App" }, result);
+        result.Comparer.Should().Be(StringComparer.OrdinalIgnoreCase);
         _deployment.Verify(source => source.GetPackagesAsync("", It.IsAny<CancellationToken>()), Times.Never);
     }
 

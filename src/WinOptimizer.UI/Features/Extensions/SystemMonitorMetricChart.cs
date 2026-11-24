@@ -7,6 +7,7 @@ using Windows.Foundation;
 using Windows.UI;
 using WinOptimizer.UI.Features.Common.Controls;
 using WinOptimizer.UI.Features.Extensions.ViewModels;
+using PlotPath = Microsoft.UI.Xaml.Shapes.Path;
 
 namespace WinOptimizer.UI.Features.Extensions;
 
@@ -14,19 +15,30 @@ namespace WinOptimizer.UI.Features.Extensions;
 public sealed partial class SystemMonitorMetricChart : UserControl
 {
     public static readonly DependencyProperty SectionProperty = DependencyProperty.Register(nameof(Section),
-        typeof(MonitorMetricSection), typeof(SystemMonitorMetricChart), new PropertyMetadata(null, OnSectionChanged));
-    public MonitorMetricSection? Section
+        typeof(IMonitorChartData), typeof(SystemMonitorMetricChart), new PropertyMetadata(null, OnSectionChanged));
+    public IMonitorChartData? Section
     {
-        get => (MonitorMetricSection?)GetValue(SectionProperty);
+        get => (IMonitorChartData?)GetValue(SectionProperty);
         set => SetValue(SectionProperty, value);
+    }
+
+    public static readonly DependencyProperty PlotOnlyProperty = DependencyProperty.Register(nameof(PlotOnly),
+        typeof(bool), typeof(SystemMonitorMetricChart), new PropertyMetadata(false, OnPlotOnlyChanged));
+    public bool PlotOnly
+    {
+        get => (bool)GetValue(PlotOnlyProperty);
+        set => SetValue(PlotOnlyProperty, value);
     }
 
     private readonly Canvas _plot = new() { Height = 64 };
     private readonly UniformWrapPanel _legend = new() { ItemWidth = 92, ItemHeight = 22, ColumnSpacing = 6, MaxColumns = 2, StretchItems = true };
+    private readonly ScrollViewer _legendScroll = new() { MaxHeight = 66,
+        HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
     private readonly List<LegendEntry> _legendEntries = [];
+    private readonly List<Point> _trace = new(MonitorMetricSeries.HistoryLength);
     private readonly TextBlock _maximum = new() { FontSize = 8, HorizontalAlignment = HorizontalAlignment.Right, Opacity = 0.75 };
     private readonly TextBlock _minimum = new() { FontSize = 8, HorizontalAlignment = HorizontalAlignment.Right, Opacity = 0.75 };
-    private MonitorMetricSection? _subscribed;
+    private IMonitorChartData? _subscribed;
     private SolidColorBrush[]? _lightBrushes;
     private SolidColorBrush[]? _darkBrushes;
     private bool _loaded;
@@ -41,9 +53,8 @@ public sealed partial class SystemMonitorMetricChart : UserControl
         composition.Children.Add(_maximum);
         composition.Children.Add(_plot);
         composition.Children.Add(_minimum);
-        composition.Children.Add(new ScrollViewer { Content = _legend, MaxHeight = 66,
-            Padding = (Thickness)Microsoft.UI.Xaml.Application.Current.Resources["ScrollContentPadding"],
-            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
+        _legendScroll.Content = _legend;
+        composition.Children.Add(_legendScroll);
         Content = composition;
         _plot.SizeChanged += (_, _) => Draw();
         ActualThemeChanged += (_, _) => Refresh();
@@ -53,6 +64,16 @@ public sealed partial class SystemMonitorMetricChart : UserControl
 
     private static void OnSectionChanged(DependencyObject sender, DependencyPropertyChangedEventArgs args) =>
         ((SystemMonitorMetricChart)sender).Subscribe();
+
+    /// <summary>Fits a plot without visible labels into the compact Notch reading card.</summary>
+    private static void OnPlotOnlyChanged(DependencyObject sender, DependencyPropertyChangedEventArgs args)
+    {
+        var chart = (SystemMonitorMetricChart)sender;
+        chart._maximum.Visibility = chart._minimum.Visibility = chart._legendScroll.Visibility =
+            chart.PlotOnly ? Visibility.Collapsed : Visibility.Visible;
+        chart._plot.Height = chart.PlotOnly ? 44 : 64;
+        chart.Refresh();
+    }
 
     /// <summary>Subscribes only while attached to the visual tree so retained histories do not retain old controls.</summary>
     private void Subscribe()
@@ -69,6 +90,18 @@ public sealed partial class SystemMonitorMetricChart : UserControl
     private void Refresh()
     {
         var section = Section;
+        if (PlotOnly)
+        {
+            Visibility = section is null ? Visibility.Collapsed : Visibility.Visible;
+            AutomationProperties.SetName(this, section?.Label ?? "");
+            AutomationProperties.SetHelpText(this, section is { IsEmpty: false }
+                ? string.Join("\n", section.Readings.Select(series => $"{series.Name}: {series.Value}"))
+                : section?.UnavailableLabel ?? "");
+            ToolTipService.SetToolTip(_plot, null);
+            Draw();
+            return;
+        }
+        AutomationProperties.SetHelpText(this, "");
         Visibility = section is { IsEmpty: false } ? Visibility.Visible : Visibility.Collapsed;
         _maximum.Text = section?.MaximumLabel ?? "";
         _minimum.Text = section?.MinimumLabel ?? "";
@@ -97,10 +130,10 @@ public sealed partial class SystemMonitorMetricChart : UserControl
         Draw();
     }
 
-    /// <summary>Right-aligns 60 real samples, breaks missing segments and marks the latest point even at first sampling.</summary>
+    /// <summary>Draws real samples with gaps and marks the latest point even at first sampling.</summary>
     private void Draw()
     {
-        if (Section is not { IsEmpty: false } section || _plot.ActualWidth <= 0)
+        if (Section is not { } section || (!PlotOnly && section.IsEmpty) || _plot.ActualWidth <= 0)
         {
             _plot.Children.Clear();
             return;
@@ -119,25 +152,22 @@ public sealed partial class SystemMonitorMetricChart : UserControl
         foreach (var series in section.Readings)
         {
             var brush = SeriesBrush(series.ColorIndex);
-            Polyline? segment = null;
             Point? latest = null;
             var index = MonitorMetricSeries.HistoryLength - series.History.Count;
             foreach (var sample in series.History)
             {
                 var x = index++ * (_plot.ActualWidth - 4) / (MonitorMetricSeries.HistoryLength - 1) + 2;
-                if (sample is not { } value) { segment = null; latest = null; continue; }
-                var point = new Point(x, 2 + (_plot.Height - 4) * (1 - (value - section.Minimum) / (section.Maximum - section.Minimum)));
-                if (segment is null)
+                if (sample is not double value || !double.IsFinite(value))
                 {
-                    segment = TakeShape<Polyline>(ref shapeIndex);
-                    segment.Points.Clear();
-                    segment.Stroke = brush;
-                    segment.StrokeThickness = 1.25;
-                    segment.StrokeLineJoin = PenLineJoin.Round;
+                    DrawTrace(brush, ref shapeIndex);
+                    latest = null;
+                    continue;
                 }
-                segment.Points.Add(point);
+                var point = new Point(x, 2 + (_plot.Height - 4) * (1 - (value - section.Minimum) / (section.Maximum - section.Minimum)));
+                _trace.Add(point);
                 latest = point;
             }
+            DrawTrace(brush, ref shapeIndex);
             if (latest is not { } last) continue;
             var dot = TakeShape<Ellipse>(ref shapeIndex);
             dot.Width = dot.Height = 4;
@@ -147,6 +177,54 @@ public sealed partial class SystemMonitorMetricChart : UserControl
         }
         while (_plot.Children.Count > shapeIndex) _plot.Children.RemoveAt(_plot.Children.Count - 1);
     }
+
+    /// <summary>Draws one contiguous run at a fixed spacing, with smooth Notch curves through the real samples.</summary>
+    private void DrawTrace(Brush brush, ref int shapeIndex)
+    {
+        if (_trace.Count == 0) return;
+        Shape shape;
+        if (PlotOnly)
+        {
+            var figure = new PathFigure { StartPoint = _trace[0] };
+            for (var index = 0; index < _trace.Count - 1; index++)
+            {
+                var start = _trace[index];
+                var end = _trace[index + 1];
+                var change = end.Y - start.Y;
+                var startSlope = index == 0 ? change : SmoothSlope(start.Y - _trace[index - 1].Y, change);
+                var endSlope = index + 2 == _trace.Count ? change : SmoothSlope(change, _trace[index + 2].Y - end.Y);
+                var min = Math.Min(start.Y, end.Y);
+                var max = Math.Max(start.Y, end.Y);
+                var third = (end.X - start.X) / 3;
+                figure.Segments.Add(new BezierSegment
+                {
+                    Point1 = new(start.X + third, Math.Clamp(start.Y + startSlope / 3, min, max)),
+                    Point2 = new(end.X - third, Math.Clamp(end.Y - endSlope / 3, min, max)),
+                    Point3 = end
+                });
+            }
+            var geometry = new PathGeometry();
+            geometry.Figures.Add(figure);
+            var path = TakeShape<PlotPath>(ref shapeIndex);
+            path.Data = geometry;
+            shape = path;
+        }
+        else
+        {
+            var line = TakeShape<Polyline>(ref shapeIndex);
+            line.Points.Clear();
+            foreach (var point in _trace) line.Points.Add(point);
+            shape = line;
+        }
+        shape.Stroke = brush;
+        shape.StrokeThickness = 1.25;
+        shape.StrokeLineJoin = PenLineJoin.Round;
+        _trace.Clear();
+    }
+
+    /// <summary>Keeps monotone runs smooth and flattens the tangent at peaks and troughs.</summary>
+    private static double SmoothSlope(double before, double after) =>
+        before * after > 0 ? 2 * before * after / (before + after) : 0;
 
     /// <summary>Reuses shapes in drawing order and replaces a slot when the sensor's gap pattern changes.</summary>
     private T TakeShape<T>(ref int index) where T : Shape, new()

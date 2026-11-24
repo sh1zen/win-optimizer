@@ -25,7 +25,11 @@ foreach ($device in $devices) {
         Present = $present.ContainsKey($device.InstanceId)
         Version = [string]$properties['DEVPKEY_Device_DriverVersion']
         Date = $(if ($properties['DEVPKEY_Device_DriverDate']) { ([DateTime]$properties['DEVPKEY_Device_DriverDate']).ToString('yyyy-MM-dd', [Globalization.CultureInfo]::InvariantCulture) } else { '' })
-        HardwareIds = [string[]]@(@($properties['DEVPKEY_Device_HardwareIds']) + @($properties['DEVPKEY_Device_CompatibleIds']) | Where-Object { $_ })
+        HardwareIds = [string[]]@($properties['DEVPKEY_Device_HardwareIds'] | Where-Object { $_ })
+        CompatibleIds = [string[]]@($properties['DEVPKEY_Device_CompatibleIds'] | Where-Object { $_ })
+        Manufacturer = [string]$properties['DEVPKEY_Device_Manufacturer']
+        MatchingDeviceId = [string]$properties['DEVPKEY_Device_MatchingDeviceId']
+        DriverProvider = [string]$properties['DEVPKEY_Device_DriverProvider']
     })
 }
 $packageSizes = @{}
@@ -74,4 +78,30 @@ $packages = @(Get-WindowsDriver -Online -ErrorAction Stop | ForEach-Object {
         SizeBytes = $size
     }
 })
-@{ Devices = @($inventory.ToArray()); Packages = $packages; BindingsComplete = $bindingsComplete; Notices = @($notices.ToArray()) } | ConvertTo-Json -Depth 6 -Compress
+$system = @{}
+if (-not $measureSelectedOnly) {
+    try {
+        $computer = Get-CimInstance Win32_ComputerSystem -ErrorAction Stop
+        $board = Get-CimInstance Win32_BaseBoard -ErrorAction Stop | Select-Object -First 1
+        $os = Get-CimInstance Win32_OperatingSystem -ErrorAction Stop
+        $version = [version]$os.Version
+        $processors = [string[]]@(Get-CimInstance Win32_Processor -ErrorAction Stop | ForEach-Object { $_.Name } | Where-Object { $_ } | Select-Object -Unique)
+        $system = @{
+            Manufacturer = [string]$computer.Manufacturer
+            Model = [string]$computer.Model
+            Sku = [string]$computer.SystemSKUNumber
+            BoardManufacturer = [string]$board.Manufacturer
+            BoardProduct = [string]$board.Product
+            BoardVersion = [string]$board.Version
+            ProcessorNames = $processors
+            Major = $version.Major
+            Minor = $version.Minor
+            Build = $version.Build
+            ProductType = [int]$os.ProductType
+            SuiteMask = [int]$os.SuiteMask
+            DisplayVersion = [string](Get-ItemPropertyValue 'HKLM:\SOFTWARE\Microsoft\Windows NT\CurrentVersion' DisplayVersion -ErrorAction SilentlyContinue)
+        }
+    }
+    catch { $notices.Add(('System identity: {0}' -f $_.Exception.Message)) }
+}
+@{ Devices = @($inventory.ToArray()); Packages = $packages; BindingsComplete = $bindingsComplete; Notices = @($notices.ToArray()); System = $system } | ConvertTo-Json -Depth 6 -Compress

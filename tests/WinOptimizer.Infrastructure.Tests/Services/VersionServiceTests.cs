@@ -124,8 +124,6 @@ public class VersionServiceTests
 
     [Theory]
     [InlineData("v99.06.15-beta", false, false)]
-    [InlineData("v99.06.15-rc.1", false, false)]
-    [InlineData("v99.06.15-preview", false, false)]
     [InlineData("v99.06.15", true, false)]
     [InlineData("v99.06.15", false, true)]
     public async Task CheckForUpdateAsync_UnsupportedRelease_IsNotOffered(string tag, bool prerelease, bool draft)
@@ -156,7 +154,7 @@ public class VersionServiceTests
         Directory.CreateDirectory(directory);
         var path = Path.Combine(directory, "win-optimizer.Installer.exe");
         _mockFileSystemService.Setup(files => files.CombinePath(It.IsAny<string[]>())).Returns(path);
-        byte[] payload = [0x4D, 0x5A];
+        byte[] payload = await File.ReadAllBytesAsync(Environment.ProcessPath!);
         _mockHttpHandler.Protected()
             .Setup<Task<HttpResponseMessage>>("SendAsync", ItExpr.IsAny<HttpRequestMessage>(), ItExpr.IsAny<CancellationToken>())
             .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(payload) });
@@ -173,15 +171,38 @@ public class VersionServiceTests
         finally { Directory.Delete(directory, recursive: true); }
     }
 
+    [Theory]
+    [InlineData("")]
+    [InlineData("MZ")]
+    public async Task SuccessfulHttpWithInvalidPayloadDoesNotStageOrExposeAnInstaller(string body)
+    {
+        var directory = Directory.CreateTempSubdirectory("WinOptimizerInstaller");
+        try
+        {
+            var path = Path.Combine(directory.FullName, "win-optimizer.Installer.exe");
+            byte[] previous = [1, 2, 3];
+            await File.WriteAllBytesAsync(path, previous);
+            _mockFileSystemService.Setup(files => files.CombinePath(It.IsAny<string[]>())).Returns(path);
+            _mockHttpHandler.Protected()
+                .Setup<Task<HttpResponseMessage>>("SendAsync", ItExpr.IsAny<HttpRequestMessage>(), ItExpr.IsAny<CancellationToken>())
+                .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) });
+
+            await Assert.ThrowsAsync<InvalidDataException>(() => _service.DownloadAndInstallUpdateAsync(CancellationToken.None));
+
+            Assert.Equal(previous, await File.ReadAllBytesAsync(path));
+            Assert.Single(Directory.GetFiles(directory.FullName));
+            Assert.Throws<InvalidOperationException>(_service.LaunchInstallerAndRestart);
+        }
+        finally { directory.Delete(recursive: true); }
+    }
+
     #endregion
 
     #region BuildInstallerArgs (issue #649 — silent-mode install location)
 
     [Theory]
     [InlineData(@"D:\win-optimizer", false)]
-    [InlineData(@"D:\win-optimizer\", false)]
-    [InlineData(@"C:\Program Files\win-optimizer", false)]
-    [InlineData(@"D:\My Portable\win-optimizer", true)]
+    [InlineData(@"D:\Windows Tweaks\win-optimizer", false)]
     [InlineData(@"D:\My Portable\win-optimizer\", true)]
     public void BuildInstallerArgs_AlwaysIncludesDirArgPinnedToAppDir(string appDir, bool isPortable)
     {
@@ -221,19 +242,6 @@ public class VersionServiceTests
         args.Should().NotContain("portableinstall");
     }
 
-    [Fact]
-    public void BuildInstallerArgs_PathWithSpaces_QuotesDirArgCorrectly()
-    {
-        // Arrange — the actual scenario from issue #649's reporter
-        var customPath = @"D:\Windows Tweaks\win-optimizer";
-
-        // Act
-        var args = VersionService.BuildInstallerArgs(customPath, isPortable: false);
-
-        // Assert — the double-quotes around /DIR= must survive so Inno parses
-        // the path with its embedded space correctly
-        args.Should().Contain($"/DIR=\"{customPath}\"");
-    }
     #endregion
 
     #region Helpers

@@ -1,0 +1,153 @@
+<UserControl
+    x:Class="WinOptimizer.UI.Features.Extensions.Preview.PreviewSurface"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:fluent="using:FluentIcons.WinUI"
+    PreviewKeyDown="OnKeyDown">
+    <UserControl.Resources>
+        <Style x:Key="PreviewActionButton" TargetType="Button" BasedOn="{StaticResource SubtleButtonStyle}">
+            <Setter Property="Width" Value="36"/>
+            <Setter Property="Height" Value="36"/>
+            <Setter Property="Padding" Value="0"/>
+        </Style>
+        <Style x:Key="PreviewSecondaryText" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}"/>
+        </Style>
+        <Style x:Key="PreviewMetricValue" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="21"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+        </Style>
+        <Style x:Key="PreviewPropertyValue" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="IsTextSelectionEnabled" Value="True"/>
+        </Style>
+    </UserControl.Resources>
+    <Grid x:Name="PreviewRoot" Background="{ThemeResource ApplicationPageBackgroundThemeBrush}">
+        <Grid.RowDefinitions>
+            <RowDefinition x:Name="ToolbarRow" Height="44"/>
+            <RowDefinition x:Name="SummaryRow" Height="*"/>
+            <RowDefinition x:Name="ContentRow" Height="Auto"/>
+        </Grid.RowDefinitions>
+        <Grid Padding="8,0" ColumnSpacing="4">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <StackPanel Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                <Button x:Name="OpenButton" Style="{StaticResource SubtleButtonStyle}" Height="36" Padding="10,0"
+                        Click="OpenClicked" IsEnabled="False">
+                    <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center">
+                        <fluent:FluentIcon Icon="Open" IconVariant="Regular" FontSize="19" AutomationProperties.AccessibilityView="Raw"/>
+                        <TextBlock x:Name="OpenLabel" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
+                <Button x:Name="Reveal" Style="{StaticResource PreviewActionButton}" Click="RevealClicked" IsEnabled="False">
+                    <fluent:FluentIcon Icon="FolderOpen" IconVariant="Regular" FontSize="19"/>
+                </Button>
+                <ToggleButton x:Name="FolderContents" Width="36" Height="36" Padding="0" BorderThickness="0"
+                              Visibility="Collapsed" Checked="FolderContentsToggled" Unchecked="FolderContentsToggled">
+                    <fluent:FluentIcon Icon="TextBulletList" IconVariant="Regular" FontSize="19"/>
+                </ToggleButton>
+            </StackPanel>
+            <Border x:Name="DragArea" Grid.Column="1" Background="Transparent"/>
+            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="4" VerticalAlignment="Center">
+                <StackPanel x:Name="PageControls" Orientation="Horizontal" Spacing="4" Visibility="Collapsed">
+                    <Button x:Name="PreviousPage" Style="{StaticResource PreviewActionButton}" Click="PreviousPageClicked">
+                        <fluent:FluentIcon Icon="ChevronLeft" FontSize="16"/>
+                    </Button>
+                    <TextBlock x:Name="PageNumber" VerticalAlignment="Center" AutomationProperties.LiveSetting="Polite"/>
+                    <Button x:Name="NextPage" Style="{StaticResource PreviewActionButton}" Click="NextPageClicked">
+                        <fluent:FluentIcon Icon="ChevronRight" FontSize="16"/>
+                    </Button>
+                </StackPanel>
+                <ProgressRing x:Name="LoadingRing" Width="18" Height="18" Margin="4,0"/>
+                <Button x:Name="CloseButton" Style="{StaticResource PreviewActionButton}" Click="CloseClicked">
+                    <fluent:FluentIcon Icon="Dismiss" IconVariant="Regular" FontSize="19"/>
+                </Button>
+            </StackPanel>
+        </Grid>
+        <Grid x:Name="SummaryLayout" Grid.Row="1" Padding="28,8,28,20" ColumnSpacing="24">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <Grid x:Name="FileArtwork" Width="124" Height="124" VerticalAlignment="Center">
+                <fluent:FluentIcon x:Name="FileIcon" Icon="Document" IconVariant="Filled" FontSize="112"
+                                   HorizontalAlignment="Center" VerticalAlignment="Center"
+                                   Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" AutomationProperties.AccessibilityView="Raw"/>
+                <Image x:Name="AppIcon" Stretch="Uniform" Visibility="Collapsed" AutomationProperties.AccessibilityView="Raw"/>
+            </Grid>
+            <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="10">
+                <StackPanel Spacing="1">
+                    <TextBlock x:Name="NameLabel" FontSize="27" FontWeight="Bold"
+                               TextTrimming="CharacterEllipsis" AutomationProperties.HeadingLevel="Level1"/>
+                    <TextBlock x:Name="ItemType" Style="{StaticResource PreviewSecondaryText}" Visibility="Collapsed"/>
+                </StackPanel>
+                <InfoBar x:Name="Message" Severity="Error" IsClosable="False" Visibility="Collapsed" AutomationProperties.LiveSetting="Polite"/>
+                <Grid x:Name="Statistics" ColumnSpacing="20" Visibility="Collapsed">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <StackPanel x:Name="SizeMetric" Spacing="1">
+                        <TextBlock x:Name="SizeLabel" Style="{StaticResource PreviewSecondaryText}"/>
+                        <TextBlock x:Name="SizeValue" Style="{StaticResource PreviewMetricValue}"/>
+                        <TextBlock x:Name="SizeExact" Style="{StaticResource PreviewSecondaryText}"/>
+                    </StackPanel>
+                    <StackPanel x:Name="DiskMetric" Grid.Column="1" Spacing="1">
+                        <TextBlock x:Name="DiskLabel" Style="{StaticResource PreviewSecondaryText}"/>
+                        <TextBlock x:Name="DiskValue" Style="{StaticResource PreviewMetricValue}"/>
+                        <TextBlock x:Name="DiskExact" Style="{StaticResource PreviewSecondaryText}"/>
+                    </StackPanel>
+                    <TextBlock x:Name="FilesMetric" Grid.Row="1" Margin="0,6,0,0" Style="{StaticResource PreviewSecondaryText}">
+                        <Run x:Name="FilesLabel"/>
+                        <Run x:Name="FilesValue" Text="" FontSize="15" FontWeight="Bold" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                    </TextBlock>
+                    <TextBlock x:Name="SubfoldersMetric" Grid.Row="1" Grid.Column="1" Margin="0,6,0,0" Style="{StaticResource PreviewSecondaryText}">
+                        <Run x:Name="SubfoldersLabel"/>
+                        <Run x:Name="SubfoldersValue" Text="" FontSize="15" FontWeight="Bold" Foreground="{ThemeResource TextFillColorPrimaryBrush}"/>
+                    </TextBlock>
+                </Grid>
+                <StackPanel x:Name="DetailsGroup" Spacing="6" Visibility="Collapsed">
+                    <Border x:Name="DetailsDivider" BorderBrush="{ThemeResource DividerStrokeColorDefaultBrush}" BorderThickness="0,0,0,1"/>
+                    <Grid ColumnSpacing="12">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" MaxWidth="114"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock x:Name="ModifiedLabel" Style="{StaticResource PreviewSecondaryText}" Margin="0,0,0,3"/>
+                        <TextBlock x:Name="Modified" Grid.Column="1" Style="{StaticResource PreviewPropertyValue}" Margin="0,0,0,3"/>
+                        <TextBlock x:Name="CreatedLabel" Grid.Row="1" Style="{StaticResource PreviewSecondaryText}" Margin="0,0,0,3"/>
+                        <TextBlock x:Name="Created" Grid.Row="1" Grid.Column="1" Style="{StaticResource PreviewPropertyValue}" Margin="0,0,0,3"/>
+                        <TextBlock x:Name="PathLabel" Grid.Row="2" Style="{StaticResource PreviewSecondaryText}"/>
+                        <TextBlock x:Name="FolderPath" Grid.Row="2" Grid.Column="1" Style="{StaticResource PreviewPropertyValue}"/>
+                    </Grid>
+                    <TextBlock x:Name="Metadata" Style="{StaticResource PreviewSecondaryText}" IsTextSelectionEnabled="True"/>
+                    <TextBlock x:Name="MediaDetails" Style="{StaticResource PreviewSecondaryText}" IsTextSelectionEnabled="True" Visibility="Collapsed"/>
+                </StackPanel>
+            </StackPanel>
+        </Grid>
+        <ScrollViewer x:Name="BodyScroll" Grid.Row="2" Margin="24,0,24,20" Visibility="Collapsed"
+                      HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+            <StackPanel Spacing="10">
+                <Image x:Name="ImageView" Stretch="Uniform" Visibility="Collapsed"/>
+                <ContentPresenter x:Name="MediaHost" HorizontalContentAlignment="Stretch" Visibility="Collapsed"/>
+                <TextBlock x:Name="Excerpt" Visibility="Collapsed" TextWrapping="Wrap" IsTextSelectionEnabled="True"/>
+            </StackPanel>
+        </ScrollViewer>
+    </Grid>
+</UserControl>

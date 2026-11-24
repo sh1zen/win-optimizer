@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading.Tasks;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Models;
+using WinOptimizer.Core.Features.SoftwareApps.Models;
 using WinOptimizer.UI.Features.Common.Interfaces;
 using WinOptimizer.UI.Features.Customize.ViewModels;
 using WinOptimizer.UI.Features.Optimize.ViewModels;
@@ -112,7 +113,7 @@ public class ReviewModeViewModelCoordinator : IReviewModeViewModelCoordinator
         });
     }
 
-    public Task RemoveWindowsAppsAsync(bool skipConfirmation, bool saveRemovalScripts)
+    public Task<OperationResult<AppUninstallResult>> RemoveWindowsAppsAsync(bool skipConfirmation, bool saveRemovalScripts)
     {
         return _windowsAppsVM.RemoveApps(skipConfirmation: skipConfirmation, saveRemovalScripts: saveRemovalScripts);
     }

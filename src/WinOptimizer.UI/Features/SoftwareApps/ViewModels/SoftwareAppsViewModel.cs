@@ -5,10 +5,10 @@ using CommunityToolkit.Mvvm.Input;
 using WinOptimizer.Core.Features.Common.Enums;
 using WinOptimizer.Core.Features.Common.Extensions;
 using WinOptimizer.Core.Features.Common.Interfaces;
+using WinOptimizer.Core.Features.SoftwareApps.Interfaces;
 using WinOptimizer.UI.Features.Common.ViewModels;
 using WinOptimizer.UI.Features.SoftwareApps.Models;
 using WinOptimizer.Core.Features.Common.Constants;
-using WinOptimizer.Core.Features.SoftwareApps.Interfaces;
 using WinOptimizer.UI.Features.Common.Interfaces;
 
 namespace WinOptimizer.UI.Features.SoftwareApps.ViewModels;
@@ -69,6 +69,7 @@ public partial class SoftwareAppsViewModel : BaseViewModel
     public partial bool IsLeftoverTabSelected { get; set; }
     public bool IsLeftoverTabEnabled => !IsBuilderMode && !IsInReviewMode;
     public bool IsInventoryTabSelected => !IsLeftoverTabSelected;
+    public bool ShowRemoveAction => !IsInReviewMode;
 
     [ObservableProperty]
     public partial string SearchText { get; set; }
@@ -89,7 +90,7 @@ public partial class SoftwareAppsViewModel : BaseViewModel
     public bool IsSortSize => SortMode == AppSortMode.Size;
     public bool IsSortLastUsageTime => SortMode == AppSortMode.LastUsageTime;
 
-    [ObservableProperty]
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(ShowRemoveAction))]
     public partial bool IsInReviewMode { get; set; }
 
     [ObservableProperty]
@@ -177,7 +178,9 @@ public partial class SoftwareAppsViewModel : BaseViewModel
     // Localized text properties
     public string PageTitle => _localizationService.GetString("Category_SoftwareApps_Title");
     public string PageDescription => _localizationService.GetString("Category_SoftwareApps_StatusText");
-    public string SearchPlaceholder => _localizationService.GetString("Common_Search_Placeholder") ?? "Search apps...";
+    public string SearchLabel => _localizationService.GetString("SoftwareApps_SearchLabel");
+    public string SearchPlaceholder => _localizationService.GetString(
+        IsLeftoverTabSelected ? "Common_Search_Placeholder" : "SoftwareApps_SearchPlaceholder");
     public string WindowsAppsTabText => _localizationService.GetString("SoftwareApps_Tab_WindowsApps");
     public string ExternalAppsTabText => _localizationService.GetString("SoftwareApps_Tab_ExternalApps");
     public string LeftoverTabText => _localizationService.GetString("SoftwareApps_Tab_Leftover");
@@ -312,6 +315,7 @@ public partial class SoftwareAppsViewModel : BaseViewModel
         LeftoverAppsViewModel.NotifyLanguageChanged();
         OnPropertyChanged(nameof(PageTitle));
         OnPropertyChanged(nameof(PageDescription));
+        OnPropertyChanged(nameof(SearchLabel));
         OnPropertyChanged(nameof(SearchPlaceholder));
         OnPropertyChanged(nameof(WindowsAppsTabText));
         OnPropertyChanged(nameof(ExternalAppsTabText));
@@ -606,6 +610,7 @@ public partial class SoftwareAppsViewModel : BaseViewModel
             LeftoverAppsViewModel.SearchText = SearchText;
         }
         OnPropertyChanged(nameof(IsInventoryTabSelected));
+        OnPropertyChanged(nameof(SearchPlaceholder));
         OnPropertyChanged(nameof(RemoveButtonText));
         OnPropertyChanged(nameof(IsLoading));
         UpdateButtonStates();

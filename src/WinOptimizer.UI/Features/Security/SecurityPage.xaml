@@ -4,80 +4,520 @@
     xmlns:vm="using:WinOptimizer.UI.Features.Security" xmlns:common="using:WinOptimizer.UI.Features.Common.Controls"
     xmlns:toolkit="using:CommunityToolkit.WinUI.Controls" xmlns:fluent="using:FluentIcons.WinUI">
     <Page.Resources>
+        <ResourceDictionary>
+        <ResourceDictionary.ThemeDictionaries>
+            <ResourceDictionary x:Key="Dark">
+                <SolidColorBrush x:Key="SecurityScanAccentBrush" Color="#FFFFB36B"/>
+                <SolidColorBrush x:Key="SecurityScanIconBrush" Color="#FF603819"/>
+                <SolidColorBrush x:Key="SecurityScanTrackBrush" Color="#FF414248"/>
+                <SolidColorBrush x:Key="SecurityScanStrokeBrush" Color="#FF3C3D44"/>
+                <SolidColorBrush x:Key="SecurityScanOnAccentBrush" Color="#FF26170C"/>
+                <SolidColorBrush x:Key="SecurityResultSelectionBrush" Color="#FF42372F"/>
+                <SolidColorBrush x:Key="SecurityResultWarningBrush" Color="#FFFFC367"/>
+                <SolidColorBrush x:Key="SecurityResultWarningFillBrush" Color="#FF51391E"/>
+            </ResourceDictionary>
+            <ResourceDictionary x:Key="Light">
+                <SolidColorBrush x:Key="SecurityScanAccentBrush" Color="#FF9B4200"/>
+                <SolidColorBrush x:Key="SecurityScanIconBrush" Color="#FF9B4200"/>
+                <SolidColorBrush x:Key="SecurityScanTrackBrush" Color="#FFD6D1CD"/>
+                <SolidColorBrush x:Key="SecurityScanStrokeBrush" Color="#FFD2CFCC"/>
+                <SolidColorBrush x:Key="SecurityScanOnAccentBrush" Color="White"/>
+                <SolidColorBrush x:Key="SecurityResultSelectionBrush" Color="#FFFFE9D8"/>
+                <SolidColorBrush x:Key="SecurityResultWarningBrush" Color="#FF784100"/>
+                <SolidColorBrush x:Key="SecurityResultWarningFillBrush" Color="#FFFFE9C8"/>
+            </ResourceDictionary>
+            <ResourceDictionary x:Key="HighContrast">
+                <SolidColorBrush x:Key="SecurityScanAccentBrush" Color="{ThemeResource SystemColorHighlightColor}"/>
+                <SolidColorBrush x:Key="SecurityScanIconBrush" Color="{ThemeResource SystemColorHighlightColor}"/>
+                <SolidColorBrush x:Key="SecurityScanTrackBrush" Color="{ThemeResource SystemColorWindowTextColor}"/>
+                <SolidColorBrush x:Key="SecurityScanStrokeBrush" Color="{ThemeResource SystemColorWindowTextColor}"/>
+                <SolidColorBrush x:Key="SecurityScanOnAccentBrush" Color="{ThemeResource SystemColorHighlightTextColor}"/>
+                <SolidColorBrush x:Key="SecurityResultSelectionBrush" Color="{ThemeResource SystemColorWindowColor}"/>
+                <SolidColorBrush x:Key="SecurityResultWarningBrush" Color="{ThemeResource SystemColorWindowTextColor}"/>
+                <SolidColorBrush x:Key="SecurityResultWarningFillBrush" Color="{ThemeResource SystemColorWindowColor}"/>
+            </ResourceDictionary>
+        </ResourceDictionary.ThemeDictionaries>
+        <Style x:Key="SecurityScanPanel" TargetType="Border">
+            <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}"/>
+            <Setter Property="BorderBrush" Value="{ThemeResource SecurityScanStrokeBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="CornerRadius" Value="12"/>
+        </Style>
+        <Style x:Key="SecurityScanStepNumber" TargetType="Border">
+            <Setter Property="Width" Value="24"/><Setter Property="Height" Value="24"/>
+            <Setter Property="CornerRadius" Value="12"/><Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush" Value="{ThemeResource ControlStrongStrokeColorDefaultBrush}"/>
+        </Style>
+        <Style x:Key="SecurityScanStepConnector" TargetType="Border">
+            <Setter Property="Height" Value="1"/><Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="Background" Value="{ThemeResource SecurityScanStrokeBrush}"/>
+        </Style>
+        <DataTemplate x:Key="ScanCoverageTemplate">
+            <Grid>
+                <StackPanel Spacing="5" Padding="16,6" VerticalAlignment="Center">
+                    <fluent:FluentIcon Icon="{Binding Icon}" IconVariant="Regular" FontSize="26" HorizontalAlignment="Left"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    <TextBlock Text="{Binding Title}" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,3,0,0"/>
+                    <TextBlock Text="{Binding Description}" FontSize="12" TextWrapping="Wrap"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </StackPanel>
+                <Border Width="1" Margin="0,4" HorizontalAlignment="Right" Background="{ThemeResource SecurityScanStrokeBrush}"
+                        Visibility="{Binding HasDivider, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+            </Grid>
+        </DataTemplate>
         <DataTemplate x:Key="SecurityCategoryTemplate" x:DataType="vm:SecurityCategoryRow">
             <StackPanel Spacing="4" Padding="8">
                 <TextBlock Text="{x:Bind Name, Mode=OneWay}" TextWrapping="Wrap" FontWeight="SemiBold"/>
                 <TextBlock Text="{x:Bind Summary, Mode=OneWay}" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
             </StackPanel>
         </DataTemplate>
+        <DataTemplate x:Key="SecuritySidebarCategoryTemplate">
+            <Grid ColumnSpacing="12">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="28"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                <fluent:FluentIcon Icon="{Binding Icon}" IconVariant="Regular" FontSize="24" VerticalAlignment="Center"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                <StackPanel Grid.Column="1" Spacing="2">
+                    <TextBlock Text="{Binding Name}" TextWrapping="Wrap" FontWeight="SemiBold"/>
+                    <toolkit:WrapPanel HorizontalSpacing="3" VerticalSpacing="3">
+                        <TextBlock Text="{Binding CategoryReviewLabel}" FontSize="12" VerticalAlignment="Center"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        <TextBlock Text=" · " FontSize="12" VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        <Grid>
+                            <TextBlock Text="{Binding CategoryUnavailableLabel}" FontSize="12" VerticalAlignment="Center"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       Visibility="{Binding HasUnavailable, Converter={StaticResource InverseBooleanToVisibilityConverter}}"/>
+                            <Border Background="{ThemeResource SecurityResultWarningFillBrush}" Padding="7,2" CornerRadius="9"
+                                    Visibility="{Binding HasUnavailable, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                <TextBlock Text="{Binding CategoryUnavailableLabel}" FontSize="12" Foreground="{ThemeResource SecurityResultWarningBrush}"/>
+                            </Border>
+                        </Grid>
+                    </toolkit:WrapPanel>
+                </StackPanel>
+            </Grid>
+        </DataTemplate>
+        <Style x:Key="SecuritySidebarCategory" TargetType="ListViewItem">
+            <Setter Property="MinHeight" Value="54"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="UseSystemFocusVisuals" Value="True"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListViewItem">
+                        <Grid x:Name="CategorySurface" Background="Transparent" CornerRadius="7">
+                            <VisualStateManager.VisualStateGroups>
+                                <VisualStateGroup x:Name="CommonStates">
+                                    <VisualState x:Name="Normal"/>
+                                    <VisualState x:Name="PointerOver"><VisualState.Setters>
+                                        <Setter Target="CategorySurface.Background" Value="{ThemeResource SubtleFillColorSecondaryBrush}"/>
+                                    </VisualState.Setters></VisualState>
+                                    <VisualState x:Name="Pressed"><VisualState.Setters>
+                                        <Setter Target="CategorySurface.Background" Value="{ThemeResource SubtleFillColorTertiaryBrush}"/>
+                                    </VisualState.Setters></VisualState>
+                                    <VisualState x:Name="Selected"><VisualState.Setters>
+                                        <Setter Target="CategorySurface.Background" Value="{ThemeResource SecurityResultSelectionBrush}"/>
+                                        <Setter Target="CategoryIndicator.Opacity" Value="1"/>
+                                    </VisualState.Setters></VisualState>
+                                    <VisualState x:Name="PointerOverSelected"><VisualState.Setters>
+                                        <Setter Target="CategorySurface.Background" Value="{ThemeResource SecurityResultSelectionBrush}"/>
+                                        <Setter Target="CategoryIndicator.Opacity" Value="1"/>
+                                    </VisualState.Setters></VisualState>
+                                    <VisualState x:Name="PressedSelected"><VisualState.Setters>
+                                        <Setter Target="CategorySurface.Background" Value="{ThemeResource SecurityResultSelectionBrush}"/>
+                                        <Setter Target="CategoryIndicator.Opacity" Value="1"/>
+                                    </VisualState.Setters></VisualState>
+                                </VisualStateGroup>
+                            </VisualStateManager.VisualStateGroups>
+                            <Border x:Name="CategoryIndicator" Width="4" Height="32" CornerRadius="2" HorizontalAlignment="Left"
+                                    VerticalAlignment="Center" Opacity="0" Background="{ThemeResource SecurityScanAccentBrush}"/>
+                            <ContentPresenter Content="{TemplateBinding Content}" ContentTemplate="{TemplateBinding ContentTemplate}"
+                                              Margin="13,7,8,7" VerticalAlignment="Center" HorizontalContentAlignment="Stretch"/>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="SecurityFindingMetricLabel" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}"/>
+        </Style>
+        <Style x:Key="SecurityResultOutlineButton" TargetType="Button">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderBrush" Value="{ThemeResource ControlStrongStrokeColorDefaultBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+        <DataTemplate x:Key="SecurityFindingTemplate" x:DataType="vm:SecurityFindingRow">
+            <Border Padding="14" Margin="0,0,0,9" Style="{StaticResource SecurityScanPanel}">
+                <Grid ColumnSpacing="10">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="25"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                    <CheckBox x:Name="FindingSelection" IsChecked="{x:Bind IsSelected, Mode=TwoWay}" IsEnabled="{x:Bind CanSelect, Mode=OneWay}" Padding="0"
+                              MinWidth="0" MinHeight="28" VerticalAlignment="Top" Margin="0,2,0,0" AutomationProperties.Name="{x:Bind Name, Mode=OneWay}"/>
+                    <StackPanel x:Name="FindingContent" Grid.Column="1" Spacing="12">
+                        <Grid ColumnSpacing="12">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="32"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <fluent:FluentIcon Icon="{Binding Icon}" IconVariant="Regular" FontSize="28" VerticalAlignment="Top"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <StackPanel Grid.Column="1" Spacing="3">
+                                <TextBlock Text="{Binding Name}" FontSize="17" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                <TextBlock Text="{Binding Description}" FontSize="13" TextWrapping="Wrap" IsTextSelectionEnabled="True"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            </StackPanel>
+                        </Grid>
+                        <Border Padding="0,10" BorderThickness="0,1,0,1" BorderBrush="{ThemeResource SecurityScanStrokeBrush}">
+                            <common:UniformWrapPanel x:Name="FindingMetrics" ItemWidth="145" ColumnSpacing="12" RowSpacing="10"
+                                                     StretchItems="True" MaxColumns="3">
+                                <StackPanel Spacing="5">
+                                    <TextBlock Text="{Binding CheckStatusLabel}" Style="{StaticResource SecurityFindingMetricLabel}"/>
+                                    <Grid HorizontalAlignment="Left">
+                                        <Border Padding="9,3" BorderBrush="{ThemeResource ControlStrongStrokeColorDefaultBrush}" BorderThickness="1" CornerRadius="6"
+                                                Visibility="{Binding IsUnavailable, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
+                                            <TextBlock Text="{Binding State}" FontSize="12" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                        </Border>
+                                        <Border Padding="9,3" Background="{ThemeResource SecurityResultWarningFillBrush}" CornerRadius="6"
+                                                Visibility="{Binding IsUnavailable, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                            <TextBlock Text="{Binding State}" FontSize="12" FontWeight="SemiBold" TextWrapping="Wrap"
+                                                       Foreground="{ThemeResource SecurityResultWarningBrush}"/>
+                                        </Border>
+                                    </Grid>
+                                </StackPanel>
+                                <StackPanel Spacing="5" BorderThickness="1,0,0,0" BorderBrush="{ThemeResource SecurityScanStrokeBrush}" Padding="12,0,0,0">
+                                    <TextBlock Text="{Binding CurrentStateLabel}" Style="{StaticResource SecurityFindingMetricLabel}"/>
+                                    <TextBlock Text="{Binding CurrentState}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                                <StackPanel Spacing="5" BorderThickness="1,0,0,0" BorderBrush="{ThemeResource SecurityScanStrokeBrush}" Padding="12,0,0,0">
+                                    <TextBlock Text="{Binding RecommendationLabel}" Style="{StaticResource SecurityFindingMetricLabel}"/>
+                                    <TextBlock Text="{Binding Recommendation}" TextWrapping="Wrap"/>
+                                </StackPanel>
+                            </common:UniformWrapPanel>
+                        </Border>
+                        <Expander x:Name="FindingDetails" Header="{Binding DetailsLabel}" IsExpanded="{Binding AreDetailsExpanded, Mode=TwoWay}"
+                                  HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                                  Visibility="{Binding HasDetails, Converter={StaticResource BooleanToVisibilityConverter}}">
+                            <Border Padding="11,8" CornerRadius="8" BorderThickness="1" BorderBrush="{ThemeResource SecurityScanStrokeBrush}"
+                                    Background="{ThemeResource CardBackgroundFillColorSecondaryBrush}">
+                                <StackPanel Spacing="6">
+                                    <ItemsControl x:Name="StructuredEvidence" ItemsSource="{Binding EvidenceValues}">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Grid ColumnSpacing="12" Margin="0,2">
+                                                    <Grid.ColumnDefinitions><ColumnDefinition Width="42*"/><ColumnDefinition Width="58*"/></Grid.ColumnDefinitions>
+                                                    <TextBlock Text="{Binding Name}" FontFamily="Consolas" FontSize="12" TextWrapping="Wrap"/>
+                                                    <TextBlock Grid.Column="1" Text="{Binding Value}" FontFamily="Consolas" FontSize="12"
+                                                               TextWrapping="Wrap" IsTextSelectionEnabled="True"/>
+                                                </Grid>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <TextBlock Text="{Binding DetailsText}" FontSize="12" TextWrapping="Wrap" IsTextSelectionEnabled="True"
+                                               Visibility="{Binding HasDetailsText, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                                </StackPanel>
+                            </Border>
+                        </Expander>
+                    </StackPanel>
+                </Grid>
+            </Border>
+        </DataTemplate>
+        </ResourceDictionary>
     </Page.Resources>
     <Grid x:Name="LayoutRoot" Style="{StaticResource PageGridStyle}" SizeChanged="LayoutRoot_SizeChanged">
+        <VisualStateManager.VisualStateGroups>
+            <VisualStateGroup>
+                <VisualState x:Name="WideLayout">
+                    <VisualState.StateTriggers><StateTrigger x:Name="WideLayoutTrigger"/></VisualState.StateTriggers>
+                    <VisualState.Setters>
+                        <Setter Target="ScanAction.(Grid.Row)" Value="0"/>
+                        <Setter Target="ScanAction.(Grid.Column)" Value="1"/>
+                        <Setter Target="ScanAction.Margin" Value="32,0,12,0"/>
+                        <Setter Target="ScanHero.Padding" Value="32"/>
+                        <Setter Target="CancelScanButton.(Grid.Row)" Value="0"/>
+                        <Setter Target="CancelScanButton.(Grid.Column)" Value="2"/>
+                        <Setter Target="ScanProgressHeader.RowSpacing" Value="0"/>
+                        <Setter Target="ScanStepGap.Width" Value="50"/>
+                        <Setter Target="ReviewStepGap.Width" Value="50"/>
+                        <Setter Target="ScanActions.(Grid.Row)" Value="0"/>
+                        <Setter Target="ScanActions.(Grid.Column)" Value="1"/>
+                        <Setter Target="ScanActions.(Grid.ColumnSpan)" Value="1"/>
+                        <Setter Target="ViewUnavailableButton.(Grid.Row)" Value="0"/>
+                        <Setter Target="ViewUnavailableButton.(Grid.Column)" Value="1"/>
+                        <Setter Target="ViewUnavailableButton.(Grid.ColumnSpan)" Value="1"/>
+                        <Setter Target="SelectionActions.(Grid.Row)" Value="0"/>
+                        <Setter Target="SelectionActions.(Grid.Column)" Value="1"/>
+                        <Setter Target="SelectionActions.(Grid.ColumnSpan)" Value="1"/>
+                    </VisualState.Setters>
+                </VisualState>
+                <VisualState x:Name="CompactLayout">
+                    <VisualState.StateTriggers><StateTrigger x:Name="CompactLayoutTrigger" IsActive="True"/></VisualState.StateTriggers>
+                </VisualState>
+            </VisualStateGroup>
+        </VisualStateManager.VisualStateGroups>
         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-        <ScrollViewer Padding="{StaticResource ScrollContentPadding}" MaxHeight="300" HorizontalScrollBarVisibility="Disabled" HorizontalContentAlignment="Stretch">
+        <ScrollViewer MaxHeight="300" HorizontalScrollBarVisibility="Disabled" HorizontalContentAlignment="Stretch">
             <StackPanel Spacing="12">
-                <common:PageHeader Title="{x:Bind ViewModel.Title, Mode=OneWay}" Description="{x:Bind ViewModel.Description, Mode=OneWay}" Icon="ShieldCheckmark"/>
-                <toolkit:WrapPanel x:Name="ScanActions" HorizontalSpacing="8" VerticalSpacing="8">
-                    <Button Content="{x:Bind ViewModel.ScanLabel, Mode=OneWay}" Command="{x:Bind ViewModel.ScanCommand}" Padding="20,10" Style="{StaticResource AccentButtonStyle}"/>
-                    <Button Content="{x:Bind ViewModel.DeepScanLabel, Mode=OneWay}" Command="{x:Bind ViewModel.DeepScanCommand}" Padding="20,10"/>
-                    <ProgressRing IsActive="{x:Bind ViewModel.IsBusy, Mode=OneWay}" Width="24" Height="24"/>
-                </toolkit:WrapPanel>
-                <InfoBar IsOpen="{x:Bind ViewModel.ShowModeNotice, Mode=OneWay}" Message="{x:Bind ViewModel.ModeNotice, Mode=OneWay}" IsClosable="False"/>
-                <InfoBar IsOpen="{x:Bind ViewModel.HasStatus, Mode=OneWay}" Message="{x:Bind ViewModel.Status, Mode=OneWay}" Severity="{x:Bind ViewModel.StatusSeverity, Mode=OneWay}" IsClosable="False"/>
-                <TextBlock Text="{x:Bind ViewModel.Summary, Mode=OneWay}" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
+                <Grid ColumnSpacing="14" RowSpacing="8">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                    <common:PageHeader Title="{x:Bind ViewModel.Title, Mode=OneWay}" Description="{x:Bind ViewModel.PageDescription, Mode=OneWay}" Icon="ShieldCheckmark"/>
+                    <toolkit:WrapPanel x:Name="ScanActions" Grid.Row="1" Grid.ColumnSpan="2" HorizontalSpacing="12" VerticalSpacing="8"
+                        VerticalAlignment="Center" Visibility="{x:Bind ViewModel.HasReport, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <Button x:Name="RescanButton" Command="{x:Bind ViewModel.ScanCommand}" Padding="13,8"
+                                Style="{StaticResource AccentButtonStyle}" Background="{ThemeResource SecurityScanAccentBrush}"
+                                Foreground="{ThemeResource SecurityScanOnAccentBrush}" AutomationProperties.Name="{x:Bind ViewModel.ScanAgainLabel, Mode=OneWay}">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <fluent:FluentIcon Icon="ArrowClockwise" FontSize="16"/>
+                                <TextBlock Text="{x:Bind ViewModel.ScanAgainLabel, Mode=OneWay}"/>
+                            </StackPanel>
+                        </Button>
+                        <Button x:Name="DeepRescanButton" Content="{x:Bind ViewModel.DeepScanLabel, Mode=OneWay}" Command="{x:Bind ViewModel.DeepScanCommand}" Padding="19,8"
+                                Style="{StaticResource SecurityResultOutlineButton}"/>
+                    </toolkit:WrapPanel>
+                </Grid>
+                <ProgressRing IsActive="{x:Bind ViewModel.ShowOtherProgress, Mode=OneWay}" Width="24" Height="24" HorizontalAlignment="Left"
+                    Visibility="{x:Bind ViewModel.ShowOtherProgress, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                <InfoBar IsOpen="{x:Bind ViewModel.ShowModeNotice, Mode=OneWay}" Message="{x:Bind ViewModel.ModeNotice, Mode=OneWay}" IsClosable="False"
+                    Visibility="{x:Bind ViewModel.ShowModeNotice, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                <InfoBar IsOpen="{x:Bind ViewModel.HasStatus, Mode=OneWay}" Message="{x:Bind ViewModel.Status, Mode=OneWay}" Severity="{x:Bind ViewModel.StatusSeverity, Mode=OneWay}" IsClosable="False"
+                    Visibility="{x:Bind ViewModel.HasStatus, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                <Border x:Name="ReportSummaryStrip" Style="{StaticResource SecurityScanPanel}" Padding="16,7"
+                        Visibility="{x:Bind ViewModel.HasReport, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <Grid ColumnSpacing="16">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                        <toolkit:WrapPanel HorizontalSpacing="18" VerticalSpacing="4" VerticalAlignment="Center" AutomationProperties.LiveSetting="Polite">
+                            <TextBlock Text="{x:Bind ViewModel.ReviewCountLabel, Mode=OneWay}" FontSize="17" FontWeight="SemiBold"
+                                       VerticalAlignment="Center" TextWrapping="Wrap"/>
+                            <StackPanel Orientation="Horizontal" Spacing="9" VerticalAlignment="Center">
+                                <Border Width="1" Height="18" Margin="0,0,8,0" Background="{ThemeResource SecurityScanStrokeBrush}"/>
+                                <fluent:FluentIcon Icon="Warning" IconVariant="Regular" FontSize="19" Foreground="{ThemeResource SecurityResultWarningBrush}"
+                                                   Visibility="{x:Bind ViewModel.HasUnavailable, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                                <TextBlock Text="{x:Bind ViewModel.UnavailableCountLabel, Mode=OneWay}" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="16" VerticalAlignment="Center">
+                                <Border Width="1" Height="18" Background="{ThemeResource SecurityScanStrokeBrush}"/>
+                                <TextBlock Text="{x:Bind ViewModel.LastScanLabel, Mode=OneWay}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </toolkit:WrapPanel>
+                        <Button x:Name="ViewUnavailableButton" Grid.Row="1" Grid.ColumnSpan="2" Style="{StaticResource SubtleButtonStyle}" Padding="4,4,0,4"
+                                MinHeight="30" HorizontalAlignment="Left" VerticalAlignment="Center" IsEnabled="{x:Bind ViewModel.IsIdle, Mode=OneWay}"
+                                Visibility="{x:Bind ViewModel.HasUnavailable, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                Click="ViewUnavailable_Click" AutomationProperties.Name="{x:Bind ViewModel.ViewUnavailableLabel, Mode=OneWay}">
+                            <StackPanel Orientation="Horizontal" Spacing="8">
+                                <TextBlock Text="{x:Bind ViewModel.ViewUnavailableLabel, Mode=OneWay}" FontWeight="SemiBold"/>
+                                <fluent:FluentIcon Icon="ChevronRight" FontSize="14"/>
+                            </StackPanel>
+                        </Button>
+                    </Grid>
+                </Border>
             </StackPanel>
         </ScrollViewer>
-        <Border Grid.Row="1" Style="{StaticResource PageCardStyle}" Padding="32" Visibility="{x:Bind ViewModel.ShowIntroduction, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
-            <ScrollViewer Padding="{StaticResource ScrollContentPadding}" HorizontalScrollBarVisibility="Disabled" HorizontalContentAlignment="Stretch">
-            <StackPanel Spacing="20" VerticalAlignment="Center" MaxWidth="620">
-                <fluent:FluentIcon Icon="ShieldCheckmark" FontSize="64" HorizontalAlignment="Center" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
-                <TextBlock Text="{x:Bind ViewModel.Title, Mode=OneWay}" FontSize="28" FontWeight="SemiBold" HorizontalAlignment="Center"/>
-                <TextBlock Text="{x:Bind ViewModel.Intro, Mode=OneWay}" TextWrapping="Wrap" TextAlignment="Center"/>
+        <ScrollViewer x:Name="ScanIntro" Grid.Row="1" Style="{StaticResource PageScrollViewerStyle}"
+            Visibility="{x:Bind ViewModel.ShowIntroduction, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <Border x:Name="ScanHero" Style="{StaticResource ScanHeroStyle}" VerticalAlignment="Top">
+                <Grid ColumnSpacing="24">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                    <StackPanel Spacing="16" VerticalAlignment="Center">
+                        <TextBlock Text="{x:Bind ViewModel.ScanLabel, Mode=OneWay}" FontWeight="SemiBold" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
+                        <StackPanel Spacing="8">
+                            <TextBlock Text="{x:Bind ViewModel.ReadyTitle, Mode=OneWay}" FontSize="28" FontWeight="SemiBold" TextWrapping="Wrap" AutomationProperties.HeadingLevel="Level2"/>
+                            <TextBlock Text="{x:Bind ViewModel.Intro, Mode=OneWay}" MaxWidth="600" HorizontalAlignment="Left" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </StackPanel>
+                        <Button x:Name="DeepScanButton" Content="{x:Bind ViewModel.DeepScanLabel, Mode=OneWay}" Command="{x:Bind ViewModel.DeepScanCommand}" Padding="12,8"/>
+                    </StackPanel>
+                    <ContentControl x:Name="ScanAction" Grid.Row="1" Margin="0,24,0,0" Style="{StaticResource ScanActionStyle}">
+                        <Button x:Name="ScanButton" Content="{x:Bind ViewModel.ScanLabel, Mode=OneWay}" Command="{x:Bind ViewModel.ScanCommand}"
+                            Style="{StaticResource ScanActionButtonStyle}" AutomationProperties.Name="{x:Bind ViewModel.ScanLabel, Mode=OneWay}"/>
+                    </ContentControl>
+                </Grid>
+            </Border>
+        </ScrollViewer>
+        <ScrollViewer x:Name="ScanProgressView" Grid.Row="1" Style="{StaticResource PageScrollViewerStyle}"
+                      Visibility="{x:Bind ViewModel.IsScanning, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <StackPanel Spacing="18">
+                <Border x:Name="ScanProgressPanel" Style="{StaticResource SecurityScanPanel}" Padding="22,17,20,9">
+                    <StackPanel Spacing="14">
+                        <Grid x:Name="ScanProgressHeader" ColumnSpacing="16" RowSpacing="8">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                            <Border Width="52" Height="52" CornerRadius="13" Background="{ThemeResource SecurityScanIconBrush}" VerticalAlignment="Top">
+                                <fluent:FluentIcon Icon="SearchShield" IconVariant="Regular" FontSize="29" Foreground="{ThemeResource PageIconForegroundBrush}"
+                                                   HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                            </Border>
+                            <StackPanel Grid.Column="1" Spacing="3">
+                                <Grid ColumnSpacing="8">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                    <Ellipse Width="10" Height="10" Fill="{ThemeResource SecurityScanAccentBrush}" VerticalAlignment="Center"/>
+                                    <TextBlock Grid.Column="1" Text="{x:Bind ViewModel.ScanInProgressLabel, Mode=OneWay}" FontSize="12" FontWeight="SemiBold"
+                                               Foreground="{ThemeResource SecurityScanAccentBrush}" TextWrapping="Wrap"/>
+                                </Grid>
+                                <TextBlock x:Name="ScanProgressTitle" Text="{x:Bind ViewModel.ScanProgressTitle, Mode=OneWay}" FontSize="24" FontWeight="SemiBold"
+                                           TextWrapping="Wrap" AutomationProperties.HeadingLevel="Level2"/>
+                                <TextBlock x:Name="ScanProgressHint" Text="{x:Bind ViewModel.ScanProgressHint, Mode=OneWay}" TextWrapping="Wrap"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" AutomationProperties.LiveSetting="Polite"/>
+                            </StackPanel>
+                            <Button x:Name="CancelScanButton" Grid.Row="1" Grid.Column="1" Command="{x:Bind ViewModel.CancelScanCommand}"
+                                    Padding="12,6" Background="Transparent" BorderBrush="{ThemeResource ControlStrongStrokeColorDefaultBrush}"
+                                    HorizontalAlignment="Left" VerticalAlignment="Top" AutomationProperties.Name="{x:Bind ViewModel.CancelScanLabel, Mode=OneWay}">
+                                <StackPanel Orientation="Horizontal" Spacing="8">
+                                    <fluent:FluentIcon Icon="Dismiss" IconVariant="Regular" FontSize="16" VerticalAlignment="Center"/>
+                                    <TextBlock Text="{x:Bind ViewModel.CancelScanLabel, Mode=OneWay}" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                        </Grid>
+                        <Grid Height="8">
+                            <Border Background="{ThemeResource SecurityScanTrackBrush}" CornerRadius="4"/>
+                            <ProgressBar x:Name="ScanProgressBar" Height="8" MinHeight="8" CornerRadius="4" Background="Transparent"
+                                         Foreground="{ThemeResource SecurityScanAccentBrush}" IsIndeterminate="{x:Bind ViewModel.IsScanning, Mode=OneWay}"
+                                         AutomationProperties.Name="{x:Bind ViewModel.ScanInProgressLabel, Mode=OneWay}"/>
+                        </Grid>
+                        <Grid ColumnSpacing="12" HorizontalAlignment="Left">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/><ColumnDefinition x:Name="ScanStepGap" Width="24"/><ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition x:Name="ReviewStepGap" Width="24"/><ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Orientation="Horizontal" Spacing="9">
+                                <Border Style="{StaticResource SecurityScanStepNumber}" Background="{ThemeResource SecurityScanAccentBrush}" BorderThickness="0">
+                                    <TextBlock Text="1" FontSize="12" FontWeight="SemiBold" Foreground="{ThemeResource SecurityScanOnAccentBrush}"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                                </Border>
+                                <TextBlock Text="{x:Bind ViewModel.ScanLabel, Mode=OneWay}" FontWeight="SemiBold" VerticalAlignment="Center"
+                                           Foreground="{ThemeResource SecurityScanAccentBrush}"/>
+                            </StackPanel>
+                            <Border Grid.Column="1" Style="{StaticResource SecurityScanStepConnector}"/>
+                            <StackPanel Grid.Column="2" Orientation="Horizontal" Spacing="9">
+                                <Border Style="{StaticResource SecurityScanStepNumber}">
+                                    <TextBlock Text="2" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                </Border>
+                                <TextBlock Text="{x:Bind ViewModel.ReviewStepLabel, Mode=OneWay}" VerticalAlignment="Center"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            </StackPanel>
+                            <Border Grid.Column="3" Style="{StaticResource SecurityScanStepConnector}"/>
+                            <StackPanel Grid.Column="4" Orientation="Horizontal" Spacing="9">
+                                <Border Style="{StaticResource SecurityScanStepNumber}">
+                                    <TextBlock Text="3" FontSize="12" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                </Border>
+                                <TextBlock Text="{x:Bind ViewModel.ApplyStepLabel, Mode=OneWay}" VerticalAlignment="Center"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}" MaxWidth="130" TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </Grid>
+                        <Border Padding="0,6,0,0" BorderThickness="0,1,0,0" BorderBrush="{ThemeResource SecurityScanStrokeBrush}">
+                            <Button x:Name="ScanDetailsButton" HorizontalAlignment="Right" Padding="8,5" Style="{StaticResource SubtleButtonStyle}"
+                                    Command="{x:Bind ViewModel.ShowScanDetailsCommand}" AutomationProperties.Name="{x:Bind ViewModel.ScanDetailsLabel, Mode=OneWay}">
+                                <StackPanel Orientation="Horizontal" Spacing="9">
+                                    <TextBlock Text="{x:Bind ViewModel.ScanDetailsLabel, Mode=OneWay}" VerticalAlignment="Center"/>
+                                    <fluent:FluentIcon Icon="ChevronRight" IconVariant="Regular" FontSize="13" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Button>
+                        </Border>
+                    </StackPanel>
+                </Border>
+                <StackPanel Spacing="12">
+                    <TextBlock Text="{x:Bind ViewModel.ScanCoverageLabel, Mode=OneWay}" FontSize="20" FontWeight="SemiBold"
+                               TextWrapping="Wrap" AutomationProperties.HeadingLevel="Level2"/>
+                    <Border Style="{StaticResource SecurityScanPanel}" Padding="10,11">
+                        <ItemsControl x:Name="ScanCoverageCards" ItemsSource="{x:Bind ViewModel.ScanCoverage}"
+                                      ItemTemplate="{StaticResource ScanCoverageTemplate}">
+                            <ItemsControl.ItemsPanel>
+                                <ItemsPanelTemplate>
+                                    <common:UniformWrapPanel ItemWidth="181" ItemHeight="94" RowSpacing="8" StretchItems="True" MaxColumns="5"/>
+                                </ItemsPanelTemplate>
+                            </ItemsControl.ItemsPanel>
+                        </ItemsControl>
+                    </Border>
+                    <Grid ColumnSpacing="9" Margin="4,2">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                        <fluent:FluentIcon Icon="Info" IconVariant="Regular" FontSize="17" VerticalAlignment="Center"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        <TextBlock Grid.Column="1" Text="{x:Bind ViewModel.ThreatCoverageNote, Mode=OneWay}" FontSize="13" TextWrapping="Wrap"
+                                   VerticalAlignment="Center" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                    </Grid>
+                </StackPanel>
+                <Button x:Name="DeepScanOptionsButton" Style="{StaticResource SubtleButtonStyle}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                        Padding="15,10" CornerRadius="12" BorderThickness="1" BorderBrush="{ThemeResource SecurityScanStrokeBrush}"
+                        Background="{ThemeResource CardBackgroundFillColorDefaultBrush}" AutomationProperties.Name="{x:Bind ViewModel.DeepScanOptionsLabel, Mode=OneWay}">
+                    <Grid ColumnSpacing="14">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <Border Width="40" Height="40" CornerRadius="11" Background="{ThemeResource SecurityScanIconBrush}" VerticalAlignment="Center">
+                            <fluent:FluentIcon Icon="Layer" IconVariant="Regular" FontSize="22" Foreground="{ThemeResource PageIconForegroundBrush}"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <StackPanel Grid.Column="1" Spacing="2" VerticalAlignment="Center">
+                            <TextBlock Text="{x:Bind ViewModel.DeepScanOptionsLabel, Mode=OneWay}" FontSize="15" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                            <TextBlock Text="{x:Bind ViewModel.DeepScanOptionsDescription, Mode=OneWay}" FontSize="12" TextWrapping="Wrap"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </StackPanel>
+                        <fluent:FluentIcon Grid.Column="2" Icon="ChevronRight" IconVariant="Regular" FontSize="14" VerticalAlignment="Center"/>
+                    </Grid>
+                    <Button.Flyout>
+                        <Flyout Placement="BottomEdgeAlignedLeft">
+                            <StackPanel Spacing="8" MaxWidth="340">
+                                <TextBlock Text="{x:Bind ViewModel.DeepScanOptionsLabel, Mode=OneWay}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                <ItemsControl ItemsSource="{x:Bind ViewModel.DeepCheckNames, Mode=OneWay}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <TextBlock Text="{Binding}" Margin="0,3" TextWrapping="Wrap"/>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </StackPanel>
+                        </Flyout>
+                    </Button.Flyout>
+                </Button>
             </StackPanel>
-            </ScrollViewer>
-        </Border>
-        <Grid x:Name="ResultsLayout" Grid.Row="1" Visibility="{x:Bind ViewModel.HasReport, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}" RowSpacing="12">
+        </ScrollViewer>
+        <Grid x:Name="ResultsLayout" Grid.Row="1" Visibility="{x:Bind ViewModel.HasReport, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}" RowSpacing="{StaticResource PageCardSpacing}">
             <Grid.ColumnDefinitions><ColumnDefinition x:Name="CategoryColumn" Width="0"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
             <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-            <ListView Padding="{StaticResource ScrollContentPadding}" x:Name="CategoryList" Grid.RowSpan="2" ItemsSource="{x:Bind ViewModel.Categories}" SelectedItem="{x:Bind ViewModel.SelectedCategory, Mode=TwoWay}"
-                ItemTemplate="{StaticResource SecurityCategoryTemplate}" Visibility="Collapsed" IsEnabled="{x:Bind ViewModel.IsIdle, Mode=OneWay}" SelectionMode="Single" HorizontalContentAlignment="Stretch" AutomationProperties.Name="{x:Bind ViewModel.Title, Mode=OneWay}"/>
-            <ComboBox x:Name="CategoryPicker" Grid.Column="1" ItemsSource="{x:Bind ViewModel.Categories}" SelectedItem="{x:Bind ViewModel.SelectedCategory, Mode=TwoWay}"
-                ItemTemplate="{StaticResource SecurityCategoryTemplate}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch" IsEnabled="{x:Bind ViewModel.IsIdle, Mode=OneWay}" AutomationProperties.Name="{x:Bind ViewModel.Title, Mode=OneWay}"/>
-            <Border Grid.Column="1" Grid.Row="1" Style="{StaticResource PageCardStyle}">
-                <Grid RowSpacing="8">
+            <Border x:Name="CategorySidebar" Grid.RowSpan="2" Style="{StaticResource SecurityScanPanel}" Padding="9,13" Visibility="Collapsed">
+                <Grid RowSpacing="10">
                     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-                    <Grid x:Name="TableHeaders" Padding="16,12" ColumnSpacing="12" Visibility="Collapsed">
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="100"/><ColumnDefinition Width="120"/></Grid.ColumnDefinitions>
-                        <TextBlock Text="{x:Bind ViewModel.NameLabel, Mode=OneWay}" FontWeight="SemiBold"/>
-                        <TextBlock Grid.Column="1" Text="{x:Bind ViewModel.StateLabel, Mode=OneWay}" TextWrapping="Wrap"/>
-                        <TextBlock Grid.Column="2" Text="{x:Bind ViewModel.RecommendationLabel, Mode=OneWay}" TextWrapping="Wrap"/>
-                    </Grid>
-                    <ListView Padding="{StaticResource ScrollContentPadding}" x:Name="FindingsList" Grid.Row="1" ItemsSource="{x:Bind ViewModel.Findings}" SelectionMode="None" HorizontalContentAlignment="Stretch" IsEnabled="{x:Bind ViewModel.IsIdle, Mode=OneWay}" AutomationProperties.Name="{x:Bind ViewModel.NameLabel, Mode=OneWay}">
-                        <ListView.ItemTemplate><DataTemplate x:DataType="vm:SecurityFindingRow">
-                            <Grid Padding="4,12" ColumnSpacing="12" RowSpacing="8" SizeChanged="FindingLayout_SizeChanged">
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="100"/><ColumnDefinition Width="120"/></Grid.ColumnDefinitions>
-                                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-                                <StackPanel x:Name="FindingContent" Grid.ColumnSpan="3" Spacing="6">
-                                    <CheckBox IsChecked="{x:Bind IsSelected, Mode=TwoWay}" IsEnabled="{x:Bind CanSelect, Mode=OneWay}" AutomationProperties.Name="{x:Bind Name, Mode=OneWay}">
-                                        <TextBlock Text="{x:Bind Name, Mode=OneWay}" TextWrapping="Wrap" FontWeight="SemiBold"/>
-                                    </CheckBox>
-                                    <TextBlock Text="{x:Bind Description, Mode=OneWay}" FontSize="12" TextWrapping="Wrap" IsTextSelectionEnabled="True"/>
-                                    <TextBlock Text="{x:Bind Evidence, Mode=OneWay}" FontSize="12" TextWrapping="Wrap" IsTextSelectionEnabled="True" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                                </StackPanel>
-                                <TextBlock x:Name="FindingState" Grid.Column="1" Text="{x:Bind State, Mode=OneWay}" TextWrapping="Wrap" Visibility="Collapsed"/>
-                                <TextBlock x:Name="FindingRecommendation" Grid.Column="2" Text="{x:Bind Recommendation, Mode=OneWay}" TextWrapping="Wrap" Visibility="Collapsed"/>
-                                <TextBlock x:Name="CompactReview" Grid.Row="1" Grid.ColumnSpan="3" Text="{x:Bind ReviewSummary, Mode=OneWay}" TextWrapping="Wrap" FontSize="12" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
-                            </Grid>
-                        </DataTemplate></ListView.ItemTemplate>
+                    <TextBlock Text="{x:Bind ViewModel.CategoriesLabel, Mode=OneWay}" Margin="8,0" FontSize="18" FontWeight="SemiBold"
+                               AutomationProperties.HeadingLevel="Level2" TextWrapping="Wrap"/>
+                    <ListView x:Name="CategoryList" Grid.Row="1" ItemsSource="{x:Bind ViewModel.Categories}" SelectedItem="{x:Bind ViewModel.SelectedCategory, Mode=TwoWay}"
+                              ItemTemplate="{StaticResource SecuritySidebarCategoryTemplate}" ItemContainerStyle="{StaticResource SecuritySidebarCategory}"
+                              Background="Transparent" IsEnabled="{x:Bind ViewModel.IsIdle, Mode=OneWay}" SelectionMode="Single" HorizontalContentAlignment="Stretch"
+                              AutomationProperties.Name="{x:Bind ViewModel.CategoriesLabel, Mode=OneWay}"/>
+                </Grid>
+            </Border>
+            <ComboBox x:Name="CategoryPicker" Grid.Column="1" ItemsSource="{x:Bind ViewModel.Categories}" SelectedItem="{x:Bind ViewModel.SelectedCategory, Mode=TwoWay}"
+                      ItemTemplate="{StaticResource SecurityCategoryTemplate}" HorizontalAlignment="Stretch" HorizontalContentAlignment="Stretch"
+                      IsEnabled="{x:Bind ViewModel.IsIdle, Mode=OneWay}" AutomationProperties.Name="{x:Bind ViewModel.CategoriesLabel, Mode=OneWay}"/>
+            <Border x:Name="ResultsCard" Grid.Column="1" Grid.Row="1" Style="{StaticResource SecurityScanPanel}" Padding="16,13,10,8">
+                <Grid RowSpacing="13">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
+                    <StackPanel Spacing="3">
+                        <TextBlock Text="{x:Bind ViewModel.SelectedCategory.Name, Mode=OneWay}" FontSize="22" FontWeight="SemiBold"
+                                   AutomationProperties.HeadingLevel="Level2" TextWrapping="Wrap"/>
+                        <TextBlock Text="{x:Bind ViewModel.SelectedCategory.Description, Mode=OneWay}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>
+                    </StackPanel>
+                    <ListView x:Name="FindingsList" Grid.Row="1" Padding="0,0,6,0" ItemsSource="{x:Bind ViewModel.Findings}"
+                              ItemTemplate="{StaticResource SecurityFindingTemplate}" SelectionMode="None" HorizontalContentAlignment="Stretch"
+                              IsEnabled="{x:Bind ViewModel.IsIdle, Mode=OneWay}" AutomationProperties.Name="{x:Bind ViewModel.NameLabel, Mode=OneWay}">
+                        <ListView.ItemContainerStyle>
+                            <Style TargetType="ListViewItem">
+                                <Setter Property="Padding" Value="0"/>
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                            </Style>
+                        </ListView.ItemContainerStyle>
                     </ListView>
+                    <TextBlock Grid.Row="1" Text="{x:Bind ViewModel.EmptyCategoryLabel, Mode=OneWay}" TextWrapping="Wrap"
+                               Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                               Visibility="{x:Bind ViewModel.ShowEmptyCategory, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
                 </Grid>
             </Border>
         </Grid>
-        <Border Grid.Row="2" Padding="16" Style="{StaticResource PageCardStyle}" Visibility="{x:Bind ViewModel.HasReport, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
-            <toolkit:WrapPanel HorizontalSpacing="12" VerticalSpacing="8">
-                <TextBlock Text="{x:Bind ViewModel.Selection, Mode=OneWay}" VerticalAlignment="Center"/>
-                <Button Content="{x:Bind ViewModel.SelectAllLabel, Mode=OneWay}" Command="{x:Bind ViewModel.SelectAllCommand}"/>
-                <Button Content="{x:Bind ViewModel.FixLabel, Mode=OneWay}" Command="{x:Bind ViewModel.FixCommand}" Style="{StaticResource AccentButtonStyle}"/>
-            </toolkit:WrapPanel>
+        <Border Grid.Row="2" Padding="16,8" Style="{StaticResource SecurityScanPanel}"
+                Visibility="{x:Bind ViewModel.HasReport, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <Grid ColumnSpacing="14">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                <TextBlock Text="{x:Bind ViewModel.Selection, Mode=OneWay}" VerticalAlignment="Center" TextWrapping="Wrap"/>
+                <toolkit:WrapPanel x:Name="SelectionActions" Grid.Row="1" Grid.ColumnSpan="2" HorizontalSpacing="12" VerticalSpacing="6">
+                    <Button Content="{x:Bind ViewModel.SelectAllLabel, Mode=OneWay}" Command="{x:Bind ViewModel.SelectAllCommand}"
+                            Style="{StaticResource SecurityResultOutlineButton}"/>
+                    <Button Content="{x:Bind ViewModel.FixLabel, Mode=OneWay}" Command="{x:Bind ViewModel.FixCommand}" Style="{StaticResource AccentButtonStyle}"/>
+                </toolkit:WrapPanel>
+            </Grid>
         </Border>
     </Grid>
 </Page>

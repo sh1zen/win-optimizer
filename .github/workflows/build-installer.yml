@@ -71,13 +71,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Package version resolution failed.' }
           "version=$(($resolved -join '').Trim())" >> $env:GITHUB_OUTPUT
 
-      - name: Check versioning, packaging and installer behavior
+      - name: Check build scripts, versioning and packaging
         run: |
           ./tests/build-script.tests.ps1
           ./tests/versioning.tests.ps1
           ./tests/test-runner.tests.ps1
           ./tests/packaging.tests.ps1
-          ./tests/installer.tests.ps1
 
       - name: Build application, run tests and create installer
         env:
@@ -88,10 +87,12 @@ jobs:
             throw "Packaging failed with exit code $LASTEXITCODE."
           }
 
-      - name: Verify installer and application versions, payload and languages
-        run: |
-          ./tests/build-output.tests.ps1
-          ./tests/packaged-payload.tests.ps1
+      - name: Verify application build outputs
+        run: ./tests/build-output.tests.ps1
+
+      - name: Verify installer versions, payload and languages in the hosted Windows VM
+        shell: powershell
+        run: ./tests/packaged-payload.tests.ps1 -GitHubHostedRunner
 
       - name: Upload installer
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

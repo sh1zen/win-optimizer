@@ -33,6 +33,7 @@ public partial class WindowsStatusViewModel : UtilityViewModel
     public string AnalyzeLabel => Text("WindowsStatus_AnalyzeStore");
     public string RepairLabel => Text("WindowsStatus_Repair");
     public string CleanupLabel => Text("WindowsStatus_Cleanup");
+    public string CleanupDescription => Text("WindowsStatus_CleanupDescription");
     public string SourceLabel => Text("WindowsStatus_Source");
     public string SourceHint => Text("WindowsStatus_SourceHint");
     public string IndexLabel => Text("WindowsStatus_Index");

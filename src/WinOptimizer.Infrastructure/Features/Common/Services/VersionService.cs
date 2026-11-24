@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Net.Http;
 using System.Reflection;
+using System.Reflection.PortableExecutable;
 using System.Text.Json;
 using System.Threading.Tasks;
 using WinOptimizer.Core.Features.Common.Enums;
@@ -177,6 +178,7 @@ public class VersionService : IVersionService
     public async Task DownloadAndInstallUpdateAsync(CancellationToken cancellationToken = default)
     {
         using var logTopic = _logService.BeginTopic(LogTopic.Updates);
+        _downloadedInstallerPath = null;
         // Dev-only short-circuit. See LocalInstallerEnvVar docs.
         if (TryGetLocalInstallerOverride() is { } localPath)
         {
@@ -190,9 +192,10 @@ public class VersionService : IVersionService
 
         _logService.Log(LogLevel.Info, "Downloading update...");
 
-        // Create a temporary file to download the installer
+        // Stage beside the destination so validation and publication use the same file.
         _fileSystemService.CreateDirectory(AppDataPaths.Downloads);
-        string tempPath = _fileSystemService.CombinePath(AppDataPaths.Downloads, "win-optimizer.Installer.exe");
+        string installerPath = _fileSystemService.CombinePath(AppDataPaths.Downloads, "win-optimizer.Installer.exe");
+        string stagedPath = installerPath + $".{Guid.NewGuid():N}.download";
 
         // Download the installer using streaming to avoid loading the entire file into memory
         using var downloadRequest = new HttpRequestMessage(HttpMethod.Get, _latestReleaseDownloadUrl);
@@ -200,15 +203,39 @@ public class VersionService : IVersionService
         using var response = await _httpClient.SendAsync(downloadRequest, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
 
-        // Use explicit block so streams are disposed before returning
+        try
         {
-            await using var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
-            await using var fileStream = new FileStream(tempPath, FileMode.Create, FileAccess.Write, FileShare.None, 81920, true);
-            await contentStream.CopyToAsync(fileStream, cancellationToken).ConfigureAwait(false);
-        }
+            await using (var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false))
+            await using (var fileStream = new FileStream(stagedPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, true))
+                await contentStream.CopyToAsync(fileStream, cancellationToken).ConfigureAwait(false);
 
-        _downloadedInstallerPath = tempPath;
-        _logService.Log(LogLevel.Info, $"Update downloaded to {tempPath}");
+            ValidateInstaller(stagedPath);
+            cancellationToken.ThrowIfCancellationRequested();
+            File.Move(stagedPath, installerPath, overwrite: true);
+            _downloadedInstallerPath = installerPath;
+            _logService.Log(LogLevel.Info, $"Update downloaded to {installerPath}");
+        }
+        finally { File.Delete(stagedPath); }
+    }
+
+    private static void ValidateInstaller(string path)
+    {
+        try
+        {
+            using var file = File.OpenRead(path);
+            using var reader = new PEReader(file);
+            var headers = reader.PEHeaders;
+            var characteristics = headers.CoffHeader.Characteristics;
+            if (headers.PEHeader is null || (characteristics & Characteristics.ExecutableImage) == 0 ||
+                (characteristics & Characteristics.Dll) != 0 || headers.SectionHeaders.Length == 0 ||
+                headers.SectionHeaders.Any(section => section.SizeOfRawData > 0 &&
+                    (long)section.PointerToRawData + section.SizeOfRawData > file.Length))
+                throw new BadImageFormatException();
+        }
+        catch (BadImageFormatException ex)
+        {
+            throw new InvalidDataException("The downloaded update is not a complete Windows installer.", ex);
+        }
     }
 
     public void LaunchInstallerAndRestart()

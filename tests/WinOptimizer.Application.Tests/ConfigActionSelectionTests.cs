@@ -15,7 +15,6 @@ public sealed class ConfigActionSelectionTests
     {
         var taskbar = $"Customize_{FeatureIds.Taskbar}";
         var start = $"Customize_{FeatureIds.StartMenu}";
-        var theme = $"Customize_{FeatureIds.WindowsTheme}";
         var selections = new List<string> { "Optimize", taskbar };
         if (parentSelected) selections.Add("Customize");
         var options = new ImportOptions
@@ -26,8 +25,9 @@ public sealed class ConfigActionSelectionTests
 
         var result = ConfigActionSelection.IncludeSections(selections, options);
 
-        Assert.Equal(new[] { "Optimize", taskbar, "Customize", start, theme }, selections);
-        Assert.Equal(new[] { start, theme }, result.ActionOnlySubsections.Order().ToArray());
+        Assert.Equal(new[] { "Optimize", taskbar, "Customize", start }, selections);
+        Assert.Equal(start, Assert.Single(result.ActionOnlySubsections));
+        Assert.True(result.ApplyThemeWallpaper);
         Assert.True(result.ProcessWindowsAppsRemoval);
         Assert.True(result.IsWindowsDefaults);
         Assert.Empty(options.ActionOnlySubsections);

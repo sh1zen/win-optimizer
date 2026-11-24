@@ -3,10 +3,16 @@ using System;
 namespace WinOptimizer.Core.Features.Common.Interfaces;
 
 /// <summary>
-/// Wraps plan-level P/Invoke operations on power schemes for testability.
+/// Wraps PowrProf scheme operations and returns the native status for each change.
 /// </summary>
 public interface IPowerSchemeOperations
 {
+    /// <summary>Gets the active power scheme's identifier.</summary>
+    uint GetActiveScheme(out Guid schemeGuid);
+
+    /// <summary>Writes one AC or DC setting index for the specified power scheme.</summary>
+    uint WriteValue(Guid schemeGuid, Guid subgroup, Guid setting, bool onAc, uint value);
+
     /// <summary>
     /// Deletes a power scheme by GUID. Safe to call on non-existent schemes
     /// (returns an error code but does not throw).

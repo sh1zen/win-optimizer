@@ -720,36 +720,23 @@ public sealed class LeftoverServiceTests : IDisposable
     [Fact]
     public async Task LinksInsideAnInstallationRemnantExcludeTheWholeFolder()
     {
-        // Junctions require a local NTFS volume; the checkout can be on a projected development drive.
-        var temporary = Path.Combine(Path.GetTempPath(), "leftover-link-" + Guid.NewGuid().ToString("N"));
-        var applicationRoot = Path.Combine(temporary, "Applications");
-        _folders.SetupGet(source => source.ApplicationDirectories).Returns([applicationRoot]);
-        var directory = InstallationRemnant(Path.Combine(applicationRoot, "ObsoleteTool"));
-        var outside = Path.Combine(temporary, "Outside");
-        Directory.CreateDirectory(outside);
-        var link = Path.Combine(directory, "Linked");
+        var temporary = Directory.CreateTempSubdirectory("leftover-link-");
         try
         {
-            var start = new System.Diagnostics.ProcessStartInfo("cmd.exe")
-            {
-                CreateNoWindow = true, UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true,
-                ArgumentList = { "/c", "mklink", "/J", link, outside }
-            };
-            using var process = System.Diagnostics.Process.Start(start)!;
-            Assert.True(process.WaitForExit(10000));
-            Assert.True(process.ExitCode == 0, process.StandardError.ReadToEnd() + process.StandardOutput.ReadToEnd());
+            var applicationRoot = Path.Combine(temporary.FullName, "Applications");
+            _folders.SetupGet(source => source.ApplicationDirectories).Returns([applicationRoot]);
+            var directory = InstallationRemnant(Path.Combine(applicationRoot, "ObsoleteTool"));
+            using var alias = new TestAppExecutionAlias(path: Path.Combine(directory, "Linked.exe"));
+            Assert.True(File.GetAttributes(alias.Path).HasFlag(FileAttributes.ReparsePoint));
             Directory.SetLastWriteTimeUtc(directory, DateTime.UtcNow.AddDays(-90));
+
             var scan = await _service.ScanAsync();
-            Assert.Empty(scan.Items); Assert.Contains(scan.Notices, notice => notice.Contains("links or junctions"));
-            Assert.True(Directory.Exists(outside));
+
+            Assert.Empty(scan.Items);
+            Assert.Contains(scan.Notices, notice => notice.Contains("links or junctions"));
+            Assert.True(File.Exists(alias.Path));
         }
-        finally
-        {
-            if (Directory.Exists(link)) Directory.Delete(link);
-            Assert.StartsWith(Path.GetFullPath(Path.GetTempPath()), Path.GetFullPath(temporary), StringComparison.OrdinalIgnoreCase);
-            Assert.StartsWith("leftover-link-", Path.GetFileName(temporary));
-            Directory.Delete(temporary, recursive: true);
-        }
+        finally { temporary.Delete(recursive: true); }
     }
 
     [Fact]

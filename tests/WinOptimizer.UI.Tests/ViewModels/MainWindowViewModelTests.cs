@@ -127,24 +127,6 @@ public class MainWindowViewModelTests : IDisposable
     }
 
     [Fact]
-    public void Initialize_WhenOtsElevation_ShowsInfoBar()
-    {
-        _mockInteractiveUserService
-            .Setup(i => i.IsOtsElevation)
-            .Returns(true);
-        _mockInteractiveUserService
-            .Setup(i => i.InteractiveUserName)
-            .Returns("Standard");
-
-        var sut = CreateSut();
-        sut.Initialize();
-
-        sut.IsOtsInfoBarOpen.Should().BeTrue();
-        sut.OtsInfoBarTitle.Should().NotBeNullOrEmpty();
-        sut.OtsInfoBarMessage.Should().Contain("Standard");
-    }
-
-    [Fact]
     public void Initialize_WhenNotOtsElevation_DoesNotShowInfoBar()
     {
         var sut = CreateSut();
@@ -154,7 +136,7 @@ public class MainWindowViewModelTests : IDisposable
     }
 
     [Fact]
-    public void DismissOtsInfoBar_SetsIsOtsInfoBarOpenToFalse()
+    public void AlternateAccountElevationShowsAnInfoBarTheUserCanDismiss()
     {
         _mockInteractiveUserService
             .Setup(i => i.IsOtsElevation)
@@ -166,6 +148,8 @@ public class MainWindowViewModelTests : IDisposable
         var sut = CreateSut();
         sut.Initialize();
         sut.IsOtsInfoBarOpen.Should().BeTrue();
+        sut.OtsInfoBarTitle.Should().NotBeNullOrEmpty();
+        sut.OtsInfoBarMessage.Should().Contain("User");
 
         sut.DismissOtsInfoBar();
 

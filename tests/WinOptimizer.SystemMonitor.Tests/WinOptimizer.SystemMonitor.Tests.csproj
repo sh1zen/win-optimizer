@@ -14,7 +14,6 @@
     <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\SystemMonitorPresentationTests.cs" Link="SystemMonitorPresentationTests.cs"/>
     <Compile Include="..\WinOptimizer.UI.Tests\Helpers\ExtensionTestDispatcher.cs" Link="ExtensionTestDispatcher.cs"/>
     <Page Include="..\..\src\WinOptimizer.UI\Features\Common\Resources\Converters.xaml" Link="Features\Common\Resources\Converters.xaml"/>
-    <Page Include="..\..\src\WinOptimizer.UI\Features\Common\Resources\PageStyles.xaml" Link="Features\Common\Resources\PageStyles.xaml"/>
     <EmbeddedResource Include="..\..\src\WinOptimizer.UI\Features\Common\Localization\en.json" LogicalName="en.json"/>
   </ItemGroup>
 </Project>

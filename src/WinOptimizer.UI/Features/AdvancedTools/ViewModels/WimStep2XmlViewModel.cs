@@ -1,6 +1,5 @@
 using System;
 using System.Threading.Tasks;
-using System.Xml.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using WinOptimizer.Core.Features.AdvancedTools.Interfaces;
@@ -198,18 +197,6 @@ public partial class WimStep2XmlViewModel : ObservableObject
                 _localizationService.GetString("WIMUtil_FileDialog_SelectXml"));
             if (string.IsNullOrEmpty(selectedPath)) return;
 
-            XmlStatus = _localizationService.GetString("WIMUtil_Status_XmlValidating");
-            var isValidXml = await ValidateXmlFile(selectedPath);
-            if (!isValidXml)
-            {
-                SelectXmlCard.HasFailed = true;
-                XmlStatus = _localizationService.GetString("WIMUtil_Status_XmlInvalid");
-                await _dialogService.ShowErrorAsync(
-                    _localizationService.GetString("WIMUtil_Msg_XmlInvalidError"),
-                    _localizationService.GetString("Dialog_Error") ?? "Error");
-                return;
-            }
-
             XmlStatus = _localizationService.GetString("WIMUtil_Status_XmlAdding");
             if (revision != _mediaRevision) return;
             MediaContentChanging?.Invoke(workingDirectory);
@@ -232,6 +219,15 @@ public partial class WimStep2XmlViewModel : ObservableObject
                     _localizationService.GetString("Dialog_Error") ?? "Error");
             }
         }
+        catch (InvalidDataException)
+        {
+            if (revision != _mediaRevision) return;
+            SelectXmlCard.HasFailed = true;
+            XmlStatus = _localizationService.GetString("WIMUtil_Status_XmlInvalid");
+            await _dialogService.ShowErrorAsync(
+                _localizationService.GetString("WIMUtil_Msg_XmlInvalidError"),
+                _localizationService.GetString("Dialog_Error") ?? "Error");
+        }
         catch (Exception ex)
         {
             _logService.LogError($"Error selecting XML: {ex.Message}", ex);
@@ -248,16 +244,6 @@ public partial class WimStep2XmlViewModel : ObservableObject
     {
         try { await Windows.System.Launcher.LaunchUriAsync(new Uri("https://schneegans.de/windows/unattend-generator/")); }
         catch (Exception ex) { _logService.LogError($"Error opening Schneegans XML generator: {ex.Message}", ex); }
-    }
-
-    private async Task<bool> ValidateXmlFile(string xmlPath)
-    {
-        try
-        {
-            await Task.Run(() => XDocument.Load(xmlPath));
-            return true;
-        }
-        catch (Exception ex) { _logService.LogDebug($"XML validation failed for '{xmlPath}': {ex.Message}"); return false; }
     }
 
     internal void ClearOtherXmlCardCompletions(string exceptCard)

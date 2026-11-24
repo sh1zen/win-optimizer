@@ -4,22 +4,25 @@ using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.Core.Features.Optimize.Interfaces;
 using WinOptimizer.Core.Features.Optimize.Models;
+using WinOptimizer.Infrastructure.Features.Common.Services;
 using WinOptimizer.Infrastructure.Features.Optimize.Services;
+using WinOptimizer.Infrastructure.Features.SoftwareApps.Services;
 using Xunit;
 
 namespace WinOptimizer.Infrastructure.Tests.Services;
 
 /// <summary>Exercises the production orchestration using fake script, registry and setting-application boundaries.</summary>
-public sealed class OptimizationToolsServiceTests
+public sealed class OptimizationToolsServiceTests : IDisposable
 {
     private readonly Mock<IPowerShellRunner> _scripts = new();
     private readonly Mock<ISettingApplicationService> _settings = new();
     private readonly Mock<ICompatibleSettingsRegistry> _catalog = new();
     private readonly Mock<IWindowsRegistryService> _registry = new();
     private readonly Mock<IApplicationModeService> _mode = new();
-    private readonly Mock<IInteractiveUserService> _user = new();
+    private readonly Mock<IAppxDeployment> _deployment = new();
     private readonly Mock<IWindowsVersionService> _windows = new();
     private readonly Mock<ISystemSettingsDiscoveryService> _discovery = new();
+    private readonly DirectoryInfo _storage = Directory.CreateTempSubdirectory("win-optimizer-enhance-originals-");
     private const string NetworkJson = "{\"AutoTuningLevel\":\"Normal\",\"ReceiveSideScaling\":\"Enabled\"}";
     private const string InteractiveSid = "S-1-5-21-111-222-333-1001";
 
@@ -33,12 +36,15 @@ public sealed class OptimizationToolsServiceTests
         _settings.Setup(settings => settings.ApplySettingAsync(It.IsAny<ApplySettingRequest>())).ReturnsAsync(OperationResult.Succeeded());
         _scripts.Setup(scripts => scripts.RunScriptInMemoryAsync(It.IsAny<string>(), null, default)).ReturnsAsync("");
         _scripts.Setup(scripts => scripts.RunScriptInMemoryAsync(OptimizationToolsService.ReadNetworkScript, null, default)).ReturnsAsync(NetworkJson);
-        _user.SetupGet(user => user.IsOtsElevation).Returns(true);
-        _user.SetupGet(user => user.InteractiveUserSid).Returns(InteractiveSid);
+        _deployment.SetupGet(deployment => deployment.InteractiveAccountSid).Returns(InteractiveSid);
+        _deployment.Setup(deployment => deployment.GetPackagesAsync(InteractiveSid, default)).ReturnsAsync([]);
     }
 
     private OptimizationToolsService Create() => new(_scripts.Object, _settings.Object, _catalog.Object,
-        _registry.Object, _mode.Object, _user.Object, _windows.Object, _discovery.Object);
+        _registry.Object, _mode.Object, _deployment.Object, _windows.Object, _discovery.Object,
+        new NetworkTuningOriginalStore(new FileSystemService(), _storage.FullName));
+
+    public void Dispose() => _storage.Delete(recursive: true);
 
     [Fact]
     public async Task ReadsRestrictionsFromExistingOwnersAndIgnoresAbsentServices()
@@ -103,7 +109,7 @@ public sealed class OptimizationToolsServiceTests
     {
         _ = Create();
         _scripts.VerifyNoOtherCalls(); _settings.VerifyNoOtherCalls(); _registry.VerifyNoOtherCalls();
-        _mode.VerifyNoOtherCalls(); _user.VerifyNoOtherCalls(); _windows.VerifyNoOtherCalls();
+        _mode.VerifyNoOtherCalls(); _deployment.VerifyNoOtherCalls(); _windows.VerifyNoOtherCalls();
     }
 
     [Fact]
@@ -117,6 +123,25 @@ public sealed class OptimizationToolsServiceTests
         _settings.VerifyNoOtherCalls(); _registry.VerifyNoOtherCalls();
     }
 
+    [Fact]
+    public async Task FirstEnhancementCapturesBothOriginalsBeforeTheWrite()
+    {
+        _scripts.SetupSequence(scripts => scripts.RunScriptInMemoryAsync(OptimizationToolsService.ReadNetworkScript, null, default))
+            .ReturnsAsync("{\"AutoTuningLevel\":\"Restricted\",\"ReceiveSideScaling\":\"Disabled\"}")
+            .ReturnsAsync(NetworkJson).ReturnsAsync(NetworkJson);
+        var originals = new NetworkTuningOriginalStore(new FileSystemService(), _storage.FullName);
+        _scripts.Setup(scripts => scripts.RunScriptInMemoryAsync(OptimizationToolsService.EnhanceNetworkScript, null, default))
+            .Returns(async () =>
+            {
+                Assert.Equal(new NetworkTuningValue("Restricted"), await originals.ReadAsync(NetworkTuningCatalog.AutoTuningId));
+                Assert.Equal(new NetworkTuningValue("Disabled"), await originals.ReadAsync(NetworkTuningCatalog.RssId));
+                return "";
+            });
+        await Create().EnhanceNetworkAsync();
+        await Create().EnhanceNetworkAsync();
+        _scripts.Verify(scripts => scripts.RunScriptInMemoryAsync(OptimizationToolsService.ReadNetworkScript, null, default), Times.Exactly(3));
+    }
+
     [Theory]
     [InlineData("{\"AutoTuningLevel\":\"Disabled\",\"ReceiveSideScaling\":\"Enabled\"}")]
     [InlineData("{\"AutoTuningLevel\":\"Normal\",\"ReceiveSideScaling\":\"Disabled\"}")]
@@ -124,6 +149,7 @@ public sealed class OptimizationToolsServiceTests
     {
         _scripts.Setup(scripts => scripts.RunScriptInMemoryAsync(OptimizationToolsService.ReadNetworkScript, null, default)).ReturnsAsync(json);
         await Assert.ThrowsAsync<InvalidOperationException>(() => Create().EnhanceNetworkAsync());
+        _scripts.Verify(scripts => scripts.RunScriptInMemoryAsync(OptimizationToolsService.EnhanceNetworkScript, null, default), Times.Once);
     }
 
     [Theory]
@@ -188,13 +214,20 @@ public sealed class OptimizationToolsServiceTests
     [Fact]
     public async Task CopilotTargetsTheInteractiveAccountAndReportsAppRemovalFailuresAfterPolicies()
     {
+        const string microsoftPackage = "Microsoft.Copilot_1.0.0.0_x64__8wekyb3d8bbwe";
+        var packages = new AppxPackageIdentity[] { new("Microsoft.Copilot", microsoftPackage),
+            new("Microsoft.Copilot", "Microsoft.Copilot_1.0.0.0_x64__otherpublisher") };
+        _deployment.SetupSequence(deployment => deployment.GetPackagesAsync(InteractiveSid, default))
+            .ReturnsAsync(packages).ReturnsAsync([packages[1]]).ReturnsAsync(packages);
         var service = Create();
         await service.ApplyFeatureAsync(WindowsFeatureOptimization.Copilot);
         _settings.Verify(settings => settings.ApplySettingAsync(It.IsAny<ApplySettingRequest>()), Times.Exactly(5));
-        _scripts.Verify(scripts => scripts.RunScriptInMemoryAsync(It.Is<string>(script => script.Contains("$targetSid = '" + InteractiveSid + "'")
-            && script.Contains("Remove-AppxPackage -User $targetSid")), null, default), Times.Once);
-        _scripts.Setup(scripts => scripts.RunScriptInMemoryAsync(It.IsAny<string>(), null, default))
-            .ThrowsAsync(new InvalidOperationException("Package is in use"));
+        _deployment.Verify(deployment => deployment.RemovePackageAsync(microsoftPackage,
+            InteractiveSid, It.IsAny<Action<int>>(), default), Times.Once);
+        _deployment.Verify(deployment => deployment.RemovePackageAsync(packages[1].FullName,
+            InteractiveSid, It.IsAny<Action<int>>(), default), Times.Never);
+        _deployment.Setup(deployment => deployment.RemovePackageAsync(microsoftPackage,
+            InteractiveSid, It.IsAny<Action<int>>(), default)).ThrowsAsync(new IOException("Package is in use"));
         var error = await Assert.ThrowsAsync<InvalidOperationException>(() => service.ApplyFeatureAsync(WindowsFeatureOptimization.Copilot));
         Assert.Contains("policies were applied", error.Message); Assert.Contains("Package is in use", error.Message);
     }
@@ -205,8 +238,8 @@ public sealed class OptimizationToolsServiceTests
         _windows.Setup(windows => windows.IsWindows11()).Returns(false);
         await Assert.ThrowsAsync<InvalidOperationException>(() => Create().ApplyFeatureAsync(WindowsFeatureOptimization.Copilot));
         _windows.Setup(windows => windows.IsWindows11()).Returns(true);
-        _user.SetupGet(user => user.InteractiveUserSid).Returns("bad'; throw 'injected");
-        await Assert.ThrowsAsync<ArgumentException>(() => Create().ApplyFeatureAsync(WindowsFeatureOptimization.Copilot));
+        _deployment.SetupGet(deployment => deployment.InteractiveAccountSid).Throws(new IOException("Account unavailable"));
+        await Assert.ThrowsAsync<IOException>(() => Create().ApplyFeatureAsync(WindowsFeatureOptimization.Copilot));
         _settings.VerifyNoOtherCalls(); _scripts.VerifyNoOtherCalls();
     }
 
@@ -223,9 +256,5 @@ public sealed class OptimizationToolsServiceTests
                     Assert.Equal(4, definition.ComboBox!.Options[(int)request.Value!].ValueMappings!["Start"]);
                 else Assert.False(request.Enable);
             }
-        var script = OptimizationToolsService.CopilotRemovalScript(InteractiveSid);
-        Assert.DoesNotContain("-AllUsers", script);
-        Assert.DoesNotContain("Remove-AppxProvisionedPackage", script);
-        Assert.Contains("$_.PublisherId -eq '8wekyb3d8bbwe'", script);
     }
 }

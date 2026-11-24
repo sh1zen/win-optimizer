@@ -9,7 +9,10 @@ using WinOptimizer.UI.Tests.Utilities;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Moq;
+using WinOptimizer.Core.Features.AdvancedTools.Experimental;
+using WinOptimizer.Core.Features.Common.Enums;
 using WinOptimizer.Core.Features.Common.Interfaces;
+using WinOptimizer.UI.Features.AdvancedTools.ViewModels;
 using WinOptimizer.UI.Features.Extensions;
 using WinOptimizer.UI.Features.Settings.ViewModels;
 using WinUIApplication = Microsoft.UI.Xaml.Application;
@@ -46,10 +49,17 @@ public sealed partial class StartupTestApplication(string resultPath) : WinOptim
     private static IHost CreateTestHost() => new HostBuilder().ConfigureServices(services =>
     {
         services.AddTransient<SettingsViewModel>(_ => new SettingsViewModelTests().CreateViewModel());
+        services.AddTransient(_ => new HostsEditorViewModelTests().Create());
+        services.AddTransient(_ => new EnvironmentEditorViewModelTests().Create());
         var localization = new Mock<ILocalizationService>();
         localization.Setup(service => service.GetString(It.IsAny<string>())).Returns((string key) => key);
         services.AddSingleton(localization.Object);
         services.AddSingleton(Mock.Of<ISystemMonitorWidgetHost>());
+        services.AddSingleton<AdvancedToolsViewModel>();
+        services.AddSingleton<Mock<IExperimentalFeatures>>();
+        services.AddSingleton(provider => provider.GetRequiredService<Mock<IExperimentalFeatures>>().Object);
+        services.AddSingleton(Mock.Of<IApplicationModeService>(mode => mode.CurrentMode == WinOptimizerMode.Normal));
+        services.AddSingleton(Mock.Of<ILogService>());
     }).Build();
     private Window? _window;
     protected override void OnLaunched(LaunchActivatedEventArgs args)
@@ -66,7 +76,10 @@ public sealed partial class StartupTestApplication(string resultPath) : WinOptim
             try
             {
                 var count = await NativeTestCases.RunAsync(typeof(PowerOptimizationsViewModelTests), typeof(TaskProgressViewModelTests), typeof(UpdateCheckViewModelTests), typeof(MainWindowViewModelTests), typeof(ApplicationInfoViewModelTests), typeof(SupportEntryPointTests), typeof(EnvironmentEditorViewModelTests), typeof(UninstallBackupsViewModelTests), typeof(ApplicationCloseServiceTests), typeof(CustomIconTests), typeof(SettingViewModelFactoryTests), typeof(TechnicalDetailsManagerTests), typeof(StartupOrchestratorTests), typeof(StartupPresentationTests), typeof(WindowSizeManagerTests), typeof(CleanerProgressReporterTests), typeof(CleanerViewModelTests), typeof(DriversViewModelTests), typeof(WimStep4IsoViewModelTests), typeof(WimWorkflowRegressionTests), typeof(WimStep1ViewModelTests), typeof(WimStep2XmlViewModelTests), typeof(WimStep3DriversViewModelTests), typeof(WimImageFormatViewModelTests), typeof(WimUtilViewModelTests), typeof(SectionNavigationTests), typeof(NavigationRouterTests), typeof(SavedWifiViewModelTests), typeof(SavedWifiPageTests), typeof(SettingsPageTests));
-                count += await NativeTestCases.RunAsync(typeof(SidebarPreferencesViewModelTests), typeof(AppColorPreferencesViewModelTests));
+                count += await NativeTestCases.RunAsync(typeof(SidebarPreferencesViewModelTests), typeof(AppColorPreferencesViewModelTests),
+                    typeof(SettingsViewModelTests), typeof(SettingApplicationViewModelTests), typeof(SettingItemViewModelTests),
+                    typeof(HostsEditorViewModelTests), typeof(UtilityViewModelTests), typeof(ExtensionApplicationLifetimeTests),
+                    typeof(SystemMonitorWidgetHostTests), typeof(ExperimentalFeaturesPageTests));
                 Finish($"PASS: {count} startup, native first-frame and navigation cases. Fake OS boundaries only.", true);
             }
             catch (Exception ex) { Finish(ex.ToString()); }

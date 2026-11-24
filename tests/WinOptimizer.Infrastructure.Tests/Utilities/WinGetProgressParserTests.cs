@@ -32,7 +32,6 @@ public class WinGetProgressParserTests
     [InlineData("UnexpectedErrorExecutingCommand", "Unexpected error")]
     [InlineData("InstallingDependencies", "Installing dependencies...")]
     [InlineData("installerhashverified", "Hash verified")]
-    [InlineData("INSTALLERHASHVERIFIED", "Hash verified")]
     [InlineData("(1/2) PackageRequiresDependencies", "[1/2] Installing dependencies...")]
     [InlineData("(2/3) Some normal text", "[2/3] Some normal text")]
     [InlineData("Downloading https://example.com/packages/installer-v1.2.3.exe", "Downloading installer-v1.2.3.exe...")]

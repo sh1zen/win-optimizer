@@ -7,12 +7,15 @@ using WinOptimizer.UI.Features.Common.Controls;
 using WinOptimizer.UI.Features.Common.Interfaces;
 using WinOptimizer.UI.Features.Customize;
 using WinOptimizer.UI.Features.Optimize;
+using WinOptimizer.UI.Features.Optimize.Pages;
 using WinOptimizer.UI.Features.Settings;
 using WinOptimizer.UI.Features.Restore;
 using WinOptimizer.UI.Features.Cleaner;
 using WinOptimizer.UI.Features.Drivers;
 using WinOptimizer.UI.Features.SystemInformation;
 using WinOptimizer.UI.Features.Extensions;
+using WinOptimizer.UI.Features.Extensions.Notch;
+using WinOptimizer.UI.Features.Extensions.Preview;
 using WinOptimizer.UI.Features.Utilities;
 using WinOptimizer.UI.Features.Management;
 using WinOptimizer.UI.Features.SoftwareApps;
@@ -34,8 +37,10 @@ internal sealed class NavigationRouter
     private static readonly Dictionary<string, Type> TagToPageType = new()
     {
         ["Settings"] = typeof(SettingsPage),
+        ["TimeMachine"] = typeof(WinOptimizer.UI.Features.TimeMachine.TimeMachinePage),
         ["Restore"] = typeof(RestorePage),
         ["Optimize"] = typeof(OptimizePage),
+        ["Internet"] = typeof(NetworkOptimizePage),
         ["Cleaner"] = typeof(CleanerPage),
         ["Drivers"] = typeof(DriversPage),
         ["SystemInformation"] = typeof(SystemInformationPage),
@@ -47,6 +52,7 @@ internal sealed class NavigationRouter
         ["Autoruns"] = typeof(AutorunsPage),
         ["ProcessMonitor"] = typeof(ProcessMonitorPage),
         ["SysMonitor"] = typeof(SystemMonitorSettingsPage),
+        ["Notch"] = typeof(NotchSettingsPage),
         ["Customize"] = typeof(CustomizePage),
         ["AdvancedTools"] = typeof(AdvancedToolsPage),
         ["SoftwareApps"] = typeof(SoftwareAppsPage),
@@ -55,10 +61,11 @@ internal sealed class NavigationRouter
     private static readonly Dictionary<string, string> PageTypeNameToTag = new()
     {
         [nameof(SettingsPage)] = "Settings",
+        [nameof(WinOptimizer.UI.Features.TimeMachine.TimeMachinePage)] = "TimeMachine",
         [nameof(RestorePage)] = "AdvancedTools",
         [nameof(OptimizePage)] = "Optimize",
-        [nameof(WinOptimizer.UI.Features.Optimize.Pages.NetworkOptimizePage)] = "Optimize",
-        [nameof(WinOptimizer.UI.Features.Optimize.Pages.FeaturesOptimizePage)] = "Optimize",
+        [nameof(NetworkOptimizePage)] = "Internet",
+        [nameof(FeaturesOptimizePage)] = "Optimize",
         [nameof(CleanerPage)] = "Cleaner",
         [nameof(DriversPage)] = "Drivers",
         [nameof(SystemInformationPage)] = "AdvancedTools",
@@ -75,6 +82,9 @@ internal sealed class NavigationRouter
         [nameof(ConnectionPage)] = "Management",
         [nameof(SavedWifiPage)] = "Management",
         [nameof(SystemMonitorSettingsPage)] = "Functionalities",
+        [nameof(NotchSettingsPage)] = "Functionalities",
+        [nameof(NotchSysInfoPage)] = "Functionalities",
+        [nameof(PreviewPage)] = "Functionalities",
         [nameof(CleanerResultsPage)] = "Cleaner",
         [nameof(CustomizePage)] = "Customize",
         [nameof(WinOptimizer.UI.Features.Customize.Pages.ContextMenuCustomizePage)] = "Customize",

@@ -160,7 +160,7 @@ public sealed partial class StatusTestApplication(string outputDirectory) : WinU
         Console.WriteLine($"PASS: {passed} production Windows status view-model cases.");
     }
 
-    /// <summary>Checks shared page and footer bounds with real controls and isolated servicing receipts.</summary>
+    /// <summary>Checks servicing cards, retained results and footer bounds with real controls.</summary>
     private async Task RenderAsync(Grid shell)
     {
         shell.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(80) });
@@ -214,14 +214,28 @@ public sealed partial class StatusTestApplication(string outputDirectory) : WinU
             footerLayout.Children.Add(footer); body.Children.Add(footerLayout);
             shell.Children.Clear(); shell.Children.Add(body); await loaded.Task; service.VerifyNoOtherCalls();
             var primary = (Button)page.FindName("PrimaryActionButton");
-            var options = (Expander)page.FindName("RepairOptionsExpander");
+            var cards = (Grid)page.FindName("ServicingCards");
+            var repairCard = (Border)page.FindName("RepairCard");
+            var cleanupCard = (Border)page.FindName("CleanupCard");
+            var guidanceCard = (Border)page.FindName("GuidanceCard");
+            var repair = (Button)page.FindName("RepairWindowsButton");
+            var cleanup = (Button)page.FindName("CleanupWindowsButton");
+            var guidance = (HyperlinkButton)page.FindName("GuidanceLink");
             var results = (StackPanel)page.FindName("ResultsPanel");
             var notice = (InfoBar)page.FindName("ReportNotice");
-            Assert.False(options.IsExpanded); Assert.Equal(Visibility.Collapsed, results.Visibility);
+            var resultRepair = Assert.IsType<Button>(notice.ActionButton);
+            Assert.Equal(Visibility.Collapsed, results.Visibility);
+            Assert.Equal(Visibility.Collapsed, resultRepair.Visibility);
             Assert.Equal("Diagnosis", primary.CommandParameter); Assert.False(vm.ResetBase);
+            Assert.Equal("Repair", repair.CommandParameter);
+            Assert.Equal("Cleanup", cleanup.CommandParameter);
+            Assert.True(repair.IsEnabled && cleanup.IsEnabled);
             await vm.RunCommand.ExecuteAsync("QuickCheck");
             Assert.Single(vm.Steps); Assert.Equal(InfoBarSeverity.Warning, vm.ReportSeverity);
             Assert.Equal(strings["WindowsStatus_StateRepairable"], notice.Message);
+            Assert.Equal(strings["WindowsStatus_RepairShort"], resultRepair.Content);
+            Assert.Equal(Visibility.Visible, resultRepair.Visibility);
+            Assert.True(resultRepair.IsEnabled);
             Assert.Equal("Repair", primary.CommandParameter); Assert.Equal(Visibility.Visible, results.Visibility);
             foreach (var theme in new[] { ElementTheme.Light, ElementTheme.Dark })
             foreach (var width in new[] { 480, 1100, 1500, 1920 })
@@ -231,6 +245,7 @@ public sealed partial class StatusTestApplication(string outputDirectory) : WinU
                 shell.ColumnDefinitions[0].Width = new GridLength(sidebarWidth);
                 _window!.AppWindow.ResizeClient(new SizeInt32(width, 1000)); await Task.Delay(100); shell.UpdateLayout();
                 AssertFillsViewport((Border)page.FindName("ScanHero"), body, 16);
+                AssertFillsViewport(cards, body, 16);
                 AssertFillsViewport(footerLayout, body);
                 foreach (var name in new[] { "TaskTitle", "TerminalButton", "DetailsButton", "CancelButton", "QueueNextText", "QueueCountText" })
                 {
@@ -242,31 +257,69 @@ public sealed partial class StatusTestApplication(string outputDirectory) : WinU
                 var origin = primary.TransformToVisual(shell).TransformPoint(default);
                 Assert.True(primary.ActualWidth > 0 && origin.X >= 0 && origin.X + primary.ActualWidth <= shell.ActualWidth + 1);
                 var resultsOrigin = results.TransformToVisual(shell).TransformPoint(default);
-                var optionsOrigin = options.TransformToVisual(shell).TransformPoint(default);
-                Assert.True(resultsOrigin.Y < optionsOrigin.Y);
+                var cardsOrigin = cards.TransformToVisual(shell).TransformPoint(default);
+                Assert.True(resultsOrigin.Y < cardsOrigin.Y);
                 Assert.True(origin.Y + primary.ActualHeight < shell.ActualHeight);
+                AssertCardLayout(cards, repairCard, cleanupCard, guidanceCard, width != 480 && page.ActualWidth >= 980);
+                AssertControlInside(resultRepair, notice);
+                AssertControlInside(repair, repairCard);
+                AssertControlInside(cleanup, cleanupCard);
+                AssertControlInside(guidance, guidanceCard);
                 await CaptureAsync(shell, $"windows-status-{language}-{theme}-{width}-sidebar-{sidebarWidth}.png");
             }
             foreach (var name in new[] { "TerminalButton", "DetailsButton", "CancelButton" })
                 ((IInvokeProvider)new ButtonAutomationPeer((Button)footer.FindName(name)).GetPattern(PatternInterface.Invoke)).Invoke();
             await Task.Delay(80);
             Assert.Equal(2, detailClicks); Assert.Equal(1, cancelClicks);
-            // Invoke the native main button to verify its bound action uses the confirmation workflow.
-            var invocation = (IInvokeProvider)new ButtonAutomationPeer(primary).GetPattern(PatternInterface.Invoke);
-            invocation.Invoke();
-            for (var attempt = 0; attempt < 100 && (vm.IsBusy || vm.Report?.Request.Action != WindowsServicingAction.Repair); attempt++) await Task.Delay(20);
-            Assert.False(vm.IsBusy); Assert.Equal(WindowsImageHealth.Healthy, vm.Report!.ImageHealth);
-            Assert.Equal("Diagnosis", primary.CommandParameter);
-            Assert.Equal(strings["WindowsStatus_StateReviewFileResults"], notice.Message);
-            dialogs.Verify(source => source.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>()), Times.Once);
+            // Both entry points use the repair confirmation and refresh the report.
+            foreach (var repairAction in new[] { resultRepair, primary })
+            {
+                if (!vm.NeedsRepair) await vm.RunCommand.ExecuteAsync("QuickCheck");
+                var invocation = (IInvokeProvider)new ButtonAutomationPeer(repairAction).GetPattern(PatternInterface.Invoke);
+                invocation.Invoke();
+                for (var attempt = 0; attempt < 100 && (vm.IsBusy || vm.Report?.Request.Action != WindowsServicingAction.Repair); attempt++) await Task.Delay(20);
+                Assert.False(vm.IsBusy); Assert.Equal(WindowsImageHealth.Healthy, vm.Report!.ImageHealth);
+                Assert.Equal("Diagnosis", primary.CommandParameter);
+                Assert.Equal(strings["WindowsStatus_StateReviewFileResults"], notice.Message);
+                Assert.Equal(Visibility.Collapsed, resultRepair.Visibility);
+            }
+            dialogs.Verify(source => source.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>()), Times.Exactly(2));
             await CaptureAsync(shell, $"windows-status-{language}-repaired.png");
-            options.IsExpanded = true; shell.UpdateLayout();
-            var repair = (Button)page.FindName("RepairWindowsButton");
-            Assert.True(repair.ActualWidth > 0); Assert.True(repair.IsEnabled);
-            options.IsExpanded = false;
             shell.Children.Clear();
         }
-        Console.WriteLine("PASS: English/Italian, four widths, light/dark, full-width pages/footers, retained receipts and explicit actions; no native maintenance.");
+        Console.WriteLine("PASS: English/Italian, four widths, light/dark, responsive servicing cards, full-width pages/footers, retained receipts and explicit actions; no native maintenance.");
+    }
+
+    /// <summary>Verifies that the three cards share a row or fill the viewport in reading order.</summary>
+    private static void AssertCardLayout(Grid cards, Border repair, Border cleanup, Border guidance, bool sideBySide)
+    {
+        var repairOrigin = repair.TransformToVisual(cards).TransformPoint(default);
+        var cleanupOrigin = cleanup.TransformToVisual(cards).TransformPoint(default);
+        var guidanceOrigin = guidance.TransformToVisual(cards).TransformPoint(default);
+        if (sideBySide)
+        {
+            Assert.InRange(Math.Abs(repairOrigin.Y - cleanupOrigin.Y), 0, 1);
+            Assert.InRange(Math.Abs(repairOrigin.Y - guidanceOrigin.Y), 0, 1);
+            Assert.True(cleanupOrigin.X > repairOrigin.X + repair.ActualWidth);
+            Assert.True(guidanceOrigin.X > cleanupOrigin.X + cleanup.ActualWidth);
+            Assert.InRange(Math.Abs(guidanceOrigin.X + guidance.ActualWidth - cards.ActualWidth), 0, 1);
+            return;
+        }
+
+        AssertFillsViewport(repair, cards);
+        AssertFillsViewport(cleanup, cards);
+        AssertFillsViewport(guidance, cards);
+        Assert.True(cleanupOrigin.Y > repairOrigin.Y + repair.ActualHeight);
+        Assert.True(guidanceOrigin.Y > cleanupOrigin.Y + cleanup.ActualHeight);
+    }
+
+    /// <summary>Checks that the action fits inside the surface that presents it.</summary>
+    private static void AssertControlInside(FrameworkElement control, FrameworkElement surface)
+    {
+        var origin = control.TransformToVisual(surface).TransformPoint(default);
+        Assert.True(control.ActualWidth > 0 && control.ActualHeight > 0);
+        Assert.InRange(origin.X, 0, surface.ActualWidth - control.ActualWidth + 1);
+        Assert.InRange(origin.Y, 0, surface.ActualHeight - control.ActualHeight + 1);
     }
 
     /// <summary>Checks that arranged content fills the viewport inside its reserved scrollbar inset.</summary>

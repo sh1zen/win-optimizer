@@ -73,7 +73,9 @@ public abstract partial class UtilityViewModel : ObservableObject, IDisposable
         }
     }
 
-    private void OnLanguageChanged(object? sender, EventArgs e) => _dispatcher.RunOnUIThread(() => OnPropertyChanged(string.Empty));
+    protected virtual void RefreshLocalizedText() => OnPropertyChanged(string.Empty);
+
+    private void OnLanguageChanged(object? sender, EventArgs e) => _dispatcher.RunOnUIThread(RefreshLocalizedText);
     private void OnModeChanged(object? sender, EventArgs e) => _dispatcher.RunOnUIThread(() =>
     {
         OnPropertyChanged(nameof(CanWrite)); OnPropertyChanged(nameof(ShowModeNotice)); NotifyActions();

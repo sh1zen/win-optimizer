@@ -10,7 +10,7 @@ ownership and licensing terms apply.
 | `win-optimizer.ico` | Executable, window and installer icon; 16, 20, 24, 32, 40, 48, 64, 128 and 256 pixel frames |
 
 Shortcuts, file associations and the uninstall entry use the executable's embedded
-icon. [Build the app](../../../README.md#development) to copy current assets and
+icon. [Build the app](../../../docs/DEVELOPMENT.md#build-locally) to copy current assets and
 embed the ICO.
 
 ## Interface artwork

@@ -5,6 +5,14 @@ namespace WinOptimizer.Infrastructure.Features.Extensions;
 /// <summary>Serializes samples and computes deltas only for matching, non-reset counters.</summary>
 public sealed class WindowsSystemMonitorService(ISystemMonitorProbe probe) : ISystemMonitorService
 {
+    /// <summary>Creates a separate counter history for a widget that only needs core counters and optional GPU load.</summary>
+    public static ISystemMonitorService CreateCompactMonitor(bool includeGraphics) => CreateCompactMonitor(() => includeGraphics);
+
+    /// <summary>Switches GPU sampling independently of the compact reader's CPU and network baselines.</summary>
+    public static ISystemMonitorService CreateCompactMonitor(Func<bool> includeGraphics) =>
+        new WindowsSystemMonitorService(new WindowsSystemMonitorProbe(
+            new HardwareMonitorSensors(() => new LibreHardwareMonitorSession(graphicsOnly: true)), includeGraphics));
+
     private readonly SemaphoreSlim _gate = new(1, 1);
     private SystemMonitorCounters? _previous;
 

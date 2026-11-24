@@ -1,6 +1,7 @@
 using Microsoft.Win32;
 using Moq;
 using WinOptimizer.Core.Features.Common.Interfaces;
+using WinOptimizer.Core.Features.SoftwareApps.Interfaces;
 using WinOptimizer.Core.Features.SoftwareApps.Models;
 using WinOptimizer.Infrastructure.Features.Cleaner;
 using WinOptimizer.Infrastructure.Features.SoftwareApps.Uninstall;
@@ -21,6 +22,7 @@ public sealed class UninstallResidueServiceTests : IDisposable
     private readonly Mock<IUninstallAccountSessions> _sessions = new();
     private readonly Mock<IUninstallRegistryProfiles> _catalogue = new();
     private readonly Mock<IUninstallPackageSource> _packages = new();
+    private readonly Mock<IWindowsComponentStatusSource> _components = new(MockBehavior.Strict);
     private readonly Mock<IUninstallProcessSource> _processes = new();
     private readonly Mock<ICleanerBackupVault> _vault = new();
     private readonly UninstallResidueService _sut;
@@ -47,7 +49,7 @@ public sealed class UninstallResidueServiceTests : IDisposable
         var mode = new Mock<IApplicationModeService>();
         mode.Setup(source => source.BeginSystemOperation()).Returns(() => new Scope(() => { }));
         _sut = new(_sessions.Object, _catalogue.Object, _packages.Object, folders.Object, _processes.Object,
-            Mock.Of<ICleanerShortcutReader>(), _vault.Object, mode.Object, new DeadlineClock());
+            Mock.Of<ICleanerShortcutReader>(), _vault.Object, mode.Object, new DeadlineClock(), components: _components.Object);
         _executable = Write(Path.Combine(_root, "Programs", "Recuva", "recuva.exe"), "executable");
         _registry.Set(Arp, false, new("DisplayName", "Recuva", RegistryValueKind.String), new("DisplayIcon", _executable, RegistryValueKind.String));
     }
@@ -86,6 +88,39 @@ public sealed class UninstallResidueServiceTests : IDisposable
     {
         await session.VerifyAsync([new(_app.Id, success, deferred, null)], null, default);
         return await session.ScanAsync(null, default);
+    }
+
+    [Fact]
+    public async Task ComponentReviewUsesWindowsServicingStateAndProtectsComponentFiles()
+    {
+        var wsl = new ItemDefinition { Id = "wsl", Name = "WSL", Description = "", OptionalFeatureName = "Microsoft-Windows-Subsystem-Linux" };
+        var ssh = new ItemDefinition { Id = "ssh", Name = "SSH", Description = "", CapabilityName = "OpenSSH.Client" };
+        var path = Write(Local(First, @"WSL\settings"), "component data");
+        _components.Setup(source => source.GetStatusAsync(new[] { ssh.CapabilityName! }, new[] { wsl.OptionalFeatureName! }))
+            .ReturnsAsync(new WindowsComponentStatus(new Dictionary<string, bool> { [ssh.CapabilityName!] = true },
+                new Dictionary<string, bool> { [wsl.OptionalFeatureName!] = false }));
+        await using var session = await _sut.CaptureAsync([wsl, ssh], null, default);
+
+        var result = await session.VerifyAsync([new(wsl.Id, true, false, null), new(ssh.Id, true, false, null)], null, default);
+        Assert.Equal(UninstallVerificationState.Removed, result.Applications.Single(app => app.AppId == wsl.Id).State);
+        Assert.Equal(UninstallVerificationState.StillInstalled, result.Applications.Single(app => app.AppId == ssh.Id).State);
+        var scan = await session.ScanAsync(null, default);
+        Assert.DoesNotContain(scan.Findings, finding => finding.Path == path && finding.CanDelete);
+        _components.Verify(source => source.GetStatusAsync(It.IsAny<IReadOnlyList<string>>(), It.IsAny<IReadOnlyList<string>>()), Times.Exactly(2));
+    }
+
+    [Theory]
+    [InlineData(false, UninstallVerificationState.Unknown)]
+    [InlineData(true, UninstallVerificationState.Deferred)]
+    public async Task UnreadableWindowsServicingStateIsNeverConfirmedRemoved(bool restart, UninstallVerificationState expected)
+    {
+        var feature = new ItemDefinition { Id = "test", Name = "Feature", Description = "", OptionalFeatureName = "Example.Feature" };
+        _components.Setup(source => source.GetStatusAsync(It.IsAny<IReadOnlyList<string>>(), It.IsAny<IReadOnlyList<string>>()))
+            .ReturnsAsync(new WindowsComponentStatus(new Dictionary<string, bool>(),
+                new Dictionary<string, bool> { [feature.OptionalFeatureName!] = false }) { FeaturesRead = false });
+        await using var session = await _sut.CaptureAsync([feature], null, default);
+        var result = await session.VerifyAsync([new(feature.Id, true, restart, null)], null, default);
+        Assert.Equal(expected, Assert.Single(result.Applications).State);
     }
 
     [Fact]

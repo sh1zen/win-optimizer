@@ -7,7 +7,7 @@ using System.Runtime.InteropServices;
 
 namespace WinOptimizer.Infrastructure.Features.Common.Services;
 
-public class PowerSettingsQueryService(ILogService logService) : IPowerSettingsQueryService
+public class PowerSettingsQueryService(ILogService logService, IPowerSchemeOperations schemeOperations) : IPowerSettingsQueryService
 {
     private volatile List<PowerPlan>? _cachedPlans;
     private DateTime _cacheTime;
@@ -94,26 +94,8 @@ public class PowerSettingsQueryService(ILogService logService) : IPowerSettingsQ
         }
     }
 
-    private Guid GetActivePowerSchemeGuid()
-    {
-        IntPtr ptr = IntPtr.Zero;
-        try
-        {
-            uint ret = PowerProf.PowerGetActiveScheme(IntPtr.Zero, out ptr);
-            if (ret == PowerProf.ERROR_SUCCESS && ptr != IntPtr.Zero)
-            {
-                return Marshal.PtrToStructure<Guid>(ptr);
-            }
-            return Guid.Empty;
-        }
-        finally
-        {
-            if (ptr != IntPtr.Zero)
-            {
-                PowerProf.LocalFree(ptr);
-            }
-        }
-    }
+    private Guid GetActivePowerSchemeGuid() =>
+        schemeOperations.GetActiveScheme(out var scheme) == PowerProf.ERROR_SUCCESS ? scheme : Guid.Empty;
 
     private string GetPowerPlanName(Guid schemeGuid)
     {

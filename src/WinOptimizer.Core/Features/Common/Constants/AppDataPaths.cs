@@ -14,14 +14,19 @@ public static class AppDataPaths
     public static string CleanerBackups => Path.Combine(Backups, "Cleaner");
     public static string EventLogBackups => Path.Combine(Backups, "EventLogs");
     public static string PowerPlanBackups => Path.Combine(Backups, "PowerPlans");
+    public static string TimeMachine => Path.Combine(Backups, "TimeMachine");
     public static string IconCache => Path.Combine(Root, "Cache", "Icons");
     public static string WinGetCache => Path.Combine(Root, "Cache", "WinGet");
+    public static string DriverCatalogCache => Path.Combine(Root, "Cache", "DriverCatalog");
+    public static string DriverPayloadCache => Path.Combine(Root, "Cache", "DriverPayloads");
+    public static string DriverDownloads => Path.Combine(Downloads, "Drivers");
     public static string Tools => Path.Combine(Root, "Tools");
     public static string Scripts => Path.Combine(Root, "Scripts");
     public static string Downloads => Path.Combine(Root, "Downloads");
     public static string Apps => Path.Combine(Root, "Apps");
     public static string Temp => Path.Combine(Root, "Temp");
     public static string State => Path.Combine(Root, "State");
+    public static string NetworkTuningOriginals => Path.Combine(State, "NetworkTuningOriginals");
 
     /// <summary>Accepts a single untrusted file or directory name without permitting path traversal.</summary>
     public static string Child(string parent, string name)

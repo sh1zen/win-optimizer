@@ -19,20 +19,19 @@ public sealed class BackgroundUpdateCheckService(
     private Task? _run;
 
     /// <summary>Starts one loop explicitly; construction and repeated starts perform no extra work.</summary>
-    public Task RunAsync(Action<VersionInfo> updateAvailable, CancellationToken cancellationToken)
+    public Task RunAsync(Action<VersionInfo> reportVersion, CancellationToken cancellationToken)
     {
-        ArgumentNullException.ThrowIfNull(updateAvailable);
+        ArgumentNullException.ThrowIfNull(reportVersion);
         lock (_startLock)
-            return _run ??= RunCoreAsync(updateAvailable, cancellationToken);
+            return _run ??= RunCoreAsync(reportVersion, cancellationToken);
     }
 
     /// <summary>Persists each attempt before running checks, including failed or interrupted attempts.</summary>
-    private async Task RunCoreAsync(Action<VersionInfo> updateAvailable, CancellationToken cancellationToken)
+    private async Task RunCoreAsync(Action<VersionInfo> reportVersion, CancellationToken cancellationToken)
     {
         using var logTopic = log.BeginTopic(LogTopic.Updates);
         try
         {
-            // This await also moves synchronous script maintenance off the UI thread.
             await Task.Delay(StartupDelay, clock, cancellationToken).ConfigureAwait(false);
             while (true)
             {
@@ -70,7 +69,7 @@ public sealed class BackgroundUpdateCheckService(
                     {
                         try
                         {
-                            // Script updates can run scheduled tasks, so they use the system-operation guard.
+                            // Updating the shared script changes what the scheduled task executes.
                             using var operation = mode.BeginSystemOperation();
                             await scripts.CheckAndUpdateScriptsAsync().ConfigureAwait(false);
                         }
@@ -83,8 +82,8 @@ public sealed class BackgroundUpdateCheckService(
                         try
                         {
                             var latest = await versions.CheckForUpdateAsync(cancellationToken).ConfigureAwait(false);
-                            if (!cancellationToken.IsCancellationRequested && latest is { IsUpdateAvailable: true })
-                                updateAvailable(latest);
+                            if (!cancellationToken.IsCancellationRequested && latest is not null && !string.IsNullOrWhiteSpace(latest.Version))
+                                reportVersion(latest);
                         }
                         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
                         catch (Exception ex) { log.LogError("Background application update check failed.", ex); }

@@ -12,6 +12,7 @@ using Moq;
 using Windows.Graphics;
 using Windows.Graphics.Imaging;
 using WinOptimizer.Core.Features.Common.Interfaces;
+using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.Core.Features.Management;
 using WinOptimizer.UI.Features.Common.Interfaces;
 using WinOptimizer.UI.Features.Management;
@@ -84,10 +85,18 @@ public sealed partial class AutorunsTestApplication(string outputDirectory) : Wi
             var localization = new Mock<ILocalizationService>();
             localization.Setup(source => source.GetString(It.IsAny<string>())).Returns((string key) => strings[key]);
             var service = new Mock<IAutorunService>(MockBehavior.Strict);
+            var entries = StartupEntries.ToArray();
             service.Setup(source => source.ReadAsync(It.IsAny<AutorunView>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
                 .ReturnsAsync((AutorunView view, bool _, CancellationToken _) => new AutorunInventory(view, new(2026, 1, 1, 12, 0, 0, TimeSpan.Zero),
-                    view == AutorunView.Startup ? StartupEntries : StartupEntries.Concat(AdvancedEntries).ToArray(), [], "Synthetic accounts and loading points only"));
-            using var vm = new AutorunsViewModel(service.Object, Mock.Of<IDialogService>(), localization.Object,
+                    view == AutorunView.Startup ? entries : entries.Concat(AdvancedEntries).ToArray(), [], "Synthetic accounts and loading points only"));
+            service.Setup(source => source.SetEnabledAsync(It.IsAny<string>(), It.IsAny<bool>(), CancellationToken.None))
+                .Callback((string id, bool enabled, CancellationToken _) => entries = entries.Select(entry => entry.Id == id ? entry with { Enabled = enabled } : entry).ToArray())
+                .Returns(Task.CompletedTask);
+            var confirmed = false;
+            var dialogs = new Mock<IDialogService>();
+            dialogs.Setup(source => source.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>()))
+                .ReturnsAsync(() => new ConfirmationResponse { Confirmed = confirmed });
+            using var vm = new AutorunsViewModel(service.Object, dialogs.Object, localization.Object,
                 Mock.Of<IApplicationModeService>(), new ExtensionTestDispatcher(), Mock.Of<ITaskProgressService>());
             var page = new AutorunsPage(vm); var loaded = new TaskCompletionSource(); page.Loaded += (_, _) => loaded.TrySetResult();
             shell.Children.Clear(); shell.Children.Add(page); await loaded.Task; await vm.LoadAsync();
@@ -103,6 +112,7 @@ public sealed partial class AutorunsTestApplication(string outputDirectory) : Wi
                 }
                 vm.SelectedRow = vm.Rows.First();
                 Assert.Equal(!advanced, vm.CanDisable);
+                var startupToggle = (ToggleSwitch)page.FindName("StartupToggle");
                 foreach (var theme in new[] { ElementTheme.Light, ElementTheme.Dark })
                 foreach (var width in new[] { 760, 1100, 1500 })
                 {
@@ -115,41 +125,79 @@ public sealed partial class AutorunsTestApplication(string outputDirectory) : Wi
                     Assert.Same(vm.SelectedRow, list.SelectedItem);
                     Assert.Equal(advanced ? 3 : 2, vm.Groups.Count);
                     Assert.True(list.ActualHeight >= 140, "The inventory must retain usable scrolling height.");
+                    var selected = Assert.IsType<AutorunRow>(vm.SelectedRow);
+                    Assert.True(selected.IsSelected);
+                    Assert.Equal(selected.Entry.Enabled == true, startupToggle.IsOn);
+                    Assert.Equal(!advanced, startupToggle.IsEnabled);
+                    Assert.Equal(selected.Entry.Command, ((TextBlock)page.FindName("SelectedCommand")).Text);
                     var search = (TextBox)page.FindName("SearchBox");
-                    var clear = (Button)page.FindName("ClearFiltersButton");
+                    var actions = (Button)page.FindName("ActionsButton");
                     var category = (ComboBox)page.FindName("CategoryFilter");
                     var state = (ComboBox)page.FindName("StateFilter");
+                    var advancedToggle = (ToggleSwitch)page.FindName("AdvancedToggle");
                     var microsoft = (CheckBox)page.FindName("MicrosoftFilter");
-                    foreach (var control in new FrameworkElement[] { list, details, (Button)page.FindName("ScanButton"), search, clear, category, state }
+                    foreach (var control in new FrameworkElement[] { list, details, (Button)page.FindName("ScanButton"), search, actions, category, state, advancedToggle }
                         .Concat(advanced ? new FrameworkElement[] { microsoft } : []))
                     {
                         var point = control.TransformToVisual(shell).TransformPoint(default);
                         Assert.True(control.ActualWidth > 0 && point.X >= 0 && point.X + control.ActualWidth <= shell.ActualWidth + 1, "A control exceeds the client width.");
                     }
                     var searchPosition = search.TransformToVisual(shell).TransformPoint(default);
-                    var clearPosition = clear.TransformToVisual(shell).TransformPoint(default);
                     var categoryPosition = category.TransformToVisual(shell).TransformPoint(default);
                     var statePosition = state.TransformToVisual(shell).TransformPoint(default);
-                    Assert.True(search.ActualWidth >= 120, "Search must retain a usable input width.");
-                    Assert.True(searchPosition.X + search.ActualWidth <= clearPosition.X);
-                    Assert.True(clearPosition.X + clear.ActualWidth <= categoryPosition.X);
-                    Assert.True(categoryPosition.X + category.ActualWidth <= statePosition.X);
-                    Assert.True(Math.Abs(searchPosition.Y - categoryPosition.Y) <= 1 && Math.Abs(searchPosition.Y - statePosition.Y) <= 1,
-                        "Search must be on the left and category/state filters on the right of the same row.");
-                    if (advanced)
+                    var advancedPosition = advancedToggle.TransformToVisual(shell).TransformPoint(default);
+                    Assert.True(search.ActualWidth >= 120, $"Search width was {search.ActualWidth} at client width {width}.");
+                    Assert.True(categoryPosition.X + category.ActualWidth <= statePosition.X + 1);
+                    Assert.InRange(Math.Abs(categoryPosition.Y - statePosition.Y), 0, 1);
+                    if (width < 1050)
                     {
-                        Assert.Equal(width < 1050 ? 1 : 0, Grid.GetRow(microsoft));
-                        if (width >= 1050) Assert.True(statePosition.X + state.ActualWidth <= microsoft.TransformToVisual(shell).TransformPoint(default).X);
+                        Assert.True(searchPosition.Y + search.ActualHeight <= categoryPosition.Y);
+                        Assert.True(statePosition.Y + state.ActualHeight <= advancedPosition.Y);
                     }
+                    else
+                    {
+                        Assert.True(searchPosition.X + search.ActualWidth <= categoryPosition.X);
+                        Assert.True(statePosition.X + state.ActualWidth <= advancedPosition.X);
+                        Assert.InRange(Math.Abs(searchPosition.Y - categoryPosition.Y), 0, 4);
+                    }
+                    if (advanced)
+                        Assert.True(statePosition.Y + state.ActualHeight <= microsoft.TransformToVisual(shell).TransformPoint(default).Y);
                     Assert.Equal(width < 1050 ? 1 : 0, Grid.GetRow(details));
                     await CaptureAsync(shell, $"autoruns-{language}-{theme}-{width}-{(advanced ? "advanced" : "startup")}.png");
                 }
+                var categoryChoices = (ComboBox)page.FindName("CategoryFilter");
+                var stateChoices = (ComboBox)page.FindName("StateFilter");
+                Assert.Equal(strings["Autoruns_All"], categoryChoices.Items[0]);
+                categoryChoices.SelectedIndex = 1;
+                Assert.Equal(categoryChoices.Items[1], vm.SelectedCategory);
+                stateChoices.SelectedIndex = 1;
+                Assert.Equal(1, vm.StateFilter);
+                categoryChoices.SelectedIndex = 0;
+                Assert.Null(vm.SelectedCategory);
+                Assert.Equal(1, stateChoices.SelectedIndex);
+                vm.ClearFiltersCommand.Execute(null);
                 _window!.AppWindow.ResizeClient(new SizeInt32(760, 600)); await Task.Delay(120); shell.UpdateLayout();
                 Assert.True(((ListView)page.FindName("EntriesList")).ActualHeight >= 140);
                 var scroller = (ScrollViewer)page.FindName("PageScroll"); Assert.True(scroller.ScrollableHeight > 0);
                 scroller.ChangeView(null, scroller.ScrollableHeight, null, true); await Task.Delay(80);
                 await CaptureAsync(shell, $"autoruns-{language}-short-{(advanced ? "advanced" : "startup")}.png");
                 scroller.ChangeView(null, 0, null, true);
+                if (!advanced)
+                {
+                    var entry = entries[0];
+                    vm.SelectedRow = vm.Rows.Single(row => row.Entry.Id == entry.Id);
+                    startupToggle.IsOn = false;
+                    await vm.DisableCommand.ExecutionTask!;
+                    Assert.True(startupToggle.IsOn);
+                    service.Verify(source => source.SetEnabledAsync(entry.Id, false, CancellationToken.None), Times.Never);
+                    confirmed = true;
+                    startupToggle.IsOn = false;
+                    await vm.DisableCommand.ExecutionTask!;
+                    service.Verify(source => source.SetEnabledAsync(entry.Id, false, CancellationToken.None), Times.Once);
+                    Assert.Equal(entry.Id, vm.SelectedRow?.Entry.Id);
+                    Assert.False(startupToggle.IsOn);
+                    Assert.Equal(strings["Autoruns_Disabled"], ((TextBlock)page.FindName("SelectedState")).Text);
+                }
             }
             vm.SearchText = "not a registration"; Assert.Empty(vm.Rows); vm.ClearFiltersCommand.Execute(null); Assert.NotEmpty(vm.Rows);
             service.Verify(source => source.ReadAsync(AutorunView.Advanced, true, CancellationToken.None), Times.Once);

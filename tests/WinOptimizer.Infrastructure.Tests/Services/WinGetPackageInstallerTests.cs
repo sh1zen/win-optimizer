@@ -3,7 +3,6 @@ using Moq;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.Core.Features.SoftwareApps.Interfaces;
-using WinOptimizer.Core.Features.SoftwareApps.Models;
 using WinOptimizer.Infrastructure.Features.SoftwareApps.Services.WinGet;
 using WinOptimizer.Infrastructure.Features.SoftwareApps.Services.WinGet.Utilities;
 using Xunit;
@@ -59,40 +58,6 @@ public class WinGetPackageInstallerTests : IDisposable
     }
 
     [Fact]
-    public async Task IsWinGetInstalledAsync_WhenExeDoesNotExist_FallsBackToCom()
-    {
-        _mockFileSystemService.Setup(f => f.FileExists(It.IsAny<string>())).Returns(false);
-        _comSession.ComInitTimedOut = true;
-        (await _sut.IsWinGetInstalledAsync()).Should().BeFalse();
-    }
-
-    [Fact]
-    public async Task IsWinGetInstalledAsync_WhenCancelled_ReturnsFalseOrThrows()
-    {
-        // Arrange
-        using var cts = new CancellationTokenSource();
-        cts.Cancel();
-        _mockInteractiveUserService.Setup(s => s.IsOtsElevation).Returns(false);
-        _mockFileSystemService.Setup(f => f.FileExists(It.IsAny<string>())).Returns(false);
-        _comSession.ComInitTimedOut = true;
-
-        // Act & Assert: should return false (catches all exceptions)
-        // or might throw OperationCanceledException depending on timing
-        try
-        {
-            var result = await _sut.IsWinGetInstalledAsync(cts.Token);
-            // Method catches all exceptions and returns false
-            result.Should().BeFalse();
-        }
-        catch (OperationCanceledException)
-        {
-            // Acceptable: cancellation may propagate before the catch block
-        }
-    }
-
-    // --- InstallPackageAsync ---
-
-    [Fact]
     public async Task SuccessfulUninstallExitWithPersistentExactPresenceIsFailure()
     {
         var queries = 0;
@@ -117,56 +82,21 @@ public class WinGetPackageInstallerTests : IDisposable
 
     [Theory]
     [InlineData(null)]
-    [InlineData("")]
-    [InlineData("  ")]
-    public async Task InstallPackageAsync_WithNullOrEmptyPackageId_ThrowsArgumentException(string? packageId)
-    {
-        // Act & Assert
-        var act = () => _sut.InstallPackageAsync(packageId!);
-
-        await act.Should().ThrowAsync<ArgumentException>()
-            .WithParameterName("packageId");
-    }
-
-    [Fact]
-    public async Task InstallPackageAsync_WhenWinGetNotInstalled_ReturnsWinGetNotAvailable()
-    {
-        // Arrange: ensure IsWinGetInstalledAsync returns false
-        _mockInteractiveUserService.Setup(s => s.IsOtsElevation).Returns(false);
-        _mockFileSystemService.Setup(f => f.FileExists(It.IsAny<string>())).Returns(false);
-        _comSession.ComInitTimedOut = true;
-
-        // Act: this will call IsWinGetInstalledAsync which should return false
-        // when winget is not on the system
-        var result = await _sut.InstallPackageAsync("Test.Package");
-
-        result.Success.Should().BeFalse();
-        result.FailureReason.Should().Be(InstallFailureReason.WinGetNotAvailable);
-        result.ErrorMessage.Should().Contain("WinGet CLI not found");
-    }
-
-    [Theory]
-    [InlineData(false, null)]
-    [InlineData(false, "My App")]
-    [InlineData(true, null)]
-    [InlineData(true, "My App")]
-    public async Task PackageCommand_ReportsPrerequisitesWithTheEffectiveDisplayName(bool uninstall, string? displayName)
+    [InlineData("My App")]
+    public async Task UninstallCommand_ReportsPrerequisitesWithTheEffectiveDisplayName(string? displayName)
     {
         _mockFileSystemService.Setup(f => f.FileExists(It.IsAny<string>())).Returns(false);
         _comSession.ComInitTimedOut = true;
-        if (uninstall) await _sut.UninstallPackageAsync("Test.Package", displayName: displayName);
-        else await _sut.InstallPackageAsync("Test.Package", displayName: displayName);
+        await _sut.UninstallPackageAsync("Test.Package", displayName: displayName);
         _mockTaskProgressService.Verify(t => t.UpdateProgress(10, It.IsAny<string>()), Times.Once);
-        _mockLocalization.Verify(l => l.GetString(uninstall
-            ? "Progress_WinGet_CheckingPrerequisitesUninstall" : "Progress_WinGet_CheckingPrerequisites",
+        _mockLocalization.Verify(l => l.GetString("Progress_WinGet_CheckingPrerequisitesUninstall",
             It.Is<object[]>(args => args.Length == 1 && Equals(args[0], displayName ?? "Test.Package"))), Times.Once);
     }
 
     [Theory]
-    [InlineData(false, 0)]
-    [InlineData(true, 0)]
-    [InlineData(true, unchecked((int)0x8A150030))]
-    public async Task PackageCommand_PreservesProgressTranscriptAndRemovalVerification(bool uninstall, int exitCode)
+    [InlineData(0)]
+    [InlineData(unchecked((int)0x8A150030))]
+    public async Task UninstallCommand_PreservesProgressTranscriptAndRemovalVerification(int exitCode)
     {
         _mockFileSystemService.Setup(f => f.FileExists(It.IsAny<string>())).Returns(true);
         var details = new List<TaskProgressDetail>();
@@ -177,36 +107,35 @@ public class WinGetPackageInstallerTests : IDisposable
             .Returns((string file, string arguments, Action<string>? stdout, Action<string>? stderr, CancellationToken ct, int timeout, Action<string>? transient) =>
             {
                 if (arguments.StartsWith("list ")) return Task.FromResult(new InteractiveProcessResult(WinGetExitCodes.PackageNotFound, "", ""));
-                stdout?.Invoke(uninstall ? "Uninstalling package..." : "Installing package...");
+                stdout?.Invoke("Uninstalling package...");
                 stdout?.Invoke("native detail");
                 stderr?.Invoke("native warning");
                 transient?.Invoke("52%");
                 stdout?.Invoke("█████ 100%");
-                stdout?.Invoke(uninstall ? "Successfully uninstalled" : "Successfully installed");
+                stdout?.Invoke("Successfully uninstalled");
                 return Task.FromResult(new InteractiveProcessResult(exitCode, "", ""));
             });
-        var success = uninstall ? await _sut.UninstallPackageAsync("Test.Package", displayName: "My App")
-            : (await _sut.InstallPackageAsync("Test.Package", displayName: "My App")).Success;
+        var success = await _sut.UninstallPackageAsync("Test.Package", displayName: "My App");
         Assert.True(success);
         Assert.StartsWith("Command: ", details[0].TerminalOutput);
         Assert.StartsWith("Start Time: ", details[1].TerminalOutput);
         Assert.Equal("---", details[2].TerminalOutput);
-        Assert.Equal(uninstall ? 60 : 70, details[3].Progress);
-        Assert.Equal(uninstall ? "Progress_Uninstalling" : "Progress_Installing", details[3].StatusText);
+        Assert.Equal(60, details[3].Progress);
+        Assert.Equal("Progress_Uninstalling", details[3].StatusText);
         Assert.Contains(details, detail => detail.TerminalOutput == "native detail");
         Assert.Contains(details, detail => detail.TerminalOutput == "native warning");
         Assert.Contains(details, detail => detail.TerminalOutput == "52%" && detail.IsProgressIndicator);
         Assert.DoesNotContain(details, detail => detail.TerminalOutput == "█████ 100%");
         Assert.Contains(details, detail => detail.Progress == 100 && detail.StatusText ==
-            (uninstall ? "Progress_WinGet_UninstalledSuccess" : "Progress_WinGet_InstalledSuccess"));
+            "Progress_WinGet_UninstalledSuccess");
         Assert.Equal("---", details[^3].TerminalOutput);
         Assert.StartsWith("End Time: ", details[^2].TerminalOutput);
         Assert.Equal($"Process return value: \"{exitCode}\" (0x{exitCode:X8})", details[^1].TerminalOutput);
         _mockInteractiveUserService.Verify(s => s.RunProcessAsInteractiveUserAsync(It.IsAny<string>(), It.Is<string>(args => args.StartsWith("list ")),
             It.IsAny<Action<string>?>(), It.IsAny<Action<string>?>(), It.IsAny<CancellationToken>(), Timeout.Infinite, It.IsAny<Action<string>?>()),
-            uninstall ? Times.Once() : Times.Never());
+            Times.Once());
         _mockInteractiveUserService.Verify(s => s.RunProcessAsInteractiveUserAsync(It.IsAny<string>(),
-            It.Is<string>(args => args.StartsWith(uninstall ? "uninstall " : "install ")),
+            It.Is<string>(args => args.StartsWith("uninstall ")),
             It.IsAny<Action<string>?>(), It.IsAny<Action<string>?>(), It.IsAny<CancellationToken>(), Timeout.Infinite,
             It.IsAny<Action<string>?>()), Times.Once);
     }
@@ -440,19 +369,6 @@ public class WinGetPackageInstallerTests : IDisposable
             It.IsAny<Action<string>?>(), It.IsAny<Action<string>?>(), It.IsAny<CancellationToken>(), Timeout.Infinite, It.IsAny<Action<string>?>()), Times.Once);
     }
 
-    [Theory]
-    [InlineData(unchecked((int)0x8A150019))]
-    [InlineData(unchecked((int)0x8A150015))]
-    [InlineData(unchecked((int)0x8A15002A))]
-    public async Task GenuineCliErrorsCannotReportSuccessfulInstallation(int exitCode)
-    {
-        SetupUninstallVerification(exitCode, _ => throw new InvalidOperationException("Installation must not query uninstall status"));
-
-        Assert.False((await _sut.InstallPackageAsync("Test.Package")).Success);
-
-        _mockTaskProgressService.Verify(service => service.UpdateProgress(100, It.IsAny<string>()), Times.Never);
-    }
-
     /// <summary>Routes uninstall and subsequent inventory commands through the fake process boundary.</summary>
     private void SetupUninstallVerification(int uninstallExit, Func<CancellationToken, Task<InteractiveProcessResult>> inventory)
     {
@@ -493,27 +409,6 @@ public class WinGetPackageInstallerTests : IDisposable
         _mockTaskProgressService.Verify(t => t.UpdateProgress(0, It.IsAny<string>()), Times.AtLeastOnce);
     }
 
-    // --- PackageInstallResult model tests ---
-
-    [Fact]
-    public void PackageInstallResult_Succeeded_HasCorrectProperties()
-    {
-        var result = PackageInstallResult.Succeeded();
-
-        result.Success.Should().BeTrue();
-        result.FailureReason.Should().Be(InstallFailureReason.None);
-        result.ErrorMessage.Should().BeNull();
-    }
-
-    [Fact]
-    public void PackageInstallResult_Failed_HasCorrectProperties()
-    {
-        var result = PackageInstallResult.Failed(InstallFailureReason.PackageNotFound, "Not found");
-
-        result.Success.Should().BeFalse();
-        result.FailureReason.Should().Be(InstallFailureReason.PackageNotFound);
-        result.ErrorMessage.Should().Be("Not found");
-    }
     /// <summary>Removes the fixture executable placeholder; no native process is launched.</summary>
     public void Dispose() => Directory.Delete(_root, recursive: true);
 }

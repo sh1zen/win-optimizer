@@ -9,7 +9,7 @@ using WinOptimizer.UI.Features.Extensions.ViewModels;
 namespace WinOptimizer.UI.Features.Extensions;
 
 /// <summary>Owns the actual widget state, UI-thread creation and one cancellable sampling session.</summary>
-public sealed class SystemMonitorWidgetHost : ISystemMonitorWidgetHost, IDisposable
+public sealed class SystemMonitorWidgetHost : ISystemMonitorWidgetHost, ISystemMonitorWidgetInput, IDisposable
 {
     private readonly ISystemMonitorService _monitor;
     private readonly ILocalizationService _localization;

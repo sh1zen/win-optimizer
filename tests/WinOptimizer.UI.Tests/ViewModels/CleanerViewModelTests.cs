@@ -1,7 +1,11 @@
 using FluentAssertions;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Media;
 using Moq;
+using Microsoft.UI.Xaml.Automation;
+using Microsoft.UI.Xaml.Automation.Peers;
+using Microsoft.UI.Xaml.Automation.Provider;
 using WinOptimizer.Core.Features.Cleaner.Interfaces;
 using WinOptimizer.Core.Features.Cleaner.Models;
 using WinOptimizer.Core.Features.Cleaner.Services;
@@ -9,8 +13,10 @@ using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.UI.Features.Cleaner.ViewModels;
 using WinOptimizer.UI.Features.Cleaner;
+using WinOptimizer.UI.Features.Common.Controls;
 using WinOptimizer.UI.Features.Common.Interfaces;
 using WinOptimizer.UI.Features.Common.Models;
+using WinOptimizer.UI.Helpers;
 using Xunit;
 using System.Runtime.InteropServices.WindowsRuntime;
 using System.Text.Json;
@@ -48,7 +54,7 @@ public sealed class CleanerViewModelTests : IDisposable
         _tasks.Setup(x => x.StartTask(It.IsAny<string>(), It.IsAny<bool>())).Returns(() => new CancellationTokenSource());
         _cleaner.Setup(x => x.ScanAsync(It.IsAny<CleanerOptions>(), It.IsAny<IReadOnlyCollection<CleanerArea>>(), It.IsAny<IProgress<CleanerProgress>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new CleanerScanResult([], []));
-        _settings = new(_preferences.Object, _backend.Object, _localization.Object, _tasks.Object, Mock.Of<IExplorerWindowManager>(), _backups.Object, _dialogs.Object, _mode.Object);
+        _settings = new(_preferences.Object, _backend.Object, _localization.Object);
         _dispatcher.Setup(x => x.RunOnUIThread(It.IsAny<Action>())).Callback<Action>(action => action());
         _vm = CreateViewModel();
     }
@@ -150,6 +156,9 @@ public sealed class CleanerViewModelTests : IDisposable
                 await Task.Delay(200);
                 page.UpdateLayout();
                 Assert.Equal(Visibility.Visible, Assert.IsType<Grid>(page.FindName("ResultsRegion")).Visibility);
+                var category = Assert.IsType<ListViewItem>(selector.ContainerFromItem(registryCategory));
+                var categoryBox = Assert.IsType<Grid>(VisualTreeHelper.GetChild(category, 0));
+                Assert.Equal(new CornerRadius(10), categoryBox.CornerRadius);
                 Assert.True(results.TransformToVisual(page).TransformPoint(default).X > selector.TransformToVisual(page).TransformPoint(default).X + selector.ActualWidth);
                 Assert.True(results.ActualWidth > 200);
                 await SavePreviewAsync(surface, $"cleaner-categories-{language}-{width}.png");
@@ -236,12 +245,61 @@ public sealed class CleanerViewModelTests : IDisposable
                 await Task.Delay(200);
                 page.UpdateLayout();
                 Assert.Equal("3", Assert.IsType<TextBlock>(page.FindName("OutcomeCount")).Text);
-                Assert.False(Assert.IsType<Expander>(page.FindName("NoticeDetails")).IsExpanded);
                 Assert.Equal(Visibility.Collapsed, Assert.IsType<Border>(page.FindName("ActionBar")).Visibility);
+                var categories = Assert.IsType<ItemsControl>(page.FindName("CategoryReportList"));
+                var cards = Descendants<Button>(categories).ToArray();
+                Assert.Equal(vm.CategoryReports.Count, cards.Length);
+                var firstCard = cards[0].TransformToVisual(categories).TransformPoint(new Windows.Foundation.Point());
+                var secondCard = cards[1].TransformToVisual(categories).TransformPoint(new Windows.Foundation.Point());
+                Assert.Equal(width == 620, secondCard.Y > firstCard.Y);
+                var viewport = Assert.IsType<ScrollViewer>(page.FindName("CategoryReportViewport"));
+                var cardOffset = cards[0].TransformToVisual(viewport).TransformPoint(new Windows.Foundation.Point());
+                Assert.InRange(cardOffset.Y, 0, 2);
                 await SavePreviewAsync(surface, $"cleaner-report-{language}-{width}.png");
+
+                var category = width == 620 ? empty : vm.CategoryReports.Single(report => report.Area == CleanerArea.Privacy);
+                var card = Assert.Single(cards, button => ReferenceEquals(button.CommandParameter, category));
+                Assert.Equal(category.Title, AutomationProperties.GetName(card));
+                Assert.True(card.IsLoaded);
+                Assert.True(card.IsEnabled);
+                var clicked = new TaskCompletionSource();
+                card.Click += (_, _) => clicked.TrySetResult();
+                Invoke(card);
+                await clicked.Task.WaitAsync(TimeSpan.FromSeconds(5));
+                await WaitForReportPopupAsync(page, expectedOpen: true);
+                var popup = Assert.Single(ReportPopups(page));
+                Assert.Equal(category.Overview, Assert.Single(Descendants<TextBlock>(popup), text => text.Name == "CategoryDetailsOverview").Text);
+                Assert.Equal(category.HasFileSelection ? Visibility.Visible : Visibility.Collapsed,
+                    Assert.Single(Descendants<Border>(popup), border => border.Name == "CategoryFileSpace").Visibility);
+                Assert.Equal(category.HasRegistrySelection ? Visibility.Visible : Visibility.Collapsed,
+                    Assert.Single(Descendants<Border>(popup), border => border.Name == "CategoryRegistryData").Visibility);
+                if (width == 1200 && language == "en")
+                    await SavePreviewAsync(Assert.Single(Descendants<ScrollViewer>(popup), scroll => scroll.Name == "CategoryDetailsScroll"),
+                        "cleaner-report-details.png");
+                Invoke(Assert.Single(Descendants<Button>(popup), button => button.Name == "CloseButton"));
+                await WaitForReportPopupAsync(page, expectedOpen: false);
             }
         }
         finally { window.Close(); }
+    }
+
+    private static void Invoke(Button button) =>
+        ((IInvokeProvider)new ButtonAutomationPeer(button).GetPattern(PatternInterface.Invoke)).Invoke();
+
+    private static IEnumerable<UIElement> ReportPopups(FrameworkElement page) =>
+        VisualTreeHelper.GetOpenPopupsForXamlRoot(page.XamlRoot).Select(popup => popup.Child).OfType<UIElement>()
+            .Where(child => Descendants<ScrollViewer>(child).Any(scroll => scroll.Name == "CategoryDetailsScroll"));
+
+    /// <summary>Waits for the native modal transition to reach the visual tree.</summary>
+    private static async Task WaitForReportPopupAsync(FrameworkElement page, bool expectedOpen)
+    {
+        var deadline = System.Diagnostics.Stopwatch.StartNew();
+        while (ReportPopups(page).Any() != expectedOpen && deadline.Elapsed < TimeSpan.FromSeconds(5))
+        {
+            await Task.Delay(20);
+            page.UpdateLayout();
+        }
+        Assert.True(ReportPopups(page).Any() == expectedOpen, $"Expected the category popup to be {(expectedOpen ? "open" : "closed")}.");
     }
 
     /// <summary>Captures the rendered native page for visual review in the standard test output.</summary>
@@ -273,7 +331,7 @@ public sealed class CleanerViewModelTests : IDisposable
     }
 
     [Fact]
-    public async Task TrialMode_AllowsScanButBlocksCleanupAndRecovery()
+    public async Task TrialMode_AllowsScanButBlocksCleanup()
     {
         _mode.SetupGet(x => x.CurrentMode).Returns(WinOptimizer.Core.Features.Common.Enums.WinOptimizerMode.Builder);
         Results(Finding(CleanerArea.Privacy));
@@ -281,10 +339,7 @@ public sealed class CleanerViewModelTests : IDisposable
         _vm.Results.Should().ContainSingle();
         _vm.ApplyCommand.CanExecute(null).Should().BeFalse();
         await _vm.ApplyCommand.ExecuteAsync(null);
-        await _settings.RestoreBackupCommand.ExecuteAsync(null);
-        _settings.Status.Should().Be("TrialMode_Blocked");
         _cleaner.Verify(x => x.ApplyAsync(It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<IProgress<CleanerProgress>>(), It.IsAny<CancellationToken>()), Times.Never);
-        _backups.Verify(x => x.RestoreAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
     }
     private void Results(params CleanerFinding[] items) => _cleaner.Setup(x => x.ScanAsync(It.IsAny<CleanerOptions>(), It.IsAny<IReadOnlyCollection<CleanerArea>>(), It.IsAny<IProgress<CleanerProgress>>(), It.IsAny<CancellationToken>()))
         .ReturnsAsync(new CleanerScanResult(items, []));
@@ -696,7 +751,119 @@ public sealed class CleanerViewModelTests : IDisposable
     }
 
     [Fact]
-    public async Task BackendMeasurements_DriveTheFooter_WithoutPageProgressText()
+    public async Task CleanerPageShowsActiveAreaMeasuredProgressAndTaskActions()
+    {
+        var strings = JsonSerializer.Deserialize<Dictionary<string, string>>(await File.ReadAllTextAsync(
+            Path.Combine(AppContext.BaseDirectory, "Localization", "en.json")))!;
+        _localization.Setup(service => service.GetString(It.IsAny<string>())).Returns((string key) => strings[key]);
+        var tasks = new WinOptimizer.Infrastructure.Features.Common.Services.TaskProgressService(Mock.Of<ILogService>());
+        using var viewModel = new CleanerViewModel(new CleanerService(_backend.Object, _backups.Object), _settings,
+            _localization.Object, _dialogs.Object, tasks, Mock.Of<ILogService>(), _mode.Object, _preferences.Object);
+        var worker = new TaskCompletionSource<CleanerScanResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        IProgress<CleanerProgress>? reporter = null;
+        CleanerArea? backendArea = null;
+        _backend.Setup(backend => backend.ScanAsync(It.IsAny<CleanerArea>(), It.IsAny<CleanerOptions>(), It.IsAny<IProgress<CleanerProgress>>(), It.IsAny<CancellationToken>()))
+            .Callback<CleanerArea, CleanerOptions, IProgress<CleanerProgress>, CancellationToken>((area, _, progress, _) =>
+            {
+                backendArea = area;
+                reporter = progress;
+            })
+            .Returns(worker.Task);
+        var page = new CleanerPage(viewModel) { RequestedTheme = ElementTheme.Dark, Width = 870 };
+        var surface = new Grid { Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 24, 25, 28)) };
+        surface.Children.Add(page);
+        var window = new Window { Content = surface };
+        Task scan = Task.CompletedTask;
+        try
+        {
+            window.AppWindow.ResizeClient(new SizeInt32(870, 640));
+            window.Activate();
+            await viewModel.InitializeAsync();
+            await StartupUiCoordinator.RunAfterFirstRenderAsync(page, () => Task.CompletedTask);
+            foreach (var area in viewModel.Areas) area.IsSelected = area.Value == CleanerArea.Shortcuts;
+
+            var start = Assert.IsType<Button>(page.FindName("StartScanButton"));
+            var command = Assert.IsAssignableFrom<CommunityToolkit.Mvvm.Input.IAsyncRelayCommand>(start.Command);
+            var hero = Assert.IsType<Border>(page.FindName("ScanHero"));
+            var panel = Assert.IsType<Border>(page.FindName("ScanProgressPanel"));
+            Assert.Equal(Visibility.Collapsed, panel.Visibility);
+            scan = command.ExecuteAsync(null);
+            await StartupUiCoordinator.RunAfterFirstRenderAsync(page, () => Task.CompletedTask);
+            page.UpdateLayout();
+            Assert.Equal(CleanerArea.Shortcuts, backendArea);
+            Assert.Equal(Visibility.Collapsed, hero.Visibility);
+            Assert.Equal(Visibility.Visible, panel.Visibility);
+            Assert.Equal(strings["Cleaner_Scanning_Shortcuts"], Assert.IsType<TextBlock>(page.FindName("ScanProgressTitle")).Text);
+            Assert.Equal(strings["Cleaner_ShortcutInventory"], Assert.IsType<TextBlock>(page.FindName("ScanProgressDescription")).Text);
+            var cards = Assert.IsType<ItemsControl>(page.FindName("AreaCards"));
+            Assert.False(cards.IsEnabled);
+            Assert.Contains(VisibleText(cards), label => label.Text == strings["Cleaner_Area_Scanning"]);
+            Assert.Contains(VisibleText(cards), label => label.Text == strings["Cleaner_Area_NotSelected"]);
+            var activeArea = Assert.Single(viewModel.ScanAreaCards, card => card.IsActive);
+            var activeContainer = Assert.IsAssignableFrom<DependencyObject>(cards.ContainerFromItem(activeArea));
+            var checkbox = Assert.Single(Descendants<CheckBox>(activeContainer));
+            Assert.True(checkbox.IsChecked);
+            var outline = Assert.Single(Descendants<Border>(checkbox), border => border.Name == "ActiveCardOutline");
+            Assert.Equal(Visibility.Visible, outline.Visibility);
+            var firstRow = cards.Items.Take(3).Select(item => Assert.IsAssignableFrom<FrameworkElement>(cards.ContainerFromItem(item))
+                .TransformToVisual(cards).TransformPoint(default).Y).ToArray();
+            Assert.All(firstRow, top => Assert.InRange(Math.Abs(top - firstRow[0]), 0, 1));
+            Assert.Contains(VisibleText(page), label => label.Text == strings["Cleaner_ScanAreas"]);
+            Assert.Equal(Visibility.Visible, Assert.IsAssignableFrom<FrameworkElement>(page.FindName("EventsCleanupCard")).Visibility);
+
+            var bar = Assert.IsType<ProgressBar>(page.FindName("ScanProgressBar"));
+            Assert.True(bar.IsIndeterminate);
+            reporter!.Report(new("Cleaner_Shortcuts", 2, 4));
+            await StartupUiCoordinator.RunAfterFirstRenderAsync(page, () => Task.CompletedTask);
+            Assert.False(bar.IsIndeterminate);
+            Assert.Equal(50, bar.Value);
+            var details = Assert.IsType<Button>(page.FindName("ScanDetailsButton"));
+            await Assert.IsAssignableFrom<CommunityToolkit.Mvvm.Input.IAsyncRelayCommand>(details.Command).ExecuteAsync(null);
+            _dialogs.Verify(dialog => dialog.ShowTaskOutputDialogAsync(strings["Dialog_TerminalOutput_Title"],
+                It.Is<IReadOnlyList<string>>(lines => lines.Any(line => line.Contains("50%", StringComparison.Ordinal)))), Times.Once);
+
+            page.Width = 520;
+            window.AppWindow.ResizeClient(new SizeInt32(520, 740));
+            await StartupUiCoordinator.RunAfterFirstRenderAsync(page, () => Task.CompletedTask);
+            page.UpdateLayout();
+            Assert.InRange(panel.ActualWidth, 400, 520);
+            var cancel = Assert.IsType<Button>(page.FindName("CancelScanButton"));
+            Assert.True(cancel.IsEnabled);
+            var owner = tasks.CurrentTaskCancellationSource!;
+            cancel.Command.Execute(null);
+            Assert.True(owner.IsCancellationRequested);
+            Assert.False(cancel.Command.CanExecute(null));
+            Assert.Equal(Visibility.Visible, panel.Visibility);
+            worker.SetCanceled(owner.Token);
+            await scan;
+            Assert.Equal(Visibility.Collapsed, panel.Visibility);
+            Assert.Equal(Visibility.Visible, hero.Visibility);
+            Assert.True(cards.IsEnabled);
+            Assert.False(viewModel.HasScanned);
+        }
+        finally
+        {
+            worker.TrySetCanceled();
+            await scan;
+            window.Close();
+        }
+    }
+
+    private static IEnumerable<TextBlock> VisibleText(DependencyObject root) => Descendants<TextBlock>(root)
+        .Where(label => label.Visibility == Visibility.Visible);
+
+    private static IEnumerable<T> Descendants<T>(DependencyObject root) where T : DependencyObject
+    {
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
+        {
+            var child = VisualTreeHelper.GetChild(root, index);
+            if (child is T result) yield return result;
+            foreach (var descendant in Descendants<T>(child)) yield return descendant;
+        }
+    }
+
+    [Fact]
+    public async Task BackendMeasurementsDriveTheFooterWithoutUsingOutcomeStatus()
     {
         var worker = new TaskCompletionSource<CleanerScanResult>(TaskCreationOptions.RunContinuationsAsynchronously);
         var observed = new TaskCompletionSource<TaskProgressDetail>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -852,22 +1019,6 @@ public sealed class CleanerViewModelTests : IDisposable
         choiceChanges.Should().Contain(nameof(CleanerChoice<CleanerArea>.Description));
     }
     [Fact]
-    public async Task Restore_RequiresConfirmation_AndReportsConflicts()
-    {
-        var backup = new CleanerBackupInfo(Guid.NewGuid(), DateTime.UtcNow, 1, 1);
-        _backups.Setup(x => x.ListAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new[] { backup });
-        await _settings.ReloadBackupsCommand.ExecuteAsync(null);
-        _settings.SelectedBackup.Should().Be(backup);
-        _dialogs.Setup(x => x.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>())).ReturnsAsync(new ConfirmationResponse { Confirmed = false });
-        await _settings.RestoreBackupCommand.ExecuteAsync(null);
-        _backups.Verify(x => x.RestoreAsync(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
-        _dialogs.Setup(x => x.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>())).ReturnsAsync(new ConfirmationResponse { Confirmed = true });
-        _backups.Setup(x => x.RestoreAsync(backup.Id, It.IsAny<CancellationToken>())).ReturnsAsync(new CleanerRestoreResult(1, new[] { "conflict preserved" }));
-        await _settings.RestoreBackupCommand.ExecuteAsync(null);
-        _settings.Status.Should().Contain("conflict preserved");
-        _tasks.Verify(x => x.CompleteTask(), Times.Once);
-    }
-    [Fact]
     public async Task Settings_EachEditAutomaticallyPersistsTypedCleanupChoices()
     {
         await _settings.LoadAsync();
@@ -894,13 +1045,14 @@ public sealed class CleanerViewModelTests : IDisposable
     [Fact]
     public async Task Settings_LoadDoesNotWrite_AndCategoryResetPreservesOtherPreferences()
     {
+        _preferences.Setup(x => x.GetPreferenceAsync("Cleaner", It.IsAny<CleanerOptions>()))
+            .ReturnsAsync(new CleanerOptions { BackupBeforeCleaning = false });
         await _settings.LoadAsync();
         _preferences.Verify(x => x.SetPreferenceAsync("Cleaner", It.IsAny<CleanerOptions>()), Times.Never);
         _settings.BrowserHistory = true;
         _settings.RecentFiles = false;
         _settings.DeepClean = true;
         _settings.MinimumAgeDays = 14;
-        _settings.BackupBeforeCleaning = false;
         (await _settings.ResetSectionAsync(CleanerSettingsSection.Privacy)).Should().BeTrue();
         _settings.Options.BrowserHistory.Should().BeFalse();
         _settings.Options.RecentFiles.Should().BeTrue();
@@ -923,8 +1075,7 @@ public sealed class CleanerViewModelTests : IDisposable
         _settings.RecentFiles = false;
         (await _settings.FlushAsync()).Should().BeTrue();
         saved.RecentShortcuts.Should().BeFalse();
-        using var reloaded = new CleanerSettingsViewModel(_preferences.Object, _backend.Object, _localization.Object, _tasks.Object,
-            Mock.Of<IExplorerWindowManager>(), _backups.Object, _dialogs.Object, _mode.Object);
+        using var reloaded = new CleanerSettingsViewModel(_preferences.Object, _backend.Object, _localization.Object);
         await reloaded.LoadAsync();
         reloaded.RecentShortcuts.Should().BeFalse();
         (await reloaded.ResetSectionAsync(CleanerSettingsSection.Shortcuts)).Should().BeTrue();
@@ -958,8 +1109,7 @@ public sealed class CleanerViewModelTests : IDisposable
             WindowsHistory = false, ApplicationPrivacyCaches = false, CertificateCache = false,
             JumpLists = true, ApplicationHistory = true, BrowserOfflineCache = true, DefenderLogs = true, MinimumAgeDays = 21
         });
-        using var reloaded = new CleanerSettingsViewModel(_preferences.Object, _backend.Object, _localization.Object, _tasks.Object,
-            Mock.Of<IExplorerWindowManager>(), _backups.Object, _dialogs.Object, _mode.Object);
+        using var reloaded = new CleanerSettingsViewModel(_preferences.Object, _backend.Object, _localization.Object);
         await reloaded.LoadAsync();
         reloaded.Options.Should().BeEquivalentTo(saved);
         reloaded.WindowsHistory.Should().BeFalse();
@@ -1246,7 +1396,7 @@ public sealed class CleanerViewModelTests : IDisposable
             var details = Assert.IsType<Expander>(page.FindName("NoticeDetails"));
             Assert.False(details.IsExpanded);
             Assert.Equal(Visibility.Visible, details.Visibility);
-            var categories = Assert.IsType<ItemsControl>(page.FindName("CategoryReportList"));
+            var categories = Assert.IsType<ScrollViewer>(page.FindName("CategoryReportViewport"));
             Assert.Equal(Visibility.Collapsed, categories.Visibility);
             await vm.ApplyCommand.ExecuteAsync(null);
             page.UpdateLayout();
@@ -1255,7 +1405,7 @@ public sealed class CleanerViewModelTests : IDisposable
             Assert.Equal(completed, cleaned);
             Assert.Equal(remainingCount, remaining.Count);
             Assert.True(vm.RequiresRescan);
-            Assert.False(details.IsExpanded);
+            Assert.Equal(Visibility.Collapsed, details.Visibility);
             Assert.False(vm.CanSelectResults);
             Assert.False(Assert.IsType<Button>(page.FindName("ApplyAction")).IsEnabled);
             var rescan = Assert.IsType<Button>(page.FindName("RescanAction"));
@@ -1275,22 +1425,21 @@ public sealed class CleanerViewModelTests : IDisposable
             Assert.Equal(completed * 16, category.RemovedRegistryBytes);
             Assert.Equal(outcome is "partial" or "security" ? 1 : 0, category.FailedCount);
             Assert.Equal(outcome is "backup" or "cancelled" ? 2 : 0, category.UnprocessedCount);
-            Assert.Equal(vm.ReportState, Assert.IsType<TextBlock>(page.FindName("ReportStatus")).Text);
+            var expectedState = outcome switch
+            {
+                "cancelled" => "Cleaner_ReportCancelled",
+                "complete" => "Logs_Level_Success",
+                _ => "Logs_Level_Warning"
+            };
+            Assert.Equal(expectedState, Assert.IsType<PageHeader>(page.FindName("ResultsHeader")).Description);
             Assert.Equal(completed.ToString(), Assert.IsType<TextBlock>(page.FindName("OutcomeCount")).Text);
             Assert.Equal(Visibility.Collapsed, Assert.IsType<Border>(page.FindName("ActionBar")).Visibility);
-            Assert.True(vm.HasReportDetails);
-            details.IsExpanded = true;
-            page.UpdateLayout();
-            var notices = Assert.IsType<TextBlock>(page.FindName("NoticesText"));
-            if (outcome == "partial") Assert.Contains("Registry access denied.", notices.Text);
-            if (outcome == "security") Assert.Contains("Requested registry access is not allowed.", notices.Text);
             if (outcome == "backup") Assert.Contains("Backup verification failed. Nothing was deleted.", status.Text);
             if (outcome == "cancelled") Assert.Equal("Cleaner_Cancelled", status.Text);
             if (outcome is "partial" or "complete" or "security") Assert.StartsWith($"{completed} operations completed", status.Text);
-            Assert.Contains(@"HKEY_LOCAL_MACHINE\Software\Example: diagnostic details", notices.Text);
-            if (outcome == "backup") Assert.Contains("Backup verification failed. Nothing was deleted.", notices.Text);
             if (outcome != "cancelled") Assert.Contains(tasks.GetTerminalOutputLines(), line => line.Contains(status.Text, StringComparison.Ordinal));
             if (outcome == "partial") Assert.Contains(tasks.GetTerminalOutputLines(), line => line.Contains("Registry access denied.", StringComparison.Ordinal));
+            if (outcome == "security") Assert.Contains(tasks.GetTerminalOutputLines(), line => line.Contains("Requested registry access is not allowed.", StringComparison.Ordinal));
 
             fail = false;
             await vm.ScanCommand.ExecuteAsync(null);

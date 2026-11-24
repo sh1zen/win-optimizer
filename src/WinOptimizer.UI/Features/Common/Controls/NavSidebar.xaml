@@ -5,7 +5,6 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:WinOptimizer.UI.Features.Common.Controls">
 
-    <Border Style="{StaticResource PageSurfaceStyle}">
     <Grid Width="{x:Bind ActualSidebarWidth, Mode=OneWay}"
           AutomationProperties.LandmarkType="Navigation">
 
@@ -35,6 +34,14 @@
                              Text="{x:Bind ViewModel.NavOptimizeText, Mode=OneWay}"
                              AutomationProperties.Name="{x:Bind ViewModel.NavOptimizeText, Mode=OneWay}"
                              NavigationTag="Optimize"
+                             IsCompact="{x:Bind IsCompact, Mode=OneWay}"
+                             Clicked="NavButton_Clicked"/>
+
+            <local:NavButton x:Name="InternetButton"
+                             IconData="{StaticResource NavInternetIcon}"
+                             Text="{x:Bind ViewModel.NavInternetText, Mode=OneWay}"
+                             AutomationProperties.Name="{x:Bind ViewModel.NavInternetText, Mode=OneWay}"
+                             NavigationTag="Internet"
                              IsCompact="{x:Bind IsCompact, Mode=OneWay}"
                              Clicked="NavButton_Clicked"/>
 
@@ -85,6 +92,9 @@
                              NavigationTag="Customize"
                              IsCompact="{x:Bind IsCompact, Mode=OneWay}"
                              Clicked="NavButton_Clicked"/>
+            <Rectangle x:Name="TopGroupDivider" Height="1" Margin="8,8,8,0"
+                       Fill="{ThemeResource AppSurfaceStrokeBrush}" IsHitTestVisible="False"
+                       Visibility="{x:Bind IsPaneOpen, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
         </StackPanel>
         </ScrollViewer>
 
@@ -94,6 +104,18 @@
                     Spacing="4"
                     Padding="{x:Bind NavPanelPadding, Mode=OneWay}"
                     Margin="0,0,0,8">
+
+            <Rectangle x:Name="BottomGroupDivider" Height="1" Margin="8,0,8,8"
+                       Fill="{ThemeResource AppSurfaceStrokeBrush}" IsHitTestVisible="False"
+                       Visibility="{x:Bind IsPaneOpen, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+
+            <local:NavButton x:Name="TimeMachineButton"
+                             IconData="{StaticResource NavRestoreIcon}"
+                             Text="TimeMachine"
+                             AutomationProperties.Name="TimeMachine"
+                             NavigationTag="TimeMachine"
+                             IsCompact="{x:Bind IsCompact, Mode=OneWay}"
+                             Clicked="NavButton_Clicked"/>
 
             <local:NavButton x:Name="AdvancedToolsButton"
                              IconData="{StaticResource NavAdvancedToolsIcon}"
@@ -113,5 +135,4 @@
 
         </StackPanel>
     </Grid>
-    </Border>
 </UserControl>

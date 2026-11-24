@@ -8,8 +8,7 @@ using WinOptimizer.UI.Features.SoftwareApps.ViewModels;
 namespace WinOptimizer.UI.Features.SoftwareApps.Services;
 
 /// <summary>
-/// Bridges the WIM feature to the SoftwareApps feature by providing
-/// selected Windows apps without exposing the concrete ViewModel.
+/// Provides the current Windows app selection to Autounattend and the WIM workflow.
 /// </summary>
 public class SelectedAppsProvider : ISelectedAppsProvider
 {

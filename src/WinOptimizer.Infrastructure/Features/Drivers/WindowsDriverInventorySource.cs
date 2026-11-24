@@ -1,4 +1,5 @@
 using System.Text.Json;
+using System.Runtime.InteropServices;
 using WinOptimizer.Core.Features.Drivers.Interfaces;
 using WinOptimizer.Core.Features.Drivers.Models;
 
@@ -23,12 +24,21 @@ public sealed class WindowsDriverInventorySource(DriverPowerShell shell) : IDriv
         if (inventory.Devices is null || inventory.Packages is null || inventory.Notices is null ||
             inventory.Devices.Any(device => device is null || string.IsNullOrWhiteSpace(device.InstanceId) ||
                 device.Name is null || device.ClassName is null || device.Version is null || device.InfName is null ||
-                device.Date is null || device.HardwareIds is null || device.HardwareIds.Any(string.IsNullOrWhiteSpace)) ||
+                device.Date is null || device.HardwareIds is null || device.HardwareIds.Any(string.IsNullOrWhiteSpace) ||
+                device.CompatibleIds is null || device.CompatibleIds.Any(string.IsNullOrWhiteSpace)) ||
             inventory.Packages.Any(package => package is null || string.IsNullOrWhiteSpace(package.PublishedName) ||
                 package.OriginalName is null || package.Provider is null || package.ClassName is null || package.Version is null ||
                 package.Date is null || package.SizeBytes < 0) ||
             inventory.Notices.Any(notice => notice is null))
             throw new DriverScanException("Windows returned an incomplete device or driver inventory.");
-        return inventory;
+        var system = inventory.System;
+        var os = Environment.OSVersion.Version;
+        return inventory with { System = system with
+        {
+            Architecture = RuntimeInformation.OSArchitecture.ToString(),
+            Major = system.Major == 0 ? os.Major : system.Major,
+            Minor = system.Major == 0 ? os.Minor : system.Minor,
+            Build = system.Build == 0 ? os.Build : system.Build
+        } };
     }
 }

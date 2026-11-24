@@ -4,6 +4,11 @@ public static class ScriptPaths
 {
     public static readonly string ScriptsDirectory = AppDataPaths.Scripts;
 
+    /// <summary>Name used to register the Windows package removal task at sign-in.</summary>
+    public const string PackageRemovalTaskName = "BloatRemoval";
+    public const string PackageRemovalFileName = PackageRemovalTaskName + ".ps1";
+    public static readonly string PackageRemovalScript = Path.Combine(ScriptsDirectory, PackageRemovalFileName);
+
     /// <summary>Literal path for embedding in generated PowerShell scripts.</summary>
     public const string ScriptsDirectoryLiteral = @"$env:ProgramData\win-optimizer\Scripts";
 
@@ -12,7 +17,4 @@ public static class ScriptPaths
 
     /// <summary>Literal path for embedding in generated PowerShell scripts.</summary>
     public const string UnattendScriptPath = @"$env:ProgramData\win-optimizer\Unattend\Scripts\Optimizations.ps1";
-
-    /// <summary>Literal path for embedding in generated PowerShell scripts.</summary>
-    public const string PowerShellExePath = @"C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe";
 }

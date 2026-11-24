@@ -10,7 +10,7 @@
     <ScrollView x:Name="PageScrollView" Padding="0,12,16,12">
         <!-- Wrap StackPanel in Grid to avoid visual glitches with MaxWidth -->
         <Grid>
-        <StackPanel Spacing="8" HorizontalAlignment="Stretch">
+        <StackPanel Spacing="{StaticResource PageCardSpacing}" HorizontalAlignment="Stretch">
 
             <!-- Generate Autounattend XML Card -->
             <Grid>
@@ -40,8 +40,7 @@
                 Message="{x:Bind ViewModel.InfoBarMessage}"
                 Severity="Informational"
                 IsOpen="True"
-                IsClosable="False"
-                Margin="0,16,0,0"/>
+                IsClosable="False"/>
 
         </StackPanel>
         </Grid>

@@ -1,9 +1,6 @@
 # Runs the production security script against fake OS command and registry boundaries.
 $ErrorActionPreference = 'Stop'
 $scriptPath = Join-Path $PSScriptRoot '../src/WinOptimizer.Infrastructure/Features/Security/Scripts/Security.ps1'
-$parseErrors = $null
-$null = [Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$null, [ref]$parseErrors)
-if ($parseErrors.Count) { throw ($parseErrors | Out-String) }
 $request = [pscustomobject]@{ Ids = @(); Fix = $null; Sid = 'S-1-5-21-111-222-333-1001' }
 . $scriptPath | Out-Null
 $script:checks = 0

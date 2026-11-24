@@ -7,7 +7,8 @@ namespace WinOptimizer.Core.Features.Common.Interfaces;
 public interface IWindowsUIManagementService
 {
     bool IsProcessRunning(string processName);
-    void KillProcess(string processName);
+    /// <summary>Stops matching processes and optionally waits until the original processes exit.</summary>
+    void KillProcess(string processName, bool waitForExit = false);
     Task<OperationResult> RefreshWindowsGUI(bool killExplorer = true);
     void BroadcastRegionalSettingChange();
 }

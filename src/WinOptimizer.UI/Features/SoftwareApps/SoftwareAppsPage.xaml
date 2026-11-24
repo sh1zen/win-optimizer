@@ -14,16 +14,44 @@
     xmlns:vm="using:WinOptimizer.UI.Features.SoftwareApps.ViewModels"
     xmlns:softwareApps="using:WinOptimizer.UI.Features.SoftwareApps"
     xmlns:winOptimizerControls="using:WinOptimizer.UI.Features.Common.Controls"
-    xmlns:helpers="using:WinOptimizer.UI.Features.Common.Helpers"
     mc:Ignorable="d">
 
     <Page.Resources>
         <Style x:Key="InventoryTabButtonStyle" TargetType="Button">
             <Setter Property="HorizontalAlignment" Value="Stretch"/>
             <Setter Property="HorizontalContentAlignment" Value="Center"/>
-            <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Foreground" Value="{ThemeResource TextFillColorPrimaryBrush}"/>
             <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Padding" Value="12,10"/>
+            <Setter Property="CornerRadius" Value="{StaticResource ControlCornerRadius}"/>
+            <Setter Property="MinHeight" Value="44"/>
+            <Setter Property="Padding" Value="16,8,16,10"/>
+        </Style>
+        <Style x:Key="SelectedInventoryTabButtonStyle" TargetType="Button" BasedOn="{StaticResource InventoryTabButtonStyle}">
+            <Setter Property="Foreground" Value="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+        </Style>
+        <Style x:Key="InventoryTabIndicatorStyle" TargetType="Border">
+            <Setter Property="Background" Value="{ThemeResource AccentFillColorDefaultBrush}"/>
+            <Setter Property="Height" Value="2"/>
+            <Setter Property="VerticalAlignment" Value="Bottom"/>
+            <Setter Property="IsHitTestVisible" Value="False"/>
+        </Style>
+        <Style x:Key="InventoryToolbarButtonStyle" TargetType="Button">
+            <Setter Property="CornerRadius" Value="{StaticResource ControlCornerRadius}"/>
+            <Setter Property="MinHeight" Value="36"/>
+            <Setter Property="Padding" Value="12,6"/>
+        </Style>
+        <Style x:Key="InventoryViewButtonStyle" TargetType="ToggleButton">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="MinWidth" Value="43"/>
+            <Setter Property="MinHeight" Value="34"/>
+            <Setter Property="Padding" Value="8,5"/>
+        </Style>
+        <Style x:Key="InventorySelectionCheckBoxStyle" TargetType="CheckBox">
+            <Setter Property="CornerRadius" Value="3"/>
         </Style>
 
         <!-- Reserve the same scrollbar gutter and bottom inset for both inventories. -->
@@ -56,8 +84,7 @@
                • CompactIconSize / CompactFallbackFontSize        → Compact view
                  (Windows Apps + External Apps compact lists)
                • DataGridIconSize / DataGridFallbackFontSize → Table view
-               • CardViewIconSize / CardViewFallbackFontSize → Card view
-                 (defined further down)
+               • CardViewIconSize / CardViewAppsIconSize → Card view
              FontIcon size is the fallback glyph that shows when no real
              icon is resolved; sized to fill the icon cell (~ icon size)
              so fallbacks read at the same size as resolved icons.
@@ -79,10 +106,11 @@
         <x:Double x:Key="CompactAppsIconSize">22</x:Double>
         <x:Double x:Key="DataGridAppsIconSize">22</x:Double>
 
-        <!-- Card-view column breakpoint. A single column fills the viewport;
-             wider grids use this cell width and symmetric outer margins. -->
-        <x:Double x:Key="CardItemWidth">420</x:Double>
-        <!-- Compact-view cell width (fixed). Like CardItemWidth, the compact
+        <!-- Cards stretch to fill each row, down to this column breakpoint. -->
+        <x:Double x:Key="CardItemWidth">264</x:Double>
+        <x:Double x:Key="CardColumnSpacing">16</x:Double>
+        <x:Double x:Key="CardRowSpacing">14</x:Double>
+        <!-- Compact-view cell width (fixed). The compact
              ItemsControl + UniformWrapPanel renders every row at exactly this
              width and wraps when the next would overflow; the containing
              StackPanel is centred via a code-behind MaxWidth clamp so leftover
@@ -102,36 +130,13 @@
              ApplyTextScaling so higher text scale gets proportionally more
              room for the name. -->
         <x:Double x:Key="CompactNameMaxWidth">210</x:Double>
-        <x:Double x:Key="CardViewIconSize">36</x:Double>
-        <!-- FontIcon fallback glyph FontSize (puzzle for Capability, gear for
-             Optional Feature). Real card icons fill the 36×36 container; FontIcons
-             render ~70-75% of their FontSize as visible glyph, so 28 lands the
-             visible glyph at ~20px — comparable to the real-icon weight. -->
-        <x:Double x:Key="CardViewFallbackFontSize">28</x:Double>
-        <!-- FluentIcon "Apps" (color variant) needs more FontSize than the
-             FontIcons above because the colored variant has extra intrinsic
-             padding around its draw box (same gap that exists in Compact view
-             between CompactFallbackFontSize and CompactAppsIconSize). +10 keeps
-             visible Apps glyph weight in line with the puzzle/gear glyphs. -->
-        <x:Double x:Key="CardViewAppsIconSize">38</x:Double>
-        <CornerRadius x:Key="CardViewCornerRadius">14</CornerRadius>
-        <Thickness x:Key="CardViewPadding">12,10</Thickness>
+        <x:Double x:Key="CardViewIconSize">44</x:Double>
+        <x:Double x:Key="CardViewAppsIconSize">46</x:Double>
+        <CornerRadius x:Key="CardViewCornerRadius">12</CornerRadius>
+        <Thickness x:Key="CardViewPadding">18,10,12,10</Thickness>
 
-        <!-- Card view sizing. UniformWrapPanel forces every cell to CardCellHeight
-             so cards are uniform across rows. CardContentHeight sizes the inner
-             content area; the difference (~24px) is Border padding (10+10) plus
-             border thickness (1+1, or 2+2 when Checked).
-             Tuned so a 2-line description fits comfortably with the title row,
-             with a couple px of breathing room when only one line is rendered.
-             Title row ≈ 22px + 4px margin + 2-line desc ≈ 32px = 58px content. -->
-        <x:Double x:Key="CardContentHeight">84</x:Double>
-        <x:Double x:Key="CardCellHeight">108</x:Double>
-        <!-- Pill geometry. CornerRadius is set high enough to fully round the ends
-             at the rendered pill height (~18px), but kept finite so it clips
-             cleanly at HiDPI scales (CornerRadius=999 can render with subpixel
-             artefacts on the inner border). -->
-        <CornerRadius x:Key="CardPillCornerRadius">10</CornerRadius>
-        <Thickness x:Key="CardPillPadding">8,2</Thickness>
+        <!-- The panel grows every row when wrapping or text scaling needs more room. -->
+        <x:Double x:Key="CardCellHeight">78</x:Double>
 
         <!-- Card-view selection target. Wrapping the whole card in a templated
              ToggleButton is what makes "click anywhere on the card" reliably
@@ -153,8 +158,8 @@
                 <Setter.Value>
                     <ControlTemplate TargetType="ToggleButton">
                         <Border x:Name="CardBorder"
-                                Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
-                                BorderBrush="{ThemeResource CardStrokeColorDefaultBrush}"
+                                Background="{ThemeResource AppSurfaceBrush}"
+                                BorderBrush="{ThemeResource AppSurfaceStrokeBrush}"
                                 BorderThickness="1"
                                 CornerRadius="{StaticResource CardViewCornerRadius}"
                                 Padding="{StaticResource CardViewPadding}">
@@ -239,8 +244,18 @@
             </Setter>
         </Style>
 
-        <!-- First column header: left-rounded corners with select-all checkbox -->
-        <Style x:Key="FirstColumnHeaderStyle" TargetType="primitives:DataGridColumnHeader">
+        <Style x:Key="SelectionColumnHeaderStyle" TargetType="primitives:DataGridColumnHeader">
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="primitives:DataGridColumnHeader">
+                        <Border Background="{ThemeResource CardBackgroundFillColorDefaultBrush}"
+                                CornerRadius="4,0,0,4"/>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="SelectAllColumnHeaderStyle" TargetType="primitives:DataGridColumnHeader">
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="primitives:DataGridColumnHeader">
@@ -577,26 +592,23 @@
             <ToggleButton IsChecked="{x:Bind IsSelected, Mode=TwoWay}"
                           Style="{StaticResource CardToggleButtonStyle}"
                           AutomationProperties.Name="{x:Bind Name}">
-                <!-- MinHeight (not Height) so the inner content can grow past
-                     the default 84dp when Windows' "Make text bigger" scale is
-                     applied; UniformWrapPanel treats its ItemHeight as a floor
-                     too, so the surrounding cell grows in lockstep. At 100%
-                     text scale every card stays at the original 84dp/108dp. -->
-                <Grid ColumnSpacing="12" MinHeight="{StaticResource CardContentHeight}">
+                <Grid ColumnSpacing="12">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="Auto"/>
-                        <ColumnDefinition Width="Auto"/>
                         <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
 
-                    <CheckBox Grid.Column="0"
+                    <CheckBox Grid.Column="2"
+                              Style="{StaticResource InventorySelectionCheckBoxStyle}"
                               IsChecked="{x:Bind IsSelected, Mode=OneWay}"
                               IsHitTestVisible="False"
                               IsTabStop="False"
-                              MinWidth="0"
-                              VerticalAlignment="Center"/>
+                              MinWidth="20"
+                              Padding="0"
+                              VerticalAlignment="Top"/>
 
-                    <Grid Grid.Column="1"
+                    <Grid
                           Width="{StaticResource CardViewIconSize}"
                           Height="{StaticResource CardViewIconSize}"
                           VerticalAlignment="Center">
@@ -614,9 +626,7 @@
                                                 Visibility="{x:Bind IsOptionalFeatureFallback, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
                     </Grid>
 
-                    <!-- Content: name, description and a separate status-badge row,
-                         matching the Optimize/Customize card layout. -->
-                    <Grid Grid.Column="2" VerticalAlignment="Center" MinWidth="0">
+                    <Grid Grid.Column="1" VerticalAlignment="Center" MinWidth="0">
                         <Grid.RowDefinitions>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
@@ -632,8 +642,9 @@
                             <TextBlock Grid.Column="0"
                                        Text="{x:Bind Name}"
                                        FontWeight="SemiBold"
-                                       FontSize="14"
+                                       FontSize="15"
                                        TextTrimming="CharacterEllipsis"
+                                       ToolTipService.ToolTip="{x:Bind Name}"
                                        Margin="0,0,6,0"
                                        VerticalAlignment="Center"/>
                             <winOptimizerControls:WebsiteLinkButton Grid.Column="1"
@@ -643,28 +654,24 @@
                         <!-- Row 1: description -->
                         <TextBlock Grid.Row="1"
                                    Text="{x:Bind Description}"
-                                   FontSize="12"
+                                   FontSize="13"
                                    Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                                    TextWrapping="Wrap"
                                    TextTrimming="CharacterEllipsis"
                                    MaxLines="2"
+                                   ToolTipService.ToolTip="{x:Bind Description}"
                                    Margin="0,2,0,0"
                                    Visibility="{x:Bind HasDescription, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
 
-                        <!-- Row 2: status badges. StackPanel.Spacing only applies
-                             between visible children, so collapsed pills leave no gap. -->
-                        <StackPanel Grid.Row="2" Orientation="Horizontal" Spacing="6" Margin="0,6,0,0">
-                            <Border Style="{StaticResource BadgeInstalledStyle}"
-                                    Visibility="{x:Bind IsInstalled, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}" ToolTipService.ToolTip="{x:Bind InstalledStatusTooltip, Mode=OneWay}">
-                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                    <Viewbox Width="18" Height="18" Margin="0,0,4,2" VerticalAlignment="Center">
-                                        <fluentIcons:FluentIcon Icon="CheckmarkCircle" IconVariant="Color" />
-                                    </Viewbox>
-                                    <TextBlock Text="{x:Bind InstalledStatusText, Mode=OneWay}"
-                                               Style="{StaticResource BadgeTextStyle}"
-                                               Foreground="{ThemeResource BadgeRecommendedForeground}"/>
-                                </StackPanel>
-                            </Border>
+                        <toolkit:WrapPanel Grid.Row="2" HorizontalSpacing="6" VerticalSpacing="4" Margin="0,4,0,0">
+                            <StackPanel Orientation="Horizontal" Spacing="6" VerticalAlignment="Center"
+                                        Visibility="{x:Bind ShowNonReinstallableChip, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                        ToolTipService.ToolTip="{x:Bind ReinstallableStatusTooltip, Mode=OneWay}">
+                                <fluentIcons:FluentIcon Icon="LockClosed" IconVariant="Regular" FontSize="14"/>
+                                <TextBlock Text="{x:Bind ReinstallableStatusText, Mode=OneWay}" FontSize="12"
+                                           VerticalAlignment="Center"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            </StackPanel>
                             <Border Style="{StaticResource BadgeWarningStyle}"
                                     Visibility="{x:Bind IsInactive, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}" ToolTipService.ToolTip="{x:Bind InstalledStatusTooltip, Mode=OneWay}">
                                 <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
@@ -674,18 +681,6 @@
                                     <TextBlock Text="{x:Bind InstalledStatusText, Mode=OneWay}"
                                                Style="{StaticResource BadgeTextStyle}"
                                                Foreground="{ThemeResource BadgeCustomForeground}"/>
-                                </StackPanel>
-                            </Border>
-                            <Border Style="{StaticResource BadgeNonReinstallableStyle}"
-                                    Visibility="{x:Bind ShowNonReinstallableChip, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
-                                    ToolTipService.ToolTip="{x:Bind ReinstallableStatusTooltip, Mode=OneWay}">
-                                <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                    <Viewbox Width="18" Height="18" Margin="0,0,4,2" VerticalAlignment="Center">
-                                        <fluentIcons:FluentIcon Icon="Flag" IconVariant="Color" />
-                                    </Viewbox>
-                                    <TextBlock Text="{x:Bind ReinstallableStatusText, Mode=OneWay}"
-                                               Style="{StaticResource BadgeTextStyle}"
-                                               Foreground="{ThemeResource BadgeDangerForeground}"/>
                                 </StackPanel>
                             </Border>
                             <Border Style="{StaticResource BadgeWarningStyle}"
@@ -700,86 +695,36 @@
                                                Foreground="{ThemeResource BadgeCustomForeground}"/>
                                 </StackPanel>
                             </Border>
-                        </StackPanel>
+                        </toolkit:WrapPanel>
                     </Grid>
                 </Grid>
             </ToggleButton>
         </DataTemplate>
     </Page.Resources>
 
-    <Grid>
+    <Grid Padding="0,4,0,0">
         <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>  <!-- Header -->
-            <RowDefinition Height="Auto"/>  <!-- Action Bar -->
-            <RowDefinition Height="*"/>     <!-- Content -->
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
         </Grid.RowDefinitions>
 
-        <winOptimizerControls:PageHeader Grid.Row="0"
-            Title="{x:Bind ViewModel.PageTitle}"
-            Description="{x:Bind ViewModel.PageDescription}"
-            Icon="Apps"/>
-
-        <!-- Narrow layouts place actions below the filter so they can use the full width. -->
-        <Grid x:Name="SoftwareAppsActionBar" Grid.Row="1" Margin="0,24,0,16"
-              HorizontalAlignment="Stretch" ColumnSpacing="16" MinHeight="40"
-              SizeChanged="SoftwareAppsActionBar_SizeChanged">
-            <Grid.RowDefinitions>
-                <RowDefinition Height="Auto"/>
-                <RowDefinition Height="Auto"/>
-            </Grid.RowDefinitions>
+        <Grid ColumnSpacing="16" Margin="0,0,0,12">
             <Grid.ColumnDefinitions>
-                <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
-            <Grid x:Name="InstalledAppsFilter" VerticalAlignment="Center" HorizontalAlignment="Left" ColumnSpacing="8"
-                  Visibility="{x:Bind ViewModel.IsWindowsAppsTabSelected, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
-                  ToolTipService.ToolTip="{x:Bind ViewModel.WindowsAppsViewModel.ShowHiddenInstalledAppsTooltip, Mode=OneWay}">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="Auto"/>
-                    <ColumnDefinition Width="*"/>
-                </Grid.ColumnDefinitions>
-                <ToggleSwitch x:Name="ShowHiddenInstalledAppsToggle"
-                              AutomationProperties.Name="{x:Bind ViewModel.WindowsAppsViewModel.ShowHiddenInstalledAppsLabel, Mode=OneWay}"
-                              IsOn="{x:Bind ViewModel.WindowsAppsViewModel.ShowHiddenInstalledApps, Mode=TwoWay}"
-                              OnContent="" OffContent="" MinWidth="0" VerticalAlignment="Center"/>
-                <TextBlock Grid.Column="1" VerticalAlignment="Center" TextWrapping="Wrap"
-                           Text="{x:Bind ViewModel.WindowsAppsViewModel.ShowHiddenInstalledAppsLabel, Mode=OneWay}"/>
-            </Grid>
-            <toolkit:WrapPanel x:Name="SoftwareAppsActions" Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Center"
-                               HorizontalSpacing="8" VerticalSpacing="8">
-                <AutoSuggestBox x:Name="AppSearchBox"
-                    Width="260" VerticalAlignment="Center"
-                    PlaceholderText="{x:Bind ViewModel.SearchPlaceholder}"
-                    AutomationProperties.Name="{x:Bind ViewModel.SearchPlaceholder}"
-                    helpers:AutoSuggestBoxExtensions.PlaceholderEllipsis="True"
-                    QueryIcon="Find"
-                    Text="{x:Bind ViewModel.SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
-                <!-- Normal mode: Remove Button -->
-                <Button Command="{x:Bind ViewModel.RemoveSelectedItemsCommand}"
-                        IsEnabled="{x:Bind ViewModel.CanRemoveItems, Mode=OneWay}"
-                        AutomationProperties.Name="{x:Bind ViewModel.RemoveButtonText, Mode=OneWay}"
-                        Visibility="{x:Bind ViewModel.IsInReviewMode, Mode=OneWay, Converter={StaticResource InverseBooleanToVisibilityConverter}}">
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <fluentIcons:FluentIcon Icon="Delete" IconVariant="Regular" FontSize="18"/>
-                        <TextBlock Text="{x:Bind ViewModel.RemoveButtonText, Mode=OneWay}"/>
-                    </StackPanel>
-                </Button>
-                <!-- Review mode: Remove action toggle -->
-                <ToggleButton x:Name="RemoveActionToggle"
-                              Visibility="{x:Bind ViewModel.IsInReviewMode, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
-                              IsChecked="{x:Bind ViewModel.CurrentRemoveAction, Mode=TwoWay}"
-                              AutomationProperties.Name="{x:Bind ViewModel.RemoveButtonText, Mode=OneWay}"
-                              Padding="10,6,12,6">
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <fluentIcons:FluentIcon Icon="Delete" IconVariant="Regular" FontSize="18"/>
-                        <TextBlock Text="{x:Bind ViewModel.RemoveButtonText, Mode=OneWay}"/>
-                    </StackPanel>
-                </ToggleButton>
-                <Button Command="{x:Bind ViewModel.ReviewUninstallBackupsCommand}" AutomationProperties.Name="{x:Bind ViewModel.UninstallBackupsText, Mode=OneWay}"
+            <StackPanel Spacing="2">
+                <TextBlock Text="{x:Bind ViewModel.PageTitle}" FontSize="34" FontWeight="Bold"
+                           TextWrapping="Wrap" AutomationProperties.HeadingLevel="Level1"/>
+                <TextBlock Text="{x:Bind ViewModel.PageDescription}" FontSize="16" TextWrapping="Wrap"
+                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+            </StackPanel>
+            <StackPanel Grid.Column="1" Orientation="Horizontal" Spacing="12" VerticalAlignment="Center">
+                <Button Style="{StaticResource InventoryToolbarButtonStyle}" Command="{x:Bind ViewModel.ReviewUninstallBackupsCommand}" AutomationProperties.Name="{x:Bind ViewModel.UninstallBackupsText, Mode=OneWay}"
                         ToolTipService.ToolTip="{x:Bind ViewModel.UninstallBackupsText, Mode=OneWay}">
                     <fluentIcons:FluentIcon Icon="History" IconVariant="Regular" FontSize="18"/>
                 </Button>
-                <Button Command="{x:Bind ViewModel.RefreshInstallationStatusCommand}"
+                <Button Style="{StaticResource InventoryToolbarButtonStyle}" Command="{x:Bind ViewModel.RefreshInstallationStatusCommand}"
                         AutomationProperties.Name="{x:Bind ViewModel.RefreshButtonText}">
                     <Button.KeyboardAccelerators>
                         <KeyboardAccelerator Key="F5"/>
@@ -789,131 +734,43 @@
                         <TextBlock Text="{x:Bind ViewModel.RefreshButtonText}"/>
                     </StackPanel>
                 </Button>
-                <!-- View Mode Toggle -->
-                <Border Style="{StaticResource SegmentedSurfaceStyle}"
-                        Visibility="{x:Bind ViewModel.IsInventoryTabSelected, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
-                    <StackPanel Orientation="Horizontal" Spacing="2">
-                        <ToggleButton x:Name="CardViewToggle"
-                                      IsChecked="{x:Bind ViewModel.IsCardView, Mode=OneWay}"
-                                      Click="CardViewToggle_Click"
-                                      ToolTipService.ToolTip="{x:Bind ViewModel.ViewModeCardTooltip}"
-                                      AutomationProperties.Name="{x:Bind ViewModel.ViewModeCardTooltip}"
-                                      Background="Transparent"
-                                      BorderThickness="0"
-                                      Padding="10,6">
-                            <fluentIcons:FluentIcon Icon="Grid" IconVariant="Regular" FontSize="18"/>
-                        </ToggleButton>
-                        <ToggleButton x:Name="TableViewToggle"
-                                      IsChecked="{x:Bind ViewModel.IsTableView, Mode=OneWay}"
-                                      Click="TableViewToggle_Click"
-                                      ToolTipService.ToolTip="{x:Bind ViewModel.ViewModeTableTooltip}"
-                                      AutomationProperties.Name="{x:Bind ViewModel.ViewModeTableTooltip}"
-                                      Background="Transparent"
-                                      BorderThickness="0"
-                                      Padding="10,6">
-                            <fluentIcons:FluentIcon Icon="TableSimple" IconVariant="Regular" FontSize="18"/>
-                        </ToggleButton>
-                        <ToggleButton x:Name="CompactViewToggle"
-                                      IsChecked="{x:Bind ViewModel.IsCompactView, Mode=OneWay}"
-                                      Click="CompactViewToggle_Click"
-                                      ToolTipService.ToolTip="{x:Bind ViewModel.ViewModeCompactTooltip}"
-                                      AutomationProperties.Name="{x:Bind ViewModel.ViewModeCompactTooltip}"
-                                      Background="Transparent"
-                                      BorderThickness="0"
-                                      Padding="10,6">
-                            <fluentIcons:FluentIcon Icon="LineHorizontal3" IconVariant="Regular" FontSize="18"/>
-                        </ToggleButton>
-                    </StackPanel>
-                </Border>
-                <DropDownButton x:Name="SortButton"
-                                Visibility="{x:Bind ViewModel.IsInventoryTabSelected, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
-                                AutomationProperties.Name="{x:Bind ViewModel.SortButtonText, Mode=OneWay}"
-                                ToolTipService.ToolTip="{x:Bind ViewModel.SortButtonText, Mode=OneWay}">
-                    <StackPanel Orientation="Horizontal" Spacing="8">
-                        <FontIcon Glyph="&#xE8CB;" FontSize="16"/>
-                        <TextBlock Text="{x:Bind ViewModel.SortButtonText, Mode=OneWay}"/>
-                    </StackPanel>
-                    <DropDownButton.Resources>
-                            <RadioMenuFlyoutItem x:Key="SortGroupAscMenuItem" x:Name="SortGroupAscMenuItem" GroupName="SortMode"
-                                                 Text="{x:Bind ViewModel.SortGroupAscText, Mode=OneWay}"
-                                                 IsChecked="{x:Bind ViewModel.IsSortGroupAsc, Mode=OneWay}"
-                                                 Click="SortGroupAsc_Click"/>
-                            <RadioMenuFlyoutItem x:Key="SortNameAscendingMenuItem" x:Name="SortNameAscendingMenuItem" GroupName="SortMode"
-                                                 Text="{x:Bind ViewModel.SortNameAscText, Mode=OneWay}"
-                                                 IsChecked="{x:Bind ViewModel.IsSortNameAsc, Mode=OneWay}"
-                                                 Click="SortNameAsc_Click"/>
-                            <RadioMenuFlyoutItem x:Key="SortInstallationDateMenuItem" x:Name="SortInstallationDateMenuItem" GroupName="SortMode"
-                                                 Text="{x:Bind ViewModel.SortInstallationDateText, Mode=OneWay}"
-                                                 IsChecked="{x:Bind ViewModel.IsSortInstallationDate, Mode=OneWay}"
-                                                 Click="SortInstallationDate_Click"/>
-                            <RadioMenuFlyoutItem x:Key="SortSizeMenuItem" x:Name="SortSizeMenuItem" GroupName="SortMode"
-                                                 Text="{x:Bind ViewModel.SortSizeText, Mode=OneWay}"
-                                                 IsChecked="{x:Bind ViewModel.IsSortSize, Mode=OneWay}"
-                                                 Click="SortSize_Click"/>
-                            <RadioMenuFlyoutItem x:Key="SortLastUsageTimeMenuItem" x:Name="SortLastUsageTimeMenuItem" GroupName="SortMode"
-                                                 Text="{x:Bind ViewModel.SortLastUsageTimeText, Mode=OneWay}"
-                                                 IsChecked="{x:Bind ViewModel.IsSortLastUsageTime, Mode=OneWay}"
-                                                 Click="SortLastUsageTime_Click"/>
-                        </DropDownButton.Resources>
-                </DropDownButton>
-            </toolkit:WrapPanel>
+            </StackPanel>
         </Grid>
 
-        <Grid Grid.Row="2" RowSpacing="10" Margin="0,0,0,12">
+        <Grid Grid.Row="1" Margin="0,0,0,12">
             <Grid.RowDefinitions>
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="Auto"/>
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
-            <Border Style="{StaticResource SegmentedSurfaceStyle}">
-                <Grid ColumnSpacing="3">
-                    <VisualStateManager.VisualStateGroups>
-                        <VisualStateGroup>
-                            <VisualState x:Name="WindowsAppsSelected">
-                                <VisualState.StateTriggers>
-                                    <StateTrigger IsActive="{x:Bind ViewModel.IsWindowsAppsTabSelected, Mode=OneWay}"/>
-                                </VisualState.StateTriggers>
-                                <VisualState.Setters>
-                                    <Setter Target="WindowsAppsTab.Background" Value="{ThemeResource AccentSelectionBackgroundBrush}"/>
-                                    <Setter Target="WindowsAppsTab.Foreground" Value="{ThemeResource AccentSelectionForegroundBrush}"/>
-                                </VisualState.Setters>
-                            </VisualState>
-                            <VisualState x:Name="ExternalAppsSelected">
-                                <VisualState.StateTriggers>
-                                    <StateTrigger IsActive="{x:Bind ViewModel.IsExternalAppsTabSelected, Mode=OneWay}"/>
-                                </VisualState.StateTriggers>
-                                <VisualState.Setters>
-                                    <Setter Target="ExternalAppsTab.Background" Value="{ThemeResource AccentSelectionBackgroundBrush}"/>
-                                    <Setter Target="ExternalAppsTab.Foreground" Value="{ThemeResource AccentSelectionForegroundBrush}"/>
-                                </VisualState.Setters>
-                            </VisualState>
-                            <VisualState x:Name="LeftoverSelected">
-                                <VisualState.StateTriggers>
-                                    <StateTrigger IsActive="{x:Bind ViewModel.IsLeftoverTabSelected, Mode=OneWay}"/>
-                                </VisualState.StateTriggers>
-                                <VisualState.Setters>
-                                    <Setter Target="LeftoverTab.Background" Value="{ThemeResource AccentSelectionBackgroundBrush}"/>
-                                    <Setter Target="LeftoverTab.Foreground" Value="{ThemeResource AccentSelectionForegroundBrush}"/>
-                                </VisualState.Setters>
-                            </VisualState>
-                        </VisualStateGroup>
-                    </VisualStateManager.VisualStateGroups>
+            <Grid x:Name="InventoryTabsHost" SizeChanged="InventoryTabsHost_SizeChanged">
+                <Border Height="1" VerticalAlignment="Bottom" Background="{ThemeResource AppSurfaceStrokeBrush}"/>
+                <Grid x:Name="InventoryTabs" HorizontalAlignment="Left" ColumnSpacing="12">
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="*"/>
-                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="Auto"/>
                     </Grid.ColumnDefinitions>
 
                     <Grid Grid.Column="0">
-                        <Button x:Name="WindowsAppsTab" Style="{StaticResource InventoryTabButtonStyle}"
+                        <Button x:Name="WindowsAppsTab" Style="{x:Bind GetInventoryTabStyle(ViewModel.IsWindowsAppsTabSelected), Mode=OneWay}"
                                 Command="{x:Bind ViewModel.SelectWindowsAppsTabCommand}"
                                 AutomationProperties.Name="{x:Bind ViewModel.WindowsAppsTabText, Mode=OneWay}">
-                            <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Grid ColumnSpacing="10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
                                 <Viewbox Width="18" Height="18">
                                     <PathIcon Data="{StaticResource WindowsLogoIconPath}"/>
                                 </Viewbox>
-                                <TextBlock Text="{x:Bind ViewModel.WindowsAppsTabText, Mode=OneWay}" VerticalAlignment="Center"/>
-                            </StackPanel>
+                                <TextBlock Grid.Column="1" Text="{x:Bind ViewModel.WindowsAppsTabText}"
+                                           VerticalAlignment="Center" TextWrapping="Wrap"/>
+                            </Grid>
                         </Button>
+                        <Border x:Name="WindowsAppsTabIndicator" Style="{StaticResource InventoryTabIndicatorStyle}"
+                                Visibility="{x:Bind ViewModel.IsWindowsAppsTabSelected, Converter={StaticResource BooleanToVisibilityConverter}}"/>
                         <InfoBadge x:Name="WindowsAppsTabBadge"
                                    Value="{x:Bind ViewModel.WindowsAppsSelectedCount, Mode=OneWay}"
                                    HorizontalAlignment="Right" VerticalAlignment="Top"
@@ -921,17 +778,24 @@
                     </Grid>
 
                     <Grid Grid.Column="1">
-                        <Button x:Name="ExternalAppsTab" Style="{StaticResource InventoryTabButtonStyle}"
+                        <Button x:Name="ExternalAppsTab" Style="{x:Bind GetInventoryTabStyle(ViewModel.IsExternalAppsTabSelected), Mode=OneWay}"
                                 Command="{x:Bind ViewModel.SelectExternalAppsTabCommand}"
                                 IsEnabled="{x:Bind ViewModel.IsExternalAppsTabEnabled, Mode=OneWay}"
                                 AutomationProperties.Name="{x:Bind ViewModel.ExternalAppsTabText, Mode=OneWay}">
-                            <StackPanel Orientation="Horizontal" Spacing="8">
+                            <Grid ColumnSpacing="10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
                                 <Viewbox Width="18" Height="18">
                                     <PathIcon Data="{StaticResource ExternalAppsIconPath}"/>
                                 </Viewbox>
-                                <TextBlock Text="{x:Bind ViewModel.ExternalAppsTabText, Mode=OneWay}" VerticalAlignment="Center"/>
-                            </StackPanel>
+                                <TextBlock Grid.Column="1" Text="{x:Bind ViewModel.ExternalAppsTabText}"
+                                           VerticalAlignment="Center" TextWrapping="Wrap"/>
+                            </Grid>
                         </Button>
+                        <Border x:Name="ExternalAppsTabIndicator" Style="{StaticResource InventoryTabIndicatorStyle}"
+                                Visibility="{x:Bind ViewModel.IsExternalAppsTabSelected, Converter={StaticResource BooleanToVisibilityConverter}}"/>
                         <InfoBadge x:Name="ExternalAppsTabBadge"
                                    Value="{x:Bind ViewModel.ExternalAppsSelectedCount, Mode=OneWay}"
                                    HorizontalAlignment="Right" VerticalAlignment="Top"
@@ -944,20 +808,176 @@
                     </Grid>
 
                     <Grid Grid.Column="2">
-                        <Button x:Name="LeftoverTab" Style="{StaticResource InventoryTabButtonStyle}"
+                        <Button x:Name="LeftoverTab" Style="{x:Bind GetInventoryTabStyle(ViewModel.IsLeftoverTabSelected), Mode=OneWay}"
                                 Command="{x:Bind ViewModel.SelectLeftoverTabCommand}"
                                 IsEnabled="{x:Bind ViewModel.IsLeftoverTabEnabled, Mode=OneWay}"
                                 AutomationProperties.Name="{x:Bind ViewModel.LeftoverTabText, Mode=OneWay}">
-                            <StackPanel Orientation="Horizontal" Spacing="8">
-                                <FontIcon Glyph="&#xE7AC;" FontSize="18"/>
-                                <TextBlock Text="{x:Bind ViewModel.LeftoverTabText, Mode=OneWay}" VerticalAlignment="Center"/>
-                            </StackPanel>
+                            <Grid ColumnSpacing="10">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/>
+                                    <ColumnDefinition Width="*"/>
+                                </Grid.ColumnDefinitions>
+                                <fluentIcons:FluentIcon Icon="Delete" IconVariant="Regular" FontSize="18"/>
+                                <TextBlock Grid.Column="1" Text="{x:Bind ViewModel.LeftoverTabText}"
+                                           VerticalAlignment="Center" TextWrapping="Wrap"/>
+                            </Grid>
                         </Button>
+                        <Border x:Name="LeftoverTabIndicator" Style="{StaticResource InventoryTabIndicatorStyle}"
+                                Visibility="{x:Bind ViewModel.IsLeftoverTabSelected, Converter={StaticResource BooleanToVisibilityConverter}}"/>
                     </Grid>
                 </Grid>
-            </Border>
+            </Grid>
 
-            <Border Grid.Row="1" Style="{StaticResource PageSurfaceStyle}" Padding="12,10,12,0">
+
+            <Grid x:Name="SoftwareAppsActionBar" Grid.Row="1" ColumnSpacing="24" Margin="0,18,0,20"
+                  SizeChanged="SoftwareAppsActionBar_SizeChanged">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <Grid x:Name="AppSearchGroup" VerticalAlignment="Center">
+                    <TextBox x:Name="AppSearchBox"
+                             PlaceholderText="{x:Bind ViewModel.SearchPlaceholder}"
+                             AutomationProperties.Name="{x:Bind ViewModel.SearchLabel}"
+                             Text="{x:Bind ViewModel.SearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
+                             InputScope="Search" MinHeight="36" Padding="40,6,10,6"
+                             CornerRadius="{StaticResource ControlCornerRadius}"/>
+                    <fluentIcons:FluentIcon Icon="Search" IconVariant="Regular" FontSize="16"
+                                            HorizontalAlignment="Left" VerticalAlignment="Center"
+                                            IsHitTestVisible="False" Margin="15,0,0,0"
+                                            Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </Grid>
+                <toolkit:WrapPanel x:Name="InventoryFilters" Grid.Column="1" VerticalAlignment="Center"
+                                   HorizontalSpacing="20" VerticalSpacing="8"
+                                   Visibility="{x:Bind ViewModel.IsInventoryTabSelected, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <ToggleButton x:Name="ShowHiddenInstalledAppsToggle"
+                                  Width="36" Height="36" Padding="0" VerticalAlignment="Center"
+                                  HorizontalContentAlignment="Center" VerticalContentAlignment="Center"
+                                  CornerRadius="{StaticResource ControlCornerRadius}"
+                                  Visibility="{x:Bind ViewModel.IsWindowsAppsTabSelected, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                  AutomationProperties.Name="{x:Bind ViewModel.WindowsAppsViewModel.ShowHiddenInstalledAppsLabel}"
+                                  ToolTipService.ToolTip="{x:Bind ViewModel.WindowsAppsViewModel.ShowHiddenInstalledAppsTooltip}"
+                                  IsChecked="{x:Bind ViewModel.WindowsAppsViewModel.ShowHiddenInstalledApps, Mode=TwoWay}">
+                        <fluentIcons:FluentIcon Icon="{x:Bind GetHiddenAppsIcon(ViewModel.WindowsAppsViewModel.ShowHiddenInstalledApps)}"
+                                                IconVariant="Regular" FontSize="18" AutomationProperties.AccessibilityView="Raw"/>
+                    </ToggleButton>
+                    <DropDownButton x:Name="SortButton" MinHeight="36" MinWidth="120"
+                                    CornerRadius="{StaticResource ControlCornerRadius}"
+                                    Visibility="{x:Bind ViewModel.IsInventoryTabSelected, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                    AutomationProperties.Name="{x:Bind ViewModel.SortButtonText, Mode=OneWay}"
+                                    ToolTipService.ToolTip="{x:Bind ViewModel.SortButtonText, Mode=OneWay}">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <FontIcon Glyph="&#xE8CB;" FontSize="16"/>
+                            <TextBlock x:Name="SortButtonLabel" Text="{x:Bind ViewModel.SortButtonText, Mode=OneWay}"/>
+                        </StackPanel>
+                        <DropDownButton.Resources>
+                                <RadioMenuFlyoutItem x:Key="SortGroupAscMenuItem" x:Name="SortGroupAscMenuItem" GroupName="SortMode"
+                                                     Text="{x:Bind ViewModel.SortGroupAscText, Mode=OneWay}"
+                                                     IsChecked="{x:Bind ViewModel.IsSortGroupAsc, Mode=OneWay}"
+                                                     Click="SortGroupAsc_Click"/>
+                                <RadioMenuFlyoutItem x:Key="SortNameAscendingMenuItem" x:Name="SortNameAscendingMenuItem" GroupName="SortMode"
+                                                     Text="{x:Bind ViewModel.SortNameAscText, Mode=OneWay}"
+                                                     IsChecked="{x:Bind ViewModel.IsSortNameAsc, Mode=OneWay}"
+                                                     Click="SortNameAsc_Click"/>
+                                <RadioMenuFlyoutItem x:Key="SortInstallationDateMenuItem" x:Name="SortInstallationDateMenuItem" GroupName="SortMode"
+                                                     Text="{x:Bind ViewModel.SortInstallationDateText, Mode=OneWay}"
+                                                     IsChecked="{x:Bind ViewModel.IsSortInstallationDate, Mode=OneWay}"
+                                                     Click="SortInstallationDate_Click"/>
+                                <RadioMenuFlyoutItem x:Key="SortSizeMenuItem" x:Name="SortSizeMenuItem" GroupName="SortMode"
+                                                     Text="{x:Bind ViewModel.SortSizeText, Mode=OneWay}"
+                                                     IsChecked="{x:Bind ViewModel.IsSortSize, Mode=OneWay}"
+                                                     Click="SortSize_Click"/>
+                                <RadioMenuFlyoutItem x:Key="SortLastUsageTimeMenuItem" x:Name="SortLastUsageTimeMenuItem" GroupName="SortMode"
+                                                     Text="{x:Bind ViewModel.SortLastUsageTimeText, Mode=OneWay}"
+                                                     IsChecked="{x:Bind ViewModel.IsSortLastUsageTime, Mode=OneWay}"
+                                                     Click="SortLastUsageTime_Click"/>
+                            </DropDownButton.Resources>
+                    </DropDownButton>
+                    <!-- View Mode Toggle -->
+                    <Border Background="{ThemeResource AppSurfaceBrush}" BorderBrush="{ThemeResource AppSurfaceStrokeBrush}"
+                            BorderThickness="1" CornerRadius="{StaticResource ControlCornerRadius}"
+                            Visibility="{x:Bind ViewModel.IsInventoryTabSelected, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <StackPanel Orientation="Horizontal">
+                            <ToggleButton x:Name="CardViewToggle"
+                                          IsChecked="{x:Bind ViewModel.IsCardView, Mode=OneWay}"
+                                          Click="CardViewToggle_Click"
+                                          ToolTipService.ToolTip="{x:Bind ViewModel.ViewModeCardTooltip}"
+                                          AutomationProperties.Name="{x:Bind ViewModel.ViewModeCardTooltip}"
+                                          Style="{StaticResource InventoryViewButtonStyle}">
+                                <fluentIcons:FluentIcon Icon="Grid" IconVariant="Regular" FontSize="18"/>
+                            </ToggleButton>
+                            <ToggleButton x:Name="TableViewToggle"
+                                          IsChecked="{x:Bind ViewModel.IsTableView, Mode=OneWay}"
+                                          Click="TableViewToggle_Click"
+                                          ToolTipService.ToolTip="{x:Bind ViewModel.ViewModeTableTooltip}"
+                                          AutomationProperties.Name="{x:Bind ViewModel.ViewModeTableTooltip}"
+                                          Style="{StaticResource InventoryViewButtonStyle}">
+                                <fluentIcons:FluentIcon Icon="TableSimple" IconVariant="Regular" FontSize="18"/>
+                            </ToggleButton>
+                            <ToggleButton x:Name="CompactViewToggle"
+                                          IsChecked="{x:Bind ViewModel.IsCompactView, Mode=OneWay}"
+                                          Click="CompactViewToggle_Click"
+                                          ToolTipService.ToolTip="{x:Bind ViewModel.ViewModeCompactTooltip}"
+                                          AutomationProperties.Name="{x:Bind ViewModel.ViewModeCompactTooltip}"
+                                          Style="{StaticResource InventoryViewButtonStyle}">
+                                <fluentIcons:FluentIcon Icon="LineHorizontal3" IconVariant="Regular" FontSize="18"/>
+                            </ToggleButton>
+                        </StackPanel>
+                    </Border>
+                </toolkit:WrapPanel>
+            </Grid>
+
+            <Grid Grid.Row="2" ColumnSpacing="12" RowSpacing="4" Margin="0,0,0,14">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="InstalledAppsHeading" Text="{x:Bind ViewModel.WindowsAppsViewModel.SectionAppsHeader}"
+                           Style="{StaticResource SubtitleTextBlockStyle}" FontWeight="SemiBold" TextWrapping="Wrap"
+                           AutomationProperties.HeadingLevel="Level2" VerticalAlignment="Center"
+                           Visibility="{x:Bind ViewModel.IsWindowsAppsTabSelected, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                <toolkit:WrapPanel x:Name="InventorySelectionActions" Grid.Column="1"
+                                   HorizontalAlignment="Right" VerticalAlignment="Center"
+                                   HorizontalSpacing="16" VerticalSpacing="8">
+                    <CheckBox x:Name="SelectAllWindowsApps" MinWidth="0" VerticalAlignment="Center"
+                              Style="{StaticResource InventorySelectionCheckBoxStyle}"
+                              Content="{x:Bind ViewModel.WindowsAppsViewModel.SelectAllLabel}"
+                              Visibility="{x:Bind ViewModel.IsWindowsAppsTabSelected, Converter={StaticResource BooleanToVisibilityConverter}}"
+                              IsChecked="{x:Bind ViewModel.WindowsAppsViewModel.AreAllVisibleAppsSelected}"
+                              Command="{x:Bind ViewModel.WindowsAppsViewModel.ToggleSelectAllVisibleAppsCommand}"/>
+                    <Button x:Name="UninstallSelectedButton" Style="{StaticResource InventoryToolbarButtonStyle}"
+                            Command="{x:Bind ViewModel.RemoveSelectedItemsCommand}"
+                            IsEnabled="{x:Bind ViewModel.CanRemoveItems, Mode=OneWay}"
+                            AutomationProperties.Name="{x:Bind ViewModel.RemoveButtonText, Mode=OneWay}"
+                            Visibility="{x:Bind ViewModel.ShowRemoveAction, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <fluentIcons:FluentIcon Icon="Delete" IconVariant="Regular" FontSize="18"/>
+                            <TextBlock Text="{x:Bind ViewModel.RemoveButtonText, Mode=OneWay}"/>
+                        </StackPanel>
+                    </Button>
+                    <!-- Review mode: Remove action toggle -->
+                    <ToggleButton x:Name="RemoveActionToggle"
+                                  Visibility="{x:Bind ViewModel.IsInReviewMode, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                  IsChecked="{x:Bind ViewModel.CurrentRemoveAction, Mode=TwoWay}"
+                                  AutomationProperties.Name="{x:Bind ViewModel.RemoveButtonText, Mode=OneWay}"
+                                  MinHeight="36" Padding="12,6" CornerRadius="{StaticResource ControlCornerRadius}">
+                        <StackPanel Orientation="Horizontal" Spacing="8">
+                            <fluentIcons:FluentIcon Icon="Delete" IconVariant="Regular" FontSize="18"/>
+                            <TextBlock Text="{x:Bind ViewModel.RemoveButtonText, Mode=OneWay}"/>
+                        </StackPanel>
+                    </ToggleButton>
+                </toolkit:WrapPanel>
+            </Grid>
+
+            <Border Grid.Row="3">
                 <Grid>
                     <softwareApps:LeftoverAppsControl DataContext="{x:Bind ViewModel.LeftoverAppsViewModel}"
                         Visibility="{x:Bind ViewModel.IsLeftoverTabSelected, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
@@ -995,7 +1015,6 @@
                         <controls:DataGrid x:Name="WindowsAppsDataGrid"
                                            Style="{StaticResource AppTableStyle}"
                                            Visibility="{x:Bind ViewModel.IsTableView, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
-                                           Loaded="WindowsAppsDataGrid_Loaded"
                                            ItemsSource="{x:Bind ViewModel.WindowsAppsViewModel.ItemsView, Mode=OneWay}"
                                            AutoGenerateColumns="False"
                                            CanUserSortColumns="True"
@@ -1014,9 +1033,9 @@
                                            RowStyle="{StaticResource SelectionRowStyle}"
                                            Sorting="DataGrid_Sorting">
                             <controls:DataGrid.Columns>
-                                <!-- Selection Column with Select All header -->
+                                <!-- Selection Column -->
                                 <controls:DataGridTemplateColumn Width="40" CanUserResize="False" IsReadOnly="False"
-                                                                  HeaderStyle="{StaticResource FirstColumnHeaderStyle}">
+                                                                  HeaderStyle="{StaticResource SelectionColumnHeaderStyle}">
                                     <controls:DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
                                             <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
@@ -1093,48 +1112,31 @@
                             </controls:DataGrid.Columns>
                         </controls:DataGrid>
 
-                        <!-- Card View for Windows Apps. Headers, selection controls and cards
-                             share a full-width single column or a centred grid. -->
+                        <!-- Card view uses one scroll surface for all Windows inventory groups. -->
                         <ScrollViewer x:Name="WindowsAppsCardScrollViewer"
                                       Visibility="{x:Bind ViewModel.IsCardView, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
                                       VerticalScrollBarVisibility="Auto"
                                       HorizontalScrollBarVisibility="Disabled"
-                                      Padding="{StaticResource ScrollContentBottomPadding}"
-                                      SizeChanged="WindowsAppsCardScrollViewer_SizeChanged">
-                            <StackPanel x:Name="WindowsAppsCardContentStack"
-                                        Spacing="20"
-                                        Padding="0,8,0,8"
+                                      HorizontalContentAlignment="Stretch"
+                                      Padding="{StaticResource ScrollContentBottomPadding}">
+                            <StackPanel Spacing="20"
+                                        Padding="0,0,0,8"
                                         HorizontalAlignment="Stretch">
-                                <!-- Selection Checkboxes -->
-                                <StackPanel Orientation="Horizontal" Spacing="12">
-                                    <CheckBox Content="{x:Bind ViewModel.WindowsAppsViewModel.SelectAllLabel, Mode=OneWay}" MinWidth="0"
-                                              IsChecked="{x:Bind ViewModel.WindowsAppsViewModel.IsAllSelected, Mode=OneWay}"
-                                              Command="{x:Bind ViewModel.WindowsAppsViewModel.ToggleSelectAllCommand}"/>
-                                </StackPanel>
-
-                                <!-- Apps Section -->
-                                <StackPanel Spacing="8">
-                                    <TextBlock Text="{x:Bind ViewModel.WindowsAppsViewModel.SectionAppsHeader, Mode=OneWay}"
-                                               Style="{StaticResource SubtitleTextBlockStyle}"
-                                               FontWeight="SemiBold"/>
-                                    <!-- Non-virtualising ItemsControl + custom UniformWrapPanel.
-                                         ItemsRepeater + UniformGridLayout produced a measure cycle
-                                         that snapped the outer ScrollViewer to the top. UniformWrapPanel
-                                         fills the content width using the card column breakpoints. -->
-                                    <ItemsControl ItemsSource="{x:Bind ViewModel.WindowsAppsViewModel.WindowsAppsFiltered, Mode=OneWay}"
-                                                  ItemTemplate="{StaticResource AppCardTemplate}">
-                                        <ItemsControl.ItemsPanel>
-                                            <ItemsPanelTemplate>
-                                                <winOptimizerControls:UniformWrapPanel
-                                                    ItemWidth="{StaticResource CardItemWidth}"
-                                                    ItemHeight="{StaticResource CardCellHeight}"
-                                                    StretchItems="True"
-                                                    ColumnSpacing="16"
-                                                    RowSpacing="16"/>
-                                            </ItemsPanelTemplate>
-                                        </ItemsControl.ItemsPanel>
-                                    </ItemsControl>
-                                </StackPanel>
+                                <ItemsControl x:Name="WindowsAppsCards"
+                                              ItemsSource="{x:Bind ViewModel.WindowsAppsViewModel.WindowsAppsFiltered, Mode=OneWay}"
+                                              ItemTemplate="{StaticResource AppCardTemplate}">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <winOptimizerControls:UniformWrapPanel
+                                                ItemWidth="{StaticResource CardItemWidth}"
+                                                ItemHeight="{StaticResource CardCellHeight}"
+                                                StretchItems="True"
+                                                MaxColumns="3"
+                                                ColumnSpacing="{StaticResource CardColumnSpacing}"
+                                                RowSpacing="{StaticResource CardRowSpacing}"/>
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                </ItemsControl>
 
                                 <!-- Capabilities Section -->
                                 <StackPanel Spacing="8">
@@ -1149,8 +1151,9 @@
                                                     ItemWidth="{StaticResource CardItemWidth}"
                                                     ItemHeight="{StaticResource CardCellHeight}"
                                                     StretchItems="True"
-                                                    ColumnSpacing="16"
-                                                    RowSpacing="16"/>
+                                                    MaxColumns="3"
+                                                    ColumnSpacing="{StaticResource CardColumnSpacing}"
+                                                    RowSpacing="{StaticResource CardRowSpacing}"/>
                                             </ItemsPanelTemplate>
                                         </ItemsControl.ItemsPanel>
                                     </ItemsControl>
@@ -1169,8 +1172,9 @@
                                                     ItemWidth="{StaticResource CardItemWidth}"
                                                     ItemHeight="{StaticResource CardCellHeight}"
                                                     StretchItems="True"
-                                                    ColumnSpacing="16"
-                                                    RowSpacing="16"/>
+                                                    MaxColumns="3"
+                                                    ColumnSpacing="{StaticResource CardColumnSpacing}"
+                                                    RowSpacing="{StaticResource CardRowSpacing}"/>
                                             </ItemsPanelTemplate>
                                         </ItemsControl.ItemsPanel>
                                     </ItemsControl>
@@ -1186,23 +1190,12 @@
                                       Padding="{StaticResource ScrollContentBottomPadding}"
                                       SizeChanged="WindowsAppsCompactScrollViewer_SizeChanged">
                             <!-- Centred + MaxWidth-clamped in code-behind (UpdateCompactContentMaxWidth)
-                                 so headers, Select-all checkboxes and the row grid share one column —
-                                 same Microsoft Store pattern as the card view above. -->
+                                 so headers and the row grid share one column. -->
                             <StackPanel x:Name="WindowsAppsCompactContentStack"
                                         Spacing="16" Padding="0,8,0,8"
                                         HorizontalAlignment="Center">
-                                <!-- Selection Checkboxes -->
-                                <StackPanel Orientation="Horizontal" Spacing="12">
-                                    <CheckBox Content="{x:Bind ViewModel.WindowsAppsViewModel.SelectAllLabel, Mode=OneWay}" MinWidth="0"
-                                              IsChecked="{x:Bind ViewModel.WindowsAppsViewModel.IsAllSelected, Mode=OneWay}"
-                                              Command="{x:Bind ViewModel.WindowsAppsViewModel.ToggleSelectAllCommand}"/>
-                                </StackPanel>
-
                                 <!-- Windows Apps Section -->
                                 <StackPanel Spacing="8">
-                                    <TextBlock Text="{x:Bind ViewModel.WindowsAppsViewModel.SectionAppsHeader, Mode=OneWay}"
-                                               Style="{StaticResource SubtitleTextBlockStyle}"
-                                               FontWeight="SemiBold"/>
                                     <ItemsControl ItemsSource="{x:Bind ViewModel.WindowsAppsViewModel.WindowsAppsFiltered, Mode=OneWay}">
                                         <ItemsControl.ItemsPanel>
                                             <ItemsPanelTemplate>
@@ -1581,7 +1574,7 @@
                             <controls:DataGrid.Columns>
                                 <!-- Selection Column with Select All header -->
                                 <controls:DataGridTemplateColumn Width="40" CanUserResize="False" IsReadOnly="False"
-                                                                  HeaderStyle="{StaticResource FirstColumnHeaderStyle}">
+                                                                  HeaderStyle="{StaticResource SelectAllColumnHeaderStyle}">
                                     <controls:DataGridTemplateColumn.CellTemplate>
                                         <DataTemplate>
                                             <CheckBox IsChecked="{Binding IsSelected, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"
@@ -1651,11 +1644,10 @@
                                       Visibility="{x:Bind ViewModel.IsCardView, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
                                       VerticalScrollBarVisibility="Auto"
                                       HorizontalScrollBarVisibility="Disabled"
-                                      Padding="{StaticResource ScrollContentBottomPadding}"
-                                      SizeChanged="ExternalAppsCardScrollViewer_SizeChanged">
-                            <StackPanel x:Name="ExternalAppsCardContentStack"
-                                        Spacing="20"
-                                        Padding="0,8,0,8"
+                                      HorizontalContentAlignment="Stretch"
+                                      Padding="{StaticResource ScrollContentBottomPadding}">
+                            <StackPanel Spacing="20"
+                                        Padding="0,0,0,8"
                                         HorizontalAlignment="Stretch">
                                 <!-- Selection Checkboxes -->
                                 <StackPanel Orientation="Horizontal" Spacing="12">
@@ -1682,8 +1674,9 @@
                                                                 ItemWidth="{StaticResource CardItemWidth}"
                                                                 ItemHeight="{StaticResource CardCellHeight}"
                                                                 StretchItems="True"
-                                                                ColumnSpacing="16"
-                                                                RowSpacing="16"/>
+                                                                MaxColumns="3"
+                                                                ColumnSpacing="{StaticResource CardColumnSpacing}"
+                                                                RowSpacing="{StaticResource CardRowSpacing}"/>
                                                         </ItemsPanelTemplate>
                                                     </ItemsControl.ItemsPanel>
                                                 </ItemsControl>

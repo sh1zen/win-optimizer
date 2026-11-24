@@ -1,13 +1,8 @@
-using FluentAssertions;
 using Moq;
 using WinOptimizer.Core.Features.AdvancedTools.Interfaces;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Models;
-using WinOptimizer.Core.Features.SoftwareApps.Interfaces;
-using WinOptimizer.Core.Features.SoftwareApps.Models;
 using WinOptimizer.UI.Features.AdvancedTools.ViewModels;
-using WinOptimizer.UI.Features.Common.Interfaces;
-using WinOptimizer.UI.Features.SoftwareApps.ViewModels;
 using Xunit;
 
 namespace WinOptimizer.UI.Tests.ViewModels;
@@ -19,52 +14,22 @@ public class AutounattendGeneratorViewModelTests
     private readonly Mock<ILocalizationService> _localizationService = new();
     private readonly Mock<ILogService> _logService = new();
 
-    // Dependencies for WindowsAppsViewModel
-    private readonly Mock<IWindowsAppsService> _windowsAppsService = new();
-    private readonly Mock<IAppUninstallWorkflow> _uninstallWorkflow = new();
+    private readonly Mock<ISelectedAppsProvider> _selectedAppsProvider = new();
     private readonly Mock<ITaskProgressService> _progressService = new();
-    private readonly Mock<ILogService> _winLogService = new();
-    private readonly Mock<IDialogService> _winDialogService = new();
-    private readonly Mock<ILocalizationService> _winLocalizationService = new();
-    private readonly Mock<IDispatcherService> _dispatcherService = new();
-    private readonly Mock<IThemeService> _themeService = new();
 
     public AutounattendGeneratorViewModelTests()
     {
         _localizationService.Setup(l => l.GetString(It.IsAny<string>()))
             .Returns<string>(k => k);
-        _winLocalizationService.Setup(l => l.GetString(It.IsAny<string>()))
-            .Returns<string>(k => k);
-        _dispatcherService.Setup(d => d.RunOnUIThread(It.IsAny<Action>()))
-            .Callback<Action>(a => a());
-        _dispatcherService.Setup(d => d.RunOnUIThreadAsync(It.IsAny<Func<Task>>()))
-            .Callback<Func<Task>>(f => f().GetAwaiter().GetResult())
-            .Returns(Task.CompletedTask);
-        _dispatcherService.Setup(d => d.RunOnUIThreadWithContextAsync(It.IsAny<Func<Task>>()))
-            .Callback<Func<Task>>(f => f().GetAwaiter().GetResult())
-            .Returns(Task.CompletedTask);
     }
 
-    private WindowsAppsViewModel CreateWindowsAppsVm() => new(
-        _windowsAppsService.Object,
-        _uninstallWorkflow.Object,
-        _winLogService.Object,
-        _winDialogService.Object,
-        _winLocalizationService.Object,
-        _dispatcherService.Object,
-        _themeService.Object,
-        iconResolver: Mock.Of<IAppIconResolver>());
-
-    private AutounattendGeneratorViewModel CreateSut(WindowsAppsViewModel? windowsAppsVm = null)
-    {
-        var winVm = windowsAppsVm ?? CreateWindowsAppsVm();
-        return new AutounattendGeneratorViewModel(
-            _xmlGeneratorService.Object,
-            _dialogService.Object,
-            _localizationService.Object,
-            _logService.Object,
-            winVm, _progressService.Object);
-    }
+    private AutounattendGeneratorViewModel CreateSut() => new(
+        _xmlGeneratorService.Object,
+        _dialogService.Object,
+        _localizationService.Object,
+        _logService.Object,
+        _selectedAppsProvider.Object,
+        _progressService.Object);
 
     [Fact]
     public async Task GenerateAutounattendXmlCommand_WhenUserCancelsConfirmation_DoesNotGenerate()
@@ -79,7 +44,8 @@ public class AutounattendGeneratorViewModelTests
         await sut.GenerateAutounattendXmlCommand.ExecuteAsync(null);
 
         _xmlGeneratorService.Verify(s => s.GenerateFromCurrentSelectionsAsync(
-            It.IsAny<string>(), It.IsAny<IReadOnlyList<WinOptimizer.Core.Features.Common.Models.ConfigurationItem>>()), Times.Never);
+            It.IsAny<string>(), It.IsAny<IReadOnlyList<ConfigurationItem>>()), Times.Never);
+        _selectedAppsProvider.Verify(p => p.GetSelectedWindowsAppsAsync(), Times.Never);
     }
 
     [Fact]
@@ -94,6 +60,7 @@ public class AutounattendGeneratorViewModelTests
         await sut.GenerateAutounattendXmlCommand.ExecuteAsync(null);
 
         _xmlGeneratorService.Verify(s => s.GenerateFromCurrentSelectionsAsync(
-            It.IsAny<string>(), It.IsAny<IReadOnlyList<WinOptimizer.Core.Features.Common.Models.ConfigurationItem>>()), Times.Never);
+            It.IsAny<string>(), It.IsAny<IReadOnlyList<ConfigurationItem>>()), Times.Never);
+        _selectedAppsProvider.Verify(p => p.GetSelectedWindowsAppsAsync(), Times.Never);
     }
 }

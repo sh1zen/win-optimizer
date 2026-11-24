@@ -63,49 +63,7 @@ public class StartupNotificationServiceTests
     }
 
     [Fact]
-    public async Task ShowFirstLaunchRestoreOfferAsync_WhenFirstLaunch_ShowsConfirmationDialog()
-    {
-        SetupLocalizationDefaults();
-        _mockPrefsService.Setup(p => p.GetPreference(
-            UserPreferenceKeys.InitialRestorePointOffered, false))
-            .Returns(false);
-
-        _mockDialogService
-            .Setup(d => d.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>()))
-            .ReturnsAsync(new ConfirmationResponse { Confirmed = false });
-
-        var service = CreateService();
-
-        await service.ShowFirstLaunchRestoreOfferAsync();
-
-        _mockDialogService.Verify(
-            d => d.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>()),
-            Times.Once);
-    }
-
-    [Fact]
-    public async Task ShowFirstLaunchRestoreOfferAsync_SetsInitialRestorePointOfferedBeforeDialog()
-    {
-        SetupLocalizationDefaults();
-        _mockPrefsService.Setup(p => p.GetPreference(
-            UserPreferenceKeys.InitialRestorePointOffered, false))
-            .Returns(false);
-
-        _mockDialogService
-            .Setup(d => d.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>()))
-            .ReturnsAsync(new ConfirmationResponse { Confirmed = false });
-
-        var service = CreateService();
-
-        await service.ShowFirstLaunchRestoreOfferAsync();
-
-        _mockPrefsService.Verify(
-            p => p.SetPreferenceAsync(UserPreferenceKeys.InitialRestorePointOffered, true),
-            Times.Once);
-    }
-
-    [Fact]
-    public async Task ShowFirstLaunchRestoreOfferAsync_WhenUserClicksCreate_CallsCreateRestorePointAsync()
+    public async Task ConfirmedRestoreOfferCreatesThePointAndShowsTheSuccessDialog()
     {
         SetupLocalizationDefaults();
         _mockPrefsService.Setup(p => p.GetPreference(
@@ -133,31 +91,6 @@ public class StartupNotificationServiceTests
                 It.IsAny<IProgress<TaskProgressDetail>?>(),
                 It.IsAny<CancellationToken>()),
             Times.Once);
-    }
-
-    [Fact]
-    public async Task ShowFirstLaunchRestoreOfferAsync_WhenRestorePointSucceeds_ShowsInformationDialog()
-    {
-        SetupLocalizationDefaults();
-        _mockPrefsService.Setup(p => p.GetPreference(
-            UserPreferenceKeys.InitialRestorePointOffered, false))
-            .Returns(false);
-
-        _mockDialogService
-            .Setup(d => d.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>()))
-            .ReturnsAsync(new ConfirmationResponse { Confirmed = true });
-
-        _mockBackupService
-            .Setup(b => b.CreateRestorePointAsync(
-                It.IsAny<string?>(),
-                It.IsAny<IProgress<TaskProgressDetail>?>(),
-                It.IsAny<CancellationToken>()))
-            .ReturnsAsync(BackupResult.CreateSuccess(restorePointCreated: true));
-
-        var service = CreateService();
-
-        await service.ShowFirstLaunchRestoreOfferAsync();
-
         _mockDialogService.Verify(
             d => d.ShowInformationAsync(
                 It.IsAny<string>(),
@@ -198,21 +131,27 @@ public class StartupNotificationServiceTests
     }
 
     [Fact]
-    public async Task ShowFirstLaunchRestoreOfferAsync_WhenUserClicksSkip_DoesNotCallBackupService()
+    public async Task FirstLaunchSavesTheOfferBeforePromptingAndHonorsSkip()
     {
         SetupLocalizationDefaults();
         _mockPrefsService.Setup(p => p.GetPreference(
             UserPreferenceKeys.InitialRestorePointOffered, false))
             .Returns(false);
 
+        var calls = new List<string>();
+        _mockPrefsService.Setup(p => p.SetPreferenceAsync(UserPreferenceKeys.InitialRestorePointOffered, true))
+            .Callback(() => calls.Add("save offer"))
+            .ReturnsAsync(OperationResult.Succeeded());
         _mockDialogService
             .Setup(d => d.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>()))
+            .Callback(() => calls.Add("show prompt"))
             .ReturnsAsync(new ConfirmationResponse { Confirmed = false });
 
         var service = CreateService();
 
         await service.ShowFirstLaunchRestoreOfferAsync();
 
+        calls.Should().Equal("save offer", "show prompt");
         _mockBackupService.Verify(
             b => b.CreateRestorePointAsync(
                 It.IsAny<string?>(),

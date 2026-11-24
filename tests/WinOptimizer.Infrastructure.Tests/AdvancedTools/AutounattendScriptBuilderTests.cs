@@ -66,7 +66,6 @@ public class AutounattendScriptBuilderTests
         result.Should().Contain("# Start here");
         result.Should().Contain("# End here");
         result.Should().Contain("$scriptsDir");
-        result.Should().Contain("Install WinOptimizer.lnk");
         result.Should().Contain("START MENU LAYOUT");
         result.Should().Contain("WinOptimizerUserCustomizations");
         result.Should().Contain("$runningAsSystem");
@@ -74,10 +73,14 @@ public class AutounattendScriptBuilderTests
         result.Should().Contain("UserCustomizationsApplied");
         _powerShellRunner.Verify(r => r.ValidateScriptSyntaxAsync(
             It.IsAny<string>(), default), Times.Once);
+        _logService.Verify(l => l.Log(
+            LogLevel.Info,
+            It.Is<string>(s => s.Contains("passed PowerShell syntax validation")),
+            null), Times.Once);
     }
 
     [Fact]
-    public async Task BuildOptimizationsScriptAsync_SyntaxValidationFails_Throws()
+    public async Task BuildOptimizationsScriptAsync_SyntaxValidationFails_LogsAndThrows()
     {
         _powerShellRunner.Setup(s => s.ValidateScriptSyntaxAsync(It.IsAny<string>(), default))
             .ThrowsAsync(new InvalidOperationException("Syntax error at line 42"));
@@ -89,6 +92,10 @@ public class AutounattendScriptBuilderTests
 
         await act.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*Syntax error*");
+        _logService.Verify(l => l.Log(
+            LogLevel.Error,
+            It.Is<string>(s => s.Contains("failed PowerShell syntax validation")),
+            null), Times.Once);
     }
 
     [Fact]
@@ -114,6 +121,8 @@ public class AutounattendScriptBuilderTests
 
         result.Should().Contain("WINDOWS APPS REMOVAL");
         result.Should().Contain("BloatRemoval");
+        result.Should().Contain("'Microsoft.549981C3F5F10'");
+        result.Should().Contain("Get-AppxPackage");
     }
 
     [Fact]
@@ -232,37 +241,5 @@ public class AutounattendScriptBuilderTests
         var userBlockIndex = result.IndexOf("if ($UserCustomizations)");
         var custValIndex = result.IndexOf("CustVal", userBlockIndex);
         custValIndex.Should().BeGreaterThan(userBlockIndex);
-    }
-
-    [Fact]
-    public async Task BuildOptimizationsScriptAsync_ValidSyntax_LogsSuccess()
-    {
-        var config = new UnifiedConfigurationFile();
-        var allSettings = new Dictionary<string, IEnumerable<SettingDefinition>>();
-
-        await _sut.BuildOptimizationsScriptAsync(config, allSettings);
-
-        _logService.Verify(l => l.Log(
-            LogLevel.Info,
-            It.Is<string>(s => s.Contains("passed PowerShell syntax validation")),
-            null), Times.Once);
-    }
-
-    [Fact]
-    public async Task BuildOptimizationsScriptAsync_FailedSyntax_LogsError()
-    {
-        _powerShellRunner.Setup(s => s.ValidateScriptSyntaxAsync(It.IsAny<string>(), default))
-            .ThrowsAsync(new InvalidOperationException("Bad syntax"));
-
-        var config = new UnifiedConfigurationFile();
-        var allSettings = new Dictionary<string, IEnumerable<SettingDefinition>>();
-
-        try { await _sut.BuildOptimizationsScriptAsync(config, allSettings); }
-        catch { /* expected */ }
-
-        _logService.Verify(l => l.Log(
-            LogLevel.Error,
-            It.Is<string>(s => s.Contains("failed PowerShell syntax validation")),
-            null), Times.Once);
     }
 }

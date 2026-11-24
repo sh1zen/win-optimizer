@@ -19,6 +19,7 @@ public class UserPreferencesServiceTests
     public UserPreferencesServiceTests()
     {
         _mockInteractiveUserService.Setup(s => s.InteractiveUserSid).Returns("S-1-5-21-111-222-333-1001");
+        _mockFileSystemService.Setup(files => files.OpenExclusiveFileAsync(It.IsAny<string>())).ReturnsAsync(Stream.Null);
         _mockFileSystemService
             .Setup(f => f.CombinePath(It.IsAny<string[]>()))
             .Returns((string[] parts) => string.Join(@"\", parts));
@@ -42,6 +43,27 @@ public class UserPreferencesServiceTests
     }
 
     #region GetPreferenceAsync
+
+    [Fact]
+    public async Task PreferenceFileHandleSerializesIndependentFileSystemInstances()
+    {
+        var directory = Directory.CreateTempSubdirectory();
+        try
+        {
+            var path = Path.Combine(directory.FullName, "UserPreferences.json.lock");
+            var first = new FileSystemService();
+            var second = new FileSystemService();
+            Task<Stream> waiting;
+            using (await first.OpenExclusiveFileAsync(path))
+            {
+                waiting = second.OpenExclusiveFileAsync(path);
+                Assert.False(waiting.IsCompleted);
+            }
+            using var acquired = await waiting.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.True(acquired.CanWrite);
+        }
+        finally { directory.Delete(recursive: true); }
+    }
 
     [Fact]
     public async Task SnapshotReadsOnceAndKeepsDefaultsLocalToMalformedFields()

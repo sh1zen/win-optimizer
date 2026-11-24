@@ -1,59 +1,217 @@
 <Page x:Class="WinOptimizer.UI.Features.Optimize.Pages.NetworkOptimizePage"
     xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-    xmlns:common="using:WinOptimizer.UI.Features.Common.Controls" x:DefaultBindMode="OneWay">
+    xmlns:fluent="using:FluentIcons.WinUI"
+    xmlns:common="using:WinOptimizer.UI.Features.Common.Controls"
+    xmlns:vm="using:WinOptimizer.UI.Features.Optimize.ViewModels" x:DefaultBindMode="OneWay">
     <Page.Resources>
-        <DataTemplate x:Key="NetworkChoiceTemplate" xmlns:vm="using:WinOptimizer.UI.Features.Optimize.ViewModels" x:DataType="vm:NetworkTuningChoice">
-            <Border Style="{StaticResource PageCardStyle}">
-                <Grid ColumnSpacing="24">
-                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                    <StackPanel Spacing="8">
-                        <TextBlock Text="{x:Bind Title}" FontWeight="SemiBold" TextWrapping="Wrap"/>
-                        <TextBlock Text="{x:Bind Description}" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                        <TextBlock Text="{x:Bind CurrentLabel}" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                    </StackPanel>
-                    <StackPanel Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Right" Spacing="8">
-                        <ToggleSwitch IsOn="{x:Bind IsOn}" Visibility="{x:Bind ToggleVisibility}" Toggled="Setting_Toggled"
-                            OnContent="" OffContent="" MinWidth="0" HorizontalAlignment="Right" IsEnabled="{x:Bind IsAvailable}" AutomationProperties.Name="{x:Bind Title}"/>
-                        <ComboBox ItemsSource="{x:Bind Options}" SelectedItem="{x:Bind SelectedOption}" DisplayMemberPath="Label"
-                            Visibility="{x:Bind SelectionVisibility}" SelectionChanged="Setting_SelectionChanged" MinWidth="170" IsEnabled="{x:Bind IsAvailable}" AutomationProperties.Name="{x:Bind Title}"/>
-                        <NumberBox Value="{x:Bind NumberValue}" Minimum="{x:Bind Minimum}" Maximum="{x:Bind Maximum}" SmallChange="{x:Bind Increment}"
-                            Visibility="{x:Bind NumberVisibility}" PlaceholderText="{x:Bind Placeholder}" ValueChanged="Setting_ValueChanged"
-                            SpinButtonPlacementMode="Compact" Width="170" IsEnabled="{x:Bind IsAvailable}" AutomationProperties.Name="{x:Bind Title}"/>
-                        <Button Content="{x:Bind ResetLabel}" Visibility="{x:Bind ResetVisibility}" Click="ClearOverride_Click" HorizontalAlignment="Right" IsEnabled="{x:Bind IsAvailable}"/>
-                    </StackPanel>
-                </Grid>
-            </Border>
-        </DataTemplate>
+        <ResourceDictionary>
+            <ResourceDictionary.ThemeDictionaries>
+                <ResourceDictionary x:Key="Default">
+                    <SolidColorBrush x:Key="InternetSummaryBrush" Color="#FDFDFE"/>
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="Dark">
+                    <LinearGradientBrush x:Key="InternetSummaryBrush" StartPoint="0,0" EndPoint="1,1">
+                        <GradientStop Offset="0" Color="#202530"/>
+                        <GradientStop Offset="1" Color="#1B1F28"/>
+                    </LinearGradientBrush>
+                </ResourceDictionary>
+                <ResourceDictionary x:Key="HighContrast">
+                    <SolidColorBrush x:Key="InternetSummaryBrush" Color="{ThemeResource SystemColorWindowColor}"/>
+                </ResourceDictionary>
+            </ResourceDictionary.ThemeDictionaries>
+            <Style x:Key="InternetSummaryCardStyle" TargetType="Border" BasedOn="{StaticResource PageCardStyle}">
+                <Setter Property="Background" Value="{ThemeResource InternetSummaryBrush}"/>
+                <Setter Property="CornerRadius" Value="16"/>
+                <Setter Property="Padding" Value="18,14"/>
+            </Style>
+            <DataTemplate x:Key="SpeedMetricTemplate" x:DataType="vm:InternetSpeedMetric" x:DefaultBindMode="OneTime">
+                <StackPanel Spacing="4">
+                    <Grid ColumnSpacing="6">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                        <fluent:FluentIcon Icon="{x:Bind Icon}" IconVariant="Regular" FontSize="20" VerticalAlignment="Center" AutomationProperties.AccessibilityView="Raw"/>
+                        <TextBlock Grid.Column="1" Text="{x:Bind Label}" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                    </Grid>
+                    <TextBlock TextWrapping="Wrap" FontSize="36">
+                        <Run Text="{x:Bind Value}" FontWeight="SemiBold"/><Run Text="{x:Bind UnitSuffix}" FontSize="17"/>
+                    </TextBlock>
+                    <TextBlock Text="{x:Bind Previous}" Visibility="{x:Bind HasPrevious}" TextWrapping="Wrap" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                </StackPanel>
+            </DataTemplate>
+            <DataTemplate x:Key="NetworkChoiceTemplate" x:DataType="vm:NetworkTuningChoice">
+                <Border x:Name="NetworkSettingRow" Visibility="{x:Bind IsVisible}" BorderBrush="{ThemeResource AppSurfaceStrokeBrush}"
+                        BorderThickness="0,1,0,0" Padding="18,12">
+                    <Grid ColumnSpacing="20">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                        <StackPanel Spacing="5">
+                            <TextBlock Text="{x:Bind Title}" FontSize="15" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                            <TextBlock Text="{x:Bind Description}" FontSize="13" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            <TextBlock x:Name="NetworkValueComparison" FontSize="12" TextWrapping="Wrap"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}">
+                                <Run Text="{x:Bind OriginalLabel}"/><Run Text=" · "/><Run Text="{x:Bind SuggestedLabel}"/>
+                            </TextBlock>
+                            <TextBlock Text="{x:Bind UnavailableLabel}" Visibility="{x:Bind UnavailableVisibility}"
+                                       FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </StackPanel>
+                        <StackPanel Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Right" Spacing="8">
+                            <ToggleSwitch IsOn="{x:Bind IsOn}" Visibility="{x:Bind ToggleVisibility}" Toggled="Setting_Toggled"
+                                OnContent="" OffContent="" MinWidth="0" HorizontalAlignment="Right" IsEnabled="{x:Bind IsAvailable}" AutomationProperties.Name="{x:Bind Title}"/>
+                            <ComboBox ItemsSource="{x:Bind Options}" SelectedItem="{x:Bind SelectedOption}" DisplayMemberPath="Label"
+                                Visibility="{x:Bind SelectionVisibility}" SelectionChanged="Setting_SelectionChanged" MinWidth="170" IsEnabled="{x:Bind IsAvailable}" AutomationProperties.Name="{x:Bind Title}"/>
+                            <NumberBox Value="{x:Bind NumberValue}" Minimum="{x:Bind Minimum}" Maximum="{x:Bind Maximum}" SmallChange="{x:Bind Increment}"
+                                Visibility="{x:Bind NumberVisibility}" PlaceholderText="{x:Bind Placeholder}" ValueChanged="Setting_ValueChanged"
+                                SpinButtonPlacementMode="Compact" Width="170" IsEnabled="{x:Bind IsAvailable}" AutomationProperties.Name="{x:Bind Title}"/>
+                            <Button Content="{x:Bind ResetLabel}" Visibility="{x:Bind ResetVisibility}" Click="ClearOverride_Click" HorizontalAlignment="Right" IsEnabled="{x:Bind IsAvailable}"/>
+                        </StackPanel>
+                    </Grid>
+                </Border>
+            </DataTemplate>
+        </ResourceDictionary>
     </Page.Resources>
     <ScrollViewer Style="{StaticResource PageScrollViewerStyle}">
         <StackPanel Style="{StaticResource PageStackStyle}">
-            <TextBlock Text="{x:Bind ViewModel.SectionTitle}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-            <common:PageHeader Title="{x:Bind ViewModel.Title}" Description="{x:Bind ViewModel.Description}" Icon="Globe"/>
-            <InfoBar IsOpen="{x:Bind ViewModel.ShowModeNotice}" Message="{x:Bind ViewModel.ModeNotice}" IsClosable="False"/>
-            <InfoBar IsOpen="{x:Bind ViewModel.HasStatus}" Message="{x:Bind ViewModel.Status}" Severity="{x:Bind ViewModel.StatusSeverity}" IsClosable="False"/>
-            <Border Style="{StaticResource PageCardStyle}">
-                <StackPanel Spacing="16">
-                    <TextBlock Text="{x:Bind ViewModel.CurrentState}" TextWrapping="Wrap"/>
-                    <StackPanel Orientation="Horizontal" Spacing="12">
-                        <Button Content="{x:Bind ViewModel.EnhanceLabel}" Command="{x:Bind ViewModel.EnhanceCommand}"/>
-                        <Button Content="{x:Bind ViewModel.RefreshLabel}" Command="{x:Bind ViewModel.RefreshCommand}"/>
-                        <ProgressRing Width="24" Height="24" IsActive="{x:Bind ViewModel.IsBusy}"/>
-                    </StackPanel>
-                </StackPanel>
-            </Border>
-            <ItemsControl ItemsSource="{x:Bind ViewModel.Groups}" IsEnabled="{x:Bind ViewModel.CanWrite}">
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate xmlns:vm="using:WinOptimizer.UI.Features.Optimize.ViewModels" x:DataType="vm:NetworkTuningGroup">
-                        <StackPanel Spacing="8" Margin="0,12,0,12">
-                            <TextBlock Text="{x:Bind Title}" Style="{StaticResource SubtitleTextBlockStyle}" TextWrapping="Wrap"/>
-                            <ItemsControl ItemsSource="{x:Bind Choices}" ItemTemplate="{StaticResource NetworkChoiceTemplate}">
-                                <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Spacing="8"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
-                            </ItemsControl>
+            <common:PageHeader Title="{x:Bind ViewModel.SectionTitle}" Icon="Globe" DescriptionVisibility="Collapsed"/>
+            <InfoBar IsOpen="{x:Bind ViewModel.ShowModeNotice}" Visibility="{x:Bind ViewModel.ShowModeNotice}" Message="{x:Bind ViewModel.ModeNotice}" IsClosable="False"/>
+            <InfoBar IsOpen="{x:Bind ViewModel.HasStatus}" Visibility="{x:Bind ViewModel.HasStatus}" Message="{x:Bind ViewModel.Status}" Severity="{x:Bind ViewModel.StatusSeverity}" IsClosable="False"/>
+            <Grid x:Name="InternetSummary" RowSpacing="12" SizeChanged="InternetSummary_SizeChanged">
+                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition x:Name="NetworkColumn" Width="0"/></Grid.ColumnDefinitions>
+                <Border x:Name="SpeedTestCard" Style="{StaticResource InternetSummaryCardStyle}">
+                    <Grid RowSpacing="14">
+                        <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                        <Grid ColumnSpacing="12">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                            <Grid ColumnSpacing="12" VerticalAlignment="Center">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                                <fluent:FluentIcon Icon="Gauge" IconVariant="Regular" FontSize="32" VerticalAlignment="Center" AutomationProperties.AccessibilityView="Raw"/>
+                                <TextBlock Grid.Column="1" Text="{x:Bind ViewModel.SpeedTestTitle}" FontSize="22" FontWeight="SemiBold" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                            </Grid>
+                            <Grid Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Right">
+                                <Button x:Name="StartSpeedTestButton" Command="{x:Bind ViewModel.RunSpeedTestCommand}" Style="{StaticResource AccentButtonStyle}"
+                                        AutomationProperties.Name="{x:Bind ViewModel.RunSpeedTestLabel}" Visibility="{x:Bind ViewModel.ShowStartSpeedTest}" Padding="14,8">
+                                    <StackPanel Orientation="Horizontal" Spacing="8">
+                                        <fluent:FluentIcon Icon="Play" IconVariant="Regular" FontSize="18" AutomationProperties.AccessibilityView="Raw"/>
+                                        <TextBlock Text="{x:Bind ViewModel.RunSpeedTestLabel}" VerticalAlignment="Center"/>
+                                    </StackPanel>
+                                </Button>
+                                <StackPanel Orientation="Horizontal" Spacing="8" Visibility="{x:Bind ViewModel.IsMeasuring}">
+                                    <ProgressRing Width="20" Height="20" IsActive="{x:Bind ViewModel.IsMeasuring}"/>
+                                    <Button Content="{x:Bind ViewModel.CancelLabel}" Command="{x:Bind ViewModel.RunSpeedTestCancelCommand}"/>
+                                </StackPanel>
+                            </Grid>
+                        </Grid>
+                        <Grid Grid.Row="1" VerticalAlignment="Center" Margin="0,6">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <ContentPresenter Content="{x:Bind ViewModel.DownloadMetric}" ContentTemplate="{StaticResource SpeedMetricTemplate}" Margin="4,0,8,0"/>
+                            <Border Grid.Column="1" BorderBrush="{ThemeResource AppSurfaceStrokeBrush}" BorderThickness="1,0,0,0" Padding="12,0,8,0">
+                                <ContentPresenter Content="{x:Bind ViewModel.UploadMetric}" ContentTemplate="{StaticResource SpeedMetricTemplate}"/>
+                            </Border>
+                            <Border Grid.Column="2" BorderBrush="{ThemeResource AppSurfaceStrokeBrush}" BorderThickness="1,0,0,0" Padding="12,0,0,0">
+                                <ContentPresenter Content="{x:Bind ViewModel.LatencyMetric}" ContentTemplate="{StaticResource SpeedMetricTemplate}"/>
+                            </Border>
+                        </Grid>
+                        <Border Grid.Row="2" BorderBrush="{ThemeResource AppSurfaceStrokeBrush}" BorderThickness="0,1,0,0" Padding="4,8,4,0">
+                            <TextBlock Text="{x:Bind ViewModel.SpeedTestDescription}" TextWrapping="Wrap" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </Border>
+                    </Grid>
+                </Border>
+                <Border x:Name="NetworkSummaryCard" Grid.Row="1" Style="{StaticResource InternetSummaryCardStyle}">
+                    <StackPanel Spacing="10">
+                        <Grid ColumnSpacing="10">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                            <fluent:FluentIcon Icon="Organization" IconVariant="Regular" FontSize="30" VerticalAlignment="Center" AutomationProperties.AccessibilityView="Raw"/>
+                            <StackPanel Grid.Column="1">
+                                <TextBlock Text="{x:Bind ViewModel.Title}" FontSize="20" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                <TextBlock Text="{x:Bind ViewModel.Description}" TextWrapping="Wrap" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                            </StackPanel>
+                            <Grid Grid.Column="2" VerticalAlignment="Center">
+                                <Button Command="{x:Bind ViewModel.RefreshCommand}" Background="Transparent" BorderThickness="0" Padding="8"
+                                        AutomationProperties.Name="{x:Bind ViewModel.RefreshLabel}" ToolTipService.ToolTip="{x:Bind ViewModel.RefreshLabel}">
+                                    <fluent:FluentIcon Icon="ArrowClockwise" IconVariant="Regular" FontSize="16" AutomationProperties.AccessibilityView="Raw"/>
+                                </Button>
+                                <ProgressRing Width="28" Height="28" IsActive="{x:Bind ViewModel.IsUpdatingNetwork}" IsHitTestVisible="False"
+                                              Visibility="{x:Bind ViewModel.IsUpdatingNetwork}"/>
+                            </Grid>
+                        </Grid>
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                            <Border Grid.ColumnSpan="2" BorderBrush="{ThemeResource AppSurfaceStrokeBrush}" BorderThickness="0,1,0,0"/>
+                            <TextBlock Text="{x:Bind ViewModel.AutoTuningLabel}" Margin="6,6,10,6" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                            <TextBlock Grid.Column="1" Text="{x:Bind ViewModel.AutoTuningValue}" Margin="0,6,6,6" MaxWidth="108" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                            <Border Grid.Row="1" Grid.ColumnSpan="2" BorderBrush="{ThemeResource AppSurfaceStrokeBrush}" BorderThickness="0,1,0,1"/>
+                            <TextBlock Grid.Row="1" Text="{x:Bind ViewModel.RssLabel}" Margin="6,6,10,6" TextWrapping="Wrap" VerticalAlignment="Center"/>
+                            <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="8" Margin="0,6,6,6">
+                                <Ellipse Width="9" Height="9" Fill="{ThemeResource SystemFillColorSuccessBrush}" VerticalAlignment="Center" Visibility="{x:Bind ViewModel.IsRssEnabled}"/>
+                                <TextBlock Text="{x:Bind ViewModel.RssValue}" VerticalAlignment="Center"/>
+                            </StackPanel>
+                        </Grid>
+                        <StackPanel Spacing="4" Margin="6,0,0,0">
+                            <Button Content="{x:Bind ViewModel.EnhanceLabel}" Command="{x:Bind ViewModel.EnhanceCommand}" Background="Transparent"/>
+                            <HyperlinkButton x:Name="DnsShortcut" Click="DnsShortcut_Click" Padding="0,4" AutomationProperties.Name="{x:Bind ViewModel.DnsTitle}">
+                                <StackPanel Orientation="Horizontal" Spacing="4">
+                                    <TextBlock Text="{x:Bind ViewModel.DnsTitle}" VerticalAlignment="Center"/>
+                                    <fluent:FluentIcon Icon="ChevronRight" IconVariant="Regular" FontSize="12" VerticalAlignment="Center" AutomationProperties.AccessibilityView="Raw"/>
+                                </StackPanel>
+                            </HyperlinkButton>
+                            <TextBlock Text="{x:Bind ViewModel.NetworkResultsHint}" TextWrapping="Wrap" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
                         </StackPanel>
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
-            </ItemsControl>
+                    </StackPanel>
+                </Border>
+            </Grid>
+            <StackPanel x:Name="NetworkSettingsSection" Spacing="12" Margin="0,12,0,0">
+                <Grid ColumnSpacing="16">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*" MaxWidth="320"/></Grid.ColumnDefinitions>
+                    <TextBlock Text="{x:Bind ViewModel.SettingsTitle}" Style="{StaticResource SubtitleTextBlockStyle}"
+                               TextWrapping="Wrap" VerticalAlignment="Center" AutomationProperties.HeadingLevel="Level2"/>
+                    <AutoSuggestBox x:Name="NetworkSettingsSearch" Grid.Column="1" QueryIcon="Find"
+                                    PlaceholderText="{x:Bind ViewModel.SettingsSearchLabel}" AutomationProperties.Name="{x:Bind ViewModel.SettingsSearchLabel}"
+                                    Text="{x:Bind ViewModel.SettingsSearchText, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}"/>
+                </Grid>
+                <TextBlock Text="{x:Bind ViewModel.NoSettingsMatchesLabel}" Visibility="{x:Bind ViewModel.HasNoSettingsMatches}"
+                           TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" AutomationProperties.LiveSetting="Polite"/>
+                <Border x:Name="DnsCard" Style="{StaticResource PageCardStyle}" Visibility="{x:Bind ViewModel.ShowDnsSettings}">
+                    <StackPanel Spacing="12">
+                        <TextBlock Text="{x:Bind ViewModel.DnsTitle}" Style="{StaticResource SubtitleTextBlockStyle}"/>
+                        <TextBlock Text="{x:Bind ViewModel.DnsHint}" TextWrapping="Wrap"/>
+                        <ComboBox x:Name="DnsSelector" ItemsSource="{x:Bind ViewModel.DnsChoices}" HorizontalAlignment="Stretch" SelectedIndex="{x:Bind ViewModel.SelectedDnsIndex, Mode=TwoWay}" IsEnabled="{x:Bind ViewModel.CanWrite}" AutomationProperties.Name="{x:Bind ViewModel.DnsTitle}"/>
+                        <TextBlock Text="{x:Bind ViewModel.DnsUnavailable}" Visibility="{x:Bind ViewModel.ShowDnsUnavailable}" TextWrapping="Wrap"/>
+                        <Button Content="{x:Bind ViewModel.DnsApplyLabel}" Command="{x:Bind ViewModel.ApplyDnsCommand}" Style="{StaticResource AccentButtonStyle}"/>
+                    </StackPanel>
+                </Border>
+                <Border x:Name="VpnCard" Style="{StaticResource PageCardStyle}" Visibility="{x:Bind ViewModel.ShowVpnSettings}">
+                    <StackPanel Spacing="12">
+                        <TextBlock Text="{x:Bind ViewModel.VpnTitle}" Style="{StaticResource SubtitleTextBlockStyle}"/>
+                        <TextBlock Text="{x:Bind ViewModel.VpnHint}" TextWrapping="Wrap"/>
+                        <ItemsControl ItemsSource="{x:Bind ViewModel.VpnProfiles}">
+                            <ItemsControl.ItemTemplate><DataTemplate x:DataType="vm:ConnectionVpnCard" x:DefaultBindMode="OneTime">
+                                <StackPanel Spacing="4" Margin="0,4">
+                                    <TextBlock Text="{x:Bind Name}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                    <TextBlock Text="{x:Bind Details}" TextWrapping="Wrap" IsTextSelectionEnabled="True"/>
+                                </StackPanel>
+                            </DataTemplate></ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <TextBlock Text="{x:Bind ViewModel.EmptyVpn}" Visibility="{x:Bind ViewModel.ShowEmptyVpn}" TextWrapping="Wrap"/>
+                        <TextBlock Text="{x:Bind ViewModel.VpnDiagnostic}" Visibility="{x:Bind ViewModel.HasVpnDiagnostic}" TextWrapping="Wrap" IsTextSelectionEnabled="True" Foreground="{ThemeResource SystemFillColorCautionBrush}"/>
+                        <TextBlock Text="{x:Bind ViewModel.VpnCapturedAt}" Visibility="{x:Bind ViewModel.HasVpnSnapshot}" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        <Button Content="{x:Bind ViewModel.ManageVpnLabel}" Command="{x:Bind ViewModel.ManageVpnCommand}"/>
+                    </StackPanel>
+                </Border>
+                <ItemsControl ItemsSource="{x:Bind ViewModel.Groups}" IsEnabled="{x:Bind ViewModel.CanWrite}">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:NetworkTuningGroup">
+                            <Border x:Name="NetworkSettingsGroup" Style="{StaticResource PageCardStyle}"
+                                    Padding="0" Margin="0,0,0,12" Visibility="{x:Bind IsVisible}">
+                                <StackPanel>
+                                    <TextBlock Text="{x:Bind Title}" FontSize="17" FontWeight="SemiBold" TextWrapping="Wrap"
+                                               Margin="18,13" AutomationProperties.HeadingLevel="Level3"/>
+                                    <ItemsControl ItemsSource="{x:Bind Choices}" ItemTemplate="{StaticResource NetworkChoiceTemplate}"/>
+                                </StackPanel>
+                            </Border>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
         </StackPanel>
     </ScrollViewer>
 </Page>

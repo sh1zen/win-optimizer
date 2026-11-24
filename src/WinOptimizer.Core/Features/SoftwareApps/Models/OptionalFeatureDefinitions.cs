@@ -20,7 +20,6 @@ public static class OptionalFeatureDefinitions
                     Description = "Allows running Linux binary executables natively on Windows",
                     GroupName = "Development",
                     OptionalFeatureName = "Microsoft-Windows-Subsystem-Linux",
-                    RequiresReboot = true,
                     CanBeReinstalled = true
                 },
                 new ItemDefinition
@@ -30,7 +29,6 @@ public static class OptionalFeatureDefinitions
                     Description = "Core virtualization platform without Hyper-V management tools",
                     GroupName = "Virtualization",
                     OptionalFeatureName = "Microsoft-Hyper-V-Hypervisor",
-                    RequiresReboot = true,
                     CanBeReinstalled = true
                 },
                 new ItemDefinition
@@ -40,7 +38,6 @@ public static class OptionalFeatureDefinitions
                     Description = "Virtualization platform for running multiple operating systems",
                     GroupName = "Virtualization",
                     OptionalFeatureName = "Microsoft-Hyper-V-All",
-                    RequiresReboot = true,
                     CanBeReinstalled = true
                 },
                 new ItemDefinition
@@ -50,7 +47,6 @@ public static class OptionalFeatureDefinitions
                     Description = "Tools for managing Hyper-V virtual machines",
                     GroupName = "Virtualization",
                     OptionalFeatureName = "Microsoft-Hyper-V-Tools-All",
-                    RequiresReboot = false,
                     CanBeReinstalled = true
                 },
                 new ItemDefinition
@@ -60,7 +56,6 @@ public static class OptionalFeatureDefinitions
                     Description = "Legacy .NET Framework for older applications",
                     GroupName = "Development",
                     OptionalFeatureName = "NetFx3",
-                    RequiresReboot = true,
                     CanBeReinstalled = true
                 },
                 new ItemDefinition
@@ -70,8 +65,6 @@ public static class OptionalFeatureDefinitions
                     Description = "Throwaway isolated desktop for running suspicious or untrusted apps",
                     GroupName = "Security",
                     OptionalFeatureName = "Containers-DisposableClientVM",
-                    // Installed -> WindowsSandbox.exe.
-                    RequiresReboot = true,
                     CanBeReinstalled = true
                 },
                 new ItemDefinition
@@ -81,8 +74,6 @@ public static class OptionalFeatureDefinitions
                     Description = "Windows 11 AI feature that takes periodic screenshots of activity to make them searchable",
                     GroupName = "System",
                     OptionalFeatureName = "Recall",
-                    // Microsoft's own host serving Microsoft's own asset (tested OK).
-                    RequiresReboot = false,
                     CanBeReinstalled = true
                 }
             }

@@ -138,10 +138,6 @@ public static partial class ExternalAppDefinitions
                         WinGetPackageId = ["SanDisk.Dashboard"],
                         ChocoPackageId = "sandisk-dashboard",
                         WebsiteUrl = "https://support-en.sandisk.com/app/products/downloads/softwaredownloads",
-                        ExternalApp = new ExternalAppMetadata
-                        {
-                            DownloadUrl = "https://sddashboarddownloads.sandisk.com/wdDashboard/DashboardSetup.exe",
-                        },
                     },
                     new ItemDefinition
                     {

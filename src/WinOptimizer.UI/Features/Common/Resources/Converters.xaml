@@ -6,25 +6,19 @@
 
     <!--
     Converters.xaml
-    Registers all value converters for use throughout the application.
+    Registers shared value converters.
     Use these converters with {StaticResource ConverterName} in XAML.
     -->
 
     <!-- Boolean Converters -->
     <converters:BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter"/>
     <converters:InverseBooleanToVisibilityConverter x:Key="InverseBooleanToVisibilityConverter"/>
-    <converters:InverseBooleanConverter x:Key="InverseBooleanConverter"/>
 
-    <!-- Null/Empty Converters -->
+    <!-- Null Converter -->
     <converters:NullToVisibilityConverter x:Key="NullToVisibilityConverter"/>
-    <converters:NotNullToVisibilityConverter x:Key="NotNullToVisibilityConverter"/>
 
     <!-- Icon Converters -->
     <converters:IconConverter x:Key="IconConverter"/>
     <converters:StringToGeometryConverter x:Key="StringToGeometryConverter"/>
-
-    <!-- Badge Converters -->
-    <converters:BadgeKindToStyleConverter x:Key="BadgeKindToStyleConverter"/>
-    <converters:BadgeKindToForegroundConverter x:Key="BadgeKindToForegroundConverter"/>
 
 </ResourceDictionary>

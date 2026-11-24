@@ -7,6 +7,7 @@ namespace WinOptimizer.Infrastructure.Features.Utilities;
 /// <summary>Reads local Windows-retained traffic without estimating past usage from lifetime counters.</summary>
 internal sealed class WindowsConnectionHistory : IConnectionHistorySource
 {
+    private const int ConcurrentProfiles = 4;
     private readonly Func<IReadOnlyList<HistoryProfile>> _readProfiles;
 
     public WindowsConnectionHistory() : this(ReadWindowsProfiles) { }
@@ -29,7 +30,6 @@ internal sealed class WindowsConnectionHistory : IConnectionHistorySource
     public Task<ConnectionUsageHistory> ReadAsync(DateTimeOffset at, IReadOnlyList<ConnectionDayRange> days,
         CancellationToken cancellationToken) => Task.Run(async () =>
     {
-        var diagnostics = new List<string>();
         var sent = new decimal[days.Count];
         var received = new decimal[days.Count];
         var reporting = new int[days.Count];
@@ -41,39 +41,42 @@ internal sealed class WindowsConnectionHistory : IConnectionHistorySource
                 "Windows usage history could not be read. " + ex.Message);
         }
         var queries = CreateQueries(days);
-        foreach (var batch in profiles.Chunk(4))
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            var histories = await Task.WhenAll(batch.Select(profile =>
-                ReadProfileAsync(profile, queries, days.Count, cancellationToken))).ConfigureAwait(false);
-            foreach (var history in histories)
+        var diagnostics = new string?[profiles.Count];
+        var mergeGate = new object();
+        await Parallel.ForEachAsync(Enumerable.Range(0, profiles.Count),
+            new ParallelOptions { MaxDegreeOfParallelism = ConcurrentProfiles, CancellationToken = cancellationToken },
+            async (profileIndex, token) =>
             {
-                if (history.Diagnostic is { } diagnostic) diagnostics.Add(diagnostic);
-                for (var index = 0; index < days.Count; index++)
+                var history = await ReadProfileAsync(profiles[profileIndex], queries, days.Count, token).ConfigureAwait(false);
+                diagnostics[profileIndex] = history.Diagnostic;
+                lock (mergeGate)
                 {
-                    sent[index] += history.Days[index].Sent;
-                    received[index] += history.Days[index].Received;
-                    if (history.Days[index].Reports) reporting[index]++;
+                    for (var index = 0; index < days.Count; index++)
+                    {
+                        sent[index] += history.Days[index].Sent;
+                        received[index] += history.Days[index].Received;
+                        if (history.Days[index].Reports) reporting[index]++;
+                    }
                 }
-            }
-        }
+            }).ConfigureAwait(false);
 
-        if (profiles.Count == 0) diagnostics.Add("Windows reported no connection profiles with usage history.");
         return new ConnectionUsageHistory(at, days.Select((day, index) => new ConnectionDailyUsage(day.Date,
             reporting[index] == 0 ? null : sent[index], reporting[index] == 0 ? null : received[index],
-            reporting[index], profiles.Count)).ToArray(), string.Join(Environment.NewLine, diagnostics.Distinct()));
+            reporting[index], profiles.Count)).ToArray(), profiles.Count == 0
+                ? "Windows reported no connection profiles with usage history."
+                : string.Join(Environment.NewLine, diagnostics.OfType<string>().Distinct()));
     }, cancellationToken);
 
-    /// <summary>Reads one profile in order and merges its evidence after all independent profile reads complete.</summary>
+    /// <summary>Reads one profile's calendar queries in order and retains partial coverage.</summary>
     private static async Task<ProfileHistory> ReadProfileAsync(HistoryProfile profile, IReadOnlyList<HistoryQuery> queries,
         int dayCount, CancellationToken cancellationToken)
     {
-        cancellationToken.ThrowIfCancellationRequested();
         var days = new ProfileDay[dayCount];
         var failedDays = 0;
         string? failure = null;
         foreach (var query in queries)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             try
             {
                 var usage = await profile(query, cancellationToken).ConfigureAwait(false);

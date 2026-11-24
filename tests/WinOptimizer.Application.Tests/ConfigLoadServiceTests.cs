@@ -183,6 +183,7 @@ public class ConfigLoadServiceTests
 
         config.Should().NotBeNull();
         config!.Version.Should().Be("2.0");
+        AssertNonEmptyAppxPackageLists(config);
         config.Optimize.Features.Should().NotBeEmpty();
         config.Optimize.Features.Values.SelectMany(section => section.Items)
             .Single(item => item.Id == "updates-notification-level").IsSelected.Should().BeTrue();
@@ -207,7 +208,9 @@ public class ConfigLoadServiceTests
         System.Text.Json.JsonSerializer.Serialize(config, WinOptimizer.Core.Features.Common.Constants.ConfigFileConstants.JsonOptions)
             .Should().Be(System.Text.Json.JsonSerializer.Serialize(expected, WinOptimizer.Core.Features.Common.Constants.ConfigFileConstants.JsonOptions));
         config.Should().NotBeNull();
-        config!.Optimize.Features.Values.SelectMany(section => section.Items)
+        config!.Version.Should().Be("2.0");
+        AssertNonEmptyAppxPackageLists(config);
+        config.Optimize.Features.Values.SelectMany(section => section.Items)
             .Single(item => item.Id == "updates-notification-level").IsSelected.Should().BeTrue();
     }
 
@@ -280,5 +283,15 @@ public class ConfigLoadServiceTests
             It.Is<string>(message => message.Contains("Error loading configuration file")), null), Times.Once);
         _mockDialogService.Verify(d => d.ShowMessage(
             It.Is<string>(message => message.StartsWith("Error loading configuration:")), "Error"), Times.Once);
+    }
+
+    /// <summary>Checks the configured AppX package lists in a loaded preset.</summary>
+    private static void AssertNonEmptyAppxPackageLists(UnifiedConfigurationFile config)
+    {
+        foreach (var item in config.WindowsApps.Items)
+        {
+            if (item.AppxPackageName is { } packages)
+                packages.Should().NotBeEmpty($"the preset configures AppX packages for '{item.Id}'");
+        }
     }
 }

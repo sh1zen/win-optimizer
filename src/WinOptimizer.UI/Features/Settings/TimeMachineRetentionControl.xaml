@@ -1,0 +1,16 @@
+<UserControl x:Class="WinOptimizer.UI.Features.Settings.TimeMachineRetentionControl"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Border Style="{StaticResource PageCardStyle}" Padding="16">
+        <StackPanel Spacing="8">
+            <TextBlock Text="{Binding TimeMachineKeepDaysLabel}" TextWrapping="Wrap" FontWeight="SemiBold"/>
+            <StackPanel Orientation="Horizontal" Spacing="8">
+                <NumberBox MinWidth="110" SpinButtonPlacementMode="Inline" Value="{Binding TimeMachineDays, Mode=TwoWay}"
+                           IsEnabled="{Binding CanSaveTimeMachineRetention}"
+                           Minimum="1" Maximum="365" SmallChange="1" ValidationMode="Disabled"
+                           AutomationProperties.Name="{Binding TimeMachineKeepDaysLabel}"/>
+                <Button Content="{Binding TimeMachineSaveLabel}" Command="{Binding SaveTimeMachineRetentionCommand}" VerticalAlignment="Bottom"/>
+            </StackPanel>
+        </StackPanel>
+    </Border>
+</UserControl>

@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using CommunityToolkit.WinUI.Collections;
 using CommunityToolkit.WinUI.UI.Controls;
+using FluentIcons.Common;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
@@ -56,6 +57,13 @@ public sealed partial class SoftwareAppsPage : Page
         };
     }
 
+    /// <summary>Applies the selected tab's accent text at rest.</summary>
+    private Style GetInventoryTabStyle(bool isSelected) =>
+        (Style)Resources[isSelected ? "SelectedInventoryTabButtonStyle" : "InventoryTabButtonStyle"];
+
+    /// <summary>Reflects whether hidden or inactive apps are included in the inventory.</summary>
+    private Icon GetHiddenAppsIcon(bool showHiddenApps) => showHiddenApps ? Icon.Eye : Icon.EyeOff;
+
     /// <summary>
     /// Scales the compact-row cell width to match the user's Windows text-scale
     /// setting (Ease of Access → Make text bigger).
@@ -76,9 +84,8 @@ public sealed partial class SoftwareAppsPage : Page
     /// so it picks up the scaled value automatically.
     ///
     /// Card-view column breakpoints and minimum heights are not scaled here.
-    /// A single column fills the viewport; wider grids use 420dp cells.
-    /// AppCardTemplate and UniformWrapPanel use minimum heights so larger
-    /// text can grow the row without changing the column count.
+    /// Cards fill the viewport at each breakpoint. UniformWrapPanel uses a
+    /// minimum height so larger text can grow the row.
     /// </summary>
     private void ApplyTextScaling()
     {
@@ -96,17 +103,38 @@ public sealed partial class SoftwareAppsPage : Page
             Resources[key] = d * factor;
     }
 
-    /// <summary>Gives wrapped actions the full page width when the toolbar becomes narrow.</summary>
+    /// <summary>Keeps the tabs left-aligned at full width and lets their labels wrap in smaller windows.</summary>
+    private void InventoryTabsHost_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        var compact = e.NewSize.Width < 620 * TextScaleHelper.Factor;
+        InventoryTabs.HorizontalAlignment = compact ? HorizontalAlignment.Stretch : HorizontalAlignment.Left;
+        var columnWidth = compact ? new GridLength(1, GridUnitType.Star) : GridLength.Auto;
+        foreach (var column in InventoryTabs.ColumnDefinitions)
+            column.Width = columnWidth;
+    }
+
+    /// <summary>Compacts the toolbar and stacks controls when they need a separate row.</summary>
     private void SoftwareAppsActionBar_SizeChanged(object sender, SizeChangedEventArgs e)
     {
-        var stacked = e.NewSize.Width < 1100 * TextScaleHelper.Factor;
-        Grid.SetColumnSpan(InstalledAppsFilter, stacked ? 2 : 1);
-        InstalledAppsFilter.Margin = new Thickness(0, 0, 0, stacked ? 8 : 0);
-        Grid.SetRow(SoftwareAppsActions, stacked ? 1 : 0);
-        Grid.SetColumn(SoftwareAppsActions, stacked ? 0 : 1);
-        Grid.SetColumnSpan(SoftwareAppsActions, stacked ? 2 : 1);
-        SoftwareAppsActions.HorizontalAlignment = stacked ? HorizontalAlignment.Left : HorizontalAlignment.Right;
-        AppSearchBox.Width = Math.Min(260, e.NewSize.Width);
+        var textScale = TextScaleHelper.Factor;
+        var compact = e.NewSize.Width < 620 * textScale;
+        SoftwareAppsActionBar.ColumnSpacing = compact ? 8 : 24;
+        InventoryFilters.HorizontalSpacing = compact ? 8 : 20;
+        SortButton.MinWidth = compact ? 60 : 120;
+        SortButtonLabel.Visibility = compact ? Visibility.Collapsed : Visibility.Visible;
+
+        var stacked = e.NewSize.Width < 416 * textScale;
+        Grid.SetColumnSpan(AppSearchGroup, stacked ? 2 : 1);
+        Grid.SetRow(InventoryFilters, stacked ? 1 : 0);
+        Grid.SetColumn(InventoryFilters, stacked ? 0 : 1);
+        Grid.SetColumnSpan(InventoryFilters, stacked ? 2 : 1);
+        InventoryFilters.Margin = new Thickness(0, stacked ? 8 : 0, 0, 0);
+
+        var stackSelection = e.NewSize.Width < 440 * textScale;
+        Grid.SetColumnSpan(InstalledAppsHeading, stackSelection ? 2 : 1);
+        Grid.SetRow(InventorySelectionActions, stackSelection ? 1 : 0);
+        Grid.SetColumn(InventorySelectionActions, stackSelection ? 0 : 1);
+        Grid.SetColumnSpan(InventorySelectionActions, stackSelection ? 2 : 1);
     }
 
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -177,16 +205,6 @@ public sealed partial class SoftwareAppsPage : Page
             return;
 
         await ViewModel.InitializeAsync();
-    }
-
-    private void WindowsAppsDataGrid_Loaded(object sender, RoutedEventArgs e)
-    {
-        var checkBox = FindSelectAllCheckBox(WindowsAppsDataGrid);
-        if (checkBox != null)
-        {
-            checkBox.Checked += (s, _) => SetAllItemsSelected(ViewModel.WindowsAppsViewModel.ItemsView, true);
-            checkBox.Unchecked += (s, _) => SetAllItemsSelected(ViewModel.WindowsAppsViewModel.ItemsView, false);
-        }
     }
 
     private void ExternalAppsDataGrid_Loaded(object sender, RoutedEventArgs e)
@@ -276,41 +294,10 @@ public sealed partial class SoftwareAppsPage : Page
     }
 
     /// <summary>
-    /// Aligns card grids, section headers and selection controls. A single column
-    /// fills the viewport; wider grids remain centred at whole-card widths.
-    /// </summary>
-    private void WindowsAppsCardScrollViewer_SizeChanged(object sender, SizeChangedEventArgs e)
-        => UpdateCardContentMaxWidth(WindowsAppsCardScrollViewer, WindowsAppsCardContentStack);
-
-    private void ExternalAppsCardScrollViewer_SizeChanged(object sender, SizeChangedEventArgs e)
-        => UpdateCardContentMaxWidth(ExternalAppsCardScrollViewer, ExternalAppsCardContentStack);
-
-    private void UpdateCardContentMaxWidth(ScrollViewer scrollViewer, StackPanel contentStack)
-    {
-        // Resource keys live in SoftwareAppsPage.xaml's Page.Resources; fall back to
-        // the same defaults if anything's renamed so the page still lays out.
-        double cardWidth = Resources["CardItemWidth"] is double cw ? cw : 420.0;
-        double spacing = 16.0; // matches ColumnSpacing/RowSpacing on UniformWrapPanel
-
-        double available = scrollViewer.ViewportWidth;
-        if (available <= 0)
-            return;
-
-        int cols = System.Math.Max(1,
-            (int)System.Math.Floor((available + spacing) / (cardWidth + spacing)));
-        double contentWidth = cols == 1
-            ? available
-            : cols * cardWidth + (cols - 1) * spacing;
-        contentStack.MaxWidth = contentWidth;
-    }
-
-    /// <summary>
-    /// Compact-view counterpart of <see cref="UpdateCardContentMaxWidth"/>.
     /// Clamps the compact content StackPanel's MaxWidth to exactly
     /// cols × CompactItemWidth + (cols-1) × ColumnSpacing so the section
-    /// headers, Select-all checkboxes and the row grid share one centred
-    /// column — leftover width becomes symmetric outer margin and columns
-    /// appear at width breakpoints, identical to the card view.
+    /// headers and the row grid share one centred
+    /// column. Unused width becomes symmetric outer margin.
     ///
     /// External Apps nests each category's grid inside an Expander, so the
     /// grid only gets the clamp width minus the Expander's horizontal content

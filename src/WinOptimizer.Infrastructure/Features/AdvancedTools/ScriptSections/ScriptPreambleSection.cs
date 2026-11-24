@@ -298,7 +298,7 @@ function Start-ProcessAsUser {
 [DllImport(""userenv.dll"",SetLastError=true)]public static extern bool DestroyEnvironmentBlock(IntPtr env);
 [StructLayout(LayoutKind.Sequential,CharSet=CharSet.Unicode)]public struct SI{public int cb;public string r1,d,t;public int x,y,w,h,cc,cr,fa,fl;public short sw,r2;public IntPtr r3,i,o,e;}
 [StructLayout(LayoutKind.Sequential)]public struct PI{public IntPtr hp,ht;public int pid,tid;}
-'@ -Name TL -Namespace win-optimizer -ErrorAction Stop
+'@ -Name TL -Namespace WinOptimizer -ErrorAction Stop
     }
 
     $T = [WinOptimizer.TL]

@@ -56,7 +56,7 @@
                 <TextBlock Text="{x:Bind ViewModel.Notices, Mode=OneWay}" TextWrapping="Wrap" IsTextSelectionEnabled="True" Foreground="{ThemeResource SystemFillColorCriticalBrush}"/>
             </ScrollViewer>
         </StackPanel>
-        <Grid Grid.Row="2" ColumnSpacing="20" Visibility="{x:Bind ViewModel.HasSelection, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
+        <Grid Grid.Row="2" ColumnSpacing="{StaticResource PageCardSpacing}" Visibility="{x:Bind ViewModel.HasSelection, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
             <Grid.ColumnDefinitions><ColumnDefinition Width="240"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
             <Border x:Name="CategoryNavigation" Padding="8" Style="{StaticResource PageCardStyle}">
                 <Grid RowSpacing="10">

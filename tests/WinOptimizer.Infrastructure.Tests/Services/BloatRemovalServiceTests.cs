@@ -1,610 +1,193 @@
-using FluentAssertions;
 using Moq;
 using WinOptimizer.Core.Features.Common.Constants;
 using WinOptimizer.Core.Features.Common.Exceptions;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Models;
-using WinOptimizer.Core.Features.SoftwareApps.Enums;
-using WinOptimizer.Core.Features.SoftwareApps.Interfaces;
 using WinOptimizer.Core.Features.SoftwareApps.Models;
+using WinOptimizer.Core.Features.SoftwareApps.Utilities;
 using WinOptimizer.Infrastructure.Features.SoftwareApps.Services;
 using Xunit;
 
 namespace WinOptimizer.Infrastructure.Tests.Services;
 
-public class BloatRemovalServiceTests
+public sealed class BloatRemovalServiceTests
 {
-    private readonly Mock<ILogService> _mockLog = new();
-    private readonly Mock<IScheduledTaskService> _mockScheduledTask = new();
-    private readonly Mock<IPowerShellRunner> _mockPowerShell = new();
-    private readonly Mock<IFileSystemService> _mockFileSystem = new();
+    private static readonly string PlanPath = Path.Combine(ScriptPaths.ScriptsDirectory, "BloatRemoval.ps1");
+    private const string TaskPath = @"\win-optimizer\BloatRemoval";
+    private readonly Dictionary<string, string> _storage = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Mock<IScheduledTaskService> _tasks = new(MockBehavior.Strict);
+    private readonly Mock<IPowerShellRunner> _runner = new(MockBehavior.Strict);
+    private readonly Mock<IFileSystemService> _files = new(MockBehavior.Strict);
     private readonly BloatRemovalService _service;
 
     public BloatRemovalServiceTests()
     {
-        _service = new BloatRemovalService(
-            _mockLog.Object,
-            _mockScheduledTask.Object,
-            _mockPowerShell.Object,
-            _mockFileSystem.Object);
+        _service = new(Mock.Of<ILogService>(), _tasks.Object, _runner.Object, _files.Object);
+        _files.Setup(files => files.FileExists(It.IsAny<string>())).Returns(_storage.ContainsKey);
+        _files.Setup(files => files.ReadAllTextAsync(It.IsAny<string>(), default)).ReturnsAsync((string path, CancellationToken _) => _storage[path]);
+        _files.Setup(files => files.CreateDirectory(ScriptPaths.ScriptsDirectory));
+        _files.Setup(files => files.WriteAllTextAsync(It.IsAny<string>(), It.IsAny<string>(), default))
+            .Callback((string path, string text, CancellationToken _) => _storage.Add(path, text)).Returns(Task.CompletedTask);
+        _files.Setup(files => files.MoveFile(It.IsAny<string>(), PlanPath))
+            .Callback((string path, string destination) => { _storage.Add(destination, _storage[path]); _storage.Remove(path); });
+        _files.Setup(files => files.ReplaceFile(It.IsAny<string>(), PlanPath))
+            .Callback((string path, string destination) => { _storage[destination] = _storage[path]; _storage.Remove(path); });
+        _files.Setup(files => files.DeleteFile(It.IsAny<string>())).Callback((string path) => _storage.Remove(path));
     }
 
-    private static ItemDefinition CreateAppxApp(string id, string appxName, string? name = null) => new()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ImmediateRemovalTouchesOnlyTheSelectionAndReturnsIndependentResults(bool save)
     {
-        Id = id,
-        Name = name ?? id,
-        Description = $"Description for {id}",
-        AppxPackageName = new[] { appxName },
-    };
-
-    private static ItemDefinition CreateDedicatedScriptApp(string id, string name, Func<string> removalScript) => new()
-    {
-        Id = id,
-        Name = name,
-        Description = $"Description for {id}",
-        RemovalScript = removalScript,
-    };
-
-    // --- ExecuteDedicatedScriptAsync ---
-
-    [Fact]
-    public async Task ExecuteDedicatedScriptAsync_EdgeApp_CreatesAndRunsEdgeRemovalScript()
-    {
-        var app = CreateDedicatedScriptApp("windows-app-edge", "Microsoft Edge",
-            () => "# Edge removal script content");
-
-        _mockFileSystem
-            .Setup(f => f.CombinePath(It.IsAny<string[]>()))
-            .Returns((string[] paths) => string.Join("\\", paths));
-
-        var result = await _service.ExecuteDedicatedScriptAsync(app);
-
-        result.Should().Be(RemovalOutcome.Success);
-        _mockFileSystem.Verify(f => f.CreateDirectory(ScriptPaths.ScriptsDirectory), Times.Once);
-        _mockFileSystem.Verify(f => f.WriteAllTextAsync(
-            It.Is<string>(p => p.Contains("EdgeRemoval.ps1")),
-            "# Edge removal script content",
-            It.IsAny<CancellationToken>()), Times.Once);
-        _mockPowerShell.Verify(p => p.RunScriptFileAsync(
-            It.Is<string>(s => s.Contains("EdgeRemoval.ps1")),
-            It.IsAny<string>(),
-            It.IsAny<IProgress<TaskProgressDetail>>(),
-            It.IsAny<CancellationToken>()), Times.Once);
-    }
-
-    [Fact]
-    public async Task ExecuteDedicatedScriptAsync_OneDriveApp_CreatesOneDriveRemovalScript()
-    {
-        var app = CreateDedicatedScriptApp("windows-app-onedrive", "OneDrive",
-            () => "# OneDrive removal script");
-
-        _mockFileSystem
-            .Setup(f => f.CombinePath(It.IsAny<string[]>()))
-            .Returns((string[] paths) => string.Join("\\", paths));
-
-        var result = await _service.ExecuteDedicatedScriptAsync(app);
-
-        result.Should().Be(RemovalOutcome.Success);
-        _mockFileSystem.Verify(f => f.WriteAllTextAsync(
-            It.Is<string>(p => p.Contains("OneDriveRemoval.ps1")),
-            "# OneDrive removal script",
-            It.IsAny<CancellationToken>()), Times.Once);
-    }
-
-    [Fact]
-    public async Task ExecuteDedicatedScriptAsync_UnsupportedAppId_ReturnsFailed()
-    {
-        var app = CreateDedicatedScriptApp("windows-app-unknown", "Unknown",
-            () => "# script");
-
-        _mockFileSystem
-            .Setup(f => f.CombinePath(It.IsAny<string[]>()))
-            .Returns((string[] paths) => string.Join("\\", paths));
-
-        var result = await _service.ExecuteDedicatedScriptAsync(app);
-
-        result.Should().Be(RemovalOutcome.Failed);
-    }
-
-    [Fact]
-    public async Task ExecuteDedicatedScriptAsync_ExecutionPolicyBlocked_ReturnsDeferredToScheduledTask()
-    {
-        var app = CreateDedicatedScriptApp("windows-app-edge", "Microsoft Edge",
-            () => "# Edge script");
-
-        _mockFileSystem
-            .Setup(f => f.CombinePath(It.IsAny<string[]>()))
-            .Returns((string[] paths) => string.Join("\\", paths));
-        _mockPowerShell
-            .Setup(p => p.RunScriptFileAsync(It.IsAny<string>(), It.IsAny<string>(),
-                It.IsAny<IProgress<TaskProgressDetail>>(), It.IsAny<CancellationToken>()))
-            .ThrowsAsync(new ExecutionPolicyException("Execution policy blocked"));
-
-        var result = await _service.ExecuteDedicatedScriptAsync(app);
-
-        result.Should().Be(RemovalOutcome.DeferredToScheduledTask);
-        _mockLog.Verify(l => l.LogWarning(It.Is<string>(s => s.Contains("deferring to scheduled task"))), Times.Once);
-    }
-
-    [Fact]
-    public async Task ExecuteDedicatedScriptAsync_Cancelled_ReturnsFailed()
-    {
-        var app = CreateDedicatedScriptApp("windows-app-edge", "Microsoft Edge",
-            () => "# Edge script");
-
-        _mockFileSystem
-            .Setup(f => f.CombinePath(It.IsAny<string[]>()))
-            .Returns((string[] paths) => string.Join("\\", paths));
-        _mockPowerShell
-            .Setup(p => p.RunScriptFileAsync(It.IsAny<string>(), It.IsAny<string>(),
-                It.IsAny<IProgress<TaskProgressDetail>>(), It.IsAny<CancellationToken>()))
-            .ThrowsAsync(new OperationCanceledException());
-
-        var result = await _service.ExecuteDedicatedScriptAsync(app);
-
-        result.Should().Be(RemovalOutcome.Failed);
-    }
-
-    [Fact]
-    public async Task ExecuteDedicatedScriptAsync_InvalidOperationException_ReturnsSuccess()
-    {
-        var app = CreateDedicatedScriptApp("windows-app-edge", "Microsoft Edge",
-            () => "# Edge script");
-
-        _mockFileSystem
-            .Setup(f => f.CombinePath(It.IsAny<string[]>()))
-            .Returns((string[] paths) => string.Join("\\", paths));
-        _mockPowerShell
-            .Setup(p => p.RunScriptFileAsync(It.IsAny<string>(), It.IsAny<string>(),
-                It.IsAny<IProgress<TaskProgressDetail>>(), It.IsAny<CancellationToken>()))
-            .ThrowsAsync(new InvalidOperationException("Non-zero exit code"));
-
-        var result = await _service.ExecuteDedicatedScriptAsync(app);
-
-        // InvalidOperationException (non-ExecutionPolicyException) is treated as warning/success
-        result.Should().Be(RemovalOutcome.Success);
-    }
-
-    [Fact]
-    public async Task ExecuteDedicatedScriptAsync_ReportsProgress()
-    {
-        var app = CreateDedicatedScriptApp("windows-app-edge", "Microsoft Edge",
-            () => "# Edge script");
-
-        _mockFileSystem
-            .Setup(f => f.CombinePath(It.IsAny<string[]>()))
-            .Returns((string[] paths) => string.Join("\\", paths));
-
-        var progressReports = new List<TaskProgressDetail>();
-        var progress = new Progress<TaskProgressDetail>(detail => progressReports.Add(detail));
-
-        await _service.ExecuteDedicatedScriptAsync(app, progress);
-
-        // We can verify the log was called; the progress reporting is async via IProgress
-        _mockLog.Verify(l => l.LogInformation(
-            It.Is<string>(s => s.Contains("Executing dedicated removal script"))), Times.Once);
-    }
-
-    // --- ExecuteBloatRemovalAsync ---
-
-    [Fact]
-    public async Task ExecuteBloatRemovalAsync_NoItems_ReturnsSuccess()
-    {
-        var apps = new List<ItemDefinition>();
-
-        var result = await _service.ExecuteBloatRemovalAsync(apps);
-
-        result.Should().Be(RemovalOutcome.Success);
-        _mockLog.Verify(l => l.LogInformation(It.Is<string>(s => s.Contains("No items to process"))), Times.Once);
-    }
-
-    [Fact]
-    public async Task ExecuteBloatRemovalAsync_WithPackages_CreatesAndRunsScript()
-    {
-        var apps = new List<ItemDefinition>
+        var existing = BloatRemovalScriptGenerator.GenerateScript(["Prior.App"], [], []);
+        _storage.Add(PlanPath, existing);
+        _runner.Setup(runner => runner.RunScriptAsync(It.IsAny<string>(), null, default)).ReturnsAsync((string script, IProgress<TaskProgressDetail>? _, CancellationToken _) =>
         {
-            CreateAppxApp("app1", "Microsoft.BingNews"),
-            CreateAppxApp("app2", "Microsoft.BingWeather"),
-        };
-
-        _mockFileSystem
-            .Setup(f => f.CombinePath(It.IsAny<string[]>()))
-            .Returns((string[] paths) => string.Join("\\", paths));
-        _mockFileSystem.Setup(f => f.FileExists(It.IsAny<string>())).Returns(false);
-
-        var result = await _service.ExecuteBloatRemovalAsync(apps);
-
-        result.Should().Be(RemovalOutcome.Success);
-        _mockFileSystem.Verify(f => f.CreateDirectory(ScriptPaths.ScriptsDirectory), Times.Once);
-        _mockFileSystem.Verify(f => f.WriteAllTextAsync(
-            It.Is<string>(p => p.Contains("BloatRemoval.ps1")),
-            It.IsAny<string>(),
-            It.IsAny<CancellationToken>()), Times.Once);
-        _mockPowerShell.Verify(p => p.RunScriptFileAsync(
-            It.Is<string>(s => s.Contains("BloatRemoval.ps1")),
-            It.IsAny<string>(),
-            It.IsAny<IProgress<TaskProgressDetail>>(),
-            It.IsAny<CancellationToken>()), Times.Once);
-    }
-
-    [Fact]
-    public async Task ExecuteBloatRemovalAsync_SkipsDedicatedScriptApps()
-    {
-        // Apps with RemovalScript should be excluded from BloatRemoval (they use dedicated scripts)
-        var apps = new List<ItemDefinition>
+            Assert.Equal(new[] { "New.First", "New.Second" }, BloatRemovalScriptGenerator.ExtractArrayFromScript(script, "packages"));
+            Assert.Contains("$reportResults = $true", script);
+            return Report("""[{"Key":"package:new.first","Error":null,"RestartRequired":false},{"Key":"package:New.Second","Error":"Windows refused","RestartRequired":false}]""");
+        });
+        if (save)
         {
-            CreateDedicatedScriptApp("windows-app-edge", "Edge", () => "# script"),
-        };
+            _tasks.Setup(tasks => tasks.IsTaskRegisteredAsync("BloatRemoval")).ReturnsAsync(true);
+            _tasks.Setup(tasks => tasks.IsTaskEnabledAsync(TaskPath)).ReturnsAsync(true);
+        }
 
-        var result = await _service.ExecuteBloatRemovalAsync(apps);
+        var outcomes = await _service.ExecuteBloatRemovalAsync([App("first", "New.First"), App("second", "New.Second")], save);
 
-        // Since dedicated script apps are filtered out, there should be no items
-        result.Should().Be(RemovalOutcome.Success);
-        _mockLog.Verify(l => l.LogInformation(It.Is<string>(s => s.Contains("No items to process"))), Times.Once);
-    }
-
-    [Fact]
-    public async Task ExecuteBloatRemovalAsync_MergesWithExistingScript_WhenFileExists()
-    {
-        var apps = new List<ItemDefinition>
+        Assert.Collection(outcomes,
+            first => { Assert.Equal("first", first.AppId); Assert.True(first.Success); },
+            second => { Assert.Equal("second", second.AppId); Assert.False(second.Success); Assert.Equal("Windows refused", second.Message); });
+        if (save)
+            Assert.Equal(new[] { "Prior.App", "New.First" }, BloatRemovalScriptGenerator.ExtractArrayFromScript(_storage[PlanPath], "packages"));
+        else
         {
-            CreateAppxApp("app1", "Microsoft.NewApp"),
-        };
-
-        var existingScript = @"$packages = @(
-    ""Microsoft.ExistingApp""
-)
-
-$capabilities = @()
-
-$optionalFeatures = @()
-
-$specialApps = @()";
-
-        _mockFileSystem
-            .Setup(f => f.CombinePath(It.IsAny<string[]>()))
-            .Returns((string[] paths) => string.Join("\\", paths));
-        _mockFileSystem.Setup(f => f.FileExists(It.IsAny<string>())).Returns(true);
-        _mockFileSystem.Setup(f => f.ReadAllTextAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(existingScript);
-
-        var result = await _service.ExecuteBloatRemovalAsync(apps);
-
-        result.Should().Be(RemovalOutcome.Success);
-        // Verify the merged content is written
-        _mockFileSystem.Verify(f => f.WriteAllTextAsync(
-            It.IsAny<string>(),
-            It.Is<string>(content => content.Contains("Microsoft.NewApp") && content.Contains("Microsoft.ExistingApp")),
-            It.IsAny<CancellationToken>()), Times.Once);
+            Assert.Equal(existing, _storage[PlanPath]);
+            _files.VerifyNoOtherCalls();
+            _tasks.VerifyNoOtherCalls();
+        }
+        Assert.Single(_storage);
     }
 
     [Fact]
-    public async Task ExecuteBloatRemovalAsync_ExecutionPolicyBlocked_ReturnsDeferredToScheduledTask()
+    public async Task CancellationSignalsTheWorkerAndOnlyPersistsConfirmedRemovals()
     {
-        var apps = new List<ItemDefinition>
+        using var cancellation = new CancellationTokenSource();
+        _storage.Add(PlanPath, BloatRemovalScriptGenerator.GenerateScript([], ["Prior.Capability"], []));
+        _tasks.Setup(tasks => tasks.IsTaskRegisteredAsync("BloatRemoval")).ReturnsAsync(true);
+        _tasks.Setup(tasks => tasks.IsTaskEnabledAsync(TaskPath)).ReturnsAsync(true);
+        _runner.Setup(runner => runner.RunScriptAsync(It.IsAny<string>(), null, CancellationToken.None)).ReturnsAsync(
+            (string script, IProgress<TaskProgressDetail>? _, CancellationToken _) =>
+            {
+                var workerEvent = System.Text.RegularExpressions.Regex.Match(script, @"\$cancellationEventName = '([^']+)'");
+                using var signal = EventWaitHandle.OpenExisting(workerEvent.Groups[1].Value);
+                Assert.False(signal.WaitOne(0));
+                cancellation.Cancel();
+                Assert.True(signal.WaitOne(0));
+                return Report("""[{"Key":"capability:First.Capability","Error":null,"RestartRequired":true}]""");
+            });
+        var first = App("first", "unused") with { CapabilityName = "First.Capability" };
+        var second = App("second", "unused") with { CapabilityName = "Second.Capability" };
+
+        var outcomes = await _service.ExecuteBloatRemovalAsync([first, second], true, ct: cancellation.Token);
+
+        Assert.Collection(outcomes,
+            completed => { Assert.True(completed.Success); Assert.True(completed.Deferred); Assert.False(completed.Cancelled); },
+            skipped => { Assert.False(skipped.Success); Assert.True(skipped.Cancelled); });
+        Assert.Equal(new[] { "Prior.Capability", "First.Capability" },
+            BloatRemovalScriptGenerator.ExtractArrayFromScript(_storage[PlanPath], "capabilities"));
+    }
+
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task PolicyBlockRequiresOptInAndConfirmedRegistration(bool save, bool registrationSucceeds)
+    {
+        var prior = BloatRemovalScriptGenerator.GenerateScript(["Prior.App"], [], []);
+        _storage.Add(PlanPath, prior);
+        _runner.Setup(runner => runner.RunScriptAsync(It.IsAny<string>(), null, default)).ThrowsAsync(new ExecutionPolicyException("Policy blocked"));
+        if (save)
         {
-            CreateAppxApp("app1", "Microsoft.App1"),
-        };
+            _tasks.Setup(tasks => tasks.IsTaskRegisteredAsync("BloatRemoval")).ReturnsAsync(false);
+            _tasks.Setup(tasks => tasks.RegisterScheduledTaskAsync(It.Is<RemovalScript>(script =>
+                    script.ActualScriptPath == PlanPath && script.Name == "BloatRemoval" && !script.RunOnStartup)))
+                .ReturnsAsync(registrationSucceeds ? OperationResult.Succeeded() : OperationResult.Failed("Access denied"));
+            if (registrationSucceeds) _tasks.Setup(tasks => tasks.IsTaskEnabledAsync(TaskPath)).ReturnsAsync(true);
+        }
 
-        _mockFileSystem
-            .Setup(f => f.CombinePath(It.IsAny<string[]>()))
-            .Returns((string[] paths) => string.Join("\\", paths));
-        _mockFileSystem.Setup(f => f.FileExists(It.IsAny<string>())).Returns(false);
-        _mockPowerShell
-            .Setup(p => p.RunScriptFileAsync(It.IsAny<string>(), It.IsAny<string>(),
-                It.IsAny<IProgress<TaskProgressDetail>>(), It.IsAny<CancellationToken>()))
-            .ThrowsAsync(new ExecutionPolicyException("Policy blocked"));
+        var outcome = Assert.Single(await _service.ExecuteBloatRemovalAsync([App("new", "New.App")], save));
 
-        var result = await _service.ExecuteBloatRemovalAsync(apps);
+        Assert.Equal(registrationSucceeds, outcome.Success);
+        Assert.Equal(registrationSucceeds, outcome.Deferred);
+        if (save && !registrationSucceeds) Assert.Contains("Access denied", outcome.Message);
+        if (registrationSucceeds)
+            Assert.Equal(new[] { "Prior.App", "New.App" }, BloatRemovalScriptGenerator.ExtractArrayFromScript(_storage[PlanPath], "packages"));
+        else
+            Assert.Equal(prior, _storage[PlanPath]);
+        Assert.Single(_storage);
+    }
 
-        result.Should().Be(RemovalOutcome.DeferredToScheduledTask);
+    [Theory]
+    [InlineData(false)]
+    [InlineData(null)]
+    public async Task DisabledOrUnreadableExistingTaskCannotDeferRemoval(bool? enabled)
+    {
+        var previous = BloatRemovalScriptGenerator.GenerateScript(["Prior.App"], [], []);
+        _storage.Add(PlanPath, previous);
+        _runner.Setup(runner => runner.RunScriptAsync(It.IsAny<string>(), null, default)).ThrowsAsync(new ExecutionPolicyException("Policy blocked"));
+        _tasks.Setup(tasks => tasks.IsTaskRegisteredAsync("BloatRemoval")).ReturnsAsync(true);
+        _tasks.Setup(tasks => tasks.IsTaskEnabledAsync(TaskPath)).ReturnsAsync(enabled);
+
+        var result = Assert.Single(await _service.ExecuteBloatRemovalAsync([App("new", "New.App")], true));
+
+        Assert.False(result.Success);
+        Assert.False(result.Deferred);
+        Assert.Contains("disabled or its state could not be verified", result.Message);
+        Assert.Equal(previous, _storage[PlanPath]);
+        _tasks.Verify(tasks => tasks.RegisterScheduledTaskAsync(It.IsAny<RemovalScript>()), Times.Never);
     }
 
     [Fact]
-    public async Task ExecuteBloatRemovalAsync_Cancelled_ReturnsFailed()
+    public async Task NewlyRegisteredTaskWithoutEnabledReadbackRestoresThePriorPlan()
     {
-        var apps = new List<ItemDefinition>
-        {
-            CreateAppxApp("app1", "Microsoft.App1"),
-        };
+        var previous = BloatRemovalScriptGenerator.GenerateScript(["Prior.App"], [], []);
+        _storage.Add(PlanPath, previous);
+        _runner.Setup(runner => runner.RunScriptAsync(It.IsAny<string>(), null, default)).ThrowsAsync(new ExecutionPolicyException("Policy blocked"));
+        _tasks.Setup(tasks => tasks.IsTaskRegisteredAsync("BloatRemoval")).ReturnsAsync(false);
+        _tasks.Setup(tasks => tasks.RegisterScheduledTaskAsync(It.IsAny<RemovalScript>())).ReturnsAsync(OperationResult.Succeeded());
+        _tasks.Setup(tasks => tasks.IsTaskEnabledAsync(TaskPath)).ReturnsAsync(false);
+        _tasks.Setup(tasks => tasks.UnregisterScheduledTaskAsync("BloatRemoval")).ReturnsAsync(OperationResult.Succeeded());
 
-        _mockFileSystem
-            .Setup(f => f.CombinePath(It.IsAny<string[]>()))
-            .Returns((string[] paths) => string.Join("\\", paths));
-        _mockFileSystem.Setup(f => f.FileExists(It.IsAny<string>())).Returns(false);
-        _mockPowerShell
-            .Setup(p => p.RunScriptFileAsync(It.IsAny<string>(), It.IsAny<string>(),
-                It.IsAny<IProgress<TaskProgressDetail>>(), It.IsAny<CancellationToken>()))
-            .ThrowsAsync(new OperationCanceledException());
+        var result = Assert.Single(await _service.ExecuteBloatRemovalAsync([App("new", "New.App")], true));
 
-        var result = await _service.ExecuteBloatRemovalAsync(apps);
-
-        result.Should().Be(RemovalOutcome.Failed);
-    }
-
-    // --- PersistRemovalScriptsAsync ---
-
-    [Fact]
-    public async Task PersistRemovalScriptsAsync_RegistersScheduledTaskForDedicatedScript()
-    {
-        var apps = new List<ItemDefinition>
-        {
-            CreateDedicatedScriptApp("windows-app-edge", "Microsoft Edge", () => "# Edge script"),
-        };
-
-        _mockFileSystem
-            .Setup(f => f.CombinePath(It.IsAny<string[]>()))
-            .Returns((string[] paths) => string.Join("\\", paths));
-        _mockFileSystem
-            .Setup(f => f.FileExists(It.Is<string>(p => p.Contains("EdgeRemoval.ps1"))))
-            .Returns(true);
-        _mockFileSystem
-            .Setup(f => f.ReadAllTextAsync(It.Is<string>(p => p.Contains("EdgeRemoval.ps1")), It.IsAny<CancellationToken>()))
-            .ReturnsAsync("# Edge script content");
-        _mockScheduledTask
-            .Setup(s => s.RegisterScheduledTaskAsync(It.IsAny<RemovalScript>()))
-            .ReturnsAsync(OperationResult.Succeeded());
-
-        await _service.PersistRemovalScriptsAsync(apps);
-
-        _mockScheduledTask.Verify(s => s.RegisterScheduledTaskAsync(
-            It.Is<RemovalScript>(rs =>
-                rs.Name == "EdgeRemoval" &&
-                rs.RunOnStartup == true)), Times.Once);
+        Assert.False(result.Success);
+        Assert.False(result.Deferred);
+        Assert.Equal(previous, _storage[PlanPath]);
+        Assert.Single(_storage);
+        _tasks.Verify(tasks => tasks.UnregisterScheduledTaskAsync("BloatRemoval"), Times.Once);
     }
 
     [Fact]
-    public async Task PersistRemovalScriptsAsync_OneDriveScript_HasRunOnStartupFalse()
+    public async Task AppliesRestartAndMissingReceiptsToTheOwningSelections()
     {
-        var apps = new List<ItemDefinition>
-        {
-            CreateDedicatedScriptApp("windows-app-onedrive", "OneDrive", () => "# script"),
-        };
+        _runner.Setup(runner => runner.RunScriptAsync(It.IsAny<string>(), null, default)).ReturnsAsync(
+            Report("""[{"Key":"package:Variant.A","Error":null,"RestartRequired":false},{"Key":"feature:MyFeature","Error":null,"RestartRequired":true}]"""));
+        var variants = App("app", "Variant.A", "Variant.B");
+        var feature = new ItemDefinition { Id = "feature", Name = "Feature", Description = "", OptionalFeatureName = "MyFeature" };
 
-        _mockFileSystem
-            .Setup(f => f.CombinePath(It.IsAny<string[]>()))
-            .Returns((string[] paths) => string.Join("\\", paths));
-        _mockFileSystem
-            .Setup(f => f.FileExists(It.Is<string>(p => p.Contains("OneDriveRemoval.ps1"))))
-            .Returns(true);
-        _mockFileSystem
-            .Setup(f => f.ReadAllTextAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync("# content");
-        _mockScheduledTask
-            .Setup(s => s.RegisterScheduledTaskAsync(It.IsAny<RemovalScript>()))
-            .ReturnsAsync(OperationResult.Succeeded());
+        var result = await _service.ExecuteBloatRemovalAsync([variants, feature], false);
 
-        await _service.PersistRemovalScriptsAsync(apps);
-
-        _mockScheduledTask.Verify(s => s.RegisterScheduledTaskAsync(
-            It.Is<RemovalScript>(rs => rs.RunOnStartup == false)), Times.Once);
+        Assert.False(result[0].Success);
+        Assert.Contains("Variant.B", result[0].Message);
+        Assert.True(result[1].Success);
+        Assert.True(result[1].Deferred);
+        _tasks.VerifyNoOtherCalls();
     }
 
-    [Fact]
-    public async Task PersistRemovalScriptsAsync_SkipsWhenScriptFileNotFound()
-    {
-        var apps = new List<ItemDefinition>
-        {
-            CreateDedicatedScriptApp("windows-app-edge", "Edge", () => "# script"),
-        };
+    private static string Report(string json) => "Servicing output\r\n" + BloatRemovalScriptGenerator.ResultPrefix + json;
 
-        _mockFileSystem
-            .Setup(f => f.CombinePath(It.IsAny<string[]>()))
-            .Returns((string[] paths) => string.Join("\\", paths));
-        _mockFileSystem.Setup(f => f.FileExists(It.IsAny<string>())).Returns(false);
-
-        await _service.PersistRemovalScriptsAsync(apps);
-
-        _mockScheduledTask.Verify(s => s.RegisterScheduledTaskAsync(It.IsAny<RemovalScript>()), Times.Never);
-        _mockLog.Verify(l => l.LogWarning(It.Is<string>(s => s.Contains("Script not found"))), Times.Once);
-    }
-
-    [Fact]
-    public async Task PersistRemovalScriptsAsync_RegistersBloatRemovalTask_WhenScriptExists()
-    {
-        var apps = new List<ItemDefinition>(); // No dedicated script apps
-
-        _mockFileSystem
-            .Setup(f => f.CombinePath(It.IsAny<string[]>()))
-            .Returns((string[] paths) => string.Join("\\", paths));
-        _mockFileSystem
-            .Setup(f => f.FileExists(It.Is<string>(p => p.Contains("BloatRemoval.ps1"))))
-            .Returns(true);
-        _mockFileSystem
-            .Setup(f => f.ReadAllTextAsync(It.Is<string>(p => p.Contains("BloatRemoval.ps1")), It.IsAny<CancellationToken>()))
-            .ReturnsAsync("# bloat removal content");
-        _mockScheduledTask
-            .Setup(s => s.RegisterScheduledTaskAsync(It.IsAny<RemovalScript>()))
-            .ReturnsAsync(OperationResult.Succeeded());
-
-        await _service.PersistRemovalScriptsAsync(apps);
-
-        _mockScheduledTask.Verify(s => s.RegisterScheduledTaskAsync(
-            It.Is<RemovalScript>(rs =>
-                rs.Name == "BloatRemoval" &&
-                rs.RunOnStartup == false)), Times.Once);
-    }
-
-    // --- RemoveItemsFromScriptAsync ---
-
-    [Fact]
-    public async Task RemoveItemsFromScriptAsync_ScriptDoesNotExist_ReturnsTrue()
-    {
-        _mockFileSystem
-            .Setup(f => f.CombinePath(It.IsAny<string[]>()))
-            .Returns((string[] paths) => string.Join("\\", paths));
-        _mockFileSystem.Setup(f => f.FileExists(It.IsAny<string>())).Returns(false);
-
-        var result = await _service.RemoveItemsFromScriptAsync(new List<ItemDefinition>());
-
-        result.Should().BeTrue();
-    }
-
-    [Fact]
-    public async Task RemoveItemsFromScriptAsync_RemovesItemsFromExistingScript()
-    {
-        var itemsToRemove = new List<ItemDefinition>
-        {
-            CreateAppxApp("app1", "Microsoft.BingNews"),
-        };
-
-        var existingScript = @"$packages = @(
-    ""Microsoft.BingNews"",
-    ""Microsoft.BingWeather""
-)
-
-$capabilities = @()
-
-$optionalFeatures = @()
-
-$specialApps = @()";
-
-        _mockFileSystem
-            .Setup(f => f.CombinePath(It.IsAny<string[]>()))
-            .Returns((string[] paths) => string.Join("\\", paths));
-        _mockFileSystem.Setup(f => f.FileExists(It.IsAny<string>())).Returns(true);
-        _mockFileSystem
-            .Setup(f => f.ReadAllTextAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(existingScript);
-        _mockScheduledTask
-            .Setup(s => s.RegisterScheduledTaskAsync(It.IsAny<RemovalScript>()))
-            .ReturnsAsync(OperationResult.Succeeded());
-
-        var result = await _service.RemoveItemsFromScriptAsync(itemsToRemove);
-
-        result.Should().BeTrue();
-        // Verify the updated content no longer contains the removed app but keeps the remaining one
-        _mockFileSystem.Verify(f => f.WriteAllTextAsync(
-            It.IsAny<string>(),
-            It.Is<string>(content =>
-                !content.Contains("Microsoft.BingNews") &&
-                content.Contains("Microsoft.BingWeather")),
-            It.IsAny<CancellationToken>()), Times.Once);
-    }
-
-    [Fact]
-    public async Task RemoveItemsFromScriptAsync_WhenAllItemsRemoved_CleansUpArtifacts()
-    {
-        var itemsToRemove = new List<ItemDefinition>
-        {
-            CreateAppxApp("app1", "Microsoft.BingNews"),
-        };
-
-        var existingScript = @"$packages = @(
-    ""Microsoft.BingNews""
-)
-
-$capabilities = @()
-
-$optionalFeatures = @()
-
-$specialApps = @()";
-
-        _mockFileSystem
-            .Setup(f => f.CombinePath(It.IsAny<string[]>()))
-            .Returns((string[] paths) => string.Join("\\", paths));
-        _mockFileSystem.Setup(f => f.FileExists(It.IsAny<string>())).Returns(true);
-        _mockFileSystem
-            .Setup(f => f.ReadAllTextAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(existingScript);
-        _mockScheduledTask
-            .Setup(s => s.IsTaskRegisteredAsync(It.IsAny<string>()))
-            .ReturnsAsync(true);
-        _mockScheduledTask
-            .Setup(s => s.UnregisterScheduledTaskAsync(It.IsAny<string>()))
-            .ReturnsAsync(OperationResult.Succeeded());
-
-        var result = await _service.RemoveItemsFromScriptAsync(itemsToRemove);
-
-        result.Should().BeTrue();
-        // When script becomes empty, cleanup artifacts (unregister task + delete file)
-        _mockScheduledTask.Verify(s => s.UnregisterScheduledTaskAsync("BloatRemoval"), Times.Once);
-        _mockFileSystem.Verify(f => f.DeleteFile(It.Is<string>(p => p.Contains("BloatRemoval.ps1"))), Times.Once);
-    }
-
-    [Fact]
-    public async Task RemoveItemsFromScriptAsync_WhenExceptionThrown_ReturnsFalse()
-    {
-        var itemsToRemove = new List<ItemDefinition>
-        {
-            CreateAppxApp("app1", "Microsoft.App1"),
-        };
-
-        _mockFileSystem
-            .Setup(f => f.CombinePath(It.IsAny<string[]>()))
-            .Returns((string[] paths) => string.Join("\\", paths));
-        _mockFileSystem.Setup(f => f.FileExists(It.IsAny<string>())).Returns(true);
-        _mockFileSystem
-            .Setup(f => f.ReadAllTextAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ThrowsAsync(new IOException("Access denied"));
-
-        var result = await _service.RemoveItemsFromScriptAsync(itemsToRemove);
-
-        result.Should().BeFalse();
-        _mockLog.Verify(l => l.LogError(
-            It.Is<string>(s => s.Contains("Error removing items from script")),
-            It.IsAny<Exception>()), Times.Once);
-    }
-
-    // --- CleanupAllRemovalArtifactsAsync ---
-
-    [Fact]
-    public async Task CleanupAllRemovalArtifactsAsync_CleansUpAllThreeTasksAndScripts()
-    {
-        _mockFileSystem
-            .Setup(f => f.CombinePath(It.IsAny<string[]>()))
-            .Returns((string[] paths) => string.Join("\\", paths));
-        _mockScheduledTask
-            .Setup(s => s.IsTaskRegisteredAsync(It.IsAny<string>()))
-            .ReturnsAsync(true);
-        _mockScheduledTask
-            .Setup(s => s.UnregisterScheduledTaskAsync(It.IsAny<string>()))
-            .ReturnsAsync(OperationResult.Succeeded());
-        _mockFileSystem.Setup(f => f.FileExists(It.IsAny<string>())).Returns(true);
-
-        await _service.CleanupAllRemovalArtifactsAsync();
-
-        // Verify all three scheduled tasks are unregistered
-        _mockScheduledTask.Verify(s => s.UnregisterScheduledTaskAsync("EdgeRemoval"), Times.Once);
-        _mockScheduledTask.Verify(s => s.UnregisterScheduledTaskAsync("OneDriveRemoval"), Times.Once);
-        _mockScheduledTask.Verify(s => s.UnregisterScheduledTaskAsync("BloatRemoval"), Times.Once);
-
-        // Verify all three script files are deleted
-        _mockFileSystem.Verify(f => f.DeleteFile(It.Is<string>(p => p.Contains("EdgeRemoval.ps1"))), Times.Once);
-        _mockFileSystem.Verify(f => f.DeleteFile(It.Is<string>(p => p.Contains("OneDriveRemoval.ps1"))), Times.Once);
-        _mockFileSystem.Verify(f => f.DeleteFile(It.Is<string>(p => p.Contains("BloatRemoval.ps1"))), Times.Once);
-    }
-
-    [Fact]
-    public async Task CleanupAllRemovalArtifactsAsync_TaskNotRegistered_SkipsUnregister()
-    {
-        _mockFileSystem
-            .Setup(f => f.CombinePath(It.IsAny<string[]>()))
-            .Returns((string[] paths) => string.Join("\\", paths));
-        _mockScheduledTask
-            .Setup(s => s.IsTaskRegisteredAsync(It.IsAny<string>()))
-            .ReturnsAsync(false);
-        _mockFileSystem.Setup(f => f.FileExists(It.IsAny<string>())).Returns(false);
-
-        await _service.CleanupAllRemovalArtifactsAsync();
-
-        _mockScheduledTask.Verify(s => s.UnregisterScheduledTaskAsync(It.IsAny<string>()), Times.Never);
-        _mockFileSystem.Verify(f => f.DeleteFile(It.IsAny<string>()), Times.Never);
-    }
-
-    [Fact]
-    public async Task CleanupAllRemovalArtifactsAsync_ExceptionDuringCleanup_DoesNotThrow()
-    {
-        _mockFileSystem
-            .Setup(f => f.CombinePath(It.IsAny<string[]>()))
-            .Returns((string[] paths) => string.Join("\\", paths));
-        _mockScheduledTask
-            .Setup(s => s.IsTaskRegisteredAsync(It.IsAny<string>()))
-            .ThrowsAsync(new Exception("COM failure"));
-
-        // Should not throw despite internal errors
-        var action = () => _service.CleanupAllRemovalArtifactsAsync();
-
-        await action.Should().NotThrowAsync();
-    }
+    private static ItemDefinition App(string id, params string[] packages) =>
+        new() { Id = id, Name = id, Description = "", AppxPackageName = packages };
 }

@@ -1,13 +1,13 @@
 using System;
 using System.Linq;
 using Microsoft.Win32;
+using WinOptimizer.Core.Features.Common.Helpers;
 
 namespace WinOptimizer.Core.Features.Common.Models;
 
 /// <summary>
-/// Single source of truth for resolving the Recommended / Default toggle state of a
-/// Toggle/CheckBox setting. Per-card buttons (SettingItemViewModel) and bulk setting operations
-/// (BulkSettingsActionService) both call into here so the two paths can never disagree.
+/// Resolves the Recommended and Default states of toggle settings for setting cards
+/// and for applying recommended settings to a feature.
 ///
 /// Algorithm:
 ///   1. Explicit <see cref="SettingDefinition.RecommendedToggleState"/> /
@@ -91,23 +91,6 @@ public static class SettingDefinitionToggleState
     private static bool IsValueInArray(object value, object?[]? array)
     {
         if (array == null) return false;
-        return array.Any(v => ValuesEqual(value, v));
-    }
-
-    private static bool ValuesEqual(object? a, object? b)
-    {
-        if (a == null && b == null) return true;
-        if (a == null || b == null) return false;
-        if (Equals(a, b)) return true;
-        try
-        {
-            var aVal = Convert.ToInt64(a);
-            var bVal = Convert.ToInt64(b);
-            return aVal == bVal;
-        }
-        catch
-        {
-            return string.Equals(a.ToString(), b.ToString(), StringComparison.OrdinalIgnoreCase);
-        }
+        return array.Any(v => SettingValueComparison.AreEqual(value, v));
     }
 }

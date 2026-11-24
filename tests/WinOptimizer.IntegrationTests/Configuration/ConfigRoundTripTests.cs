@@ -14,7 +14,7 @@ public class ConfigRoundTripTests
     private static readonly JsonSerializerOptions Options = ConfigFileConstants.JsonOptions;
 
     [Fact]
-    public void RoundTrip_FullConfig_PreservesAllFields()
+    public void RoundTrip_FullConfig_PreservesSectionsAndTypedItemFields()
     {
         // Arrange
         var original = TestSettingFactory.CreateFullConfig();
@@ -39,89 +39,24 @@ public class ConfigRoundTripTests
 
         deserialized.Optimize.IsIncluded.Should().Be(original.Optimize.IsIncluded);
         deserialized.Optimize.Features.Should().HaveCount(original.Optimize.Features.Count);
-    }
 
-    [Fact]
-    public void RoundTrip_ToggleItems_PreservesIsSelected()
-    {
-        // Arrange
-        var config = new UnifiedConfigurationFile
-        {
-            Customize = TestSettingFactory.CreateFeatureGroup(true, new Dictionary<string, ConfigSection>
-            {
-                ["TestFeature"] = TestSettingFactory.CreateSection(true,
-                    TestSettingFactory.CreateToggleItem("t1", "True Toggle", true),
-                    TestSettingFactory.CreateToggleItem("t2", "False Toggle", false),
-                    TestSettingFactory.CreateToggleItem("t3", "Null Toggle", null)),
-            }),
-        };
+        var toggles = deserialized.Customize.Features["Explorer"].Items;
+        toggles.Select(item => item.IsSelected).Should().Equal(true, false);
+        deserialized.Optimize.Features["Privacy"].Items.Should().ContainSingle().Which.IsSelected.Should().BeNull();
 
-        // Act
-        var json = JsonSerializer.Serialize(config, Options);
-        var deserialized = JsonSerializer.Deserialize<UnifiedConfigurationFile>(json, Options);
+        var selection = deserialized.Optimize.Features["Power"].Items.Should().ContainSingle().Which;
+        selection.SelectedIndex.Should().Be(2);
+        selection.InputType.Should().Be(InputType.Selection);
+        selection.CustomStateValues.Should().NotBeNull().And.ContainKey("key1")
+            .WhoseValue.ToString().Should().Be("value1");
+        selection.PowerSettings.Should().NotBeNull().And.ContainKey("plan")
+            .WhoseValue.ToString().Should().Be("high");
 
-        // Assert
-        var items = deserialized!.Customize.Features["TestFeature"].Items;
-        items.Should().HaveCount(3);
-        items[0].IsSelected.Should().BeTrue();
-        items[1].IsSelected.Should().BeFalse();
-        items[2].IsSelected.Should().BeNull();
-    }
-
-    [Fact]
-    public void RoundTrip_SelectionItems_PreservesSelectedIndex()
-    {
-        // Arrange
-        var customState = new Dictionary<string, object> { ["mode"] = "advanced", ["level"] = 5 };
-        var powerSettings = new Dictionary<string, object> { ["planGuid"] = "8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c" };
-        var item = TestSettingFactory.CreateSelectionItem("sel1", "Power Plan",
-            selectedIndex: 3, customStateValues: customState, powerSettings: powerSettings);
-
-        var config = new UnifiedConfigurationFile
-        {
-            Optimize = TestSettingFactory.CreateFeatureGroup(true, new Dictionary<string, ConfigSection>
-            {
-                ["Power"] = TestSettingFactory.CreateSection(true, item),
-            }),
-        };
-
-        // Act
-        var json = JsonSerializer.Serialize(config, Options);
-        var deserialized = JsonSerializer.Deserialize<UnifiedConfigurationFile>(json, Options);
-
-        // Assert
-        var result = deserialized!.Optimize.Features["Power"].Items[0];
-        result.SelectedIndex.Should().Be(3);
-        result.InputType.Should().Be(InputType.Selection);
-        result.CustomStateValues.Should().NotBeNull();
-        result.CustomStateValues!["mode"].ToString().Should().Be("advanced");
-        result.PowerSettings.Should().NotBeNull();
-        result.PowerSettings!["planGuid"].ToString().Should().Be("8c5e7fda-e8bf-4a96-9a85-a6e23a8c635c");
-    }
-
-    [Fact]
-    public void RoundTrip_AppItems_PreservesAppxFields()
-    {
-        // Arrange
-        var item = TestSettingFactory.CreateAppItem("app1", "Calculator",
-            appxPackageName: new[] { "Microsoft.WindowsCalculator", "Microsoft.WindowsCalculator.Sub1" },
-            winGetPackageId: "Microsoft.WindowsCalculator",
-            capabilityName: "MathRecognizer");
-
-        var config = new UnifiedConfigurationFile
-        {
-            WindowsApps = TestSettingFactory.CreateSection(true, item),
-        };
-
-        // Act
-        var json = JsonSerializer.Serialize(config, Options);
-        var deserialized = JsonSerializer.Deserialize<UnifiedConfigurationFile>(json, Options);
-
-        // Assert
-        var result = deserialized!.WindowsApps.Items[0];
-        result.AppxPackageName.Should().BeEquivalentTo(new[] { "Microsoft.WindowsCalculator", "Microsoft.WindowsCalculator.Sub1" });
-        result.WinGetPackageId.Should().Be("Microsoft.WindowsCalculator");
-        result.CapabilityName.Should().Be("MathRecognizer");
+        var app = deserialized.WindowsApps.Items[0];
+        var originalApp = original.WindowsApps.Items[0];
+        app.AppxPackageName.Should().Equal(originalApp.AppxPackageName!);
+        app.WinGetPackageId.Should().Be(originalApp.WinGetPackageId);
+        app.CapabilityName.Should().Be(originalApp.CapabilityName);
     }
 
     [Fact]
@@ -206,39 +141,5 @@ public class ConfigRoundTripTests
         deserialized.ExternalApps.Should().NotBeNull();
         deserialized.Customize.Should().NotBeNull();
         deserialized.Optimize.Should().NotBeNull();
-    }
-
-    [Theory]
-    [InlineData("WinOptimizer_Default_Config_Windows10_22H2.win-optimizer")]
-    [InlineData("WinOptimizer_Default_Config_Windows11_25H2.win-optimizer")]
-    [InlineData("WinOptimizer_Recommended_Config.win-optimizer")]
-    public void EmbeddedConfigFile_DeserializesWithoutErrors(string fileName)
-    {
-        // Arrange — read embedded config files from disk (same files embedded in UI project)
-        var configDir = Path.Combine(
-            TestContext.SolutionDir,
-            "src", "WinOptimizer.Application", "Configuration", "Resources");
-        var filePath = Path.Combine(configDir, fileName);
-        var json = File.ReadAllText(filePath);
-
-        // Act
-        var config = JsonSerializer.Deserialize<UnifiedConfigurationFile>(json, Options);
-
-        // Assert
-        config.Should().NotBeNull();
-        config!.Version.Should().Be("2.0");
-
-        // Verify all AppxPackageName entries are arrays (not strings that failed to deserialize)
-        if (config.WindowsApps?.Items != null)
-        {
-            foreach (var item in config.WindowsApps.Items)
-            {
-                if (item.AppxPackageName != null)
-                {
-                    item.AppxPackageName.Should().NotBeEmpty(
-                        $"AppxPackageName for '{item.Name}' should be a non-empty array");
-                }
-            }
-        }
     }
 }

@@ -1,0 +1,25 @@
+<UserControl
+    x:Class="WinOptimizer.UI.Features.Extensions.Preview.PreviewOptions"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:controls="using:CommunityToolkit.WinUI.Controls">
+    <StackPanel Spacing="{StaticResource PageCardSpacing}">
+        <controls:SettingsCard x:Name="ShortcutCard" Style="{StaticResource PageSettingsCardStyle}">
+            <ToggleSwitch x:Name="Shortcut" Toggled="OnShortcutToggled"/>
+        </controls:SettingsCard>
+        <controls:SettingsCard x:Name="StartupCard" Style="{StaticResource PageSettingsCardStyle}">
+            <ToggleSwitch x:Name="Startup" Toggled="OnStartupToggled"/>
+        </controls:SettingsCard>
+        <controls:SettingsCard x:Name="OpacityCard" Style="{StaticResource PageSettingsCardStyle}">
+            <Grid ColumnSpacing="12" VerticalAlignment="Center">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <Slider x:Name="OpacitySlider" Width="160" SnapsTo="StepValues" StepFrequency="1" SmallChange="1" LargeChange="1"
+                        IsThumbToolTipEnabled="False" VerticalAlignment="Center" ValueChanged="OnOpacityChanged"/>
+                <TextBlock x:Name="OpacityValue" Grid.Column="1" MinWidth="38" TextAlignment="Right" VerticalAlignment="Center"/>
+            </Grid>
+        </controls:SettingsCard>
+    </StackPanel>
+</UserControl>

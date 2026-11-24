@@ -16,13 +16,13 @@ public static class CompositionRoot
     /// </summary>
     /// <param name="services">The service collection to configure</param>
     /// <returns>The configured service collection for method chaining</returns>
-    public static IServiceCollection ConfigureWinOptimizerServices(this IServiceCollection services)
+    public static IServiceCollection ConfigureWinOptimizerServices(this IServiceCollection services, bool desktopWidgetHost = false)
     {
         // Register services in dependency order
         services
             .AddInfrastructureServices() // Infrastructure implementations
             .AddApplicationServices()    // Configuration workflows
-            .AddUIServices();            // UI-specific services (ThemeService, etc.)
+            .AddUIServices(desktopWidgetHost); // UI-specific services (ThemeService, etc.)
 
         return services;
     }
@@ -31,12 +31,12 @@ public static class CompositionRoot
     /// Creates and configures a host builder with the win-optimizer service configuration.
     /// </summary>
     /// <returns>Configured host builder</returns>
-    public static IHostBuilder CreateWinOptimizerHost()
+    public static IHostBuilder CreateWinOptimizerHost(bool desktopWidgetHost = false)
     {
         return Host.CreateDefaultBuilder()
             .ConfigureServices((context, services) =>
             {
-                services.ConfigureWinOptimizerServices();
+                services.ConfigureWinOptimizerServices(desktopWidgetHost);
             });
     }
 }

@@ -37,6 +37,9 @@ public interface IApplicationModeService
     /// </summary>
     IDisposable BeginSystemOperation();
 
+    /// <summary>Reserves a write that requires Normal mode and blocks entry into protected modes.</summary>
+    IDisposable BeginNormalModeSystemOperation();
+
     /// <summary>
     /// Enter Builder mode with the given target, retaining the current settings
     /// catalogue and displayed values. No system writes occur while in Builder mode.

@@ -249,63 +249,15 @@ public partial class WimImageFormatViewModel : ObservableObject, IDisposable
     }
 
     [RelayCommand]
-    private async Task DeleteWim()
-    {
-        if (string.IsNullOrEmpty(WorkingDirectory))
-        {
-            await _dialogService.ShowWarningAsync(
-                _localizationService.GetString("WIMUtil_Msg_WorkingDirectoryRequired"),
-                _localizationService.GetString("Dialog_Warning") ?? "Warning");
-            return;
-        }
-
-        try
-        {
-            var confirmed = (await _dialogService.ShowConfirmationAsync(new ConfirmationRequest
-            {
-                Message = _localizationService.GetString("WIMUtil_Msg_DeleteWimConfirm"),
-                Title = _localizationService.GetString("WIMUtil_Button_DeleteWim"),
-                ConfirmButtonText = _localizationService.GetString("Button_Delete"),
-                CancelButtonText = _localizationService.GetString("Button_Cancel"),
-            })).Confirmed;
-            if (!confirmed) return;
-
-            _cancellationTokenSource?.Dispose();
-            _cancellationTokenSource = new CancellationTokenSource();
-            var progress = new Progress<TaskProgressDetail>(detail => { });
-
-            MediaContentChanging?.Invoke(WorkingDirectory);
-            var success = await _wimImageService.DeleteImageFileAsync(
-                WorkingDirectory,
-                ImageFormat.Wim,
-                progress,
-                _cancellationTokenSource.Token);
-
-            if (success)
-            {
-                await DetectImageFormatAsync();
-                await _dialogService.ShowInformationAsync(
-                    _localizationService.GetString("WIMUtil_Msg_DeleteWimSuccess"),
-                    _localizationService.GetString("WIMUtil_Button_DeleteWim"));
-            }
-            else
-            {
-                await _dialogService.ShowErrorAsync(
-                    _localizationService.GetString("WIMUtil_Msg_DeleteFailed"),
-                    _localizationService.GetString("Dialog_Error") ?? "Error");
-            }
-        }
-        catch (Exception ex)
-        {
-            _logService.LogError($"Error deleting WIM: {ex.Message}", ex);
-            await _dialogService.ShowErrorAsync(
-                string.Format(_localizationService.GetString("WIMUtil_Msg_DeleteError"), ex.Message),
-                _localizationService.GetString("Dialog_Error") ?? "Error");
-        }
-    }
+    private Task DeleteWim() => DeleteImageAsync(
+        ImageFormat.Wim, "WIMUtil_Msg_DeleteWimConfirm", "WIMUtil_Button_DeleteWim", "WIMUtil_Msg_DeleteWimSuccess");
 
     [RelayCommand]
-    private async Task DeleteEsd()
+    private Task DeleteEsd() => DeleteImageAsync(
+        ImageFormat.Esd, "WIMUtil_Msg_DeleteEsdConfirm", "WIMUtil_Button_DeleteEsd", "WIMUtil_Msg_DeleteEsdSuccess");
+
+    /// <summary>Confirms the deletion, invalidates media evidence and refreshes the detected image format.</summary>
+    private async Task DeleteImageAsync(ImageFormat format, string confirmKey, string titleKey, string successKey)
     {
         if (string.IsNullOrEmpty(WorkingDirectory))
         {
@@ -319,8 +271,8 @@ public partial class WimImageFormatViewModel : ObservableObject, IDisposable
         {
             var confirmed = (await _dialogService.ShowConfirmationAsync(new ConfirmationRequest
             {
-                Message = _localizationService.GetString("WIMUtil_Msg_DeleteEsdConfirm"),
-                Title = _localizationService.GetString("WIMUtil_Button_DeleteEsd"),
+                Message = _localizationService.GetString(confirmKey),
+                Title = _localizationService.GetString(titleKey),
                 ConfirmButtonText = _localizationService.GetString("Button_Delete"),
                 CancelButtonText = _localizationService.GetString("Button_Cancel"),
             })).Confirmed;
@@ -328,21 +280,18 @@ public partial class WimImageFormatViewModel : ObservableObject, IDisposable
 
             _cancellationTokenSource?.Dispose();
             _cancellationTokenSource = new CancellationTokenSource();
-            var progress = new Progress<TaskProgressDetail>(detail => { });
-
             MediaContentChanging?.Invoke(WorkingDirectory);
             var success = await _wimImageService.DeleteImageFileAsync(
                 WorkingDirectory,
-                ImageFormat.Esd,
-                progress,
-                _cancellationTokenSource.Token);
+                format,
+                cancellationToken: _cancellationTokenSource.Token);
 
             if (success)
             {
                 await DetectImageFormatAsync();
                 await _dialogService.ShowInformationAsync(
-                    _localizationService.GetString("WIMUtil_Msg_DeleteEsdSuccess"),
-                    _localizationService.GetString("WIMUtil_Button_DeleteEsd"));
+                    _localizationService.GetString(successKey),
+                    _localizationService.GetString(titleKey));
             }
             else
             {
@@ -353,7 +302,7 @@ public partial class WimImageFormatViewModel : ObservableObject, IDisposable
         }
         catch (Exception ex)
         {
-            _logService.LogError($"Error deleting ESD: {ex.Message}", ex);
+            _logService.LogError($"Error deleting {format.ToString().ToUpperInvariant()}: {ex.Message}", ex);
             await _dialogService.ShowErrorAsync(
                 string.Format(_localizationService.GetString("WIMUtil_Msg_DeleteError"), ex.Message),
                 _localizationService.GetString("Dialog_Error") ?? "Error");

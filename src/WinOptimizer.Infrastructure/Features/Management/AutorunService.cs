@@ -1,3 +1,4 @@
+using WinOptimizer.Core.Features.Common.Constants;
 using WinOptimizer.Core.Features.Common.Enums;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Management;
@@ -7,10 +8,18 @@ namespace WinOptimizer.Infrastructure.Features.Management;
 
 /// <summary>Owns scan snapshots, mode reservations and authorization of individual startup changes.</summary>
 internal sealed class AutorunService(IAutorunBackend backend, IApplicationModeService mode,
-    IInteractiveUserService user) : IAutorunService
+    IInteractiveUserService user, IScheduledTaskService tasks) : IAutorunService
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly Func<string> _startupExecutable = ApplicationStartupExecutable.FindProtectedInstallation;
     private Dictionary<string, AutorunEntry> _editable = new(StringComparer.Ordinal);
+
+    /// <summary>Provides a test boundary for discovery of the installed executable.</summary>
+    internal AutorunService(IAutorunBackend backend, IApplicationModeService mode, IInteractiveUserService user,
+        IScheduledTaskService tasks, Func<string> startupExecutable) : this(backend, mode, user, tasks)
+    {
+        _startupExecutable = startupExecutable;
+    }
 
     public async Task<AutorunInventory> ReadAsync(AutorunView view, bool acceptSysinternalsLicense, CancellationToken cancellationToken)
     {
@@ -57,6 +66,32 @@ internal sealed class AutorunService(IAutorunBackend backend, IApplicationModeSe
     }
 
     public Task OpenStartupSettingsAsync() => backend.OpenStartupSettingsAsync();
+
+    /// <summary>Reads the scheduler directly so externally disabled tasks are reflected when refreshed.</summary>
+    public async Task<bool?> ReadApplicationStartupAsync() => user.IsOtsElevation ? null :
+        await tasks.IsUserLogonApplicationEnabledAsync(ApplicationTaskName(AppDataPaths.InteractiveUserSid(user)))
+            .ConfigureAwait(false);
+
+    /// <summary>Registers the normal app launch for the consenting administrator's Windows session.</summary>
+    public async Task SetApplicationStartupAsync(bool enabled)
+    {
+        await _gate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            using var reservation = mode.BeginSystemOperation();
+            if (mode.CurrentMode != WinOptimizerMode.Normal || user.IsOtsElevation)
+                throw new InvalidOperationException("Startup changes require normal mode and the current user's own account.");
+            var sid = AppDataPaths.InteractiveUserSid(user);
+            var executable = enabled ? await Task.Run(_startupExecutable).ConfigureAwait(false) : "";
+            var result = await tasks.ConfigureUserLogonApplicationAsync(ApplicationTaskName(sid),
+                executable, "", sid, enabled).ConfigureAwait(false);
+            if (!result.Success)
+                throw new UtilityOperationException(result.ErrorMessage ?? "Unable to configure Windows startup.", result.Exception);
+        }
+        finally { _gate.Release(); }
+    }
+
+    private static string ApplicationTaskName(string sid) => $"WinOptimizer-{sid}";
 }
 
 /// <summary>Isolates Windows discovery, verified Sysinternals acquisition and reversible native writes.</summary>

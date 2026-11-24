@@ -20,4 +20,5 @@ public interface ICleanerBackend
     Task<IReadOnlyList<string>> GetDrivesAsync(CancellationToken ct);
     Task<CleanerScanResult> ScanAsync(CleanerArea area, CleanerOptions options, IProgress<CleanerProgress>? progress, CancellationToken ct);
     Task CleanAsync(CleanerFinding finding, CleanerOptions options, CancellationToken ct);
+    Task ScheduleRegistryDefragAsync(IReadOnlyList<CleanerHiveTarget> hives, CancellationToken ct);
 }

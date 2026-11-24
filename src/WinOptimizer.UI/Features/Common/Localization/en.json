@@ -1,9 +1,242 @@
 {
+  "Nav_Internet": "Internet",
+  "SpeedTest_Title": "Speed test",
+  "SpeedTest_Description": "Tests your connection to Cloudflare.\nUses up to about 70 MB per test.",
+  "SpeedTest_Start": "Start test",
+  "SpeedTest_Latency": "HTTPS latency",
+  "SpeedTest_Previous": "Previous {0}",
+  "SpeedTest_Failed": "The speed test failed. Check your connection and try again.",
+  "OptimizeNetwork_Group_DeliveryOptimization": "Delivery Optimization",
+  "OptimizeNetwork_delivery-background-limit_Title": "Background download limit (KB/s)",
+  "OptimizeNetwork_delivery-background-limit_Description": "Limits bandwidth for background downloads from Windows Update and Microsoft Store. Enter 0 for automatic adjustment. Requires a supported Windows edition.",
+  "Experimental_ImportProfiles": "Import compatibility profiles",
+  "Experimental_ImportProfilesHint": "Replace local profiles with a JSON file.",
+  "Experimental_ProfilesImported": "Imported {0} compatibility profiles.",
+  "Experimental_ImportedProfile": "User-imported compatibility profile",
+  "Experimental_Title": "Experimental Features",
+  "Experimental_Description": "Manage Windows feature overrides. Windows decides which experiences are available.",
+  "Experimental_Shell": "Windows shell",
+  "Experimental_Search_Name": "New Windows Search",
+  "Experimental_Search_Description": "Shows redesigned search results and inline actions.",
+  "Experimental_Run_Name": "Modern Run dialog",
+  "Experimental_Run_Description": "After restarting, turn on New Run dialog in Settings → System → Advanced.",
+  "Experimental_Pointer_Name": "Pointer indicator",
+  "Experimental_Pointer_Description": "Controls the DWM pointer flag. Turn on Pointer indicator in Accessibility settings after restarting.",
+  "Experimental_UnverifiedBuild": "This Windows build, revision, or architecture has no verified mapping.",
+  "Experimental_WindowsClientRequired": "Requires Windows client build 19041 or later.",
+  "Experimental_EnglishWindows": "Requires Windows with English as the display language.",
+  "Experimental_Supported": "Supported by the catalog evidence.",
+  "Experimental_ConflictingRequirements": "The feature has conflicting ID requirements.",
+  "Experimental_SharedConflict": "Another configured feature uses a shared ID.",
+  "Experimental_QueryFailed": "Could not read Windows feature configuration. See technical details.",
+  "Experimental_HigherPriority": "A higher-priority configuration masks the User override.",
+  "Experimental_NormalMode": "Changes require Normal mode.",
+  "Experimental_OperationRunning": "An experimental feature operation is still running.",
+  "Experimental_RecoveryRequired": "Use Undo last change to recover before making another change.",
+  "Experimental_NoUndo": "There is no saved change for this feature.",
+  "Experimental_Elevation": "Administrator permissions are required.",
+  "Experimental_RecoveryBuild": "The recovery receipt belongs to a different Windows release.",
+  "Experimental_ExternalChange": "An affected configuration changed outside this operation.",
+  "Experimental_Cancelled": "Operation cancelled.",
+  "Experimental_ChangeFailed": "The change could not be fully verified.",
+  "Experimental_ChangeVerified": "Configuration verified.",
+  "Experimental_NoChange": "No change needed.",
+  "Experimental_Action_RestoreDefault": "Restore Windows default",
+  "Experimental_Action_Undo": "Undo last change",
+  "Experimental_Configured": "Configured User override",
+  "Experimental_Runtime": "Observed runtime",
+  "Experimental_Restart": "Restart status",
+  "Experimental_Unverified": "Unverified",
+  "Experimental_NoPendingRestart": "No restart pending",
+  "Experimental_SharedIds": "Shared feature IDs",
+  "Experimental_Startup": "Startup snapshot",
+  "Experimental_NoOverride": "No User override",
+  "QuickPreview_Title": "Preview",
+  "Notch_Description": "Choose the controls and readings available from the top of your desktop.",
+  "Notch_Enable": "Enable Notch",
+  "Notch_StartWithWindows": "Start with Windows",
+  "Notch_StartupDescription": "Show Notch when you sign in to Windows, while Notch is enabled. The main window stays hidden. Requires an administrator account.",
+  "Notch_StartupRecoveryError": "Could not save the Notch setting or restore its Windows startup task. Reopen Notch settings and try again.",
+  "Notch_UpdateError": "Could not update Notch. Try again from Extension.",
+  "Notch_Expand": "Expand Notch",
+  "Notch_Collapse": "Collapse Notch",
+  "Notch_OpenOptimizer": "Open Notch settings in win-optimizer",
+  "Notch_MediaTab": "Media",
+  "Notch_FocusTab": "Focus",
+  "Notch_NoMedia": "No active media session",
+  "Notch_MediaUnavailable": "Windows media controls unavailable",
+  "Notch_MediaCommandFailed": "The player did not accept this command.",
+  "Notch_Previous": "Previous track",
+  "Notch_Next": "Next track",
+  "Notch_Seek": "Playback position",
+  "Notch_Shape": "Widget shape",
+  "Notch_Attached": "Attached notch",
+  "Notch_Floating": "Floating island",
+  "Notch_Display": "Display",
+  "Notch_PrimaryDisplay": "Primary display (automatic)",
+  "Notch_DisplayChoice": "Display {0} · {1} × {2}",
+  "Notch_DisplayUnavailable": "Saved display (currently unavailable)",
+  "Notch_Play": "Play",
+  "Notch_Pause": "Pause",
+  "Notch_Start": "Start",
+  "Notch_Reset": "Reset",
+  "Notch_Work": "Focus · 25 min",
+  "Notch_ShortBreak": "Short break · 5 min",
+  "Notch_LongBreak": "Long break · 15 min",
+  "Notch_Sessions": "Sessions completed: {0}",
+  "Notch_Modules": "Notch modules",
+  "Notch_ModulesDescription": "Choose what appears in the desktop Notch. Your changes apply immediately.",
+  "Notch_CompactPin": "Show {0} in the compact Notch",
+  "Notch_ModuleCount": "{0}/{1} modules enabled",
+  "Notch_MediaTabDescription": "See what’s playing and control the active Windows media session.",
+  "Notch_FocusTabDescription": "Run a focus timer with short and long breaks.",
+  "Notch_Calendar": "Calendar",
+  "Notch_CalendarDescription": "See today’s date and browse the monthly calendar.",
+  "Notch_Batteries": "Device batteries",
+  "Notch_BatteriesDescription": "Show battery levels and charging status in a dedicated view.",
+  "Notch_Cpu": "CPU usage",
+  "Notch_CpuDescription": "See the overall processor load.",
+  "Notch_Memory": "RAM usage",
+  "Notch_MemoryDescription": "See used and total system memory.",
+  "Notch_Gpu": "GPU usage",
+  "Notch_GpuDescription": "See the load reported by supported graphics adapters.",
+  "Notch_Clock": "Clock",
+  "Notch_ClockDescription": "Show the local time in the compact Notch.",
+  "Notch_Traffic": "Network traffic",
+  "Notch_TrafficDescription": "See current download and upload rates and today's total usage.",
+  "Notch_TrafficToday": "Today · {0}",
+  "Notch_Uptime": "System uptime",
+  "Notch_UptimeDescription": "See how long Windows has been running.",
+  "Notch_UptimeDays": "{0} d {1} h {2} min",
+  "Notch_UptimeHours": "{0} h {1} min",
+  "Notch_SysInfo": "Sys info",
+  "Notch_SysInfoDescription": "Choose which system readings appear in Notch.",
+  "Notch_Overview": "Overview",
+  "Notch_OverviewDescription": "Drag a tab from the top bar onto Overview to add or replace a tile.",
+  "Notch_Today": "Today",
+  "Notch_Empty": "Choose modules for the expanded view in Notch settings.",
+  "Notch_PcBattery": "This PC",
+  "Notch_NoBatteries": "No batteries detected",
+  "Notch_Shortcuts": "Quick access",
+  "Notch_ShortcutsDescription": "Show pinned items in the Notch widget.",
+  "Notch_EditShortcuts": "Edit",
+  "Notch_FinishEditingShortcuts": "Done",
+  "Notch_RemoveShortcut": "Remove {0} from Quick access",
+  "Notch_FilePickerFailed": "Could not open the file picker.",
+  "Notch_ShortcutsEmpty": "Use + to pin an app.",
+  "Notch_QuickSettings": "Quick Settings",
+  "Notch_QuickSettingsDescription": "Adjust Windows audio, display, wireless and power settings from Notch.",
+  "Notch_NightLight": "Night light",
+  "Notch_QuickDoNotDisturb": "Do not disturb",
+  "Notch_Mute": "Mute",
+  "Notch_QuickSettingsError": "Windows could not complete the change.",
+  "Notch_PinApp": "Add app",
+  "Notch_ChooseApp": "Choose an app",
+  "Notch_AppListEmpty": "No more apps to add.",
+  "Notch_AppListFailed": "Could not load installed apps.",
+  "Notch_PinFile": "Add file",
+  "Notch_ShortcutLocal": "Choose a file or folder on a local drive.",
+  "Notch_ShortcutLimit": "Notch can hold up to 12 shortcuts.",
+  "Notch_ShortcutOpenFailed": "Could not open this shortcut. Check that the item still exists.",
+  "Notch_Weather": "Weather",
+  "Notch_WeatherDescription": "Show current conditions for your chosen city.",
+  "Notch_WeatherCity": "Weather location",
+  "Notch_WeatherCityDescription": "Search for a city and choose a suggestion. Photon finds locations and Open-Meteo provides the weather.",
+  "Notch_WeatherSelectLocation": "Choose a location from the suggestions.",
+  "Notch_WeatherSearching": "Searching for locations…",
+  "Notch_WeatherNoResults": "No matching locations.",
+  "Notch_WeatherSearchUnavailable": "Location search is unavailable. Check your connection and try again.",
+  "Notch_WeatherChooseCity": "Choose a city in Notch settings.",
+  "Notch_WeatherLoading": "Updating weather…",
+  "Notch_WeatherNextHours": "Next hours",
+  "Notch_WeatherWeek": "7-day forecast",
+  "Notch_WeatherUnavailable": "Weather unavailable. Check the city and your connection.",
+  "Notch_WeatherClear": "Clear",
+  "Notch_WeatherPartlyCloudy": "Partly cloudy",
+  "Notch_WeatherCloudy": "Overcast",
+  "Notch_WeatherFog": "Fog",
+  "Notch_WeatherDrizzle": "Drizzle",
+  "Notch_WeatherRain": "Rain",
+  "Notch_WeatherSnow": "Snow",
+  "Notch_WeatherStorm": "Thunderstorms",
+  "Notch_WeatherUnknown": "Current conditions",
+  "Notch_Save": "Save",
+  "Notch_MicrophoneActive": "Microphone in use",
+  "Notch_AudioVisualizer": "Audio visualizer",
+  "Notch_AudioVisualizerDescription": "Show microphone activity and recent levels from the default Windows playback device.",
+  "Notch_StatusAlerts": "Status changes",
+  "Notch_StatusAlertsDescription": "Briefly show charging, battery, device connections, volume and brightness changes in Notch.",
+  "Notch_FrameRate": "Game FPS",
+  "Notch_FrameRateDescription": "Show the presentation rate of supported fullscreen DirectX games on the primary screen.",
+  "Notch_FpsValue": "{0} FPS",
+  "Notch_FrameRateUnavailable": "Graphics capture unavailable",
+  "Notch_PowerConnected": "Power connected",
+  "Notch_OnBattery": "On battery",
+  "Notch_LowBattery": "Low battery",
+  "Notch_BatteryFull": "Battery full",
+  "Notch_ChargingPaused": "Charging paused",
+  "Notch_DeviceConnected": "{0} connected",
+  "Notch_DeviceDisconnected": "{0} disconnected",
+  "Notch_Volume": "Volume",
+  "Notch_VolumeMuted": "Volume muted",
+  "Notch_Brightness": "Brightness",
+  "Notch_ShareToPhone": "Share to phone",
+  "Notch_ShareFailed": "Windows could not share the selected file.",
+  "Notch_CustomTimer": "Custom timer",
+  "Notch_TimerMinutes": "Timer duration in minutes",
+  "QuickPreview_Description": "Select a file or folder on the desktop or in File Explorer and press Space to preview it.",
+  "QuickPreview_Shortcut": "Preview with Space",
+  "QuickPreview_Startup": "Start with Windows",
+  "QuickPreview_BackgroundOpacity": "Background opacity",
+  "QuickPreview_Open": "Open",
+  "QuickPreview_Close": "Close",
+  "QuickPreview_Reveal": "Show in File Explorer",
+  "QuickPreview_Previous": "Previous page",
+  "QuickPreview_Next": "Next page",
+  "QuickPreview_Page": "{0} of {1}",
+  "QuickPreview_Folder": "Folder",
+  "QuickPreview_Modified": "Modified",
+  "QuickPreview_Files": "Files",
+  "QuickPreview_Subfolders": "Subfolders",
+  "QuickPreview_FolderContents": "Folder contents",
+  "QuickPreview_Size": "Size",
+  "QuickPreview_SizeOnDisk": "Size on disk",
+  "QuickPreview_SizeUnavailable": "Unavailable",
+  "QuickPreview_ByteCount": "{0} B",
+  "QuickPreview_Created": "Created",
+  "QuickPreview_FolderPath": "Path",
+  "QuickPreview_Hidden": "Hidden",
+  "QuickPreview_ReadOnly": "Read-only",
+  "QuickPreview_FolderPartial": "Folder totals are incomplete.",
+  "QuickPreview_FolderListLimited": "Showing only the first {0} direct entries.",
+  "QuickPreview_Empty": "No preview content",
+  "QuickPreview_Unavailable": "Preview content is unavailable for this file.",
+  "QuickPreview_Product": "Product",
+  "QuickPreview_Publisher": "Publisher",
+  "QuickPreview_FileVersion": "File version",
+  "QuickPreview_ProductVersion": "Product version",
+  "QuickPreview_Architecture": "Architecture",
+  "QuickPreview_Target": "Target",
+  "TimeMachine_Title": "TimeMachine",
+  "TimeMachine_Snapshots": "Snapshots",
+  "TimeMachine_CreateSnapshot": "Create snapshot",
+  "TimeMachine_ExploreSnapshot": "Explore",
+  "TimeMachine_NoSnapshots": "No snapshots saved yet.",
+  "TimeMachine_DeleteSnapshotConfirm": "Delete the snapshot from {0}?",
+  "TimeMachine_Compare": "Compare with current settings",
+  "TimeMachine_RestoreSelected": "Restore selected",
+  "TimeMachine_KeepDays": "Keep snapshots and recovery copies for this many days",
+  "TimeMachine_SelectChanges": "Select the changes you want to restore.",
+  "TimeMachine_Confirm": "Restore these changes to their previous values? Some app preferences take effect after restarting win-optimizer.",
+  "TimeMachine_Result": "{0:N0} items · {1:N0} unavailable or failed",
   "OptimizeNetwork_Title": "Network",
-  "OptimizeNetwork_TitleDescription": "Tune TCP behavior, hardware offloading, IPv4/IPv6 caches and legacy name-resolution priorities. Review current values and confirm changes individually. Results depend on your connection and adapter.",
+  "OptimizeNetwork_SettingsTitle": "Network settings",
+  "OptimizeNetwork_TitleDescription": "Review settings before you apply changes.",
+  "OptimizeNetwork_ResultsHint": "Results depend on your connection and adapter.",
   "OptimizeNetwork_EnhanceDescription": "Enable normal TCP receive-window auto-tuning and receive-side scaling. This can restore throughput when those features were disabled. Other network controls remain unchanged.",
   "OptimizeNetwork_Controls": "{0} individual network controls",
-  "OptimizeNetwork_Value": "Current: {0}",
+  "OptimizeNetwork_OriginalValue": "Original: {0}",
+  "OptimizeNetwork_SuggestedValue": "Suggested: {0}",
   "OptimizeNetwork_Unavailable": "Unavailable: {0}",
   "OptimizeNetwork_UnavailableCount": "{0} controls could not be read or are unsupported. See the affected cards; Refresh retries discovery.",
   "OptimizeNetwork_NotConfigured": "No override",
@@ -16,6 +249,8 @@
   "OptimizeNetwork_Group_IPv6": "IPv6 protocol",
   "OptimizeNetwork_Group_NameResolution": "Legacy name-resolution priorities",
   "OptimizeNetwork_Option_Disabled": "Disabled",
+  "OptimizeNetwork_Option_Enabled": "Enabled",
+  "OptimizeNetwork_Option_Allowed": "Allowed",
   "OptimizeNetwork_Option_HighlyRestricted": "Highly restricted",
   "OptimizeNetwork_Option_Restricted": "Restricted",
   "OptimizeNetwork_Option_Normal": "Normal",
@@ -71,7 +306,8 @@
   "OptimizeNetwork_priority-netbt_Title": "NetBT name-resolution priority",
   "OptimizeNetwork_priority-netbt_Description": "Legacy NetbtPriority override. Lower numbers have higher priority; common legacy value: 2001, example: 7. Does not enable NetBIOS when disabled. Modern resolution may ignore it. Restart Windows after changes.",
   "OptimizeNetwork_Enhance": "Enhance network performance",
-  "OptimizeNetwork_Current": "TCP auto-tuning: {0} • Receive-side scaling: {1}",
+  "OptimizeNetwork_AutoTuningLabel": "TCP auto-tuning",
+  "OptimizeNetwork_RssLabel": "Receive-side scaling",
   "OptimizeNetwork_Unknown": "Network configuration has not been read. Use Refresh to retry.",
   "OptimizeNetwork_Applied": "Windows confirmed normal TCP auto-tuning and enabled receive-side scaling.",
   "OptimizeFeatures_Title": "Features",
@@ -113,6 +349,8 @@
   "ContextMenu_ProgramChangeFailed": "Could not change all entries for {0}:\n{1}",
   "Settings_AppColor": "App color",
   "Settings_AppColorDescription": "Choose the accent for navigation, headings and controls. Changes apply immediately.",
+  "Settings_BlurWindowBackground": "Blurred window background",
+  "Settings_BlurWindowBackgroundDescription": "Blur what’s behind the window with a tint at 98% opacity.",
   "Settings_AppColorInvalid": "The saved app color is invalid. Restore this category to choose a new color.",
   "Settings_AppColor_Blue": "Blue",
   "Settings_AppColor_Teal": "Teal",
@@ -210,6 +448,8 @@
   "Autoruns_Hint": "Manage Run/RunOnce, startup folders and boot/logon tasks. Windows app startup settings open in Windows. Select an entry to inspect its command and change its state.",
   "Autoruns_AdvancedHint": "Microsoft Autoruns scans all known categories: logon, Explorer, tasks, services, drivers, Winlogon, WMI and more. Includes Microsoft entries. System loading points are shown for inspection; this is configured startup, not a list of running processes. Signature verification may contact certificate services.",
   "Autoruns_WindowsSettings": "Windows startup settings",
+  "Autoruns_ApplicationStartup": "Start win-optimizer as administrator",
+  "Autoruns_ApplicationStartupDescription": "Open win-optimizer automatically when you sign in to Windows without another UAC prompt. Requires an administrator account and a protected installation under Program Files.",
   "Autoruns_Enable": "Enable",
   "Autoruns_Disable": "Disable",
   "Autoruns_Location": "Registration location",
@@ -235,6 +475,7 @@
   "WindowsStatus_AnalyzeStore": "Analyze component store",
   "WindowsStatus_Repair": "Repair image and system files",
   "WindowsStatus_Cleanup": "Clean component store",
+  "WindowsStatus_CleanupDescription": "DISM removes superseded components after a quick check confirms the component store is healthy.",
   "WindowsStatus_Source": "Optional repair source: WIM file or Windows folder",
   "WindowsStatus_SourceHint": "Leave blank for configured sources and Windows Update. For a WIM, choose the index for the required Windows edition. Use a source matching Windows version, architecture and installed languages, updated to the required cumulative update level; an older source may lack required files.",
   "WindowsStatus_Index": "WIM image index",
@@ -276,7 +517,7 @@
   "WindowsStatus_ScanTitle": "Check Windows health",
   "WindowsStatus_ScanDescription": "Scan the component store and verify protected system files without changing them. Choose quick status to read existing corruption flags, or analyze the store's usage separately.",
   "WindowsStatus_RepairTitle": "Repair Windows",
-  "WindowsStatus_RepairDescription": "DISM detected corruption it can repair. Start image and system-file repair, or expand the repair options to choose a compatible source. You will review a confirmation before any changes begin.",
+  "WindowsStatus_RepairDescription": "DISM detected corruption it can repair. Choose a compatible source in the repair options if needed. You’ll confirm the repair before any changes begin.",
   "WindowsStatus_DiagnosisShort": "Diagnose",
   "WindowsStatus_RepairShort": "Repair",
   "WindowsStatus_Results": "Results",
@@ -364,6 +605,15 @@
   "Utilities_CurrentCharge": "Battery charge",
   "Utilities_ChargeLimit": "Stop charging at",
   "Utilities_ActiveLimit": "Firmware charge limit",
+  "Utilities_BatteryResumeCharging": "Resume charging",
+  "Utilities_BatteryResumeFirmware": "The firmware controls when charging resumes for this limit.",
+  "Utilities_BatteryResumeAutomatic": "Firmware-controlled",
+  "Utilities_BatteryResumeSoonest": "Soonest supported (below {0}%)",
+  "Utilities_BatteryResumeBelow": "Below {0}%",
+  "Utilities_BatteryResumeOffset": "{0} points below limit ({1}%)",
+  "Utilities_BatteryStandardCharging": "Standard charging",
+  "Utilities_BatteryResumeThreshold": "Charging resumes at {0}%",
+  "Utilities_BatteryChargingAboveLimit": "The battery is still charging at {0}%, above the firmware limit of {1}%. Check the charge limit in the manufacturer's app.",
   "Utilities_ApplyLimit": "Apply limit",
   "Utilities_OemHelp": "Open manufacturer guidance",
   "Utilities_BatteryHint": "80% is selected initially. Only supported percentages are available; 100% restores full charging. Nothing changes until you select Apply limit.",
@@ -387,9 +637,9 @@
 
   "Drivers_IntroDescription": "Review driver packages, disconnected devices and official updates in one place.",
 
-  "Drivers_ReadyTitle": "Ready to scan",
+  "Scan_ReadyTitle": "Ready to scan",
 
-  "Drivers_ReadyDescription": "Start a scan to collect the driver inventory and check for applicable Windows Update offers.",
+  "Drivers_ReadyDescription": "Scan this PC for drivers and check the enabled official sources.",
 
   "Nav_Restore": "Restore",
 
@@ -533,7 +783,7 @@
 
   "Settings_Info": "Info",
 
-  "Settings_InfoDescription": "Version, updates, support and help.",
+  "Settings_GeneralDescription": "Language, appearance, updates, and app information.",
 
   "Settings_AutomaticAppUpdates": "Automatically check for application updates",
 
@@ -618,7 +868,6 @@
 
   "Settings_Appearance": "Language and appearance",
 
-  "Settings_AppearanceDescription": "Display language, application theme and navigation layout",
 
   "Settings_PrivacyDescription": "Browser caches, Windows history and application traces",
 
@@ -640,7 +889,6 @@
 
   "Settings_ResetAll": "Reset all settings",
 
-  "Settings_OpenBackupFolder": "Open backup folder",
 
   "Settings_LanguageFailed": "The selected language could not be applied.",
 
@@ -671,6 +919,10 @@
   "Theme_DarkNative": "Dark",
 
   "Menu_CheckForUpdates": "Check for Updates",
+
+  "Menu_Update_Checking": "Checking for updates…",
+
+  "Menu_Update_NotChecked": "Latest release has yet to be verified.",
 
   "Menu_WinOptimizerLogs": "win-optimizer Logs",
 
@@ -755,46 +1007,6 @@
   "Dialog_ImportConfig_Option_Defaults_Description": "Reset all settings to Windows factory defaults",
 
   "Dialog_ImportOptions_Message": "Choose how you would like to import a configuration:",
-
-  "Dialog_Unified_Section_SoftwareAndApps": "Software & Apps",
-
-  "Dialog_Unified_Description_SoftwareAndApps": "Selections for Windows Packages and External Software",
-
-  "Dialog_Unified_Section_WindowsApps": "Windows Apps",
-
-  "Dialog_Unified_Description_WindowsApps": "Selections for Windows built-in applications",
-
-  "Dialog_Unified_Section_ExternalApps": "External Software",
-
-  "Dialog_Unified_Description_ExternalApps": "Selections for third-party applications",
-
-  "Dialog_Unified_Section_Optimize": "Optimization Settings",
-
-  "Dialog_Unified_Description_Optimize": "Windows optimization settings",
-
-  "Dialog_Unified_Section_Customize": "Customization Settings",
-
-  "Dialog_Unified_Description_Customize": "Windows UI customization settings",
-
-  "Dialog_Unified_Option_ApplyWallpaper": "Apply default wallpaper for selected theme",
-
-  "Dialog_Unified_Option_CleanTaskbar": "Apply clean Taskbar (Removes all pinned items from the Taskbar)",
-
-  "Dialog_Unified_Option_CleanStartMenu": "Apply clean Start Menu (Removes all pinned items and applies clean layout)",
-
-  "Dialog_Unified_Option_ProcessRemoval": "Process app removals now",
-
-  "Dialog_Unified_Option_ManualRemoval": "Only select, I'll process manually",
-
-  "Dialog_Unified_Option_ProcessInstallation": "Process app installations now",
-
-  "Dialog_Unified_Option_ManualInstallation": "Only select, I'll process manually",
-
-  "Dialog_Unified_Error_NoSelection": "Please select at least one section to continue.",
-
-  "Dialog_Unified_Description_Import": "Select which settings from the config file you want to apply to your computer.",
-
-  "Dialog_Unified_Error_NoSelection_Title": "No Sections Selected",
 
   "Config_Export_Success_Title": "Configuration Saved",
 
@@ -971,7 +1183,7 @@
 
   "Category_SoftwareApps_Title": "Software & Apps",
 
-  "Category_SoftwareApps_StatusText": "Uninstall Windows apps and software",
+  "Category_SoftwareApps_StatusText": "Manage installed apps and software.",
 
   "Feature_Notifications_Name": "Notifications",
 
@@ -2681,10 +2893,6 @@
 
   "Setting_accessibility-mousekeys-hotkey_Description": "Enable the keyboard shortcut to activate MouseKeys, which allows using the numeric keypad to control the mouse pointer",
 
-  "Setting_accessibility-highcontrast-hotkey_Name": "High Contrast Hotkey (Alt+Shift+PrtScn)",
-
-  "Setting_accessibility-highcontrast-hotkey_Description": "Enable the keyboard shortcut to activate High Contrast mode by pressing Left Alt + Left Shift + Print Screen",
-
   "Template_TimeIntervals_Option_0": "Never",
 
   "Template_TimeIntervals_Option_1": "1 minute",
@@ -3085,17 +3293,19 @@
 
   "Setting_start-power-sleep-option_Description": "Display the Sleep option in the Start Menu power button menu",
 
-  "WindowsApps_ShowHiddenInstalled": "Show hidden or inactive installed apps",
+  "WindowsApps_ShowHiddenInstalled": "Show hidden or inactive apps",
   "WindowsApps_ShowHiddenInstalled_Tooltip": "Include Windows app packages retained on this device but not registered for the current account. Requires administrator permissions. Apps absent from the device stay hidden.",
   "WindowsApps_Status_Inactive": "Installed (inactive)",
   "WindowsApps_Status_Inactive_Tooltip": "This app package is retained on the device but is not detected as installed for the current account.",
-  "WindowsApps_Section_Apps": "Windows Apps",
+  "WindowsApps_Section_Apps": "Installed apps",
 
   "WindowsApps_Section_Capabilities": "Windows Capabilities",
 
   "WindowsApps_Section_OptionalFeatures": "Windows Optional Features",
 
-  "SoftwareApps_Button_UninstallSelected": "Uninstall Selected Items",
+  "SoftwareApps_Button_UninstallSelected": "Uninstall selected",
+  "SoftwareApps_SearchLabel": "Search",
+  "SoftwareApps_SearchPlaceholder": "Search apps",
 
   "SoftwareApps_Tab_WindowsApps": "Windows Apps & Features",
 
@@ -3721,16 +3931,6 @@
 
   "Dialog_NoAppsSelected_Config_Message": "No Windows Apps are currently selected. When this configuration file is imported, no app checkboxes will be checked.\n\nPlease go to the Windows Apps section and check the apps you want to include.\n\nDo you want to continue anyway?",
 
-  "Dialog_FallbackDownload": "Alternative Download Method",
-
-  "Dialog_UpdatePolicyBlocking_Title": "Windows Updates Disabled",
-
-  "Dialog_UpdatePolicyBlocking_Message": "The installation of '{0}' could not complete, likely because Windows Updates are disabled.\n\nDisabling Windows Updates prevents app installations from the Microsoft Store from completing.\n\nWould you like win-optimizer to change the update policy to 'Paused for a long time' and retry the installation?",
-
-  "WindowsApps_Msg_FallbackDownload": "The package '{0}' could not be found via WinGet, likely due to geographic market restrictions.\n\nwin-optimizer can download this package directly from Microsoft's servers using an alternative method (store.rg-adguard.net).\n\n• The package files come directly from Microsoft's official CDN\n• This method is completely legal and safe\n• It bypasses regional restrictions only\n\nWould you like to proceed with the alternative download method?",
-
-  "WindowsApps_Checkbox_DontAskAgain": "Don't ask me again for future installations",
-
   "Progress_RemovingOldFile": "Removing old image file...",
 
   "Progress_ConversionCompleted": "Conversion completed successfully",
@@ -3777,29 +3977,7 @@
 
   "Progress_IsoCreationFailed": "ISO creation failed",
 
-  "Progress_PreparingDownload": "Preparing to download {0}...",
-
-  "Progress_FailedResolveUrl": "Failed to resolve download URL for {0}",
-
-  "Progress_Downloading": "Downloading {0}...",
-
-  "Progress_FailedDownload": "Failed to download {0}",
-
-  "Progress_Installing": "Installing {0}...",
-
-  "Progress_InstalledSuccess": "Successfully installed {0}",
-
-  "Progress_FailedInstall": "Failed to install {0}",
-
-  "Progress_DownloadCancelled": "Download of {0} was cancelled",
-
   "Progress_Error": "Error: {0}",
-
-  "Progress_DownloadProgress": "Downloading {0}: {1} MB / {2} MB",
-
-  "Progress_LaunchingInstaller": "Launching installer for {0}...",
-
-  "Progress_Extracting": "Extracting {0}...",
 
   "Progress_CheckingRestorePoint": "Checking system restore point...",
 
@@ -3826,22 +4004,6 @@
   "Progress_Task_RemovingWindowsApps": "Removing Windows Apps",
 
   "Progress_Task_UninstallingExternalApps": "Uninstalling External Apps",
-
-  "Progress_WinGet_CheckingPrerequisites": "Checking prerequisites for {0}...",
-
-  "Progress_WinGet_InstallingManager": "Installing WinGet package manager...",
-
-  "Progress_WinGet_FailedInstallManager": "Failed to install WinGet. Cannot install {0}.",
-
-  "Progress_WinGet_StartingInstallation": "Starting installation of {0}...",
-
-  "Progress_WinGet_InstalledSuccess": "Successfully installed {0}",
-
-  "Progress_WinGet_InstallationCancelled": "Installation of {0} was cancelled",
-
-  "Progress_WinGet_NetworkError": "Network error while installing {0}. Please check your internet connection and try again.",
-
-  "Progress_WinGet_InstallationError": "Error installing {0}: {1}",
 
   "Progress_WinGet_CheckingPrerequisitesUninstall": "Checking prerequisites for uninstalling {0}...",
 
@@ -3877,30 +4039,6 @@
 
   "Progress_WinGet_InstallError": "Error installing WinGet: {0}",
 
-  "Progress_Store_FetchingLinks": "Fetching download links for {0}...",
-
-  "Progress_Store_FailedDownload": "Failed to download {0}",
-
-  "Progress_Store_InstalledSuccess": "Successfully installed {0}",
-
-  "Progress_Store_FailedInstall": "Failed to install {0}",
-
-  "Progress_Store_DownloadCancelled": "Download of {0} was cancelled",
-
-  "Progress_Store_InstallError": "Error installing {0}: {1}",
-
-  "Progress_Store_DownloadingDependencies": "Downloading {0} required dependency package(s)...",
-
-  "Progress_Store_InstallingWithDependencies": "Installing {0} with {1} dependencies...",
-
-  "Progress_Store_Installing": "Installing {0}...",
-
-  "Progress_Store_RequestingInfo": "Requesting package information for {0}...",
-
-  "Progress_Store_DownloadingMain": "Downloading {0} main package...",
-
-  "Progress_Store_NonRecoverableError": "Installation failed: {0}",
-
   "Progress_WinGet_CheckingUpdates": "Checking for WinGet updates...",
 
   "Progress_WinGet_Updating": "Updating WinGet...",
@@ -3931,28 +4069,6 @@
 
   "Progress_WinGet_ProvisionedSuccessfully": "WinGet provisioned successfully",
 
-  "Progress_WinGet_Error_BlockedByPolicy": "Installation of '{0}' is blocked by system policy.",
-
-  "Progress_WinGet_Error_CatalogError": "Catalog error while installing '{0}'. Please try again.",
-
-  "Progress_WinGet_Error_InternalError": "Internal error while installing '{0}'. Please try again.",
-
-  "Progress_WinGet_Error_InvalidOptions": "Invalid options specified for installing '{0}'.",
-
-  "Progress_WinGet_Error_DownloadError": "Download error while installing '{0}'. Please check your internet connection.",
-
-  "Progress_WinGet_Error_InstallError": "Installation error for '{0}'. Error code: {1}",
-
-  "Progress_WinGet_Error_ManifestError": "Package manifest error for '{0}'.",
-
-  "Progress_WinGet_Error_NoApplicableInstallers": "No applicable installers found for '{0}' on this system.",
-
-  "Progress_WinGet_Error_NoApplicableUpgrade": "No applicable upgrade found for '{0}'.",
-
-  "Progress_WinGet_Error_AgreementsNotAccepted": "Package agreements not accepted for '{0}'.",
-
-  "Progress_WinGet_Error_InstallFailed": "Installation failed for '{0}'. Status: {1}",
-
   "Progress_WinGet_Error_UninstallBlockedByPolicy": "Uninstallation of '{0}' is blocked by system policy.",
 
   "Progress_WinGet_Error_UninstallCatalogError": "Catalog error while uninstalling '{0}'.",
@@ -3964,8 +4080,6 @@
   "Progress_WinGet_Error_UninstallError": "Uninstallation error for '{0}'. Error code: {1}",
 
   "Progress_WinGet_Error_UninstallFailed": "Uninstallation failed for '{0}'. Status: {1}",
-
-  "Progress_WinGet_PackageNotFound": "Package '{0}' not found in repositories.",
 
   "Progress_WinGet_FoundPackage": "Found package: {0}",
 
@@ -4025,14 +4139,6 @@
 
   "Loading_PreparingApp": "Loading apps and checking installation status...",
 
-  "Progress_Choco_Installing": "Installing Chocolatey package manager...",
-
-  "Progress_Choco_Installed": "Chocolatey installed successfully",
-
-  "Progress_Choco_InstallingPackage": "Installing '{0}' via Chocolatey...",
-
-  "Progress_Choco_FallbackAttempt": "WinGet failed, trying Chocolatey for '{0}'...",
-
   "Progress_Choco_UninstallingPackage": "Uninstalling '{0}' via Chocolatey...",
 
   "Progress_UninstalledSuccess": "Successfully uninstalled {0}",
@@ -4040,10 +4146,6 @@
   "View_TechnicalDetails": "Technical Details",
 
   "Nav_AdvancedTools_Locked_Tooltip": "Unavailable during config review",
-
-  "QuickActions_ApplyRecommended": "Apply Recommended Settings",
-
-  "QuickActions_ResetDefaults": "Reset to Windows Defaults",
 
   "InfoBadge_Recommended": "Recommended",
 
@@ -4415,13 +4517,33 @@
 
   "Cleaner_IntroTitle": "A cleaner PC, your way",
 
-  "Cleaner_IntroDescription": "Select the areas below, then start a scan. Customize cleanup and backups in Settings.",
+  "Cleaner_IntroDescription": "Select the areas below, then start a scan. Customize cleanup in Settings.",
 
   "Cleaner_StepScan": "1. Scan selected areas",
 
   "Cleaner_Areas": "What would you like to clean?",
 
   "Cleaner_CategorySummary": "{0} of {1} areas selected",
+  "Cleaner_ScanActive": "Scanning selected areas",
+  "Cleaner_ScanAreas": "Scan areas",
+  "Cleaner_Scanning_Privacy": "Scanning privacy traces",
+  "Cleaner_Scanning_JunkFiles": "Scanning junk files",
+  "Cleaner_Scanning_Shortcuts": "Scanning shortcuts",
+  "Cleaner_Scanning_Registry": "Scanning registry entries",
+  "Cleaner_Scanning_RegistryDefrag": "Scanning registry hives",
+  "Cleaner_Scanning_Disk": "Analyzing the drive",
+  "Cleaner_ShortcutInventory": "Building the shortcut inventory…",
+  "Cleaner_ReviewStepLabel": "Review",
+  "Cleaner_CleanStepLabel": "Clean",
+  "Cleaner_Area_NotSelected": "Not selected",
+  "Cleaner_Area_Queued": "Queued",
+  "Cleaner_Area_Scanning": "Scanning",
+  "Cleaner_Area_Scanned": "Scanned",
+  "Cleaner_ScanInProgress": "SCAN IN PROGRESS",
+  "Cleaner_CancelScan": "Cancel scan",
+  "Cleaner_ViewScanDetails": "View details",
+  "Cleaner_ScanResultsHint": "Results will appear when the scan finishes.",
+  "Cleaner_PreparingReview": "Preparing results…",
 
   "Cleaner_Privacy_Description": "Browser, Windows and application traces",
 
@@ -4429,7 +4551,7 @@
 
   "Cleaner_Shortcuts_Description": "Broken desktop and Start menu links",
 
-  "Cleaner_RegistryDefrag_Description": "Compact registry hives with Windows",
+  "Cleaner_RegistryDefrag_Description": "Compact registry hives on the next restart",
 
   "Cleaner_Registry_Description": "Review invalid registry references",
 
@@ -4489,7 +4611,6 @@
 
   "Cleaner_StartMenu": "Start menu shortcuts",
 
-  "Cleaner_Backups": "Cleaner backups and recovery",
 
   "Cleaner_Scan": "Scan",
 
@@ -4505,7 +4626,6 @@
 
   "Cleaner_InvalidAge": "Enter a whole number from 0 to 365.",
 
-  "Cleaner_NoBackups": "No registry backups have been created yet.",
 
   "Cleaner_ScanComplete": "{2:N0} checks completed: {0} results, {1}. Review registry entries and select the ones to correct.",
 
@@ -4553,21 +4673,14 @@
 
   "Cleaner_Registry_Firewall": "Firewall settings (diagnostics)",
 
-  "Cleaner_BackupBeforeCleaning": "Back up files and registry values before cleanup",
 
-  "Cleaner_BackupBeforeRegistryDefrag": "Back up registry hives before defragmentation",
+  "Cleaner_RegistryDefragScheduled": "Awaiting restart",
 
-  "Cleaner_BackupDescription": "Backups are enabled by default. A failed required backup blocks cleanup. Restore files and values here; whole registry hives require offline recovery using the included notes.",
 
-  "Cleaner_RestoreBackup": "Restore selected backup",
 
-  "Cleaner_ReloadBackups": "Refresh backup list",
 
-  "Cleaner_SelectBackup": "Refresh the list and select a backup first.",
 
-  "Cleaner_RestoreConfirm": "Restore this cleanup session? Missing files and deleted registry values will be recovered. Different existing files and values will be preserved. Browser data should be restored with browsers closed.",
 
-  "Cleaner_RestoreComplete": "{0} items restored, {1} conflicts or errors.",
 
   "Cleaner_CreatingBackup": "Creating and verifying cleanup backup…",
 
@@ -4579,11 +4692,9 @@
 
   "Cleaner_BackupOn": "Cleanup backup: enabled.",
 
-  "Cleaner_BackupOff": "Cleanup backup: disabled. File and registry cleanup cannot be undone through Cleaner.",
+  "Cleaner_BackupOff": "Cleanup backup: disabled.",
 
-  "Cleaner_HiveBackupOn": "Registry defragmentation backup: enabled.",
-
-  "Cleaner_HiveBackupOff": "Registry defragmentation backup: disabled. A whole-hive recovery copy will not be created.",
+  "Cleaner_RegistryDefragConfirmation": "After applying, restart Windows to compact the selected registry hives before Windows loads. Backups are created and verified automatically.",
 
   "Cleaner_Discovering": "Building the inventory",
 
@@ -4599,19 +4710,34 @@
 
   "Nav_Drivers": "Drivers",
 
-  "Drivers_Description": "Scan for unreferenced driver packages, disconnected devices and official driver updates from Microsoft Windows Update. Unused and disconnected entries are review candidates: a disconnected device may still be needed. Checking update certification may download driver packages. This scan does not install or remove drivers.",
+  "Drivers_Description": "Review unused packages, disconnected devices and driver candidates from official sources. Verification may download packages. Installation and removal are separate actions.",
 
   "Drivers_WhqlLabel": "Only show WHQL-tested driver updates",
 
-  "Drivers_WhqlDescription": "Enabled by default. Only packages whose catalog is verified by Windows as WHQL-tested appear as updates. Turn this off to include official Windows Update offers whose WHQL status could not be verified. Changes apply to the next scan.",
+  "Drivers_WhqlDescription": "Enabled by default. Only candidates with WHQL evidence from their matching driver catalog pass the filter. Other results are available under Filtered candidates.",
 
   "Drivers_FilterWhql": "Update filter: verified WHQL only. Change this in Settings → Drivers.",
 
-  "Drivers_FilterAll": "Update filter: all official Windows Update offers, including unverified WHQL status. Change this in Settings → Drivers.",
+  "Drivers_FilterAll": "WHQL filter off. Candidates can include unverified packages.",
 
   "Drivers_Inventory": "Reading devices and driver packages…",
 
-  "Drivers_SearchingUpdates": "Searching Windows Update and downloading candidate packages for verification…",
+  "Drivers_SearchingUpdates": "Checking official driver sources…",
+  "Drivers_ScanInProgress": "SCAN IN PROGRESS",
+  "Drivers_DetectingDevices": "Detecting devices",
+  "Drivers_CheckingSourcesTitle": "Checking driver sources",
+  "Drivers_CheckingSourcesDescription": "Looking for compatible updates for your devices.",
+  "Drivers_DetectDevicesStep": "Detect devices",
+  "Drivers_CheckSourcesStep": "Check sources",
+  "Drivers_PrepareResultsStep": "Prepare results",
+  "Drivers_RecentActivity": "Recent activity",
+  "Drivers_ViewDetails": "View details",
+  "Drivers_DevicesDetected": "Devices detected",
+  "Drivers_DriverVersionsLoaded": "Installed driver versions loaded",
+  "Drivers_SourcesChecked": "Official driver sources checked",
+  "Drivers_PreparingResults": "Preparing results…",
+  "Drivers_ScanResultsHint": "Results will appear when the scan is complete.",
+  "Drivers_CancelScan": "Cancel scan",
 
   "Drivers_VerifyingPackages": "Verifying driver package catalogs…",
 
@@ -4619,11 +4745,11 @@
 
   "Drivers_Disconnected": "Disconnected devices",
 
-  "Drivers_Updates": "Official updates",
+  "Drivers_Updates": "Driver candidates",
 
-  "Drivers_Summary": "{0:N0} unreferenced packages · {1:N0} disconnected devices · {2:N0} available updates",
+  "Drivers_Summary": "{0:N0} unused packages · {1:N0} disconnected devices · {2:N0} driver candidates",
 
-  "Drivers_UpdatesUnavailable": "Online update checking was unavailable. Only local inventory results are complete; see scan details.",
+  "Drivers_UpdatesUnavailable": "Live driver checking was unavailable. Review the source status and any cached results.",
 
   "Drivers_Rescan": "The saved filter changed. Scan again to refresh these results.",
 
@@ -4636,6 +4762,24 @@
   "Drivers_CategoryEmpty": "No items in this category",
 
   "Drivers_CategoryEmptyDescription": "The scan found no matching items. Choose another category to continue.",
+  "Drivers_NoDevicesMatch": "No devices match your search.",
+  "Drivers_LimitedCoverage": "Scan finished with limited coverage",
+  "Drivers_CoverageSummary": "Some driver sources or device bindings could only be checked in part.",
+  "Drivers_ViewScanDetails": "View scan details",
+  "Drivers_WhqlOnly": "WHQL only",
+  "Drivers_AllCertification": "All certification levels",
+  "Drivers_FilterSettings": "Filter settings",
+  "Drivers_ColumnDriver": "Driver",
+  "Drivers_ColumnDevice": "Device",
+  "Drivers_ColumnCandidate": "Candidate",
+  "Drivers_ColumnReleased": "Released",
+  "Drivers_SearchDevices": "Search devices",
+  "Drivers_DeviceResults": "Showing {0:N0} of {1:N0} devices",
+  "Drivers_DisconnectedSummary": "{0:N0} · Device entries for hardware that is not currently connected",
+  "Drivers_CandidateSummary": "{0:N0} newer · {1:N0} same version",
+  "Drivers_ResultCount": "{0:N0} results",
+  "Drivers_SelectDownloads": "Select driver packages to download.",
+  "Drivers_SelectRemovals": "Select packages or device entries to uninstall.",
 
   "Drivers_UpdatesUnavailableTitle": "Update check unavailable",
 
@@ -4644,6 +4788,7 @@
   "Drivers_Date": "Date",
 
   "Drivers_Size": "Size",
+  "Drivers_PackageSize": "Package size",
 
   "Drivers_HardwareIds": "Hardware and compatible IDs",
 
@@ -4660,6 +4805,7 @@
   "Drivers_RemovalCancelled": "Stopped. Completed removals are retained; scan again to refresh the inventory.",
 
   "Drivers_RestartRequired": "Restart Windows to complete the removal.",
+  "Drivers_RemovalPending": "Pending restart",
 
   "Drivers_TestMode": "Exit Test mode to uninstall drivers or devices.",
 
@@ -4667,6 +4813,39 @@
 
   "Drivers_Unknown": "Not reported",
 
+  "Drivers_Sources": "Sources",
+  "Drivers_Channels": "NVIDIA release channels",
+  "Drivers_Verify": "Verify package",
+  "Drivers_OpenSupport": "Open official support",
+  "Drivers_DownloadSelected": "Download selected",
+  "Drivers_DownloadCount": "{0:N0} selected to download",
+  "Drivers_Downloading": "Downloading driver packages…",
+  "Drivers_BetterIdentifier": "More specific device ID",
+  "Drivers_PackageVersion": "Package version",
+  "Drivers_WhqlClaim": "Source claims WHQL",
+  "Drivers_ValidSignature": "Valid package signature",
+  "Drivers_Filtered": "Filtered candidates",
+  "Drivers_LicenseRequired": "License review required",
+  "Drivers_LicenseConfirm": "Review the publisher’s license on its official page. Continue only if you accept the terms for the listed packages.",
+  "Drivers_Source_Success": "Checked",
+  "Drivers_Source_Partial": "Partially checked",
+  "Drivers_Source_Unavailable": "Unavailable",
+  "Drivers_Source_Unsupported": "Unsupported",
+  "Drivers_Source_Stale": "Cached data",
+  "Drivers_Source_VerificationFailed": "Verification failed",
+  "Drivers_Applicability_Unknown": "Compatibility unknown",
+  "Drivers_Applicability_WindowsUpdate": "Applicable according to Windows Update",
+  "Drivers_Applicability_PackageMatch": "Matched in package",
+  "Drivers_Applicability_Incompatible": "Incompatible",
+  "Drivers_Version_Unknown": "Version unknown",
+  "Drivers_Version_Newer": "Newer release",
+  "Drivers_Version_Current": "Same release",
+  "Drivers_Version_Older": "Older release",
+  "Drivers_Version_NotComparable": "Versions cannot be compared",
+  "Drivers_NewestFound": "Newest compatible version found",
+  "Drivers_GenericAlternative": "Generic vendor alternative",
+  "Drivers_OemRecommendation": "OEM recommended",
+  "Drivers_VerificationPending": "Package verification pending",
   "Drivers_WhqlVerified": "WHQL verified",
 
   "Drivers_WhqlUnknown": "WHQL not verified",
@@ -4973,7 +5152,7 @@
   "Cleaner_BrowserCache_opera": "Opera internet cache",
   "Cleaner_BrowserCache_firefox": "Mozilla Firefox internet cache",
   "Utilities_Connection": "Connection",
-  "Utilities_ConnectionDescription": "View live traffic and daily data usage, configure DNS, and manage Windows VPN profiles.",
+  "Utilities_ConnectionDescription": "View live network traffic and daily data usage.",
   "Connection_Dns": "DNS servers",
   "Connection_DnsHint": "Choose a DNS configuration for your network adapters. Automatic restores the network-provided defaults. VPN software or network policy may override them.",
   "Connection_ApplyDns": "Apply DNS to all connections",
@@ -5019,6 +5198,24 @@
   "Security_Intro": "Scan antivirus protection, firewall, known spyware threats, system weaknesses and cached security updates. Deep scan also reviews ISATAP, Teredo, Firefox homepage protection and two privacy settings. Review findings and choose fixes before applying them. Threat checks read Defender's existing detections; this is not a file malware scan.",
   "Security_Scan": "Scan",
   "Security_DeepScan": "Deep scan",
+  "Security_ScanProgressTitle": "Checking Windows security",
+  "Security_ApplyStepLabel": "Apply fixes",
+  "Security_ScanCoverage": "Scan coverage",
+  "Security_ThreatCoverageNote": "Threat checks read existing Microsoft Defender detections only.",
+  "Security_DeepScanOptions": "Deep scan options",
+  "Security_DeepScanOptionsDescription": "Additional network, browser and privacy checks",
+  "Security_CoverageDefender": "Defender detections",
+  "Security_CoverageUpdates": "Security updates",
+  "Security_CoverageDescription_Antivirus": "Windows antivirus status",
+  "Security_CoverageDescription_Firewall": "Firewall protection settings",
+  "Security_CoverageDescription_Spyware": "Existing threat detections",
+  "Security_CoverageDescription_Weaknesses": "Security-related settings",
+  "Security_CoverageDescription_Updates": "Cached update information",
+  "Security_ScanInProgress": "SCAN IN PROGRESS",
+  "Security_ScanResultsHint": "Results will appear when the scan finishes.",
+  "Security_CancelScan": "Cancel scan",
+  "Security_ViewScanDetails": "View details",
+  "Security_ReviewStepLabel": "Review",
   "Security_Fix": "Apply selected fixes",
   "Security_Item": "Item",
   "Security_State": "Status",
@@ -5028,6 +5225,18 @@
   "Security_Summary": "Scanned {0} · {1} findings to review · {2} unavailable checks",
   "Security_DeepSummary": "Deep scan {0} · {1} findings to review · {2} unavailable checks",
   "Security_CategorySummary": "{0} to review · {1} unavailable",
+  "Security_FindingsToReviewOne": "{0} finding to review",
+  "Security_FindingsToReviewMany": "{0} findings to review",
+  "Security_UnavailableOne": "{0} check unavailable",
+  "Security_UnavailableMany": "{0} checks unavailable",
+  "Security_ResultsLastScan": "Last scan · {0}",
+  "Security_ResultsLastDeepScan": "Last deep scan · {0}",
+  "Security_ViewUnavailable": "View unavailable check",
+  "Security_CheckStatus": "Check status",
+  "Security_CurrentState": "State",
+  "Security_CategoryReviewCount": "{0} to review",
+  "Security_CategoryUnavailableCount": "{0} unavailable",
+  "Security_NoCategoryChecks": "No checks in this category.",
   "Security_Cancelled": "Scan cancelled. Run another scan to review current findings.",
   "Security_Confirm": "Apply only the selected changes? Review the effects below. Network changes may affect VPNs, games or managed networks. Firefox homepage protection requires restarting Firefox. Windows may reject managed or tamper-protected changes.",
   "Security_Fixed": "{0} of {1} selected fixes verified. Scan again for current results.",
@@ -5073,7 +5282,7 @@
   "Security_Action_Firefox": "Lock homepage (optional)",
   "Security_Action_LanguageList": "Disable (optional)",
   "Security_Action_AppTracking": "Disable (optional)",
-  "SoftwareApps_Tab_Leftover": "Leftover",
+  "SoftwareApps_Tab_Leftover": "Leftovers",
   "Leftover_Description": "Select verified obsolete app entries, unused installer caches and leftover installation folders.",
   "Leftover_ScanFirst": "Select Refresh to scan leftover app entries and installer files.",
   "Leftover_Count": "{0} candidates · {1} removable",
@@ -5086,7 +5295,6 @@
   "Cleaner_ReportFreed": "Estimated file space freed",
   "Cleaner_ReportRegistryData": "Registry data removed",
   "Cleaner_ReportProtected": "Protected items",
-  "Cleaner_ReportNote": "File space is estimated. Registry data and maintenance operations are counted separately.",
   "Cleaner_ReportCancelled": "Cancelled",
   "Cleaner_NoSelectableResults": "No selectable items in this category."
 }

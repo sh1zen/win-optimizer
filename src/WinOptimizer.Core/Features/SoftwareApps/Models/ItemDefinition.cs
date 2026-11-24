@@ -15,14 +15,7 @@ public record ItemDefinition : BaseDefinition
     public string? CapabilityName { get; init; }
     public string? OptionalFeatureName { get; init; }
     public string? ChocoPackageId { get; init; }
-    /// <summary>
-    /// When set, replaces the winget manifest's InstallerSwitches entirely via `winget install --override "<value>"`.
-    /// Use to work around upstream manifests that pass broken switches to the underlying installer.
-    /// </summary>
-    public string? WinGetInstallerOverride { get; init; }
     public bool CanBeReinstalled { get; init; } = true;
-    public bool RequiresReboot { get; init; }
-    public Func<string>? RemovalScript { get; init; }
     /// <summary>
     /// Pattern for registry DisplayName matching. Supports {version}, {arch}, {locale} placeholders.
     /// When set, compared against registry DisplayNames.
@@ -40,7 +33,6 @@ public record ItemDefinition : BaseDefinition
     /// Supports environment variables (e.g. %USERPROFILE%).
     /// </summary>
     public string[]? DetectionPaths { get; init; }
-    public string[]? ProcessesToStop { get; init; }
     public string? WebsiteUrl { get; init; }
     /// <summary>
     /// Marks the item as carrying a meaningful uninstall risk (e.g. Microsoft Edge:
@@ -50,7 +42,6 @@ public record ItemDefinition : BaseDefinition
     /// the same flag is reusable across packages without per-item warning text.
     /// </summary>
     public bool HasInstabilityWarning { get; init; }
-    public ExternalAppMetadata? ExternalApp { get; init; }
 
     // Mutable runtime state — set by WindowsAppsViewModel/ExternalAppsViewModel
     // via the relevant service (status discovery, icon resolver), proxied

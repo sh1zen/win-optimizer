@@ -38,7 +38,7 @@ public class DependencyManager : IDependencyManager
 
             if (!await IsDependencySatisfiedAsync(dependency, discoveryService).ConfigureAwait(false))
             {
-                await ApplyDependencyAsync(dependency, requiredSetting, settingApplicationService).ConfigureAwait(false);
+                allSucceeded &= await ApplyDependencyAsync(dependency, requiredSetting, settingApplicationService).ConfigureAwait(false);
             }
         }
 
@@ -144,24 +144,29 @@ public class DependencyManager : IDependencyManager
         };
     }
 
-    private async Task ApplyDependencyAsync(SettingDependency dependency, ISettingItem requiredSetting, ISettingApplicationService settingApplicationService)
+    /// <summary>Reports whether the required change actually completed.</summary>
+    private async Task<bool> ApplyDependencyAsync(SettingDependency dependency, ISettingItem requiredSetting, ISettingApplicationService settingApplicationService)
     {
         try
         {
             var value = dependency.DependencyType == SettingDependencyType.RequiresSpecificValue &&
                 requiredSetting.InputType == InputType.Selection && !string.IsNullOrEmpty(dependency.RequiredValue)
                 ? dependency.RequiredValue : null;
-            await settingApplicationService.ApplySettingAsync(new ApplySettingRequest
+            var result = await settingApplicationService.ApplySettingAsync(new ApplySettingRequest
             {
                 SettingId = dependency.RequiredSettingId,
                 Enable = dependency.DependencyType is SettingDependencyType.RequiresSpecificValue or SettingDependencyType.RequiresEnabled,
                 Value = value
             }).ConfigureAwait(false);
+            if (!result.Success)
+                _logService.Log(LogLevel.Warning, $"Cannot apply dependency '{dependency.RequiredSettingId}': {result.ErrorMessage}");
+            return result.Success;
         }
         catch (ArgumentException ex) when (ex.Message.Contains("not found"))
         {
             _logService.Log(LogLevel.Warning,
                 $"Cannot apply dependency '{dependency.RequiredSettingId}' - likely filtered due to OS/hardware compatibility. Skipping.");
+            return false;
         }
     }
 }

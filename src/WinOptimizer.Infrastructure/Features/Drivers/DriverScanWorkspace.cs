@@ -11,7 +11,6 @@ internal sealed class DriverScanWorkspace : IDisposable
     public DriverScanWorkspace(string? temporaryDirectory = null)
     {
         _parent = Path.Combine(temporaryDirectory ?? AppDataPaths.Temp, "Drivers");
-        Directory.CreateDirectory(_parent);
         Root = Path.Combine(_parent, Guid.NewGuid().ToString("N"));
         ValidateChild(_parent, Root);
         Directory.CreateDirectory(Root);
@@ -24,9 +23,16 @@ internal sealed class DriverScanWorkspace : IDisposable
         var full = Path.GetFullPath(path);
         if (!full.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
             throw new IOException("Driver package path escapes its scan workspace.");
-        for (var current = full; current is not null && current.Length >= root.Length; current = Path.GetDirectoryName(current))
-            if ((File.Exists(current) || Directory.Exists(current)) && (File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)
-                throw new IOException("Driver package paths cannot contain reparse points.");
+        for (var current = full; current is not null; current = Path.GetDirectoryName(current))
+        {
+            try
+            {
+                if ((File.GetAttributes(current) & FileAttributes.ReparsePoint) != 0)
+                    throw new IOException("Driver package paths cannot contain reparse points.");
+            }
+            catch (FileNotFoundException) { }
+            catch (DirectoryNotFoundException) { }
+        }
         return full;
     }
 
@@ -34,11 +40,19 @@ internal sealed class DriverScanWorkspace : IDisposable
     {
         var target = ValidateChild(_parent, Root);
         if (!Guid.TryParseExact(Path.GetFileName(target), "N", out _)) throw new IOException("Invalid driver scan workspace.");
-        if (Directory.Exists(target)) Directory.Delete(target, recursive: true);
+        if (!Directory.Exists(target)) return;
+        // Native CAB and WUA exports can retain the publisher's read-only file attributes.
+        foreach (var file in EnumerateFiles(target, null))
+        {
+            var attributes = File.GetAttributes(file);
+            if ((attributes & FileAttributes.ReadOnly) != 0)
+                File.SetAttributes(file, attributes & ~FileAttributes.ReadOnly);
+        }
+        Directory.Delete(target, recursive: true);
     }
 
     /// <summary>Walks exports without following directory junctions or symbolic links.</summary>
-    internal static IEnumerable<string> EnumerateFiles(string root, string extension)
+    internal static IEnumerable<string> EnumerateFiles(string root, string? extension)
     {
         foreach (var entry in Directory.EnumerateFileSystemEntries(root))
         {
@@ -47,7 +61,7 @@ internal sealed class DriverScanWorkspace : IDisposable
             {
                 foreach (var child in EnumerateFiles(path, extension)) yield return child;
             }
-            else if (Path.GetExtension(path).Equals(extension, StringComparison.OrdinalIgnoreCase)) yield return path;
+            else if (extension is null || Path.GetExtension(path).Equals(extension, StringComparison.OrdinalIgnoreCase)) yield return path;
         }
     }
 }

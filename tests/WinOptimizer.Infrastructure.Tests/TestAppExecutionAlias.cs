@@ -8,10 +8,11 @@ namespace WinOptimizer.Infrastructure.Tests;
 /// <summary>Creates an isolated Windows app execution alias without installed packages or executable targets.</summary>
 internal sealed class TestAppExecutionAlias : IDisposable
 {
-    public string Path { get; } = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "optimizer-alias-" + Guid.NewGuid().ToString("N") + ".exe");
+    public string Path { get; }
 
-    public TestAppExecutionAlias(uint tag = 0x8000001B)
+    public TestAppExecutionAlias(uint tag = 0x8000001B, string? path = null)
     {
+        Path = path ?? System.IO.Path.Combine(System.IO.Path.GetTempPath(), "optimizer-alias-" + Guid.NewGuid().ToString("N") + ".exe");
         try
         {
             using var file = File.OpenHandle(Path, FileMode.CreateNew, FileAccess.Write, FileShare.ReadWrite | FileShare.Delete);

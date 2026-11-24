@@ -69,5 +69,5 @@ internal sealed class AsusBatteryFirmware(IAsusChargeDevice device) : IBatteryFi
         catch (Win32Exception ex) when (ex.NativeErrorCode is 2 or 3)
         { return new("ASUS System Control Interface", [], null, BatteryControlIssue.InterfaceUnavailable); }
     }
-    public void SetLimit(int percentage) => device.SetLimit(percentage);
+    public void SetLimit(int percentage, int? resumeThreshold = null) => device.SetLimit(percentage);
 }

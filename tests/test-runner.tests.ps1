@@ -15,6 +15,7 @@ $resultsRoot = Join-Path $resultsParent ('runner-' + [guid]::NewGuid().ToString(
 $null = New-Item -ItemType Directory -Path $resultsRoot -Force
 $savedExitCode = $LASTEXITCODE
 $passed = 0
+$telemetryBefore = [Environment]::GetEnvironmentVariable('DOTNET_CLI_TELEMETRY_OPTOUT', 'Process')
 try {
     foreach ($scenario in @(
         @{ Outcome = 'Passed'; ExitCode = 0; Failure = $false; Message = '' },
@@ -29,6 +30,9 @@ try {
             param($definition, $scenario, $state)
             # Fake only the external test command and console output.
             function dotnet {
+                if ($env:DOTNET_CLI_TELEMETRY_OPTOUT -ne '1' -or '--disable-build-servers' -notin $args -or '-m:1' -notin $args) {
+                    throw 'The test SDK process was started without isolation.'
+                }
                 $path = Join-Path $resultsRoot 'Fixture.trx'
                 if ($scenario.Outcome) {
                     $failed = [int]($scenario.Outcome -eq 'Failed')
@@ -49,6 +53,9 @@ try {
             . $definition
             Run-TestProject -Name 'Fixture tests' -ProjectPath 'Fixture.csproj'
         } $definition $scenario $state
+        if ([Environment]::GetEnvironmentVariable('DOTNET_CLI_TELEMETRY_OPTOUT', 'Process') -cne $telemetryBefore) {
+            throw 'The test runner changed the parent process telemetry preference.'
+        }
         if (($failedProjects.Count -gt 0) -ne $scenario.Failure) { throw 'Unexpected test-project success/failure decision.' }
         $messages = $state.Lines -join "`n"
         if ($scenario.Message -and $messages -notlike "*$($scenario.Message)*") { throw "Missing failure diagnostic: $($scenario.Message)" }

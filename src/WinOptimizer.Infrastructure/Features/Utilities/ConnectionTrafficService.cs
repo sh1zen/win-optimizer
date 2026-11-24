@@ -16,18 +16,29 @@ internal sealed class ConnectionTrafficService(IConnectionAdapterSource adapters
     private readonly SemaphoreSlim _gate = new(1, 1);
     private readonly ConnectionTrafficWindow _window = new();
 
-    public Task<ConnectionUsageHistory> ReadHistoryAsync(CancellationToken cancellationToken)
+    public Task<ConnectionUsageHistory> ReadHistoryAsync(CancellationToken cancellationToken) =>
+        ReadHistoryAsync(30, cancellationToken);
+
+    /// <summary>Reads the current local calendar day without querying the previous month.</summary>
+    public async Task<ConnectionDailyUsage> ReadTodayAsync(CancellationToken cancellationToken) =>
+        (await ReadHistoryAsync(1, cancellationToken).ConfigureAwait(false)).Days.Single();
+
+    private Task<ConnectionUsageHistory> ReadHistoryAsync(int dayCount, CancellationToken cancellationToken)
     {
         var at = clock.GetUtcNow();
-        var today = TimeZoneInfo.ConvertTime(at, clock.LocalTimeZone).Date;
-        var boundaries = Enumerable.Range(0, 30).Select(index => StartOfDay(today.AddDays(index - 29), clock.LocalTimeZone)).ToArray();
-        var days = Enumerable.Range(0, 30).Select(index =>
+        var zone = clock.LocalTimeZone;
+        var today = TimeZoneInfo.ConvertTime(at, zone).Date;
+        var date = today.AddDays(1 - dayCount);
+        var start = StartOfDay(date, zone);
+        var days = new ConnectionDayRange[dayCount];
+        for (var index = 0; index < days.Length; index++)
         {
-            var date = today.AddDays(index - 29);
-            var start = boundaries[index];
-            var end = index == 29 ? at : boundaries[index + 1];
-            return new ConnectionDayRange(DateOnly.FromDateTime(date), start, end);
-        }).ToArray();
+            var nextDate = date.AddDays(1);
+            var end = index == days.Length - 1 ? at : StartOfDay(nextDate, zone);
+            days[index] = new(DateOnly.FromDateTime(date), start, end);
+            date = nextDate;
+            start = end;
+        }
         return history.ReadAsync(at, days, cancellationToken);
     }
 
@@ -58,9 +69,9 @@ internal sealed class ConnectionTrafficService(IConnectionAdapterSource adapters
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
-            var readings = await Task.Run(adapters.Read, cancellationToken).ConfigureAwait(false);
+            var readings = await Task.Run(adapters.ReadCounters, cancellationToken).ConfigureAwait(false);
             cancellationToken.ThrowIfCancellationRequested();
-            return _window.Add(clock.GetUtcNow(), readings);
+            return _window.AddCounters(clock.GetUtcNow(), readings);
         }
         finally { _gate.Release(); }
     }

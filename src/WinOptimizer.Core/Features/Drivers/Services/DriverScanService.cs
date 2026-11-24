@@ -1,15 +1,15 @@
-using System.Globalization;
 using WinOptimizer.Core.Features.Drivers.Interfaces;
 using WinOptimizer.Core.Features.Drivers.Models;
 
 namespace WinOptimizer.Core.Features.Drivers.Services;
 
 /// <summary>Identifies unassigned packages conservatively and filters official offers using package evidence.</summary>
-public sealed class DriverScanService(IDriverInventorySource inventorySource, IDriverUpdateSource updateSource) : IDriverScanService
+public sealed class DriverScanService(IDriverInventorySource inventorySource, IEnumerable<IDriverUpdateSource> sources,
+    IDriverPackageService? packages = null) : IDriverScanService
 {
     public async Task<DriverScanReport> ScanAsync(DriverScanOptions options, IProgress<DriverScanProgress>? progress, CancellationToken ct)
     {
-        progress?.Report(new("Drivers_Inventory"));
+        progress?.Report(new("Drivers_Inventory") { Phase = DriverScanPhase.DetectDevices });
         var inventory = await inventorySource.ReadAsync(ct).ConfigureAwait(false);
         ct.ThrowIfCancellationRequested();
         var boundInfs = inventory.Devices.Select(device => device.InfName).ToHashSet(StringComparer.OrdinalIgnoreCase);
@@ -17,56 +17,82 @@ public sealed class DriverScanService(IDriverInventorySource inventorySource, ID
             ? inventory.Packages.Where(package => !package.Inbox && !package.BootCritical && !boundInfs.Contains(package.PublishedName)).ToArray()
             : [];
         var disconnected = inventory.Devices.Where(device => !device.Present).ToArray();
-        var hardware = new Dictionary<string, List<DriverDevice>>(StringComparer.OrdinalIgnoreCase);
-        foreach (var device in inventory.Devices.Where(device => device.Present))
-            foreach (var id in device.HardwareIds.Distinct(StringComparer.OrdinalIgnoreCase))
+        var context = new DriverDiscoveryContext(inventory, options);
+        var enabled = sources.Where(source => options.Sources.HasFlag(source.Source)).ToArray();
+        var searches = new DriverUpdateSearchResult[enabled.Length];
+        progress?.Report(new("Drivers_SearchingUpdates") { Phase = DriverScanPhase.CheckSources });
+        await Parallel.ForEachAsync(Enumerable.Range(0, enabled.Length),
+            new ParallelOptions { MaxDegreeOfParallelism = 3, CancellationToken = ct }, async (index, token) =>
             {
-                if (!hardware.TryGetValue(id, out var devices)) hardware.Add(id, devices = []);
-                devices.Add(device);
-            }
+                try { searches[index] = await enabled[index].SearchAsync(context, progress, token).ConfigureAwait(false); }
+                catch (DriverScanException ex) { searches[index] = new([], [ex.Message]) { State = DriverSourceState.Unavailable }; }
+            }).ConfigureAwait(false);
+
+        var candidates = DriverCatalogMatching.Deduplicate(searches.SelectMany(search => search.Updates)).ToArray();
         List<string> notices = [.. inventory.Notices];
-        DriverUpdateSearchResult search;
-        try
+        var failedVerification = new HashSet<DriverSources>();
+        if (options.OnlyWhqlUpdates && packages is not null)
         {
-            progress?.Report(new("Drivers_SearchingUpdates"));
-            search = await updateSource.SearchAsync(progress, ct).ConfigureAwait(false);
+            var queued = Enumerable.Range(0, candidates.Length).Where(index =>
+                candidates[index].Catalog is { Verification: DriverVerification.Metadata, LicenseRequired: false, Payloads.Length: > 0 } catalog &&
+                catalog.References.All(reference => reference.Source != DriverSources.WindowsUpdate) &&
+                DriverCatalogMatching.Targets(catalog.Target, inventory.System) &&
+                candidates[index].SizeBytes is > 0 and <= 256L * 1024 * 1024 &&
+                catalog.Payloads.All(payload => payload.Url.AbsolutePath.EndsWith(".cab", StringComparison.OrdinalIgnoreCase) ||
+                    payload.Url.AbsolutePath.EndsWith(".zip", StringComparison.OrdinalIgnoreCase) ||
+                    payload.Url.AbsolutePath.EndsWith(".7z", StringComparison.OrdinalIgnoreCase) ||
+                    payload.Url.AbsolutePath.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)))
+                .OrderByDescending(index => candidates[index].Catalog!.ReleaseDate)
+                .DistinctBy(index => (candidates[index].Catalog!.References[0].Source, candidates[index].Catalog!.Family, candidates[index].Catalog!.Branch))
+                .Take(Math.Clamp(options.AutomaticVerificationLimit, 0, 8)).ToArray();
+            for (var index = 0; index < queued.Length; index++)
+            {
+                ct.ThrowIfCancellationRequested();
+                progress?.Report(new("Drivers_VerifyingPackages", index, queued.Length));
+                var item = queued[index];
+                try
+                {
+                    candidates[item] = (await packages.AcquireAsync(candidates[item], inventory, false, null, ct)
+                        .ConfigureAwait(false)).Update;
+                    if (candidates[item].Catalog is { Verification: DriverVerification.Failed } failed)
+                        failedVerification.Add(failed.References[0].Source);
+                }
+                catch (DriverScanException ex)
+                {
+                    var candidate = candidates[item];
+                    var catalog = candidate.Catalog!;
+                    failedVerification.Add(catalog.References[0].Source);
+                    candidates[item] = candidate with { Catalog = catalog with { Verification = DriverVerification.Failed, VerificationDetail = ex.Message } };
+                    notices.Add($"{candidate.Title}: {ex.Message}");
+                }
+            }
         }
-        catch (DriverScanException ex)
-        {
-            ct.ThrowIfCancellationRequested();
-            notices.Add(ex.Message);
-            return new(inventory, unreferenced, disconnected, [], false, 0, notices, options);
-        }
-        notices.AddRange(search.Notices);
+
+        ct.ThrowIfCancellationRequested();
+        progress?.Report(new("Drivers_PreparingResults") { Phase = DriverScanPhase.PrepareResults });
+        var outcomes = searches.Select((search, index) => new DriverSourceOutcome(enabled[index].Source,
+            search.State == DriverSourceState.Success && failedVerification.Contains(enabled[index].Source)
+                ? DriverSourceState.VerificationFailed : search.State,
+            search.Updates.Count, search.Notices, search.SupportPage)).ToArray();
+        notices.AddRange(searches.SelectMany(search => search.Notices));
         List<DriverUpdateMatch> updates = [];
-        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        var excluded = 0;
-        foreach (var candidate in search.Updates)
+        List<DriverUpdateMatch> filtered = [];
+        foreach (var candidate in DriverCatalogMatching.Deduplicate(candidates))
         {
             ct.ThrowIfCancellationRequested();
-            if (!seen.Add(candidate.Id)) continue;
-            if (options.OnlyWhqlUpdates && candidate.Certification != DriverCertification.Whql) { excluded++; continue; }
-            IReadOnlyList<DriverDevice> devices = hardware.TryGetValue(candidate.HardwareId, out var matches) ? matches : [];
-            // Only compare the same driver class; extension offers can target another class's device.
-            if (devices.Count > 0 && devices.All(device => IsCurrentOrNewer(device, candidate)))
+            var match = DriverCatalogMatching.Evaluate(candidate, inventory);
+            if (match.Applicability == DriverApplicability.Incompatible ||
+                (options.OnlyWhqlUpdates && match.Update.Certification != DriverCertification.Whql))
+            {
+                filtered.Add(match);
                 continue;
-            updates.Add(new(candidate, devices));
+            }
+            updates.Add(match);
         }
         ct.ThrowIfCancellationRequested();
-        return new(inventory, unreferenced, disconnected, updates, true, excluded, notices, options);
+        return new(inventory, unreferenced, disconnected, DriverCatalogMatching.MarkNewest(updates),
+            outcomes.Any(outcome => outcome.State is DriverSourceState.Success or DriverSourceState.Partial or DriverSourceState.VerificationFailed),
+            filtered.Count, notices, options) { Sources = outcomes, Filtered = filtered };
     }
 
-    /// <summary>Retains newer dates or versions and offers with incomplete or unrelated comparison evidence.</summary>
-    private static bool IsCurrentOrNewer(DriverDevice device, DriverUpdate candidate)
-    {
-        if (string.IsNullOrWhiteSpace(candidate.ClassName) ||
-            !candidate.ClassName.Equals(device.ClassName, StringComparison.OrdinalIgnoreCase)) return false;
-        if (DateOnly.TryParseExact(candidate.Date, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var availableDate) &&
-            DateOnly.TryParseExact(device.Date, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var installedDate) &&
-            availableDate > installedDate) return false;
-        if (!Version.TryParse(candidate.Version, out var available) || !Version.TryParse(device.Version, out var installed)) return false;
-        // Windows driver versions have four components; missing trailing components represent zero.
-        return new Version(installed.Major, installed.Minor, Math.Max(0, installed.Build), Math.Max(0, installed.Revision)) >=
-            new Version(available.Major, available.Minor, Math.Max(0, available.Build), Math.Max(0, available.Revision));
-    }
 }

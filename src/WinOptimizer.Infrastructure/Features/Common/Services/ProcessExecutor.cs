@@ -17,26 +17,34 @@ public class ProcessExecutor : IProcessExecutor
         string fileName,
         string arguments,
         CancellationToken ct = default)
+        => await ExecuteCapturedAsync(new ProcessStartInfo { FileName = fileName, Arguments = arguments }, null, ct)
+            .ConfigureAwait(false);
+
+    /// <summary>Executes a local tool with structured arguments and bounded diagnostic capture.</summary>
+    public Task<ProcessExecutionResult> ExecuteAsync(string fileName, IReadOnlyList<string> arguments,
+        string workingDirectory, int captureLimit, CancellationToken ct)
+    {
+        var start = new ProcessStartInfo { FileName = fileName, WorkingDirectory = workingDirectory };
+        foreach (var argument in arguments) start.ArgumentList.Add(argument);
+        return ExecuteCapturedAsync(start, captureLimit, ct);
+    }
+
+    private static async Task<ProcessExecutionResult> ExecuteCapturedAsync(ProcessStartInfo start, int? captureLimit, CancellationToken ct)
     {
         ct.ThrowIfCancellationRequested();
-        using var process = new Process();
-        process.StartInfo = new ProcessStartInfo
-        {
-            FileName = fileName,
-            Arguments = arguments,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            StandardOutputEncoding = Encoding.UTF8,
-            StandardErrorEncoding = Encoding.UTF8
-        };
+        start.UseShellExecute = false;
+        start.CreateNoWindow = true;
+        start.RedirectStandardOutput = true;
+        start.RedirectStandardError = true;
+        start.StandardOutputEncoding = Encoding.UTF8;
+        start.StandardErrorEncoding = Encoding.UTF8;
+        using var process = new Process { StartInfo = start };
 
         process.Start();
 
         // Read stdout and stderr concurrently to avoid deadlocks
-        var stdoutTask = process.StandardOutput.ReadToEndAsync(CancellationToken.None);
-        var stderrTask = process.StandardError.ReadToEndAsync(CancellationToken.None);
+        var stdoutTask = CaptureAsync(process.StandardOutput, captureLimit);
+        var stderrTask = CaptureAsync(process.StandardError, captureLimit);
 
         await WaitForOwnedProcessAsync(process,
             Task.WhenAll(stdoutTask, stderrTask, process.WaitForExitAsync(CancellationToken.None)), ct).ConfigureAwait(false);
@@ -47,6 +55,16 @@ public class ProcessExecutor : IProcessExecutor
             StandardOutput = stdoutTask.Result,
             StandardError = stderrTask.Result
         };
+    }
+
+    private static async Task<string> CaptureAsync(System.IO.StreamReader reader, int? limit)
+    {
+        if (limit is null) return await reader.ReadToEndAsync(CancellationToken.None).ConfigureAwait(false);
+        var captured = new StringBuilder();
+        var buffer = new char[4096];
+        while (await reader.ReadAsync(buffer.AsMemory()).ConfigureAwait(false) is var count && count != 0)
+            captured.Append(buffer, 0, Math.Min(count, limit.Value - captured.Length));
+        return captured.ToString();
     }
 
     public async Task<ProcessExecutionResult> ExecuteWithStreamingAsync(

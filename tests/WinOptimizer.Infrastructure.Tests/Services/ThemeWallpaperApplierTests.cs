@@ -7,6 +7,7 @@ using WinOptimizer.Core.Features.Common.Constants;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.Core.Features.Customize.Interfaces;
+using WinOptimizer.Core.Features.Customize.Models;
 using WinOptimizer.Infrastructure.Features.Customize.Services;
 using Xunit;
 
@@ -23,6 +24,8 @@ public class ThemeWallpaperApplierTests
 
     public ThemeWallpaperApplierTests()
     {
+        _registry.Setup(r => r.ApplySetting(It.IsAny<RegistrySetting>(), true, It.IsAny<object>())).Returns(true);
+        _wallpaper.Setup(w => w.SetWallpaperAsync(It.IsAny<string>())).ReturnsAsync(true);
         _sut = new ThemeWallpaperApplier(
             _wallpaper.Object, _version.Object, _registry.Object, _log.Object, _fs.Object);
     }
@@ -143,8 +146,48 @@ public class ThemeWallpaperApplierTests
             RegistrySettings = new List<RegistrySetting>()
         };
 
-        await _sut.TryApplySpecialSettingAsync(setting, 1, additionalContext: true);
-
+        await Assert.ThrowsAsync<FileNotFoundException>(() => _sut.TryApplySpecialSettingAsync(setting, 1, additionalContext: true));
         _wallpaper.Verify(w => w.SetWallpaperAsync(It.IsAny<string>()), Times.Never);
+    }
+
+    [Fact]
+    public async Task RejectedThemeWriteStopsBeforeWallpaper()
+    {
+        _registry.Setup(r => r.ApplySetting(It.IsAny<RegistrySetting>(), true, 0)).Returns(false);
+        var setting = new SettingDefinition
+        {
+            Id = SettingIds.ThemeModeWindows, Name = "Theme", Description = "Theme",
+            RegistrySettings =
+            [
+                new()
+                {
+                    KeyPath = WindowsThemeCustomizations.ThemeRegistryPath, ValueName = "Fixture",
+                    ValueType = RegistryValueKind.DWord, RecommendedValue = 0, DefaultValue = 1
+                }
+            ]
+        };
+
+        await Assert.ThrowsAsync<IOException>(() => _sut.TryApplySpecialSettingAsync(setting, 1, additionalContext: true));
+        _wallpaper.Verify(w => w.SetWallpaperAsync(It.IsAny<string>()), Times.Never);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task WallpaperOnlyUsesCurrentDarkThemeAndChecksResult(bool accepted)
+    {
+        var path = WindowsThemeCustomizations.Wallpaper.GetDefaultWallpaperPath(true, true);
+        _version.Setup(v => v.IsWindows11()).Returns(true);
+        _registry.Setup(r => r.GetValue(WindowsThemeCustomizations.ThemeRegistryPath, WindowsThemeCustomizations.SystemThemeValueName)).Returns(0);
+        _fs.Setup(f => f.FileExists(path)).Returns(true);
+        _wallpaper.Setup(w => w.SetWallpaperAsync(path)).ReturnsAsync(accepted);
+
+        if (accepted)
+            await _sut.ApplyDefaultForCurrentThemeAsync();
+        else
+            await Assert.ThrowsAsync<IOException>(_sut.ApplyDefaultForCurrentThemeAsync);
+
+        _wallpaper.Verify(w => w.SetWallpaperAsync(path), Times.Once);
+        _registry.Verify(r => r.ApplySetting(It.IsAny<RegistrySetting>(), It.IsAny<bool>(), It.IsAny<object>()), Times.Never);
     }
 }

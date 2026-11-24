@@ -34,10 +34,6 @@ public static partial class ExternalAppDefinitions
                         GroupName = "Optical Disc Tools",
                         WinGetPackageId = ["PowerSoftware.AnyBurn"],
                         WebsiteUrl = "http://www.anyburn.com/",
-                        ExternalApp = new ExternalAppMetadata
-                        {
-                            DownloadUrl = "https://www.anyburn.com/anyburn_setup.exe",
-                        },
                     },
                     new ItemDefinition
                     {

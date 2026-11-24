@@ -19,12 +19,14 @@
             <Button x:Name="ClearEventsButton" Content="{x:Bind ViewModel.ClearLabel, Mode=OneWay}" Command="{x:Bind ViewModel.ClearCommand}" Style="{StaticResource AccentButtonStyle}"/>
             <ProgressRing IsActive="{x:Bind ViewModel.IsBusy, Mode=OneWay}" Width="24" Height="24"/>
         </controls:WrapPanel>
-        <StackPanel Grid.Row="2" Spacing="8">
-            <InfoBar IsOpen="{x:Bind ViewModel.ShowModeNotice, Mode=OneWay}" Message="{x:Bind ViewModel.ModeNotice, Mode=OneWay}" IsClosable="False"/>
-            <InfoBar IsOpen="{x:Bind ViewModel.HasStatus, Mode=OneWay}" Message="{x:Bind ViewModel.Status, Mode=OneWay}" Severity="{x:Bind ViewModel.StatusSeverity, Mode=OneWay}" IsClosable="False"/>
-            <TextBlock Text="{x:Bind ViewModel.SelectionLabel, Mode=OneWay}"/>
-            <TextBlock x:Name="SelectedLogSizeText" Text="{x:Bind ViewModel.SelectionSizeLabel, Mode=OneWay}" TextWrapping="Wrap"/>
-            <TextBlock Text="{x:Bind ViewModel.EmptyLabel, Mode=OneWay}" TextWrapping="Wrap"/>
+        <StackPanel Grid.Row="2" Spacing="{StaticResource PageCardSpacing}">
+            <InfoBar IsOpen="{x:Bind ViewModel.ShowModeNotice, Mode=OneWay}" Visibility="{x:Bind ViewModel.ShowModeNotice, Mode=OneWay}" Message="{x:Bind ViewModel.ModeNotice, Mode=OneWay}" IsClosable="False"/>
+            <InfoBar IsOpen="{x:Bind ViewModel.HasStatus, Mode=OneWay}" Visibility="{x:Bind ViewModel.HasStatus, Mode=OneWay}" Message="{x:Bind ViewModel.Status, Mode=OneWay}" Severity="{x:Bind ViewModel.StatusSeverity, Mode=OneWay}" IsClosable="False"/>
+            <StackPanel Spacing="8">
+                <TextBlock Text="{x:Bind ViewModel.SelectionLabel, Mode=OneWay}"/>
+                <TextBlock x:Name="SelectedLogSizeText" Text="{x:Bind ViewModel.SelectionSizeLabel, Mode=OneWay}" TextWrapping="Wrap"/>
+                <TextBlock Text="{x:Bind ViewModel.EmptyLabel, Mode=OneWay}" TextWrapping="Wrap"/>
+            </StackPanel>
         </StackPanel>
         <Grid Grid.Row="3" RowSpacing="8">
             <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>

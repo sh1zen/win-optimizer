@@ -23,10 +23,14 @@ public sealed record ConnectionDailyUsage(DateOnly Date, decimal? BytesSent, dec
 public sealed record ConnectionUsageHistory(DateTimeOffset CapturedAt, IReadOnlyList<ConnectionDailyUsage> Days, string Diagnostic);
 public sealed record ConnectionLiveTraffic(DateTimeOffset CapturedAt, IReadOnlyList<ConnectionTrafficInterval> Intervals);
 
+/// <summary>The identity and optional counters needed by the live sampler for one adapter.</summary>
+public readonly record struct ConnectionAdapterReading(string Id, ConnectionCounters? Counters);
+
 /// <summary>Reads retained Windows history independently of lightweight live adapter sampling.</summary>
 public interface IConnectionTrafficService
 {
     Task<ConnectionUsageHistory> ReadHistoryAsync(CancellationToken cancellationToken);
+    Task<ConnectionDailyUsage> ReadTodayAsync(CancellationToken cancellationToken);
     Task<ConnectionLiveTraffic> SampleAsync(CancellationToken cancellationToken);
 }
 
@@ -37,7 +41,14 @@ public sealed class ConnectionTrafficWindow
     private Dictionary<string, ConnectionCounters> _previous = [];
     private DateTimeOffset? _previousAt;
 
-    public ConnectionLiveTraffic Add(DateTimeOffset at, IReadOnlyList<ConnectionAdapter> adapters)
+    public ConnectionLiveTraffic Add(DateTimeOffset at, IReadOnlyList<ConnectionAdapter> adapters) =>
+        AddCounters(at, adapters.Select(static adapter => new ConnectionAdapterReading(adapter.Id, adapter.Counters)), adapters.Count);
+
+    /// <summary>Adds a native counter sample without requiring adapter inventory.</summary>
+    public ConnectionLiveTraffic AddCounters(DateTimeOffset at, IReadOnlyList<ConnectionAdapterReading> adapters) =>
+        AddCounters(at, adapters, adapters.Count);
+
+    private ConnectionLiveTraffic AddCounters(DateTimeOffset at, IEnumerable<ConnectionAdapterReading> adapters, int adapterCount)
     {
         var current = new Dictionary<string, ConnectionCounters>();
         foreach (var adapter in adapters)
@@ -62,8 +73,9 @@ public sealed class ConnectionTrafficWindow
             if (measured > 0) totals = new(sent, received, sentPackets, receivedPackets);
         }
         if (_previousAt > at) _intervals.Clear();
-        _intervals.Add(new(_previousAt ?? at, at, totals, measured, adapters.Count));
-        _intervals.RemoveAll(interval => interval.Start < at.AddMinutes(-15));
+        _intervals.Add(new(_previousAt ?? at, at, totals, measured, adapterCount));
+        var cutoff = at.AddMinutes(-15);
+        _intervals.RemoveAll(interval => interval.Start < cutoff);
         if (_intervals.Count > 901) _intervals.RemoveRange(0, _intervals.Count - 901);
         _previous = current;
         _previousAt = at;

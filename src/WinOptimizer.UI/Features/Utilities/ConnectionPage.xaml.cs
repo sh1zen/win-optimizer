@@ -58,6 +58,7 @@ public sealed partial class ConnectionPage : Page
     private void ViewModel_PropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (string.IsNullOrEmpty(e.PropertyName)) DrawCharts();
+        else if (e.PropertyName == nameof(ConnectionViewModel.HistoryDays)) DrawDailyChart();
         else if (e.PropertyName == nameof(ConnectionViewModel.LiveIntervals)) DrawLiveChart();
     }
 
@@ -74,10 +75,12 @@ public sealed partial class ConnectionPage : Page
     {
         if (LiveChart == null || SentLegend == null || ReceivedLegend == null) return;
         DrawGrid(LiveChart);
-        if (LiveChart.ActualWidth <= 0 || ViewModel.LiveCapturedAt is not { } at) return;
+        var width = LiveChart.ActualWidth;
+        if (width <= 0 || ViewModel.LiveCapturedAt is not { } at) return;
+        var start = at.AddMinutes(-15);
+        var height = LiveChart.ActualHeight - 4;
         var intervals = ViewModel.LiveIntervals;
-        var maximum = Math.Max(1, intervals.SelectMany(interval => new[]
-            { interval.UploadBytesPerSecond, interval.DownloadBytesPerSecond }).Max() ?? 0);
+        var maximum = Math.Max(1, ViewModel.LiveMaximumRate);
         foreach (var download in new[] { true, false })
         {
             Polyline? segment = null;
@@ -95,8 +98,8 @@ public sealed partial class ConnectionPage : Page
                 segment.Points.Add(new Point(X(interval.End), Y(value.Value)));
             }
         }
-        double X(DateTimeOffset time) => Math.Clamp((time - at.AddMinutes(-15)).TotalSeconds / 900, 0, 1) * LiveChart.ActualWidth;
-        double Y(decimal value) => 2 + (LiveChart.ActualHeight - 4) * (1 - (double)(value / maximum));
+        double X(DateTimeOffset time) => Math.Clamp((time - start).TotalSeconds / 900, 0, 1) * width;
+        double Y(decimal value) => 2 + height * (1 - (double)(value / maximum));
     }
 
     /// <summary>Stacks upload above download in one accessible, keyboard-focusable bar per day.</summary>
@@ -126,8 +129,9 @@ public sealed partial class ConnectionPage : Page
                 Height = DailyChart.Height, Padding = new Thickness(Math.Min(2, slot / 8), 0, Math.Min(2, slot / 8), 0),
                 BorderThickness = new Thickness(0), Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent),
                 HorizontalContentAlignment = HorizontalAlignment.Stretch, VerticalContentAlignment = VerticalAlignment.Stretch };
-            AutomationProperties.SetName(button, ViewModel.DayDetails(day));
-            var tooltip = PopupHandler.CreateToolTip(button, ViewModel.DayDetails(day));
+            var details = ViewModel.DayDetails(day);
+            AutomationProperties.SetName(button, details);
+            var tooltip = PopupHandler.CreateToolTip(button, details);
             ToolTipService.SetToolTip(button, tooltip);
             button.Click += (_, _) => tooltip.IsOpen = true;
             Canvas.SetLeft(button, index * slot); DailyChart.Children.Add(button);

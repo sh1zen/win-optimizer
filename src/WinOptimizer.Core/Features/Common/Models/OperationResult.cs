@@ -38,6 +38,8 @@ public class OperationResult<T>
     public string? ErrorMessage { get; }
     public Exception? Exception { get; }
     public bool RequiresConfirmation { get; }
+    public bool IsCancelled { get; }
+    public bool IsDeferred { get; }
     public string? InfoMessage { get; }
 
     private OperationResult(
@@ -46,7 +48,9 @@ public class OperationResult<T>
         string? errorMessage = null,
         Exception? exception = null,
         bool requiresConfirmation = false,
-        string? infoMessage = null)
+        string? infoMessage = null,
+        bool isCancelled = false,
+        bool isDeferred = false)
     {
         Success = success;
         Result = result;
@@ -54,11 +58,18 @@ public class OperationResult<T>
         Exception = exception;
         RequiresConfirmation = requiresConfirmation;
         InfoMessage = infoMessage;
+        IsCancelled = isCancelled;
+        IsDeferred = isDeferred;
     }
 
     public static OperationResult<T> Succeeded(T result)
     {
         return new OperationResult<T>(success: true, result: result);
+    }
+
+    public static OperationResult<T> Succeeded(T result, string infoMessage)
+    {
+        return new OperationResult<T>(success: true, result: result, infoMessage: infoMessage);
     }
 
     public static OperationResult<T> Failed(string message)
@@ -73,8 +84,12 @@ public class OperationResult<T>
 
     public static OperationResult<T> Cancelled(string message = "Operation was cancelled")
     {
-        return new OperationResult<T>(success: false, errorMessage: message);
+        return new OperationResult<T>(success: false, errorMessage: message, isCancelled: true);
     }
+
+    /// <summary>Retains completed outcomes when cancellation interrupts a batch.</summary>
+    public static OperationResult<T> CancelledAfter(T result, string? infoMessage = null) =>
+        new(success: false, result: result, errorMessage: "Operation was cancelled", infoMessage: infoMessage, isCancelled: true);
 
     public static OperationResult<T> ConfirmationRequired(string message)
     {
@@ -83,6 +98,6 @@ public class OperationResult<T>
 
     public static OperationResult<T> DeferredSuccess(T result, string infoMessage)
     {
-        return new OperationResult<T>(success: true, result: result, infoMessage: infoMessage);
+        return new OperationResult<T>(success: true, result: result, infoMessage: infoMessage, isDeferred: true);
     }
 }

@@ -4082,29 +4082,6 @@ public static class GamingAndPerformanceOptimizations
                         },
                     },
                 },
-                new SettingDefinition
-                {
-                    Id = "accessibility-highcontrast-hotkey",
-                    IsSubjectivePreference = true,
-                    Name = "High Contrast Hotkey (Alt+Shift+PrtScn)",
-                    Description = "Enable the keyboard shortcut to activate High Contrast mode by pressing Left Alt + Left Shift + Print Screen",
-                    GroupName = "Accessibility",
-                    Icon = "ContrastCircle",
-                    InputType = InputType.Toggle,
-                    RegistrySettings = new List<RegistrySetting>
-                    {
-                        new RegistrySetting
-                        {
-                            KeyPath = @"HKEY_CURRENT_USER\Control Panel\Accessibility\HighContrast",
-                            ValueName = "Flags",
-                            RecommendedValue = "4194",
-                            EnabledValue = ["126"],
-                            DisabledValue = ["4194"],
-                            DefaultValue = "126",
-                            ValueType = RegistryValueKind.String,
-                        },
-                    },
-                },
                 // Natively-detected (DetectionType.SystemRestore) — no GroupName so it
                 // lands in the "Other" bucket in the UI.
                 new SettingDefinition

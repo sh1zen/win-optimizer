@@ -47,6 +47,9 @@ public class UiZoomManager
 
     public double Factor => _factor;
 
+    /// <summary>Notifies the shell when a zoom command changes the applied factor.</summary>
+    internal event EventHandler? FactorChanged;
+
     /// <summary>Reads the persisted factor (sync, startup-safe) and applies it.</summary>
     public void Initialize()
     {
@@ -77,6 +80,7 @@ public class UiZoomManager
         }
         _factor = snapped;
         Apply();
+        FactorChanged?.Invoke(this, EventArgs.Empty);
         Persist();
     }
 

@@ -5,9 +5,10 @@ using WinOptimizer.Core.Features.Common.Enums;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.Core.Features.Common.Services;
-using WinOptimizer.Core.Features.Common.Extensions;
 using WinOptimizer.UI.Features.Common.Extensions.DI;
 using WinOptimizer.UI.Features.Common.Interfaces;
+using WinOptimizer.UI.Features.Common.Resources;
+using WinOptimizer.UI.Features.Settings.ViewModels;
 
 namespace WinOptimizer.UI;
 
@@ -19,6 +20,7 @@ public partial class App : Microsoft.UI.Xaml.Application
     private Window? _mainWindow;
     private IHost? _host;
     private ILogService? _logService;
+    private readonly Action<App>? _launchCompanion;
 
     /// <summary>
     /// Gets the main window instance.
@@ -57,6 +59,20 @@ public partial class App : Microsoft.UI.Xaml.Application
     internal App(IHost host) : this()
     {
         _host = host;
+    }
+
+    internal App(Action<App> launchCompanion)
+    {
+        _launchCompanion = launchCompanion;
+        InitializeComponent();
+    }
+
+    internal void InitializeWidgetResources(IHost host, UserPreferencesSnapshot snapshot)
+    {
+        _host = host;
+        InitializeLocalization(snapshot);
+        InitializeTheme(snapshot);
+        InitializeShellResources();
     }
 
     /// <summary>
@@ -110,6 +126,11 @@ public partial class App : Microsoft.UI.Xaml.Application
     /// <param name="args">Details about the launch request and process.</param>
     protected override async void OnLaunched(Microsoft.UI.Xaml.LaunchActivatedEventArgs args)
     {
+        if (_launchCompanion is not null)
+        {
+            _launchCompanion(this);
+            return;
+        }
         StartupLogger.Log("App", "OnLaunched starting");
         try
         {
@@ -150,14 +171,11 @@ public partial class App : Microsoft.UI.Xaml.Application
             // Await placement before activation so the visible loader retains the last-used size.
             await window.InitializeWindowPlacementAsync(
                 preferences, Services.GetRequiredService<ILogService>(), startupPreferences);
-            if (!Program.IsWidgetStartup || window.IsManualActivationRequested)
-            {
-                window.Activate();
-                try { await window.WaitForLoadingFrameAsync(); }
-                catch (OperationCanceledException) when (window.IsClosed) { _host.Dispose(); return; }
-                if (window.IsClosed) { _host.Dispose(); return; }
-                StartupLogger.Log("App", "Initial loading frame presented");
-            }
+            window.Activate();
+            try { await window.WaitForLoadingFrameAsync(); }
+            catch (OperationCanceledException) when (window.IsClosed) { _host.Dispose(); return; }
+            if (window.IsClosed) { _host.Dispose(); return; }
+            StartupLogger.Log("App", "Initial loading frame presented");
 
             // Feature styles and templates can load after the loading frame is visible.
             InitializeShellResources();
@@ -193,22 +211,23 @@ public partial class App : Microsoft.UI.Xaml.Application
                 StartupLogger.Log("App", $"LogService unavailable: {ex.Message}");
             }
 
-            // Restore shell geometry and accent while the loader still covers the window.
+            // Restore the shell appearance while the loader still covers the window.
+            var backgroundPreferences = Services.GetRequiredService<WindowBackgroundPreferencesViewModel>();
             await Task.WhenAll(
                 Services.GetRequiredService<Features.Settings.ViewModels.SidebarPreferencesViewModel>().LoadAsync(startupPreferences),
-                Services.GetRequiredService<Features.Settings.ViewModels.AppColorPreferencesViewModel>().LoadAsync(startupPreferences));
+                Services.GetRequiredService<Features.Settings.ViewModels.AppColorPreferencesViewModel>().LoadAsync(startupPreferences),
+                backgroundPreferences.LoadAsync(startupPreferences));
             if (window.IsClosed) { _host.Dispose(); return; }
 
             // Complete the shell in the window that is already displaying startup progress.
-            window.InitializeShell();
+            window.InitializeShell(backgroundPreferences, Services.GetRequiredService<AppColorResources>());
+            window.InitializeWidgetPreferenceWatcher();
             StartupLogger.Log("App", "MainWindow shell initialized");
 
             // Start required settings, app inventory and initial backup work.
             // The loading overlay provides visual feedback while these run
             StartupLogger.Log("App", "Starting startup operations...");
-            if (Program.IsWidgetStartup && !window.IsManualActivationRequested)
-                (_mainWindow as MainWindow)?.StartWidgetStartupAsync().FireAndForget(_logService!);
-            else (_mainWindow as MainWindow)?.StartStartupOperations();
+            window.ActivateFromLaunch(Program.ExtensionDestination);
             StartupLogger.Log("App", "Startup operations kicked off - OnLaunched complete");
         }
         catch (Exception ex)

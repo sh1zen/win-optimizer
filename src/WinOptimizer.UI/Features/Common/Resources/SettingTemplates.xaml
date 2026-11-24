@@ -95,19 +95,23 @@
     <x:Double x:Key="SettingsCardHeaderIconMaxSize">24</x:Double>
     <Thickness x:Key="SettingsExpanderItemPadding">16,12,16,12</Thickness>
 
+    <Style x:Key="SettingsListCardStyle" TargetType="controls:SettingsCard"
+           BasedOn="{StaticResource PageSettingsCardStyle}">
+        <Setter Property="Padding" Value="20,10,20,10"/>
+    </Style>
+
     <!-- Style for settings section headers -->
     <Style
         x:Key="SettingsSectionHeaderTextBlockStyle"
         BasedOn="{StaticResource BodyStrongTextBlockStyle}"
         TargetType="TextBlock">
         <Style.Setters>
-            <Setter Property="Margin" Value="1,30,0,6" />
+            <Setter Property="Margin" Value="1,0,0,6" />
         </Style.Setters>
     </Style>
 
     <DataTemplate x:Key="SettingItemTemplate" x:DataType="viewModels:SettingItemViewModel">
-        <StackPanel Visibility="{x:Bind IsVisible, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
-                    Margin="0,0,0,2">
+        <StackPanel Visibility="{x:Bind IsVisible, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
             <!-- Main settings card with overlays -->
             <Grid>
                 <!-- IsEnabled is bound on the inner SettingsCardItem (the actual input
@@ -115,7 +119,7 @@
                      interactive (click, hover, focus) in Review Mode while still
                      disabling the toggle/dropdown so the user can't change values. -->
                 <controls:SettingsCard
-                    Style="{StaticResource PageSettingsCardStyle}"
+                    Style="{StaticResource SettingsListCardStyle}"
                     IsTabStop="False"
                     AutomationProperties.LocalizedControlType="setting"
                     HeaderIcon="{x:Bind Converter={StaticResource IconConverter}}">
@@ -272,8 +276,7 @@
 
     <!-- Template for parent settings that have children - renders as SettingsExpander -->
     <DataTemplate x:Key="SettingExpanderItemTemplate" x:DataType="viewModels:SettingItemViewModel">
-        <StackPanel Visibility="{x:Bind IsVisible, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
-                    Margin="0,0,0,2">
+        <StackPanel Visibility="{x:Bind IsVisible, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
             <!-- Parent setting card with expand/collapse chevron -->
             <Grid>
                 <!-- IsEnabled is bound on the inner SettingsCardItem (the actual input
@@ -285,7 +288,7 @@
                      handler on those keys). AutomationProperties.Name is what Narrator
                      announces when the card is focused. -->
                 <controls:SettingsCard
-                    Style="{StaticResource PageSettingsCardStyle}"
+                    Style="{StaticResource SettingsListCardStyle}"
                     IsClickEnabled="True"
                     Click="{x:Bind ToggleExpander}"
                     IsTabStop="True"

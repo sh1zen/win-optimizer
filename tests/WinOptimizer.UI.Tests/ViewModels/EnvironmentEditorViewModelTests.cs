@@ -16,11 +16,12 @@ public sealed class EnvironmentEditorViewModelTests
     private readonly Mock<IDialogService> _dialogs = new();
     private readonly EnvironmentVariableEntry _original = new("Path", @";%USERPROFILE%\bin;;C:\Tools;C:\Tools;", true);
 
-    private EnvironmentEditorViewModel Create()
+    internal EnvironmentEditorViewModel Create()
     {
         _service.Setup(service => service.ReadAsync(EnvironmentScope.User)).ReturnsAsync([_original]);
         var localization = new Mock<ILocalizationService>();
-        localization.Setup(service => service.GetString(It.IsAny<string>())).Returns((string key) => key);
+        localization.Setup(service => service.GetString(It.IsAny<string>()))
+            .Returns((string key) => key == "Utilities_PathCount" ? "{0} entries" : key);
         var vm = new EnvironmentEditorViewModel(_service.Object, _dialogs.Object,
             localization.Object, _mode.Object, new ExtensionTestDispatcher(), new Mock<ITaskProgressService>().Object);
         return vm;

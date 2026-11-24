@@ -6,6 +6,28 @@ namespace WinOptimizer.Infrastructure.Tests.Utilities;
 
 public sealed class ConnectionTrafficServiceTests
 {
+    [Fact]
+    public async Task TodayRequestsOnlyTheCurrentLocalDayAndRollsOverAtMidnight()
+    {
+        var zone = TimeZoneInfo.CreateCustomTimeZone("Plus two hours", TimeSpan.FromHours(2), "Fixture", "Fixture");
+        var clock = new TestClock { Zone = zone, At = new(2026, 10, 23, 21, 59, 0, TimeSpan.Zero) };
+        var source = new HistorySource();
+        var service = new ConnectionTrafficService(new Adapters(), source, clock);
+
+        var before = await service.ReadTodayAsync(CancellationToken.None);
+        var range = Assert.Single(source.Days);
+        Assert.Equal(new DateOnly(2026, 10, 23), before.Date);
+        Assert.Equal(new DateTimeOffset(2026, 10, 22, 22, 0, 0, TimeSpan.Zero), range.Start);
+        Assert.Equal(clock.At, range.End);
+        Assert.Equal(300m, before.BytesSent + before.BytesReceived);
+
+        clock.At = clock.At.AddMinutes(2);
+        var after = await service.ReadTodayAsync(CancellationToken.None);
+        range = Assert.Single(source.Days);
+        Assert.Equal(new DateOnly(2026, 10, 24), after.Date);
+        Assert.Equal(TimeSpan.FromMinutes(1), range.End - range.Start);
+    }
+
     [Theory]
     [InlineData(10, 23)]
     [InlineData(11, 25)]
@@ -57,11 +79,50 @@ public sealed class ConnectionTrafficServiceTests
         var service = new ConnectionTrafficService(adapters, history, clock);
         Assert.Null(Assert.Single((await service.SampleAsync(CancellationToken.None)).Intervals).Totals);
         clock.At = clock.At.AddSeconds(2); adapters.Sent = 200;
-        Assert.Equal(100m, (await service.SampleAsync(CancellationToken.None)).Intervals.Last().UploadBytesPerSecond);
+        var interval = (await service.SampleAsync(CancellationToken.None)).Intervals.Last();
+        Assert.Equal(100m, interval.UploadBytesPerSecond);
+        Assert.Equal(1, interval.MeasuredAdapters);
+        Assert.Equal(2, interval.TotalAdapters);
         Assert.Equal(0, history.Calls);
         using var cancellation = new CancellationTokenSource(); cancellation.Cancel();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => service.SampleAsync(cancellation.Token));
         Assert.Equal(2, adapters.Calls);
+    }
+
+    [Fact]
+    public async Task WindowsHistoryStartsAnotherProfileAsSoonAsOneOfFourSlotsFrees()
+    {
+        var start = new DateTimeOffset(2026, 10, 20, 0, 0, 0, TimeSpan.Zero);
+        var end = start.AddHours(12);
+        var fourStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseOne = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseOthers = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var lastStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var started = 0;
+        var profiles = Enumerable.Range(0, 5).Select(index => (WindowsConnectionHistory.HistoryProfile)(async (_, ct) =>
+        {
+            if (Interlocked.Increment(ref started) == 4) fourStarted.TrySetResult();
+            if (index < 3) await releaseOthers.Task.WaitAsync(ct);
+            else if (index == 3) await releaseOne.Task.WaitAsync(ct);
+            else lastStarted.TrySetResult();
+            return new WindowsConnectionHistory.HistorySamples(1, _ => 10, _ => 20);
+        })).ToArray();
+        var history = new WindowsConnectionHistory(() => profiles);
+        var operation = history.ReadAsync(end, [new(new(2026, 10, 20), start, end)], CancellationToken.None);
+        try
+        {
+            await fourStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(lastStarted.Task.IsCompleted);
+            releaseOne.SetResult();
+            await lastStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.False(operation.IsCompleted);
+        }
+        finally
+        {
+            releaseOne.TrySetResult();
+            releaseOthers.TrySetResult();
+        }
+        Assert.Equal(new ConnectionDailyUsage(new(2026, 10, 20), 50, 100, 5, 5), Assert.Single((await operation).Days));
     }
 
     [Fact]
@@ -118,8 +179,9 @@ public sealed class ConnectionTrafficServiceTests
     {
         public int Calls { get; private set; }
         public long Sent { get; set; }
-        public IReadOnlyList<ConnectionAdapter> Read()
-        { Calls++; return [new("a", "Test", "", "Ethernet", "Up", [], new(Sent, 0, 0, 0), "")]; }
+        public IReadOnlyList<ConnectionAdapter> Read() => throw new InvalidOperationException("Sampling should skip adapter inventory.");
+        public IReadOnlyList<ConnectionAdapterReading> ReadCounters()
+        { Calls++; return [new("a", new(Sent, 0, 0, 0)), new("unavailable", null)]; }
     }
 
     private sealed class HistorySource : IConnectionHistorySource

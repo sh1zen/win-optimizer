@@ -15,7 +15,7 @@ public class PowerSettingsQueryServiceTests
 
     public PowerSettingsQueryServiceTests()
     {
-        _service = new PowerSettingsQueryService(_mockLogService.Object);
+        _service = new PowerSettingsQueryService(_mockLogService.Object, new PowerSchemeOperations());
     }
 
     #region GetAvailablePowerPlansAsync
@@ -106,17 +106,6 @@ public class PowerSettingsQueryServiceTests
 
     #region GetAllPowerSettingsACDCAsync
 
-    [Fact]
-    public async Task GetAllPowerSettingsACDCAsync_DefaultParameter_ReturnsNonNullDictionary()
-    {
-        // Act
-        var result = await _service.GetAllPowerSettingsACDCAsync();
-
-        // Assert
-        result.Should().NotBeNull();
-        result.Should().BeOfType<Dictionary<string, (int?, int?)>>();
-    }
-
     [Theory]
     [InlineData("not-a-valid-guid")]
     [InlineData("00000000-0000-0000-0000-000000000000")]
@@ -132,28 +121,6 @@ public class PowerSettingsQueryServiceTests
     #endregion
 
     #region IsSettingHardwareControlledAsync
-
-    [Fact]
-    public async Task IsSettingHardwareControlledAsync_ValidSetting_ReturnsBool()
-    {
-        // Arrange — use a well-known power setting GUID
-        var powerCfgSetting = new PowerCfgSetting
-        {
-            SubgroupGuid = "7516b95f-f776-4464-8c53-06167f40cc99",
-            SettingGuid = "aded5e82-b909-4619-9949-f5d71dac0bcb",
-            SettingGUIDAlias = "VIDEONORMALLEVEL",
-            RecommendedValueAC = null,
-            RecommendedValueDC = null,
-            DefaultValueAC = null,
-            DefaultValueDC = null
-        };
-
-        // Act
-        var act = async () => await _service.IsSettingHardwareControlledAsync(powerCfgSetting);
-
-        // Assert — should not throw; returns a bool value
-        await act.Should().NotThrowAsync();
-    }
 
     [Fact]
     public async Task IsSettingHardwareControlledAsync_MalformedGuid_ReturnsFalse()

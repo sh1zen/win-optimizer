@@ -138,7 +138,10 @@ public abstract partial class BaseSettingsFeatureViewModel : BaseViewModel, ISet
 
         _dispatcherService.RunOnUIThread(() =>
         {
-            setting.UpdateStateFromEvent(evt.IsEnabled, evt.Value);
+            if (evt.ObservedState is { } actual)
+                setting.UpdateStateFromSystemState(actual);
+            else
+                setting.UpdateStateFromEvent(evt.IsEnabled, evt.Value);
 
             // Update children's ParentIsEnabled if this setting has any children
             if (_childrenByParentId.TryGetValue(evt.SettingId, out var children))

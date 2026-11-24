@@ -11,7 +11,6 @@ internal static class ConfigActionSelection
         var actionOnly = new HashSet<string>();
         Include(options.ApplyCleanTaskbar, FeatureIds.Taskbar);
         Include(options.ApplyCleanStartMenu, FeatureIds.StartMenu);
-        Include(options.ApplyThemeWallpaper, FeatureIds.WindowsTheme);
         return options with { ActionOnlySubsections = actionOnly };
 
         void Include(bool enabled, string featureId)

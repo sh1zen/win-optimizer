@@ -59,8 +59,11 @@ public partial class ExtensionsViewModel : ObservableObject, IDisposable
             options => { Options = options; _applyTask = _widget.ApplyOptionsAsync(options); },
             error => _dispatcher.RunOnUIThread(() => Status = error ?? ""), "Unable to save SysMonitor preferences.");
         _localization.LanguageChanged += OnLanguageChanged;
-        _widget.DisableRequested += OnDisableRequested;
-        _widget.ToggleSizeRequested += OnToggleSizeRequested;
+        if (_widget is ISystemMonitorWidgetInput input)
+        {
+            input.DisableRequested += OnDisableRequested;
+            input.ToggleSizeRequested += OnToggleSizeRequested;
+        }
         _widget.StateChanged += OnWidgetStateChanged;
     }
 
@@ -68,7 +71,15 @@ public partial class ExtensionsViewModel : ObservableObject, IDisposable
     public Task<bool> LoadAsync(bool automaticLaunch = false) => _loaded && (automaticLaunch || !_widgetRestoreDeferred) ? Task.FromResult(true) :
         _loading is { IsCompleted: false } ? _loading : _loading = LoadCoreAsync(automaticLaunch);
 
-    private async Task<bool> LoadCoreAsync(bool automaticLaunch)
+    /// <summary>Accepts companion edits after this process's pending changes finish.</summary>
+    internal async Task RefreshAsync(bool automaticLaunch, bool applyToWidget)
+    {
+        if (!_loaded) return;
+        await FlushAsync();
+        await LoadCoreAsync(automaticLaunch, refresh: true, applyToWidget);
+    }
+
+    private async Task<bool> LoadCoreAsync(bool automaticLaunch, bool refresh = false, bool applyToWidget = true)
     {
         var loaded = false;
         await _dispatcher.RunOnUIThreadWithContextAsync(async () =>
@@ -78,6 +89,7 @@ public partial class ExtensionsViewModel : ObservableObject, IDisposable
             {
                 var options = await _preferences.GetPreferenceAsync(SystemMonitorOptions.PreferenceKey, new SystemMonitorOptions());
                 options.Validate();
+                if (refresh && options == Options && !(applyToWidget && _widgetRestoreDeferred && !automaticLaunch)) return;
                 _applying = true;
                 IsEnabled = options.Enabled;
                 StartWithWindows = options.StartWithWindows;
@@ -100,9 +112,10 @@ public partial class ExtensionsViewModel : ObservableObject, IDisposable
                 ShowStorageThroughput = options.ShowStorageThroughput;
                 Options = options;
                 _widgetRestoreDeferred = automaticLaunch && !SystemMonitorLaunch.ShouldStart(options);
-                if (!_widgetRestoreDeferred)
+                if (!_widgetRestoreDeferred && applyToWidget)
                     await (_applyTask = _widget.ApplyOptionsAsync(options));
                 _loaded = loaded = true;
+                if (refresh) return;
                 var startupResult = await _startup.ApplyAsync(options);
                 _startupSynchronized = startupResult.Success;
                 Status = startupResult.Success ? "" : startupResult.ErrorMessage ?? "Unable to configure SysMonitor startup.";
@@ -262,8 +275,11 @@ public partial class ExtensionsViewModel : ObservableObject, IDisposable
     public void Dispose()
     {
         _localization.LanguageChanged -= OnLanguageChanged;
-        _widget.DisableRequested -= OnDisableRequested;
-        _widget.ToggleSizeRequested -= OnToggleSizeRequested;
+        if (_widget is ISystemMonitorWidgetInput input)
+        {
+            input.DisableRequested -= OnDisableRequested;
+            input.ToggleSizeRequested -= OnToggleSizeRequested;
+        }
         _widget.StateChanged -= OnWidgetStateChanged;
     }
 }

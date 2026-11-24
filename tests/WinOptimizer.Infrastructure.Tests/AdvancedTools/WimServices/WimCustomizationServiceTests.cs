@@ -67,28 +67,42 @@ public class WimCustomizationServiceTests
         result.Should().BeFalse();
     }
 
-    [Fact]
-    public async Task AddXmlToImageAsync_ValidInputs_CopiesFileAndReturnsTrue()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task AddXmlToImageAsync_ValidAnswerFilePreservesTheEncoding(bool utf16)
     {
-        // Arrange
+        var encoding = utf16 ? System.Text.Encoding.Unicode : System.Text.Encoding.UTF8;
+        var xml = $"<?xml version=\"1.0\" encoding=\"{encoding.WebName}\"?><unattend xmlns=\"urn:schemas-microsoft-com:unattend\"><!-- città --></unattend>";
+        var bytes = encoding.GetPreamble().Concat(encoding.GetBytes(xml)).ToArray();
         _mockFileSystem.Setup(fs => fs.FileExists(It.IsAny<string>())).Returns(true);
         _mockFileSystem.Setup(fs => fs.DirectoryExists(It.IsAny<string>())).Returns(true);
-        _mockFileSystem.Setup(fs => fs.ReadAllTextAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync("<xml>content</xml>");
-        _mockFileSystem.Setup(fs => fs.WriteAllTextAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .Returns(Task.CompletedTask);
+        _mockFileSystem.Setup(fs => fs.ReadAllBytesAsync(It.IsAny<string>(), It.IsAny<CancellationToken>())).ReturnsAsync(bytes);
 
-        // Act
         var result = await _service.AddXmlToImageAsync(@"C:\answer.xml", @"C:\work");
 
-        // Assert
         result.Should().BeTrue();
         _mockFileSystem.Verify(
-            fs => fs.WriteAllTextAsync(
-                It.Is<string>(p => p.Contains("autounattend.xml")),
-                "<xml>content</xml>",
+            fs => fs.WriteAllBytesAsync(
+                It.Is<string>(p => p.EndsWith("autounattend.xml")),
+                It.Is<byte[]>(data => data.SequenceEqual(bytes)),
                 It.IsAny<CancellationToken>()),
             Times.Once);
+    }
+
+    [Theory]
+    [InlineData("<settings />")]
+    [InlineData("<unattend />")]
+    [InlineData("<unattend xmlns='urn:schemas-microsoft-com:unattend'>")]
+    public async Task AddXmlToImageAsync_InvalidAnswerFileIsRejectedBeforeWriting(string xml)
+    {
+        _mockFileSystem.Setup(fs => fs.FileExists(It.IsAny<string>())).Returns(true);
+        _mockFileSystem.Setup(fs => fs.DirectoryExists(It.IsAny<string>())).Returns(true);
+        _mockFileSystem.Setup(fs => fs.ReadAllBytesAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(System.Text.Encoding.UTF8.GetBytes(xml));
+
+        await Assert.ThrowsAsync<InvalidDataException>(() => _service.AddXmlToImageAsync(@"C:\answer.xml", @"C:\work"));
+        _mockFileSystem.Verify(fs => fs.WriteAllBytesAsync(It.IsAny<string>(), It.IsAny<byte[]>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -97,7 +111,7 @@ public class WimCustomizationServiceTests
         // Arrange
         _mockFileSystem.Setup(fs => fs.FileExists(It.IsAny<string>())).Returns(true);
         _mockFileSystem.Setup(fs => fs.DirectoryExists(It.IsAny<string>())).Returns(true);
-        _mockFileSystem.Setup(fs => fs.ReadAllTextAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+        _mockFileSystem.Setup(fs => fs.ReadAllBytesAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new IOException("Disk error"));
 
         // Act

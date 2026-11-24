@@ -4,9 +4,11 @@ using Microsoft.UI.Xaml;
 using Moq;
 using WinOptimizer.Core.Features.Common.Enums;
 using WinOptimizer.Core.Features.Common.Interfaces;
+using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.Core.Features.SoftwareApps.Interfaces;
 using WinOptimizer.Core.Features.SoftwareApps.Models;
 using WinOptimizer.UI.Features.Common.Interfaces;
+using WinOptimizer.UI.Features.Common.Services;
 using WinOptimizer.UI.Features.SoftwareApps.Services;
 using WinOptimizer.UI.Features.SoftwareApps.ViewModels;
 using Xunit;
@@ -101,7 +103,36 @@ public class SelectedAppsProviderTests : IDisposable
     }
 
     [Fact]
-    public async Task GetSelectedWindowsAppsAsync_WithMixedSelection_ReturnsOnlySelected()
+    public async Task ExternalAppImportOmitsExplicitDeselectionsFromUninstall()
+    {
+        var items = new ObservableCollection<AppItemViewModel>
+        {
+            CreateAppItemViewModel("keep", "Keep", isSelected: true),
+            CreateAppItemViewModel("remove", "Remove"),
+            CreateAppItemViewModel("legacy", "Legacy")
+        };
+        var external = new Mock<IExternalAppsItemsProvider>();
+        external.SetupGet(provider => provider.IsInitialized).Returns(true);
+        external.SetupGet(provider => provider.Items).Returns(items);
+        string?[]? removal = null;
+        external.Setup(provider => provider.UninstallAppsAsync()).Callback(() =>
+        {
+            removal = items.Where(item => item.IsSelected).Select(item => item.Id).ToArray();
+        }).Returns(Task.CompletedTask);
+        var sut = new ConfigAppSelectionService(_mockLogService.Object, Mock.Of<IWindowsAppsItemsProvider>(), external.Object);
+
+        await sut.ProcessExternalAppsRemovalAsync(new ConfigSection
+        {
+            Items = [new() { Id = "keep", IsSelected = false }, new() { Id = "remove", IsSelected = true }, new() { Id = "legacy" }]
+        });
+
+        Assert.Equal(new[] { "remove", "legacy" }, removal);
+        Assert.False(items[0].IsSelected);
+        external.Verify(provider => provider.UninstallAppsAsync(), Times.Once);
+    }
+
+    [Fact]
+    public async Task GetSelectedWindowsAppsAsync_ExportsOnlySelectedAppsAndPrefersAppxIdentity()
     {
         var vm = CreateWindowsAppsVm();
 
@@ -111,7 +142,8 @@ public class SelectedAppsProviderTests : IDisposable
 
         await vm.LoadItemsAsync();
 
-        var selectedApp = CreateAppItemViewModel("app1", "Selected App", isSelected: true, appxPackageName: ["Microsoft.App1"]);
+        var selectedApp = CreateAppItemViewModel("app1", "Selected App", isSelected: true,
+            appxPackageName: ["Microsoft.App1"], capabilityName: "App1.Capability~~~~0.0.1.0");
         var unselectedApp = CreateAppItemViewModel("app2", "Unselected App", isSelected: false, appxPackageName: ["Microsoft.App2"]);
         var anotherSelectedApp = CreateAppItemViewModel("app3", "Another Selected", isSelected: true, appxPackageName: ["Microsoft.App3"]);
 
@@ -123,50 +155,9 @@ public class SelectedAppsProviderTests : IDisposable
 
         var result = await sut.GetSelectedWindowsAppsAsync();
 
-        result.Should().HaveCount(2);
-        result.Select(r => r.Id).Should().Contain("app1");
-        result.Select(r => r.Id).Should().Contain("app3");
-        result.Select(r => r.Id).Should().NotContain("app2");
-    }
-
-    [Fact]
-    public async Task GetSelectedWindowsAppsAsync_WithAppxAndCapability_PrefersAppx()
-    {
-        var vm = CreateWindowsAppsVm();
-
-        _mockWindowsAppsService
-            .Setup(s => s.GetAppsAsync())
-            .ReturnsAsync(new List<ItemDefinition>());
-
-        await vm.LoadItemsAsync();
-
-        // An item with both AppxPackageName and CapabilityName set
-        // The code checks AppxPackageName first via !string.IsNullOrEmpty
-        var definition = new ItemDefinition
-        {
-            Id = "dual-app",
-            Name = "Dual App",
-            Description = "Has both",
-            AppxPackageName = ["Microsoft.DualApp"],
-            CapabilityName = "DualApp.Capability~~~~0.0.1.0"
-        };
-
-        var appVm = new AppItemViewModel(
-            definition,
-            _mockLocalizationService.Object,
-            _mockDispatcherService.Object,
-            _mockThemeService.Object);
-        appVm.IsSelected = true;
-        vm.Items.Add(appVm);
-
-        var sut = CreateSut(vm);
-
-        var result = await sut.GetSelectedWindowsAppsAsync();
-
-        result.Should().ContainSingle();
-        var item = result[0];
-        item.AppxPackageName.Should().BeEquivalentTo(new[] { "Microsoft.DualApp" });
-        // CapabilityName should NOT be set because the Appx branch ran
+        result.Select(item => item.Id).Should().BeEquivalentTo(new[] { "app1", "app3" });
+        var item = result.Single(item => item.Id == "app1");
+        item.AppxPackageName.Should().Equal("Microsoft.App1");
         item.CapabilityName.Should().BeNull();
     }
 }

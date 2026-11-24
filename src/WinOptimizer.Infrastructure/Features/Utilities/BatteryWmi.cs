@@ -63,7 +63,7 @@ internal sealed class BatteryWmi : IBatteryWmi
                         if (values.GetValueOrDefault(resultProperty) is not { } status)
                             throw new UtilityOperationException("The firmware returned no result for the charge-limit change.");
                         var code = Convert.ToUInt32(status);
-                        if (code != 0) throw new UtilityOperationException($"The firmware rejected the charge-limit change (code {code}). Check BIOS permissions/password and refresh before retrying.");
+                        if (code != 0) throw new UtilityOperationException($"The firmware rejected the charge-limit change (code {code}). Check BIOS permissions and the BIOS password.");
                     }
                     return values;
                 }

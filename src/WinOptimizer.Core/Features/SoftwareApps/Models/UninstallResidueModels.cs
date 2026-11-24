@@ -10,7 +10,11 @@ public sealed record UninstallResidue(Guid Id, string AppId, string AppName, str
     UninstallArtifactKind Kind, string Path, string? ValueName, string Data, long Bytes,
     DateTime? ModifiedUtc, bool View32, bool CanDelete, string Reason);
 
-public sealed record UninstallNativeOutcome(string AppId, bool Success, bool Deferred, string? Message);
+public sealed record UninstallNativeOutcome(string AppId, bool Success, bool Deferred, string? Message)
+{
+    /// <summary>Cancellation interrupted this item before a completed native outcome was available.</summary>
+    public bool Cancelled { get; init; }
+}
 public sealed record UninstallVerification(string AppId, string AppName, UninstallVerificationState State, string Detail);
 public sealed record UninstallResidueScan(IReadOnlyList<UninstallResidue> Findings,
     IReadOnlyList<UninstallVerification> Applications, IReadOnlyList<string> Notices, int ObservedChanges);

@@ -31,12 +31,12 @@ public sealed class CleanerService(ICleanerBackend backend, ICleanerBackupServic
             HashSet<string> filePaths = new(StringComparer.OrdinalIgnoreCase);
             List<string> notices = [];
             int checkedItems = 0;
-            var selectedAreas = areas.Distinct().OrderBy(Stage).ToArray();
-            for (int index = 0; index < selectedAreas.Length; index++)
+            var selectedAreas = Array.AsReadOnly(areas.Distinct().OrderBy(Stage).ToArray());
+            for (int index = 0; index < selectedAreas.Count; index++)
             {
                 var area = selectedAreas[index];
                 ct.ThrowIfCancellationRequested();
-                var stageProgress = new StageProgress(progress, index + 1, selectedAreas.Length);
+                var stageProgress = new StageProgress(progress, new(selectedAreas, index, area));
                 stageProgress.Report(new($"Cleaner_{area}", 0, 0));
                 var result = await backend.ScanAsync(area, options, stageProgress, ct).ConfigureAwait(false);
                 foreach (var finding in result.Findings)
@@ -51,7 +51,7 @@ public sealed class CleanerService(ICleanerBackend backend, ICleanerBackupServic
                 }
                 notices.AddRange(result.Notices);
                 checkedItems += result.CheckedItems;
-                stageProgress.Report(new($"Cleaner_{area}", 1, 1));
+                stageProgress.Complete(new($"Cleaner_{area}", 1, 1));
             }
             // A cancelled or failed scan never publishes a partially applicable plan.
             ct.ThrowIfCancellationRequested();
@@ -82,39 +82,70 @@ public sealed class CleanerService(ICleanerBackend backend, ICleanerBackupServic
             List<string> errors = [];
             List<CleanerItemResult> outcomes = [];
             var cancelled = false;
-            foreach (var id in ids.OrderBy(id => Stage(_findings[id].Area)))
+            foreach (var stage in ids.Select(id => _findings[id]).GroupBy(item => Stage(item.Area)).OrderBy(group => group.Key))
             {
-                if (ct.IsCancellationRequested) { cancelled = true; break; }
-                var item = _findings[id];
-                progress?.Report(new(item.Detail, completed + errors.Count, ids.Length));
-                // Consume before execution, including cancellation and partial external failures.
-                _findings.Remove(id);
-                try
+                if (stage.First().Area == CleanerArea.RegistryDefrag)
                 {
-                    await backend.CleanAsync(item, _options, ct).ConfigureAwait(false);
-                    completed++;
-                    outcomes.Add(new(item, null));
+                    // One maintenance boot covers the entire registry selection.
+                    var hives = stage.ToArray();
+                    await ApplyBatchAsync(hives, () => backend.ScheduleRegistryDefragAsync(
+                        hives.Select(item => (CleanerHiveTarget)item.Target).ToArray(), ct)).ConfigureAwait(false);
                 }
-                catch (OperationCanceledException) { cancelled = true; break; }
-                // RegistryKey can report denied writes as SecurityException rather than UnauthorizedAccessException.
-                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException or InvalidOperationException or System.ComponentModel.Win32Exception)
+                else
                 {
-                    var error = $"{item.Detail}: {ex.Message}";
-                    errors.Add(error);
-                    outcomes.Add(new(item, error));
+                    foreach (var item in stage)
+                    {
+                        await ApplyBatchAsync([item], () => backend.CleanAsync(item, _options, ct)).ConfigureAwait(false);
+                        if (cancelled) break;
+                    }
                 }
-                progress?.Report(new(item.Detail, completed + errors.Count, ids.Length));
+                if (cancelled) break;
             }
             return new(completed, errors.AsReadOnly()) { Items = outcomes.AsReadOnly(), IsCancelled = cancelled };
+
+            async Task ApplyBatchAsync(CleanerFinding[] batch, Func<Task> apply)
+            {
+                if (ct.IsCancellationRequested) { cancelled = true; return; }
+                var label = batch[0].Detail;
+                progress?.Report(new(label, outcomes.Count, ids.Length));
+                // Consume before execution, including cancellation and partial external failures.
+                foreach (var item in batch) _findings.Remove(item.Id);
+                try
+                {
+                    await apply().ConfigureAwait(false);
+                    foreach (var item in batch)
+                    {
+                        var outcome = new CleanerItemResult(item, null);
+                        outcomes.Add(outcome);
+                        if (!outcome.Scheduled) completed++;
+                    }
+                }
+                catch (OperationCanceledException) { cancelled = true; return; }
+                catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException or InvalidOperationException or System.ComponentModel.Win32Exception)
+                {
+                    errors.Add($"{label}: {ex.Message}");
+                    foreach (var item in batch) outcomes.Add(new(item, $"{item.Detail}: {ex.Message}"));
+                }
+                progress?.Report(new(label, outcomes.Count, ids.Length));
+            }
         }
         finally { _gate.Release(); }
     }
 
     /// <summary>Attaches the owning stage to backend measurements without asynchronous reposting.</summary>
-    private sealed class StageProgress(IProgress<CleanerProgress>? target, int stage, int stages) : IProgress<CleanerProgress>
+    private sealed class StageProgress(IProgress<CleanerProgress>? target, CleanerScanStage stage) : IProgress<CleanerProgress>
     {
-        public void Report(CleanerProgress value) => target?.Report(value with
-            { Stage = (stage - 1) * value.Stages + value.Stage, Stages = stages * value.Stages });
+        public void Report(CleanerProgress value) => Publish(value, stage);
+
+        public void Complete(CleanerProgress value) =>
+            Publish(value, stage with { CompletedAreas = stage.CompletedAreas + 1, ActiveArea = null });
+
+        private void Publish(CleanerProgress value, CleanerScanStage current) => target?.Report(value with
+        {
+            Stage = stage.CompletedAreas * value.Stages + value.Stage,
+            Stages = stage.Areas.Count * value.Stages,
+            ScanStage = current
+        });
     }
 
     private static int Stage(CleanerArea area) => area switch

@@ -12,6 +12,7 @@ using WinOptimizer.Core.Features.Common.Constants;
 using WinOptimizer.Core.Features.Common.Enums;
 using WinOptimizer.Core.Features.Common.Events;
 using WinOptimizer.Core.Features.Common.Extensions;
+using WinOptimizer.Core.Features.Common.Helpers;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.UI.Features.Common.Interfaces;
@@ -35,6 +36,7 @@ public partial class SettingItemViewModel : BaseViewModel
     private volatile bool _isUpdatingFromEvent;
     private bool _hasChangedThisSession;
     private object? _pendingValue;
+    private readonly SemaphoreSlim _powerApplyGate = new(1, 1);
     private DraftBaseline? _draftBaseline;
 
     // Keep UI values separate from the configuration-format edits owned by the mode service.
@@ -70,6 +72,8 @@ public partial class SettingItemViewModel : BaseViewModel
 
     [ObservableProperty]
     public partial bool IsApplying { get; set; }
+
+    public bool LastApplyFailed { get; private set; }
 
     [ObservableProperty]
     public partial string Status { get; set; }
@@ -113,6 +117,13 @@ public partial class SettingItemViewModel : BaseViewModel
 
     [ObservableProperty]
     public partial bool HasBattery { get; set; }
+
+    partial void OnHasBatteryChanged(bool value)
+    {
+        if (!SupportsSeparateACDC) return;
+        InitializeHasBadgeData();
+        ComputeBadgeState();
+    }
 
     [ObservableProperty]
     public partial int MinValue { get; set; }
@@ -165,7 +176,9 @@ public partial class SettingItemViewModel : BaseViewModel
     /// True if the setting has RecommendedValue/DefaultValue data to compare against.
     /// False for settings using NativePowerApiSettings, PowerShellScripts, or RegContents only.
     /// </summary>
-    public bool HasBadgeData { get; set; }
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowInfoBadge))]
+    public partial bool HasBadgeData { get; set; }
 
     public bool ShowInfoBadge => HasBadgeData;
 
@@ -368,8 +381,7 @@ public partial class SettingItemViewModel : BaseViewModel
         {
             if (AcRecommendedValue is int v)
             {
-                AcNumericValue = ConvertFromSystemUnits(v);
-                HandleACDCNumericChangedAsync().FireAndForget(_logService);
+                ApplyPowerValueAsync(true, ConvertFromSystemUnits(v)).FireAndForget(_logService);
             }
         });
     private RelayCommand? _setAcNumericToRecommendedCommand;
@@ -379,8 +391,7 @@ public partial class SettingItemViewModel : BaseViewModel
         {
             if (AcDefaultValue is int v)
             {
-                AcNumericValue = ConvertFromSystemUnits(v);
-                HandleACDCNumericChangedAsync(resetToDefault: true).FireAndForget(_logService);
+                ApplyPowerValueAsync(true, ConvertFromSystemUnits(v), resetToDefault: true).FireAndForget(_logService);
             }
         });
     private RelayCommand? _setAcNumericToDefaultCommand;
@@ -390,8 +401,7 @@ public partial class SettingItemViewModel : BaseViewModel
         {
             if (DcRecommendedValue is int v)
             {
-                DcNumericValue = ConvertFromSystemUnits(v);
-                HandleACDCNumericChangedAsync().FireAndForget(_logService);
+                ApplyPowerValueAsync(false, ConvertFromSystemUnits(v)).FireAndForget(_logService);
             }
         });
     private RelayCommand? _setDcNumericToRecommendedCommand;
@@ -401,8 +411,7 @@ public partial class SettingItemViewModel : BaseViewModel
         {
             if (DcDefaultValue is int v)
             {
-                DcNumericValue = ConvertFromSystemUnits(v);
-                HandleACDCNumericChangedAsync(resetToDefault: true).FireAndForget(_logService);
+                ApplyPowerValueAsync(false, ConvertFromSystemUnits(v), resetToDefault: true).FireAndForget(_logService);
             }
         });
     private RelayCommand? _setDcNumericToDefaultCommand;
@@ -596,8 +605,7 @@ public partial class SettingItemViewModel : BaseViewModel
         {
             if (AcSelectionRecommendedIndex is int i)
             {
-                AcValue = i;
-                HandleACDCSelectionChangedAsync().FireAndForget(_logService);
+                ApplyPowerValueAsync(true, i).FireAndForget(_logService);
             }
         });
     private RelayCommand? _setAcSelectionToRecommendedCommand;
@@ -607,8 +615,7 @@ public partial class SettingItemViewModel : BaseViewModel
         {
             if (AcSelectionDefaultIndex is int i)
             {
-                AcValue = i;
-                HandleACDCSelectionChangedAsync(resetToDefault: true).FireAndForget(_logService);
+                ApplyPowerValueAsync(true, i, resetToDefault: true).FireAndForget(_logService);
             }
         });
     private RelayCommand? _setAcSelectionToDefaultCommand;
@@ -618,8 +625,7 @@ public partial class SettingItemViewModel : BaseViewModel
         {
             if (DcSelectionRecommendedIndex is int i)
             {
-                DcValue = i;
-                HandleACDCSelectionChangedAsync().FireAndForget(_logService);
+                ApplyPowerValueAsync(false, i).FireAndForget(_logService);
             }
         });
     private RelayCommand? _setDcSelectionToRecommendedCommand;
@@ -629,8 +635,7 @@ public partial class SettingItemViewModel : BaseViewModel
         {
             if (DcSelectionDefaultIndex is int i)
             {
-                DcValue = i;
-                HandleACDCSelectionChangedAsync(resetToDefault: true).FireAndForget(_logService);
+                ApplyPowerValueAsync(false, i, resetToDefault: true).FireAndForget(_logService);
             }
         });
     private RelayCommand? _setDcSelectionToDefaultCommand;
@@ -855,7 +860,8 @@ public partial class SettingItemViewModel : BaseViewModel
             SettingId = SettingId, InputType = InputType, PowerSettings = powerSettings
         });
 
-    private int ToSystemUnits(int value) => UnitConversionHelper.ConvertToSystemUnits(value, SettingDefinition?.NumericRange?.Units);
+    private int ToSystemUnits(int value) =>
+        checked(value * PowerSettingUnits.SystemUnitsPerDisplayUnit(SettingDefinition?.NumericRange?.Units));
 
     /// <summary>
     /// When this Selection setting was seeded at the Custom index (live state matched no
@@ -1040,8 +1046,7 @@ public partial class SettingItemViewModel : BaseViewModel
             }
             else if (InputType == InputType.Selection)
             {
-                // AC/DC separate selection: value is Dictionary { "ACValue": acIdx, "DCValue": dcIdx }
-                // (what SettingItemViewModel and BulkSettingsActionService send for Separate PowerCfg).
+                // Separate PowerCfg selections pass AC and DC option indices in a dictionary.
                 if (SupportsSeparateACDC && value is System.Collections.Generic.Dictionary<string, object?> selDict)
                 {
                     if (selDict.TryGetValue("ACValue", out var ac) && TryReadInt(ac, out var acIdx))
@@ -1164,11 +1169,8 @@ public partial class SettingItemViewModel : BaseViewModel
         return 0;
     }
 
-    private int ConvertFromSystemUnits(int systemValue)
-    {
-        var displayUnits = SettingDefinition?.NumericRange?.Units;
-        return UnitConversionHelper.ConvertFromSystemUnits(systemValue, displayUnits);
-    }
+    private int ConvertFromSystemUnits(int systemValue) =>
+        PowerSettingUnits.ToDisplayValue(systemValue, SettingDefinition?.NumericRange?.Units);
 
     #region UI Event Handlers
 
@@ -1226,8 +1228,7 @@ public partial class SettingItemViewModel : BaseViewModel
     {
         if (sender is ComboBox cb && cb.SelectedIndex >= 0)
         {
-            AcValue = cb.SelectedIndex;
-            HandleACDCSelectionChangedAsync().FireAndForget(_logService);
+            ApplyPowerValueAsync(true, cb.SelectedIndex).FireAndForget(_logService);
         }
     }
 
@@ -1235,8 +1236,7 @@ public partial class SettingItemViewModel : BaseViewModel
     {
         if (sender is ComboBox cb && cb.SelectedIndex >= 0)
         {
-            DcValue = cb.SelectedIndex;
-            HandleACDCSelectionChangedAsync().FireAndForget(_logService);
+            ApplyPowerValueAsync(false, cb.SelectedIndex).FireAndForget(_logService);
         }
     }
 
@@ -1244,8 +1244,7 @@ public partial class SettingItemViewModel : BaseViewModel
     {
         if (!double.IsNaN(e.NewValue))
         {
-            AcNumericValue = (int)e.NewValue;
-            HandleACDCNumericChangedAsync().FireAndForget(_logService);
+            ApplyPowerValueAsync(true, (int)e.NewValue).FireAndForget(_logService);
         }
     }
 
@@ -1253,8 +1252,7 @@ public partial class SettingItemViewModel : BaseViewModel
     {
         if (!double.IsNaN(e.NewValue))
         {
-            DcNumericValue = (int)e.NewValue;
-            HandleACDCNumericChangedAsync().FireAndForget(_logService);
+            ApplyPowerValueAsync(false, (int)e.NewValue).FireAndForget(_logService);
         }
     }
 
@@ -1315,6 +1313,7 @@ public partial class SettingItemViewModel : BaseViewModel
                 return;
             }
 
+            LastApplyFailed = false;
             IsApplying = true;
             _logService.Log(LogLevel.Info, $"Toggling setting: {SettingId} to {newValue}");
 
@@ -1322,6 +1321,7 @@ public partial class SettingItemViewModel : BaseViewModel
 
             if (!result.Success)
             {
+                LastApplyFailed = true;
                 _logService.Log(LogLevel.Warning, $"Setting '{SettingId}' apply failed: {result.ErrorMessage}. Reverting UI state.");
                 OnPropertyChanged(nameof(IsSelected));
                 return;
@@ -1335,6 +1335,7 @@ public partial class SettingItemViewModel : BaseViewModel
         }
         catch (Exception ex)
         {
+            LastApplyFailed = true;
             _logService.Log(LogLevel.Error, $"Error toggling setting {SettingId}: {ex.Message}");
             OnPropertyChanged(nameof(IsSelected));
         }
@@ -1415,6 +1416,7 @@ public partial class SettingItemViewModel : BaseViewModel
                 return;
             }
 
+            LastApplyFailed = false;
             IsApplying = true;
             _logService.Log(LogLevel.Info, $"Changing value for setting: {SettingId} to {value}");
             _logService.LogDebug($"[SettingItemViewModel] Calling ApplySettingAsync for {SettingId} with value={value}");
@@ -1425,6 +1427,7 @@ public partial class SettingItemViewModel : BaseViewModel
 
             if (!result.Success)
             {
+                LastApplyFailed = true;
                 _logService.Log(LogLevel.Warning, $"Setting '{SettingId}' value change failed: {result.ErrorMessage}. Reverting UI state.");
                 OnPropertyChanged(nameof(SelectedValue));
                 OnPropertyChanged(nameof(NumericValue));
@@ -1457,6 +1460,7 @@ public partial class SettingItemViewModel : BaseViewModel
         }
         catch (Exception ex)
         {
+            LastApplyFailed = true;
             _logService.Log(LogLevel.Error, $"Error changing value for setting {SettingId}: {ex.Message}");
             OnPropertyChanged(nameof(SelectedValue));
             OnPropertyChanged(nameof(NumericValue));
@@ -1484,88 +1488,94 @@ public partial class SettingItemViewModel : BaseViewModel
         }
     }
 
-    private async Task HandleACDCSelectionChangedAsync(bool resetToDefault = false)
+    /// <summary>Serializes power edits against the last committed AC/DC pair.</summary>
+    private async Task ApplyPowerValueAsync(bool onAc, int value, bool resetToDefault = false)
     {
-        if (IsApplying || _isUpdatingFromEvent || SettingDefinition == null) return;
+        if (_isUpdatingFromEvent || SettingDefinition == null) return;
 
-        if (IsBuilderMode)
-        {
-            // Builder mode: AcValue/DcValue are already set by the caller; just record.
-            RecordPowerEdit(new() { ["ACIndex"] = AcValue, ["DCIndex"] = DcValue });
-            _hasChangedThisSession = true;
-            ComputeBadgeState();
-            return;
-        }
-
+        await _powerApplyGate.WaitAsync();
         try
         {
-            IsApplying = true;
-            var dict = new Dictionary<string, object?> { ["ACValue"] = AcValue, ["DCValue"] = DcValue };
-            _logService.Log(LogLevel.Info, $"Changing AC/DC selection for setting: {SettingId} AC={AcValue}, DC={DcValue}");
-            var result = await _settingApplicationService.ApplySettingAsync(new ApplySettingRequest { SettingId = SettingId, Enable = true, Value = dict, ResetToDefault = resetToDefault });
+            bool numeric = InputType == InputType.NumericRange;
+            var ac = numeric ? AcNumericValue : AcValue;
+            var dc = numeric ? DcNumericValue : DcValue;
+            if (value == (onAc ? ac : dc) && !resetToDefault) return;
 
-            if (!result.Success)
+            if (onAc) ac = value;
+            else dc = value;
+
+            if (IsBuilderMode)
             {
-                _logService.Log(LogLevel.Warning, $"Setting '{SettingId}' AC/DC selection failed: {result.ErrorMessage}. Reverting UI state.");
-                OnPropertyChanged(nameof(AcValue));
-                OnPropertyChanged(nameof(DcValue));
+                CommitValue();
+                RecordPowerEdit(numeric
+                    ? new() { ["ACValue"] = ToSystemUnits(ac), ["DCValue"] = ToSystemUnits(dc) }
+                    : new() { ["ACIndex"] = ac, ["DCIndex"] = dc });
                 return;
             }
 
-            _hasChangedThisSession = true;
-            ComputeBadgeState();
-            ShowRestartBannerIfNeeded();
-        }
-        catch (Exception ex)
-        {
-            _logService.Log(LogLevel.Error, $"Error changing AC/DC selection for setting {SettingId}: {ex.Message}");
-        }
-        finally
-        {
-            IsApplying = false;
-        }
-    }
-
-    private async Task HandleACDCNumericChangedAsync(bool resetToDefault = false)
-    {
-        if (IsApplying || _isUpdatingFromEvent || SettingDefinition == null) return;
-
-        if (IsBuilderMode)
-        {
-            // Builder mode: AcNumericValue/DcNumericValue are already set by the caller; just record.
-            RecordPowerEdit(new() { ["ACValue"] = ToSystemUnits(AcNumericValue), ["DCValue"] = ToSystemUnits(DcNumericValue) });
-            _hasChangedThisSession = true;
-            ComputeBadgeState();
-            return;
-        }
-
-        try
-        {
+            LastApplyFailed = false;
             IsApplying = true;
-            var dict = new Dictionary<string, object?> { ["ACValue"] = AcNumericValue, ["DCValue"] = DcNumericValue };
-            _logService.Log(LogLevel.Info, $"Changing AC/DC numeric for setting: {SettingId} AC={AcNumericValue}, DC={DcNumericValue}");
-            var result = await _settingApplicationService.ApplySettingAsync(new ApplySettingRequest { SettingId = SettingId, Enable = true, Value = dict, ResetToDefault = resetToDefault });
-
-            if (!result.Success)
+            try
             {
-                _logService.Log(LogLevel.Warning, $"Setting '{SettingId}' AC/DC numeric failed: {result.ErrorMessage}. Reverting UI state.");
-                OnPropertyChanged(nameof(AcNumericValue));
-                OnPropertyChanged(nameof(DcNumericValue));
-                return;
+                var result = await _settingApplicationService.ApplySettingAsync(new ApplySettingRequest
+                {
+                    SettingId = SettingId,
+                    Enable = true,
+                    Value = new Dictionary<string, object?> { ["ACValue"] = ac, ["DCValue"] = dc },
+                    ResetToDefault = resetToDefault
+                });
+                if (result.Success)
+                {
+                    CommitValue();
+                    ShowRestartBannerIfNeeded();
+                }
+                else
+                {
+                    RejectValue(result.ErrorMessage);
+                }
+            }
+            catch (Exception ex)
+            {
+                RejectValue(ex.Message);
+            }
+            finally { IsApplying = false; }
+
+            void CommitValue()
+            {
+                _isUpdatingFromEvent = true;
+                try
+                {
+                    if (numeric)
+                    {
+                        if (onAc) AcNumericValue = value;
+                        else DcNumericValue = value;
+                    }
+                    else
+                    {
+                        if (onAc) AcValue = value;
+                        else DcValue = value;
+                    }
+                }
+                finally { _isUpdatingFromEvent = false; }
+                _hasChangedThisSession = true;
+                ComputeBadgeState();
             }
 
-            _hasChangedThisSession = true;
-            ComputeBadgeState();
-            ShowRestartBannerIfNeeded();
+            void RejectValue(string? error)
+            {
+                LastApplyFailed = true;
+                _logService.Log(LogLevel.Warning, $"Could not apply power setting '{SettingId}': {error}");
+                _isUpdatingFromEvent = true;
+                try
+                {
+                    OnPropertyChanged(numeric
+                        ? (onAc ? nameof(AcNumericValue) : nameof(DcNumericValue))
+                        : (onAc ? nameof(AcValue) : nameof(DcValue)));
+                }
+                finally { _isUpdatingFromEvent = false; }
+            }
         }
-        catch (Exception ex)
-        {
-            _logService.Log(LogLevel.Error, $"Error changing AC/DC numeric for setting {SettingId}: {ex.Message}");
-        }
-        finally
-        {
-            IsApplying = false;
-        }
+        finally { _powerApplyGate.Release(); }
     }
 
     private async Task RunActionAsync()
@@ -1593,16 +1603,25 @@ public partial class SettingItemViewModel : BaseViewModel
             if (!confirmed)
                 return;
 
+            LastApplyFailed = false;
             IsApplying = true;
             _logService.Log(LogLevel.Info, $"Executing action for setting: {SettingId}");
 
-            await _settingApplicationService.ApplySettingAsync(new ApplySettingRequest
+            var result = await _settingApplicationService.ApplySettingAsync(new ApplySettingRequest
             {
                 SettingId = SettingId,
                 Enable = true,
                 CheckboxResult = checkboxChecked,
                 ApplyRecommended = checkboxChecked
             });
+            if (!result.Success)
+            {
+                LastApplyFailed = true;
+                var message = result.ErrorMessage ?? Name;
+                _logService.Log(LogLevel.Warning, $"Could not execute action '{SettingId}': {message}");
+                await _dialogService.ShowErrorAsync(message);
+                return;
+            }
 
             _logService.Log(LogLevel.Info, $"Successfully executed action for setting {SettingId}");
 
@@ -1614,6 +1633,7 @@ public partial class SettingItemViewModel : BaseViewModel
         }
         catch (Exception ex)
         {
+            LastApplyFailed = true;
             _logService.Log(LogLevel.Error, $"Error executing action for setting {SettingId}: {ex.Message}");
         }
         finally
@@ -1755,7 +1775,10 @@ public partial class SettingItemViewModel : BaseViewModel
     public void ComputeBadgeState()
     {
         if (!HasBadgeData || SettingDefinition == null)
+        {
+            if (BadgeRow.Count > 0) BadgeRow = Array.Empty<BadgePillState>();
             return;
+        }
 
         bool matchesRecommended = true;
         bool matchesDefault = true;
@@ -1879,27 +1902,23 @@ public partial class SettingItemViewModel : BaseViewModel
         // the user can see at a glance which mode matches recommended/default and which is
         // custom. On battery-less systems (desktops) DC is hidden and not writable, so we
         // keep the single-pill behaviour that the rest of the catalog uses.
-        bool perModeBadges = SupportsSeparateACDC
-            && HasBattery
-            && SettingDefinition.PowerCfgSettings is { Count: > 0 } pcfgList
-            && pcfgList[0].PowerModeSupport == PowerModeSupport.Separate;
-
-        if (perModeBadges)
+        if (GetBatteryBadgeSettings() is { } batterySettings)
         {
-            var pcfg = SettingDefinition.PowerCfgSettings![0];
-            AddAcDcRecommendedPills(row, pcfg);
-            AddAcDcDefaultPills(row, pcfg);
-            AddAcDcCustomPills(row, pcfg);
+            AddAcDcRecommendedPills(row, batterySettings);
+            AddAcDcDefaultPills(row, batterySettings);
+            AddAcDcCustomPills(row, batterySettings);
         }
         else
         {
-            if (HasAnyRecommendedData())
+            var hasRecommended = HasAnyRecommendedData();
+            var hasDefault = HasAnyDefaultData();
+            if (hasRecommended)
             {
                 var (label, tooltip) = ResolvePillStrings(SettingBadgeKind.Recommended);
                 row.Add(new BadgePillState(SettingBadgeKind.Recommended, IsHighlighted: matchesRecommended, label, tooltip));
             }
 
-            if (HasAnyDefaultData())
+            if (hasDefault)
             {
                 var (label, tooltip) = ResolvePillStrings(SettingBadgeKind.Default);
                 row.Add(new BadgePillState(SettingBadgeKind.Default, IsHighlighted: matchesDefault, label, tooltip));
@@ -1910,8 +1929,7 @@ public partial class SettingItemViewModel : BaseViewModel
             bool isCustom = InputType switch
             {
                 InputType.Selection => !IsKnownSelectionValue(),
-                InputType.NumericRange => (HasAnyRecommendedData() || HasAnyDefaultData())
-                    && !matchesRecommended && !matchesDefault,
+                InputType.NumericRange => (hasRecommended || hasDefault) && !matchesRecommended && !matchesDefault,
                 _ => false
             };
             var (cLabel, cTooltip) = ResolvePillStrings(SettingBadgeKind.Custom);
@@ -1920,6 +1938,12 @@ public partial class SettingItemViewModel : BaseViewModel
 
         BadgeRow = row;
     }
+
+    /// <summary>Returns the split AC/DC values used for badges on devices with a battery.</summary>
+    private PowerCfgSetting? GetBatteryBadgeSettings() =>
+        HasBattery && SettingDefinition?.PowerCfgSettings?.FirstOrDefault() is { PowerModeSupport: PowerModeSupport.Separate } setting
+            ? setting
+            : null;
 
     private void AddAcDcRecommendedPills(List<BadgePillState> row, PowerCfgSetting pcfg)
     {
@@ -2082,36 +2106,17 @@ public partial class SettingItemViewModel : BaseViewModel
         else if (InputType == InputType.NumericRange)
         {
             if (reg.RecommendedValue != null)
-                matchesRecommended = ValuesEqual(NumericValue, reg.RecommendedValue);
+                matchesRecommended = SettingValueComparison.AreEqual(NumericValue, reg.RecommendedValue);
             else
                 matchesRecommended = false;
 
             if (reg.DefaultValue != null)
-                matchesDefault = ValuesEqual(NumericValue, reg.DefaultValue);
+                matchesDefault = SettingValueComparison.AreEqual(NumericValue, reg.DefaultValue);
             else
                 matchesDefault = false;
         }
 
         return (matchesRecommended, matchesDefault);
-    }
-
-    private static bool ValuesEqual(object? a, object? b)
-    {
-        if (a == null && b == null) return true;
-        if (a == null || b == null) return false;
-        if (Equals(a, b)) return true;
-
-        // Handle numeric type mismatches (int vs long, etc.)
-        try
-        {
-            var aVal = Convert.ToInt64(a);
-            var bVal = Convert.ToInt64(b);
-            return aVal == bVal;
-        }
-        catch
-        {
-            return string.Equals(a.ToString(), b.ToString(), StringComparison.OrdinalIgnoreCase);
-        }
     }
 
     private bool PowerCfgIndexMatchesValue(int index, int targetPowerCfgValue)
@@ -2142,8 +2147,7 @@ public partial class SettingItemViewModel : BaseViewModel
             return true;
         if (SettingDefinition.ScheduledTaskSettings.Any(t => t.RecommendedState.HasValue))
             return true;
-        if (SettingDefinition.PowerCfgSettings?.Any(
-                p => p.RecommendedValueAC.HasValue || p.RecommendedValueDC.HasValue) == true)
+        if (SettingDefinition.PowerCfgSettings?.Any(p => p.RecommendedValueAC.HasValue) == true)
             return true;
         return false;
     }
@@ -2183,8 +2187,7 @@ public partial class SettingItemViewModel : BaseViewModel
             return true;
         if (SettingDefinition.ScheduledTaskSettings.Any(t => t.DefaultState.HasValue))
             return true;
-        if (SettingDefinition.PowerCfgSettings?.Any(
-                p => p.DefaultValueAC.HasValue || p.DefaultValueDC.HasValue) == true)
+        if (SettingDefinition.PowerCfgSettings?.Any(p => p.DefaultValueAC.HasValue) == true)
             return true;
         return false;
     }
@@ -2281,9 +2284,10 @@ public partial class SettingItemViewModel : BaseViewModel
         bool hasTaskData = SettingDefinition.ScheduledTaskSettings.Any(t =>
             t.RecommendedState.HasValue || t.DefaultState.HasValue);
 
-        // Check PowerCfgSettings for RecommendedValueAC or DefaultValueAC
+        var batterySettings = GetBatteryBadgeSettings();
         bool hasPowerCfgData = SettingDefinition.PowerCfgSettings?.Any(p =>
-            p.RecommendedValueAC.HasValue || p.DefaultValueAC.HasValue) == true;
+            p.RecommendedValueAC.HasValue || p.DefaultValueAC.HasValue) == true
+            || batterySettings is { RecommendedValueDC: not null } or { DefaultValueDC: not null };
 
         HasBadgeData = hasRegistryData || hasSelectionOptionData || hasTaskData || hasPowerCfgData;
     }

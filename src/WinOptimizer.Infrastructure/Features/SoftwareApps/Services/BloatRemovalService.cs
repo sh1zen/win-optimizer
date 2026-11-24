@@ -1,508 +1,223 @@
-using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Threading;
-using System.Threading.Tasks;
+using System.Text.Json;
 using WinOptimizer.Core.Features.Common.Constants;
 using WinOptimizer.Core.Features.Common.Exceptions;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Models;
-using WinOptimizer.Core.Features.SoftwareApps.Enums;
 using WinOptimizer.Core.Features.SoftwareApps.Interfaces;
 using WinOptimizer.Core.Features.SoftwareApps.Models;
 using WinOptimizer.Core.Features.SoftwareApps.Utilities;
 
 namespace WinOptimizer.Infrastructure.Features.SoftwareApps.Services;
 
-public class BloatRemovalService(
-    ILogService logService,
-    IScheduledTaskService scheduledTaskService,
-    IPowerShellRunner powerShellRunner,
-    IFileSystemService fileSystemService) : IBloatRemovalService
+/// <summary>Executes each selection independently of the persistent sign-in removal plan.</summary>
+public sealed class BloatRemovalService(ILogService log, IScheduledTaskService tasks, IPowerShellRunner runner,
+    IFileSystemService files) : IBloatRemovalService
 {
-    public async Task<RemovalOutcome> ExecuteDedicatedScriptAsync(
-        ItemDefinition app,
-        IProgress<TaskProgressDetail>? progress = null,
-        CancellationToken ct = default)
+    private const string TaskPath = @"\win-optimizer\" + ScriptPaths.PackageRemovalTaskName;
+    internal static SemaphoreSlim PersistentPlanGate { get; } = new(1, 1);
+
+    public async Task<IReadOnlyList<UninstallNativeOutcome>> ExecuteBloatRemovalAsync(IReadOnlyList<ItemDefinition> apps,
+        bool saveRemovalScript, IProgress<TaskProgressDetail>? progress = null, CancellationToken ct = default)
     {
+        var requests = apps.Select(app => (App: app, Targets: TargetsFor(app))).ToArray();
+        var targets = requests.SelectMany(request => request.Targets).DistinctBy(x => x.Key, StringComparer.OrdinalIgnoreCase).ToArray();
+        if (targets.Length == 0)
+            return requests.Select(request => new UninstallNativeOutcome(request.App.Id, false, false, "No Windows servicing identity is available.")).ToArray();
+
+        IReadOnlyDictionary<string, RemovalReceipt> receipts;
         try
         {
-            var scriptName = CreateScriptName(app.Id);
-            var scriptPath = fileSystemService.CombinePath(ScriptPaths.ScriptsDirectory, scriptName);
-            var scriptContent = app.RemovalScript!();
-
-            fileSystemService.CreateDirectory(ScriptPaths.ScriptsDirectory);
-            await fileSystemService.WriteAllTextAsync(scriptPath, scriptContent, ct).ConfigureAwait(false);
-
-            // Emit metadata header for the task output dialog
-            var startTime = DateTime.Now;
-            progress?.Report(new TaskProgressDetail
-            {
-                TerminalOutput = $"Command: powershell.exe -ExecutionPolicy Bypass -NoProfile -File \"{scriptPath}\""
-            });
-            progress?.Report(new TaskProgressDetail
-            {
-                TerminalOutput = $"Start Time: \"{startTime:yyyy/MM/dd HH:mm:ss}\""
-            });
-            progress?.Report(new TaskProgressDetail { TerminalOutput = "---" });
-
-            logService.LogInformation($"Executing dedicated removal script for '{app.Name}' from {scriptPath}...");
-            await powerShellRunner.RunScriptFileAsync(scriptPath, progress: progress, ct: ct).ConfigureAwait(false);
-            logService.LogInformation($"Dedicated removal script for '{app.Name}' completed successfully");
-
-            // Emit metadata footer
-            var endTime = DateTime.Now;
-            progress?.Report(new TaskProgressDetail { TerminalOutput = "---" });
-            progress?.Report(new TaskProgressDetail
-            {
-                TerminalOutput = $"End Time: \"{endTime:yyyy/MM/dd HH:mm:ss}\""
-            });
-            progress?.Report(new TaskProgressDetail
-            {
-                TerminalOutput = "Process return value: \"0\" (0x00000000)"
-            });
-
-            return RemovalOutcome.Success;
-        }
-        catch (OperationCanceledException)
-        {
-            logService.LogInformation($"Dedicated script execution for '{app.Name}' was cancelled");
-            return RemovalOutcome.Failed;
+            ct.ThrowIfCancellationRequested();
+            var eventName = ct.CanBeCanceled ? $@"Local\WinOptimizer.PackageRemoval.{Guid.NewGuid():N}" : null;
+            using var cancelSignal = eventName is null ? null : new EventWaitHandle(false, EventResetMode.ManualReset, eventName);
+            using var registration = cancelSignal is null ? default : ct.Register(() => cancelSignal.Set());
+            // Let servicing finish the active operation and return receipts before the process exits.
+            var output = await runner.RunScriptAsync(Generate(targets, reportResults: true, cancellationEventName: eventName),
+                progress, CancellationToken.None).ConfigureAwait(false);
+            receipts = ReadReceipts(output);
         }
         catch (ExecutionPolicyException ex)
         {
-            // Emit metadata footer indicating deferral
-            var endTime = DateTime.Now;
-            progress?.Report(new TaskProgressDetail { TerminalOutput = "---" });
-            progress?.Report(new TaskProgressDetail
+            ct.ThrowIfCancellationRequested();
+            log.LogWarning($"PowerShell blocked Windows package servicing: {ex.Message}");
+            var result = saveRemovalScript ? await SavePlanAsync(targets, ct).ConfigureAwait(false) : null;
+            return requests.Select(request =>
             {
-                TerminalOutput = $"End Time: \"{endTime:yyyy/MM/dd HH:mm:ss}\""
-            });
-            progress?.Report(new TaskProgressDetail
-            {
-                TerminalOutput = "Execution policy blocked script — removal deferred to scheduled task"
-            });
-
-            logService.LogWarning($"Execution policy blocked dedicated script for '{app.Name}', deferring to scheduled task: {ex.Message}");
-            return RemovalOutcome.DeferredToScheduledTask;
+                var scheduled = result?.Success == true && request.Targets.Length > 0;
+                return new UninstallNativeOutcome(request.App.Id, scheduled, scheduled, scheduled
+                    ? "Windows package removal is scheduled for the next sign-in."
+                    : result?.ErrorMessage ?? "PowerShell blocked package removal.");
+            }).ToArray();
         }
-        catch (InvalidOperationException ex)
+        catch (Exception ex) when (ex is IOException or InvalidOperationException or JsonException or UnauthorizedAccessException)
         {
-            // Emit metadata footer with non-zero exit code
-            var endTime = DateTime.Now;
-            progress?.Report(new TaskProgressDetail { TerminalOutput = "---" });
-            progress?.Report(new TaskProgressDetail
-            {
-                TerminalOutput = $"End Time: \"{endTime:yyyy/MM/dd HH:mm:ss}\""
-            });
-            progress?.Report(new TaskProgressDetail
-            {
-                TerminalOutput = $"Process return value: \"{ex.Message}\""
-            });
-
-            logService.LogWarning($"Dedicated script for '{app.Name}' completed with warnings: {ex.Message}");
-            return RemovalOutcome.Success;
-        }
-        catch (Exception ex)
-        {
-            logService.LogError($"Error executing dedicated script for '{app.Name}': {ex.Message}", ex);
-            return RemovalOutcome.Failed;
-        }
-    }
-
-    public async Task<RemovalOutcome> ExecuteBloatRemovalAsync(
-        List<ItemDefinition> apps,
-        IProgress<TaskProgressDetail>? progress = null,
-        CancellationToken ct = default)
-    {
-        try
-        {
-            var (packages, capabilities, optionalFeatures, specialApps) = CategorizeApps(apps);
-
-            bool hasItems = packages.Count != 0 || capabilities.Count != 0 || optionalFeatures.Count != 0 || specialApps.Count != 0;
-            if (!hasItems)
-            {
-                logService.LogInformation("No items to process in BloatRemoval");
-                return RemovalOutcome.Success;
-            }
-
-            fileSystemService.CreateDirectory(ScriptPaths.ScriptsDirectory);
-            var scriptPath = fileSystemService.CombinePath(ScriptPaths.ScriptsDirectory, "BloatRemoval.ps1");
-
-            string scriptContent;
-            if (fileSystemService.FileExists(scriptPath))
-            {
-                scriptContent = await MergeWithExistingScript(scriptPath, packages, capabilities, optionalFeatures, specialApps).ConfigureAwait(false);
-            }
-            else
-            {
-                scriptContent = GenerateScriptContent(packages, capabilities, optionalFeatures, specialApps);
-            }
-
-            await fileSystemService.WriteAllTextAsync(scriptPath, scriptContent, ct).ConfigureAwait(false);
-
-            // Emit metadata header for the task output dialog
-            var startTime = DateTime.Now;
-            progress?.Report(new TaskProgressDetail
-            {
-                TerminalOutput = $"Command: powershell.exe -ExecutionPolicy Bypass -NoProfile -File \"{scriptPath}\""
-            });
-            progress?.Report(new TaskProgressDetail
-            {
-                TerminalOutput = $"Start Time: \"{startTime:yyyy/MM/dd HH:mm:ss}\""
-            });
-            progress?.Report(new TaskProgressDetail { TerminalOutput = "---" });
-
-            logService.LogInformation($"Executing BloatRemoval script from {scriptPath} ({packages.Count} packages, {capabilities.Count} capabilities, {optionalFeatures.Count} features, {specialApps.Count} special)...");
-            await powerShellRunner.RunScriptFileAsync(scriptPath, progress: progress, ct: ct).ConfigureAwait(false);
-            logService.LogInformation("BloatRemoval script completed successfully");
-
-            // Emit metadata footer
-            var endTime = DateTime.Now;
-            progress?.Report(new TaskProgressDetail { TerminalOutput = "---" });
-            progress?.Report(new TaskProgressDetail
-            {
-                TerminalOutput = $"End Time: \"{endTime:yyyy/MM/dd HH:mm:ss}\""
-            });
-            progress?.Report(new TaskProgressDetail
-            {
-                TerminalOutput = "Process return value: \"0\" (0x00000000)"
-            });
-
-            return RemovalOutcome.Success;
-        }
-        catch (OperationCanceledException)
-        {
-            logService.LogInformation("BloatRemoval script execution was cancelled");
-            return RemovalOutcome.Failed;
-        }
-        catch (ExecutionPolicyException ex)
-        {
-            // Emit metadata footer indicating deferral
-            var endTime = DateTime.Now;
-            progress?.Report(new TaskProgressDetail { TerminalOutput = "---" });
-            progress?.Report(new TaskProgressDetail
-            {
-                TerminalOutput = $"End Time: \"{endTime:yyyy/MM/dd HH:mm:ss}\""
-            });
-            progress?.Report(new TaskProgressDetail
-            {
-                TerminalOutput = "Execution policy blocked script — removal deferred to scheduled task"
-            });
-
-            logService.LogWarning($"Execution policy blocked BloatRemoval script, deferring to scheduled task: {ex.Message}");
-            return RemovalOutcome.DeferredToScheduledTask;
-        }
-        catch (InvalidOperationException ex)
-        {
-            // Emit metadata footer with non-zero exit code
-            var endTime = DateTime.Now;
-            progress?.Report(new TaskProgressDetail { TerminalOutput = "---" });
-            progress?.Report(new TaskProgressDetail
-            {
-                TerminalOutput = $"End Time: \"{endTime:yyyy/MM/dd HH:mm:ss}\""
-            });
-            progress?.Report(new TaskProgressDetail
-            {
-                TerminalOutput = $"Process return value: \"{ex.Message}\""
-            });
-
-            logService.LogWarning($"BloatRemoval script completed with warnings: {ex.Message}");
-            return RemovalOutcome.Success;
-        }
-        catch (Exception ex)
-        {
-            logService.LogError($"Error executing BloatRemoval script: {ex.Message}", ex);
-            return RemovalOutcome.Failed;
-        }
-    }
-
-    public async Task PersistRemovalScriptsAsync(List<ItemDefinition> allApps)
-    {
-        // Scripts are already on disk from ExecuteDedicatedScriptAsync / ExecuteBloatRemovalAsync.
-        // Here we just register the scheduled tasks so they run on startup/login.
-
-        // Register dedicated script tasks (Edge, OneDrive)
-        var dedicatedApps = allApps.Where(a => a.RemovalScript != null).ToList();
-        foreach (var app in dedicatedApps)
-        {
-            var scriptName = CreateScriptName(app.Id);
-            var taskName = scriptName.Replace(".ps1", "");
-            var scriptPath = fileSystemService.CombinePath(ScriptPaths.ScriptsDirectory, scriptName);
-
-            if (!fileSystemService.FileExists(scriptPath))
-            {
-                logService.LogWarning($"Script not found for task registration: {scriptPath}");
-                continue;
-            }
-
-            var scriptContent = await fileSystemService.ReadAllTextAsync(scriptPath).ConfigureAwait(false);
-            var runOnStartup = scriptName.Equals("EdgeRemoval.ps1", StringComparison.OrdinalIgnoreCase);
-            var script = new RemovalScript
-            {
-                Name = taskName,
-                Content = scriptContent,
-                TargetScheduledTaskName = taskName,
-                RunOnStartup = runOnStartup,
-                ActualScriptPath = scriptPath
-            };
-            await scheduledTaskService.RegisterScheduledTaskAsync(script).ConfigureAwait(false);
-            logService.LogInformation($"Registered scheduled task for: {taskName}");
+            log.LogError("Windows package servicing could not confirm the result.", ex);
+            return requests.Select(request => new UninstallNativeOutcome(request.App.Id, false, false, ex.Message)).ToArray();
         }
 
-        // Register BloatRemoval task
-        var bloatScriptPath = fileSystemService.CombinePath(ScriptPaths.ScriptsDirectory, "BloatRemoval.ps1");
-        if (fileSystemService.FileExists(bloatScriptPath))
+        var cancelled = ct.IsCancellationRequested;
+        var outcomes = requests.Select(request => BuildOutcome(request.App.Id, request.Targets, receipts, cancelled)).ToArray();
+        if (saveRemovalScript)
         {
-            var bloatContent = await fileSystemService.ReadAllTextAsync(bloatScriptPath).ConfigureAwait(false);
-            var bloatScript = new RemovalScript
+            var completed = targets.Where(target => receipts.TryGetValue(target.Key, out var receipt) && receipt.Error is null).ToArray();
+            if (completed.Length > 0)
             {
-                Name = "BloatRemoval",
-                Content = bloatContent,
-                TargetScheduledTaskName = "BloatRemoval",
-                RunOnStartup = false,
-                ActualScriptPath = bloatScriptPath
-            };
-            await scheduledTaskService.RegisterScheduledTaskAsync(bloatScript).ConfigureAwait(false);
-            logService.LogInformation("Registered scheduled task for: BloatRemoval");
-        }
-    }
-
-    public async Task CleanupAllRemovalArtifactsAsync()
-    {
-        // Clean up EdgeRemoval
-        var edgePath = fileSystemService.CombinePath(ScriptPaths.ScriptsDirectory, "EdgeRemoval.ps1");
-        await CleanupExistingScheduledTaskAsync("EdgeRemoval", edgePath).ConfigureAwait(false);
-
-        // Clean up OneDriveRemoval
-        var oneDrivePath = fileSystemService.CombinePath(ScriptPaths.ScriptsDirectory, "OneDriveRemoval.ps1");
-        await CleanupExistingScheduledTaskAsync("OneDriveRemoval", oneDrivePath).ConfigureAwait(false);
-
-        // Clean up BloatRemoval
-        await CleanupBloatRemovalArtifactsAsync().ConfigureAwait(false);
-    }
-
-    public async Task<bool> RemoveItemsFromScriptAsync(List<ItemDefinition> itemsToRemove)
-    {
-        try
-        {
-            var scriptPath = fileSystemService.CombinePath(ScriptPaths.ScriptsDirectory, "BloatRemoval.ps1");
-
-            if (!fileSystemService.FileExists(scriptPath))
-            {
-                logService.LogInformation("BloatRemoval.ps1 does not exist, nothing to clean up.");
-                return true;
-            }
-
-            var existingContent = await fileSystemService.ReadAllTextAsync(scriptPath).ConfigureAwait(false);
-            var itemsToRemoveNames = GetItemNames(itemsToRemove);
-
-            var updatedContent = RemoveItemsFromScriptContent(existingContent, itemsToRemoveNames);
-
-            if (updatedContent != existingContent)
-            {
-                logService.LogInformation($"Removed {itemsToRemoveNames.Count} items from BloatRemoval.ps1");
-
-                if (IsScriptEmpty(updatedContent))
+                // Native servicing has finished. Publish the requested persistent plan as one unit.
+                var result = await SavePlanAsync(completed, CancellationToken.None).ConfigureAwait(false);
+                if (!result.Success)
                 {
-                    logService.LogInformation("BloatRemoval script has no remaining items, cleaning up artifacts");
-                    await CleanupBloatRemovalArtifactsAsync().ConfigureAwait(false);
-                }
-                else
-                {
-                    await fileSystemService.WriteAllTextAsync(scriptPath, updatedContent).ConfigureAwait(false);
-
-                    // Re-register the scheduled task with updated content
-                    var script = new RemovalScript
+                    for (var index = 0; index < outcomes.Length; index++)
                     {
-                        Name = "BloatRemoval",
-                        Content = updatedContent,
-                        TargetScheduledTaskName = "BloatRemoval",
-                        RunOnStartup = false,
-                        ActualScriptPath = scriptPath
-                    };
-                    await scheduledTaskService.RegisterScheduledTaskAsync(script).ConfigureAwait(false);
+                        var outcome = outcomes[index];
+                        if (outcome.Success)
+                            outcomes[index] = outcome with { Message = string.Join(" ", new[] { outcome.Message, result.ErrorMessage }.OfType<string>()) };
+                    }
                 }
-
-                return true;
             }
-
-            return true;
         }
-        catch (Exception ex)
-        {
-            logService.LogError($"Error removing items from script: {ex.Message}", ex);
-            return false;
-        }
+        return outcomes;
     }
 
-    private async Task CleanupBloatRemovalArtifactsAsync()
+    private static UninstallNativeOutcome BuildOutcome(string id, RemovalTarget[] targets,
+        IReadOnlyDictionary<string, RemovalReceipt> receipts, bool cancelled)
     {
-        var scriptPath = fileSystemService.CombinePath(ScriptPaths.ScriptsDirectory, "BloatRemoval.ps1");
-        await CleanupExistingScheduledTaskAsync("BloatRemoval", scriptPath).ConfigureAwait(false);
+        if (targets.Length == 0) return new(id, false, false, "No Windows servicing identity is available.");
+        var skipped = cancelled && targets.Any(target => !receipts.ContainsKey(target.Key));
+        var removed = targets.Select(target => receipts.GetValueOrDefault(target.Key) ??
+            new RemovalReceipt(target.Key, skipped ? $"Removal of {target.Name} was cancelled."
+                : $"Windows did not confirm the removal of {target.Name}.", false)).ToArray();
+        var failures = removed.Where(receipt => receipt.Error is not null).Select(receipt => receipt.Error).ToArray();
+        if (failures.Length > 0)
+            return new(id, false, false, string.Join(" ", failures)) { Cancelled = skipped };
+        var restart = removed.Any(receipt => receipt.RestartRequired);
+        return new(id, true, restart, restart ? "Restart Windows to finish removal." : null);
     }
 
-    // --- Private helpers ---
-
-    private static (List<string> packages, List<string> capabilities, List<string> optionalFeatures, List<string> specialApps)
-        CategorizeApps(List<ItemDefinition> apps)
+    private static Dictionary<string, RemovalReceipt> ReadReceipts(string output)
     {
-        var packages = new List<string>();
-        var capabilities = new List<string>();
-        var optionalFeatures = new List<string>();
-        var specialApps = new List<string>();
-
-        foreach (var app in apps.Where(a => a.RemovalScript == null))
+        using var lines = new StringReader(output);
+        string? report = null;
+        while (lines.ReadLine() is { } line)
         {
-            var name = GetAppName(app);
-            if (string.IsNullOrEmpty(name)) continue;
+            if (!line.StartsWith(BloatRemovalScriptGenerator.ResultPrefix, StringComparison.Ordinal)) continue;
+            if (report is not null) throw new IOException("Windows returned multiple removal reports.");
+            report = line[BloatRemovalScriptGenerator.ResultPrefix.Length..];
+        }
+        if (report is null) throw new IOException("Windows did not return a package removal report.");
+        var values = JsonSerializer.Deserialize<RemovalReceipt[]>(report) ?? throw new IOException("The removal report is empty.");
+        var receipts = new Dictionary<string, RemovalReceipt>(StringComparer.OrdinalIgnoreCase);
+        foreach (var value in values)
+            if (value is null || string.IsNullOrWhiteSpace(value.Key) || !receipts.TryAdd(value.Key, value))
+                throw new IOException("The removal report contains an invalid or duplicate identity.");
+        return receipts;
+    }
 
-            if (!string.IsNullOrEmpty(app.CapabilityName))
-                capabilities.Add(name);
-            else if (!string.IsNullOrEmpty(app.OptionalFeatureName))
-                optionalFeatures.Add(name);
-            else if (app.AppxPackageName?.Length > 0)
+    private async Task<OperationResult> SavePlanAsync(RemovalTarget[] selected, CancellationToken ct)
+    {
+        await PersistentPlanGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            var existing = await ReadPlanAsync(ct).ConfigureAwait(false);
+            var merged = existing.Targets.Concat(selected).DistinctBy(target => target.Key, StringComparer.OrdinalIgnoreCase).ToArray();
+            var registered = await tasks.IsTaskRegisteredAsync(ScriptPaths.PackageRemovalTaskName).ConfigureAwait(false);
+            if (registered && await tasks.IsTaskEnabledAsync(TaskPath).ConfigureAwait(false) is not true)
+                return PlanFailure("The existing sign-in removal task is disabled or its state could not be verified.");
+            var content = Generate(merged);
+            files.CreateDirectory(ScriptPaths.ScriptsDirectory);
+            await PublishPlanAsync(files, ScriptPaths.PackageRemovalScript, content, existing.Content is not null, ct).ConfigureAwait(false);
+            if (registered) return OperationResult.Succeeded();
+            var created = false;
+            var enabled = false;
+            try
             {
-                packages.AddRange(app.AppxPackageName);
-                if (IsOneNote(app))
-                    specialApps.Add("OneNote");
+                var result = await tasks.RegisterScheduledTaskAsync(new RemovalScript
+                {
+                    Name = ScriptPaths.PackageRemovalTaskName, TargetScheduledTaskName = ScriptPaths.PackageRemovalTaskName, Content = content,
+                    ActualScriptPath = ScriptPaths.PackageRemovalScript, RunOnStartup = false
+                }).ConfigureAwait(false);
+                created = result.Success;
+                if (!created) return PlanFailure(result.ErrorMessage);
+                enabled = await tasks.IsTaskEnabledAsync(TaskPath).ConfigureAwait(false) is true;
+                return enabled ? result : PlanFailure("Windows did not confirm that the sign-in removal task is enabled.");
+            }
+            finally
+            {
+                if (!enabled) await RestorePreviousPlanAsync(existing.Content, created).ConfigureAwait(false);
             }
         }
-
-        return (packages, capabilities, optionalFeatures, specialApps);
+        catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException
+            or System.Runtime.InteropServices.COMException)
+        {
+            return PlanFailure(ex.Message);
+        }
+        finally { PersistentPlanGate.Release(); }
     }
 
-    private async Task CleanupExistingScheduledTaskAsync(string taskName, string scriptPath)
+    private async Task RestorePreviousPlanAsync(string? previous, bool created)
     {
         try
         {
-            if (await scheduledTaskService.IsTaskRegisteredAsync(taskName).ConfigureAwait(false))
+            if (created)
             {
-                await scheduledTaskService.UnregisterScheduledTaskAsync(taskName).ConfigureAwait(false);
-                logService.LogInformation($"Unregistered existing scheduled task: {taskName}");
-            }
-
-            if (fileSystemService.FileExists(scriptPath))
-            {
-                fileSystemService.DeleteFile(scriptPath);
-                logService.LogInformation($"Deleted existing script: {scriptPath}");
+                var result = await tasks.UnregisterScheduledTaskAsync(ScriptPaths.PackageRemovalTaskName).ConfigureAwait(false);
+                if (!result.Success) log.LogWarning($"Could not retire the unverified removal task: {result.ErrorMessage}");
             }
         }
-        catch (Exception ex)
+        finally
         {
-            logService.LogError($"Error cleaning up existing script/task '{taskName}': {ex.Message}");
+            if (previous is null) files.DeleteFile(ScriptPaths.PackageRemovalScript);
+            else await PublishPlanAsync(files, ScriptPaths.PackageRemovalScript, previous, replace: true, CancellationToken.None).ConfigureAwait(false);
         }
     }
 
-    private async Task<string> MergeWithExistingScript(string scriptPath, List<string> packages, List<string> capabilities, List<string> optionalFeatures, List<string> specialApps)
+    private OperationResult PlanFailure(string? error)
     {
-        var existingContent = await fileSystemService.ReadAllTextAsync(scriptPath).ConfigureAwait(false);
-
-        var existingPackages = ExtractArrayFromScript(existingContent, "packages");
-        var existingCapabilities = ExtractArrayFromScript(existingContent, "capabilities");
-        var existingFeatures = ExtractArrayFromScript(existingContent, "optionalFeatures");
-        var existingSpecialApps = ExtractArrayFromScript(existingContent, "specialApps");
-
-        var mergedPackages = existingPackages.Union(packages).Distinct().ToList();
-        var mergedCapabilities = existingCapabilities.Union(capabilities).Distinct().ToList();
-        var mergedFeatures = existingFeatures.Union(optionalFeatures).Distinct().ToList();
-        var mergedSpecialApps = existingSpecialApps.Union(specialApps).Distinct().ToList();
-
-        return GenerateScriptContent(mergedPackages, mergedCapabilities, mergedFeatures, mergedSpecialApps);
+        var message = $"Could not save Windows package removal for future sign-ins. {error}".TrimEnd();
+        log.LogWarning(message);
+        return OperationResult.Failed(message);
     }
 
-    private string CreateScriptName(string appId)
+    private async Task<(string? Content, RemovalTarget[] Targets)> ReadPlanAsync(CancellationToken ct)
     {
-        return appId switch
-        {
-            "windows-app-edge" => "EdgeRemoval.ps1",
-            "windows-app-onedrive" => "OneDriveRemoval.ps1",
-            _ => throw new NotSupportedException($"No dedicated script defined for {appId}")
-        };
+        if (!files.FileExists(ScriptPaths.PackageRemovalScript)) return (null, []);
+        var content = await files.ReadAllTextAsync(ScriptPaths.PackageRemovalScript, ct).ConfigureAwait(false);
+        var targets = BloatRemovalScriptGenerator.ExtractArrayFromScript(content, "packages").Select(name => new RemovalTarget("package", name))
+            .Concat(BloatRemovalScriptGenerator.ExtractArrayFromScript(content, "capabilities").Select(name => new RemovalTarget("capability", name)))
+            .Concat(BloatRemovalScriptGenerator.ExtractArrayFromScript(content, "optionalFeatures").Select(name => new RemovalTarget("feature", name)))
+            .ToArray();
+        return (content, targets);
     }
 
-    private List<string> GetItemNames(List<ItemDefinition> items)
+    internal static async Task PublishPlanAsync(IFileSystemService files, string path, string content, bool replace, CancellationToken ct)
     {
-        var names = new List<string>();
-        foreach (var item in items)
+        var pending = path + "." + Guid.NewGuid().ToString("N") + ".tmp";
+        try
         {
-            if (!string.IsNullOrEmpty(item.CapabilityName))
-                names.Add(item.CapabilityName);
-            else if (!string.IsNullOrEmpty(item.OptionalFeatureName))
-                names.Add(item.OptionalFeatureName);
-            else if (item.AppxPackageName?.Length > 0)
-                names.AddRange(item.AppxPackageName);
+            await files.WriteAllTextAsync(pending, content, ct).ConfigureAwait(false);
+            if (replace) files.ReplaceFile(pending, path);
+            else files.MoveFile(pending, path);
         }
-        return names;
+        finally { files.DeleteFile(pending); }
     }
 
-    private bool IsScriptEmpty(string content)
+    private static RemovalTarget[] TargetsFor(ItemDefinition app)
     {
-        return ExtractArrayFromScript(content, "packages").Count == 0
-            && ExtractArrayFromScript(content, "capabilities").Count == 0
-            && ExtractArrayFromScript(content, "optionalFeatures").Count == 0
-            && ExtractArrayFromScript(content, "specialApps").Count == 0;
+        if (!string.IsNullOrWhiteSpace(app.CapabilityName)) return [new("capability", app.CapabilityName)];
+        if (!string.IsNullOrWhiteSpace(app.OptionalFeatureName)) return [new("feature", app.OptionalFeatureName)];
+        return app.AppxPackageName?.Where(name => !string.IsNullOrWhiteSpace(name)).Select(name => new RemovalTarget("package", name)).ToArray() ?? [];
     }
 
-    private string RemoveItemsFromScriptContent(string content, List<string> itemsToRemove)
+    private static string Generate(IEnumerable<RemovalTarget> targets, bool reportResults = false, string? cancellationEventName = null)
     {
-        var existingPackages = ExtractArrayFromScript(content, "packages");
-        var existingCapabilities = ExtractArrayFromScript(content, "capabilities");
-        var existingFeatures = ExtractArrayFromScript(content, "optionalFeatures");
-        var existingSpecialApps = ExtractArrayFromScript(content, "specialApps");
-
-        var cleanedPackages = existingPackages.Except(itemsToRemove, StringComparer.OrdinalIgnoreCase).ToList();
-        var cleanedCapabilities = existingCapabilities.Except(itemsToRemove, StringComparer.OrdinalIgnoreCase).ToList();
-        var cleanedFeatures = existingFeatures.Except(itemsToRemove, StringComparer.OrdinalIgnoreCase).ToList();
-        var cleanedSpecialApps = existingSpecialApps.Where(specialApp =>
-        {
-            if (itemsToRemove.Any(item => specialApp.Equals(item, StringComparison.OrdinalIgnoreCase)))
-                return false;
-
-            return !itemsToRemove.Any(item => IsOneNotePackage(item, specialApp));
-        }).ToList();
-
-        return GenerateScriptContent(cleanedPackages, cleanedCapabilities, cleanedFeatures, cleanedSpecialApps);
+        var byKind = targets.ToLookup(target => target.Kind, target => target.Name);
+        return BloatRemovalScriptGenerator.GenerateScript(byKind["package"].ToList(), byKind["capability"].ToList(),
+            byKind["feature"].ToList(), reportResults, cancellationEventName);
     }
 
-    private static List<string> ExtractArrayFromScript(string content, string arrayName)
-        => BloatRemovalScriptGenerator.ExtractArrayFromScript(content, arrayName);
-
-    private static string? GetAppName(ItemDefinition app)
+    private sealed record RemovalTarget(string Kind, string Name)
     {
-        if (!string.IsNullOrEmpty(app.CapabilityName))
-            return app.CapabilityName;
-
-        if (!string.IsNullOrEmpty(app.OptionalFeatureName))
-            return app.OptionalFeatureName;
-
-        return app.AppxPackageName?.FirstOrDefault();
+        public string Key => $"{Kind}:{Name}";
     }
 
-    private string GenerateScriptContent(List<string> packages, List<string> capabilities, List<string> features, List<string>? specialApps = null)
-    {
-        var xboxPackages = new[] { "Microsoft.GamingApp", "Microsoft.XboxGamingOverlay", "Microsoft.XboxGameOverlay" };
-        var includeXboxFix = packages.Any(p => xboxPackages.Contains(p, StringComparer.OrdinalIgnoreCase));
-        var includeTeamsKill = packages.Any(p => p.Equals("MSTeams", StringComparison.OrdinalIgnoreCase));
-
-        return BloatRemovalScriptGenerator.GenerateScript(
-            packages,
-            capabilities,
-            features,
-            specialApps ?? new List<string>(),
-            includeXboxFix,
-            includeTeamsKill);
-    }
-
-    private static bool IsOneNote(ItemDefinition app)
-    {
-        return app.AppxPackageName?.Any(name => name.Contains("OneNote", StringComparison.OrdinalIgnoreCase)) == true;
-    }
-
-    private static bool IsOneNotePackage(string packageName, string specialAppType)
-    {
-        return specialAppType.Equals("OneNote", StringComparison.OrdinalIgnoreCase) &&
-               packageName.Contains("OneNote", StringComparison.OrdinalIgnoreCase);
-    }
+    private sealed record RemovalReceipt(string Key, string? Error, bool RestartRequired);
 }

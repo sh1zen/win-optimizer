@@ -124,254 +124,110 @@ public class UpdateService(
         ApplyRegistrySettingsForIndex(setting, 3);
     }
 
-    private async Task<(bool Success, string Output, string Error)> RunCommandAsync(string command)
+    private async Task RunCommandAsync(string command, int? acceptedStateCode = null)
     {
-        try
-        {
-            var result = await processExecutor.ExecuteAsync(
-                "cmd.exe",
-                $"/c chcp 65001 && {command}").ConfigureAwait(false);
-
-            return (result.Succeeded, result.StandardOutput, result.StandardError);
-        }
-        catch (Exception ex)
-        {
-            return (false, string.Empty, ex.Message);
-        }
+        var result = await processExecutor.ExecuteAsync("cmd.exe", $"/c chcp 65001 && {command}").ConfigureAwait(false);
+        if (!result.Succeeded && result.ExitCode != acceptedStateCode)
+            throw new IOException($"Windows Update command failed ({result.ExitCode}): {command}. {result.StandardError} {result.StandardOutput}".Trim());
     }
 
     private async Task DisableUpdateServicesAsync()
     {
-        var services = new[] { "wuauserv", "UsoSvc", "WaaSMedicSvc" };
-
-        foreach (var service in services)
+        foreach (var service in new[] { "wuauserv", "UsoSvc", "WaaSMedicSvc" })
         {
-            try
-            {
-                await RunCommandAsync($"net stop {service}").ConfigureAwait(false);
-                await RunCommandAsync($"sc config {service} start= disabled").ConfigureAwait(false);
-                await RunCommandAsync($"sc failure {service} reset= 0 actions= \"\"").ConfigureAwait(false);
-                logService.Log(LogLevel.Info, $"Disabled service: {service}");
-            }
-            catch (Exception ex)
-            {
-                logService.Log(LogLevel.Warning, $"Failed to disable {service}: {ex.Message}");
-            }
+            const int serviceNotActive = 1062;
+            await RunCommandAsync($"sc stop {service}", serviceNotActive).ConfigureAwait(false);
+            await RunCommandAsync($"sc config {service} start= disabled").ConfigureAwait(false);
+            await RunCommandAsync($"sc failure {service} reset= 0 actions= \"\"").ConfigureAwait(false);
         }
     }
 
     private async Task EnableUpdateServicesAsync()
     {
-        var services = new[]
+        foreach (var (service, startType) in new[] { ("wuauserv", "auto"), ("UsoSvc", "auto"), ("WaaSMedicSvc", "demand") })
         {
-            ("wuauserv", "auto"),
-            ("UsoSvc", "auto"),
-            ("WaaSMedicSvc", "demand")
-        };
-
-        foreach (var (service, startType) in services)
-        {
-            try
-            {
-                await RunCommandAsync($"sc config {service} start= {startType}").ConfigureAwait(false);
-                await RunCommandAsync($"net start {service}").ConfigureAwait(false);
-                logService.Log(LogLevel.Info, $"Enabled service: {service}");
-            }
-            catch (Exception ex)
-            {
-                logService.Log(LogLevel.Warning, $"Failed to enable {service}: {ex.Message}");
-            }
+            const int serviceAlreadyRunning = 1056;
+            await RunCommandAsync($"sc config {service} start= {startType}").ConfigureAwait(false);
+            await RunCommandAsync($"sc start {service}", serviceAlreadyRunning).ConfigureAwait(false);
         }
     }
 
     private async Task SetUpdateServicesManualAsync()
     {
-        var services = new[] { "wuauserv", "UsoSvc", "WaaSMedicSvc" };
-
-        foreach (var service in services)
-        {
-            try
-            {
-                await RunCommandAsync($"sc config {service} start= demand").ConfigureAwait(false);
-                logService.Log(LogLevel.Info, $"Set {service} to manual");
-            }
-            catch (Exception ex)
-            {
-                logService.Log(LogLevel.Warning, $"Failed to set {service} to manual: {ex.Message}");
-            }
-        }
+        foreach (var service in new[] { "wuauserv", "UsoSvc", "WaaSMedicSvc" })
+            await RunCommandAsync($"sc config {service} start= demand").ConfigureAwait(false);
     }
 
-    private async Task DisableUpdateTasksAsync()
+    private Task DisableUpdateTasksAsync() => SetUpdateTasksAsync(enable: false,
+        [@"\Microsoft\Windows\InstallService\", @"\Microsoft\Windows\UpdateOrchestrator\",
+         @"\Microsoft\Windows\UpdateAssistant\", @"\Microsoft\Windows\WaaSMedic\", @"\Microsoft\Windows\WindowsUpdate\"]);
+
+    private Task EnableUpdateTasksAsync() => SetUpdateTasksAsync(enable: true,
+        [@"\Microsoft\Windows\UpdateOrchestrator\", @"\Microsoft\Windows\WindowsUpdate\"]);
+
+    private Task SetUpdateTasksAsync(bool enable, string[] folders)
     {
-        var folderPaths = new[]
-        {
-            @"\Microsoft\Windows\InstallService\",
-            @"\Microsoft\Windows\UpdateOrchestrator\",
-            @"\Microsoft\Windows\UpdateAssistant\",
-            @"\Microsoft\Windows\WaaSMedic\",
-            @"\Microsoft\Windows\WindowsUpdate\",
-        };
-
-        foreach (var folderPath in folderPaths)
-        {
-            try
-            {
-                var script = $"Get-ScheduledTask -TaskPath '{folderPath}' -ErrorAction SilentlyContinue | Disable-ScheduledTask -ErrorAction SilentlyContinue";
-                await powerShellRunner.RunScriptAsync(script).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                logService.Log(LogLevel.Warning, $"Failed to process tasks in {folderPath}: {ex.Message}");
-            }
-        }
-    }
-
-    private async Task EnableUpdateTasksAsync()
-    {
-        var folderPaths = new[]
-        {
-            @"\Microsoft\Windows\UpdateOrchestrator\",
-            @"\Microsoft\Windows\WindowsUpdate\",
-        };
-
-        foreach (var folderPath in folderPaths)
-        {
-            try
-            {
-                var script = $"Get-ScheduledTask -TaskPath '{folderPath}' -ErrorAction SilentlyContinue | Enable-ScheduledTask -ErrorAction SilentlyContinue";
-                await powerShellRunner.RunScriptAsync(script).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                logService.Log(LogLevel.Warning, $"Failed to process tasks in {folderPath}: {ex.Message}");
-            }
-        }
+        var taskPaths = string.Join(", ", folders.Select(folder => $"'{folder}'"));
+        var command = enable ? "Enable-ScheduledTask" : "Disable-ScheduledTask";
+        return powerShellRunner.RunScriptAsync(
+            $"$ErrorActionPreference = 'Stop'; $folders = @({taskPaths}); Get-ScheduledTask | Where-Object {{ $_.TaskPath -in $folders }} | {command}");
     }
 
     private async Task RenameCriticalDllsAsync()
     {
-        var dlls = new[] { "WaaSMedicSvc.dll", "wuaueng.dll" };
-
-        foreach (var dll in dlls)
+        foreach (var dll in new[] { "WaaSMedicSvc.dll", "wuaueng.dll" })
         {
-            try
+            var dllPath = $@"C:\Windows\System32\{dll}";
+            var backupPath = $@"C:\Windows\System32\{fileSystemService.GetFileNameWithoutExtension(dll)}_BAK.dll";
+            if (!fileSystemService.FileExists(dllPath)) continue;
+            if (fileSystemService.FileExists(backupPath))
             {
-                var dllPath = $@"C:\Windows\System32\{dll}";
-                var backupPath = $@"C:\Windows\System32\{fileSystemService.GetFileNameWithoutExtension(dll)}_BAK.dll";
-
-                if (fileSystemService.FileExists(backupPath))
-                {
-                    if (fileSystemService.FileExists(dllPath))
-                    {
-                        logService.Log(LogLevel.Info, $"Conflict detected for {dll}. Deleting stale backup.");
-                        await RunCommandAsync($"takeown /f \"{backupPath}\"").ConfigureAwait(false);
-                        await RunCommandAsync($"icacls \"{backupPath}\" /grant *S-1-1-0:F").ConfigureAwait(false);
-                        fileSystemService.DeleteFile(backupPath);
-                    }
-                    else
-                    {
-                        continue;
-                    }
-                }
-
-                if (!fileSystemService.FileExists(dllPath) || fileSystemService.FileExists(backupPath))
-                    continue;
-
-                await RunCommandAsync($"takeown /f \"{dllPath}\"").ConfigureAwait(false);
-                await RunCommandAsync($"icacls \"{dllPath}\" /grant *S-1-1-0:F").ConfigureAwait(false);
-
-                fileSystemService.MoveFile(dllPath, backupPath);
-                logService.Log(LogLevel.Info, $"Renamed {dll} to backup");
+                await TakeOwnershipAsync(backupPath).ConfigureAwait(false);
+                fileSystemService.DeleteFile(backupPath);
             }
-            catch (Exception ex)
-            {
-                logService.Log(LogLevel.Warning, $"Failed to rename {dll}: {ex.Message}");
-            }
+            await TakeOwnershipAsync(dllPath).ConfigureAwait(false);
+            fileSystemService.MoveFile(dllPath, backupPath);
         }
     }
 
     private async Task RestoreCriticalDllsAsync()
     {
-        var dlls = new[] { "WaaSMedicSvc.dll", "wuaueng.dll" };
-
-        foreach (var dll in dlls)
+        foreach (var dll in new[] { "WaaSMedicSvc.dll", "wuaueng.dll" })
         {
-            try
-            {
-                var dllPath = $@"C:\Windows\System32\{dll}";
-                var backupPath = $@"C:\Windows\System32\{fileSystemService.GetFileNameWithoutExtension(dll)}_BAK.dll";
-
-                if (fileSystemService.FileExists(backupPath))
-                {
-                    if (fileSystemService.FileExists(dllPath))
-                    {
-                        logService.Log(LogLevel.Info, $"System already restored {dll}. Removing backup.");
-                        await RunCommandAsync($"takeown /f \"{backupPath}\"").ConfigureAwait(false);
-                        await RunCommandAsync($"icacls \"{backupPath}\" /grant *S-1-1-0:F").ConfigureAwait(false);
-                        fileSystemService.DeleteFile(backupPath);
-                    }
-                    else
-                    {
-                        await RunCommandAsync($"takeown /f \"{backupPath}\"").ConfigureAwait(false);
-                        await RunCommandAsync($"icacls \"{backupPath}\" /grant *S-1-1-0:F").ConfigureAwait(false);
-
-                        fileSystemService.MoveFile(backupPath, dllPath);
-                        logService.Log(LogLevel.Info, $"Restored {dll} from backup");
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                logService.Log(LogLevel.Warning, $"Failed to restore {dll}: {ex.Message}");
-            }
+            var dllPath = $@"C:\Windows\System32\{dll}";
+            var backupPath = $@"C:\Windows\System32\{fileSystemService.GetFileNameWithoutExtension(dll)}_BAK.dll";
+            if (!fileSystemService.FileExists(backupPath)) continue;
+            await TakeOwnershipAsync(backupPath).ConfigureAwait(false);
+            if (fileSystemService.FileExists(dllPath)) fileSystemService.DeleteFile(backupPath);
+            else fileSystemService.MoveFile(backupPath, dllPath);
         }
     }
 
-    private async Task CleanupUpdateFilesAsync()
+    private async Task TakeOwnershipAsync(string path)
     {
-        try
-        {
-            var script = "Remove-Item 'C:\\Windows\\SoftwareDistribution\\*' -Recurse -Force -ErrorAction SilentlyContinue";
-            await powerShellRunner.RunScriptAsync(script).ConfigureAwait(false);
-            logService.Log(LogLevel.Info, "Cleaned SoftwareDistribution folder");
-        }
-        catch (Exception ex)
-        {
-            logService.Log(LogLevel.Warning, $"Failed to cleanup update files: {ex.Message}");
-        }
+        await RunCommandAsync($"takeown /f \"{path}\"").ConfigureAwait(false);
+        await RunCommandAsync($"icacls \"{path}\" /grant *S-1-1-0:F").ConfigureAwait(false);
     }
+
+    private Task CleanupUpdateFilesAsync() => powerShellRunner.RunScriptAsync("""
+        $ErrorActionPreference = 'Stop'
+        $folder = 'C:\Windows\SoftwareDistribution'
+        if (Test-Path -LiteralPath $folder) {
+            Get-ChildItem -LiteralPath $folder -Force | Remove-Item -Recurse -Force
+        }
+        """);
 
     private void ApplyRegistrySettingsForIndex(SettingDefinition setting, int index)
     {
         var options = setting.ComboBox?.Options;
-        if (options == null || index < 0 || index >= options.Count)
-            return;
-
-        var valueMapping = options[index].ValueMappings;
-        if (valueMapping == null)
+        if (options == null || index < 0 || index >= options.Count || options[index].ValueMappings is not { } valueMapping)
             return;
 
         foreach (var registrySetting in setting.RegistrySettings)
         {
-            try
-            {
-                if (valueMapping.TryGetValue(registrySetting.ValueName!, out var value))
-                {
-                    if (value == null)
-                    {
-                        registryService.ApplySetting(registrySetting, false);
-                    }
-                    else
-                    {
-                        registryService.ApplySetting(registrySetting, true, value);
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                logService.Log(LogLevel.Warning, $"Failed to apply registry setting {registrySetting.ValueName}: {ex.Message}");
-            }
+            if (registrySetting.ValueName is { } name && valueMapping.TryGetValue(name, out var value) &&
+                !registryService.ApplySetting(registrySetting, value != null, value))
+                throw new IOException($"Windows could not apply Windows Update policy '{name}'.");
         }
     }
 

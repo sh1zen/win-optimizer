@@ -12,7 +12,7 @@ function New-TestCollection([object[]]$values) {
 }
 function New-TestUpdate([string]$id, [object[]]$children = @(), [bool]$license = $true) {
     $offer = [pscustomobject]@{
-        Identity = [pscustomobject]@{ UpdateID = $id }
+        Identity = [pscustomobject]@{ UpdateID = $id; RevisionNumber = 7 }
         Title = 'Official test driver'; DriverProvider = 'Test'; DriverClass = 'Net'
         DriverHardwareID = 'PCI\TEST'; DriverVerDate = [datetime]'2026-01-01'; MaxDownloadSize = 4096
         EulaAccepted = $license; IsDownloaded = $true; BundledUpdates = (New-TestCollection $children)
@@ -105,6 +105,24 @@ foreach ($offer in $script:testOffers) { $offer.IsDownloaded = $false }
 $result = (. $ScriptPath) | ConvertFrom-Json
 Assert-True (($script:testDownloadJobs -join ',') -eq '2,1,1') 'A rejected job must isolate each eligible offer.'
 Assert-True ($result.Updates[0].PayloadError -eq '' -and $result.Updates[1].PayloadError -like '*80240022*') 'Isolated jobs must report individual results.'
+
+$workspace = Join-Path $workspace 'selected-revision'
+$script:testOffers = @((New-TestUpdate $testChildId), (New-TestUpdate $testId))
+$requestedUpdate = $testId
+$requestedRevision = 6
+$result = (. $ScriptPath) | ConvertFrom-Json
+Assert-True ($result.Updates.Count -eq 0) 'A different revision must not be downloaded.'
+$requestedRevision = 7
+$result = (. $ScriptPath) | ConvertFrom-Json
+Assert-True ($result.Updates.Count -eq 1 -and $result.Updates[0].Revision -eq 7 -and $result.Updates[0].Id -eq $testId) 'Manual acquisition must use the exact selected revision.'
+Assert-True (Test-Path -LiteralPath (Join-Path $workspace "$testId\driver.inf")) 'The selected revision was not exported.'
+$requestedUpdate = $null
+$verificationLimit = 0
+$workspace = Join-Path $workspace 'metadata-only'
+$result = (. $ScriptPath) | ConvertFrom-Json
+Assert-True ($result.Updates.Count -eq 2 -and $result.Updates[0].VerificationSkipped -and $result.Updates[1].VerificationSkipped) 'Metadata-only discovery must retain offers.'
+Assert-True (-not (Test-Path -LiteralPath $workspace)) 'Metadata-only discovery must skip all exports.'
+$verificationLimit = $null
 
 $script:testOffers = @()
 $result = (. $ScriptPath) | ConvertFrom-Json

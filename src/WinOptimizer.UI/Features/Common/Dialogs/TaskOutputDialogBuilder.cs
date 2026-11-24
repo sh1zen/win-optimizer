@@ -5,6 +5,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Documents;
 using Microsoft.UI.Xaml.Media;
+using WinOptimizer.Core.Features.Common.Helpers;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.UI.Features.Common.Utilities;
@@ -61,7 +62,7 @@ internal class TaskOutputDialogBuilder
             foreach (var run in runs)
                 _paragraph.Inlines.Add(run);
             _lastLineRunCount = runs.Length;
-            _lastLineWasProgress = TerminalLineRenderer.LooksLikeProgressBar(line);
+            _lastLineWasProgress = TerminalProgressBar.IsProgressLine(line);
         }
 
         var richTextBlock = new RichTextBlock
@@ -169,7 +170,7 @@ internal class TaskOutputDialogBuilder
                     _allLines.RemoveAt(_allLines.Count - 1);
                 }
                 else if (isProgress && _allLines.Count > 0
-                    && TerminalLineRenderer.LooksLikeProgressBar(_allLines[_allLines.Count - 1]))
+                    && TerminalProgressBar.IsProgressLine(_allLines[_allLines.Count - 1]))
                 {
                     // First progress bar sometimes arrives as a permanent line
                     // (winget's initial render uses \n before switching to \r).

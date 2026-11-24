@@ -14,7 +14,9 @@ namespace WinOptimizer.UI.Features.Settings;
 /// </summary>
 public sealed partial class SettingsPage : Page, ISectionNavigationPage
 {
-    public bool IsInDetailPage => ViewModel.HasSelection;
+    private SettingsCategoryItem DefaultCategory => ViewModel.Categories[0];
+
+    public bool IsInDetailPage => ViewModel.SelectedCategory != DefaultCategory || ViewModel.Query.Length != 0;
     /// <summary>
     /// Gets the ViewModel for this page.
     /// </summary>
@@ -43,14 +45,18 @@ public sealed partial class SettingsPage : Page, ISectionNavigationPage
         CompactLayoutTrigger.IsActive = !ViewModel.IsWideLayout;
     }
 
-    /// <summary>Restores category and search context when traversing the shell's native journal.</summary>
+    /// <summary>Opens the first category on entry and restores explicit destinations from the shell journal.</summary>
     protected override void OnNavigatedTo(NavigationEventArgs e)
     {
         base.OnNavigatedTo(e);
         var destination = e.Parameter as SettingsPageNavigation;
         ViewModel.Query = destination?.Query ?? "";
-        ViewModel.SelectedCategory = destination == null ? null :
-            ViewModel.Categories.Single(item => item.Category == destination.Category);
+        ViewModel.SelectedCategory = destination switch
+        {
+            null => DefaultCategory,
+            { Category: { } category } => ViewModel.Categories.Single(item => item.Category == category),
+            _ => null
+        };
     }
 
     /// <summary>Updates category content in place and releases the cached page when leaving Settings.</summary>
@@ -71,6 +77,25 @@ public sealed partial class SettingsPage : Page, ISectionNavigationPage
             NavigationRouter.NavigateWithinSection(Frame, new SettingsPageNavigation(item.Category, ViewModel.Query));
     }
 
+    /// <summary>Opens the category list from the compact detail layout.</summary>
+    private void ShowCategoryList_Click(object sender, RoutedEventArgs e) =>
+        NavigationRouter.NavigateWithinSection(Frame, new SettingsPageNavigation(null, ViewModel.Query));
+
+    /// <summary>Lets only actual preference messages occupy space between settings cards.</summary>
+    private Visibility StatusVisibility(string status) =>
+        string.IsNullOrWhiteSpace(status) ? Visibility.Collapsed : Visibility.Visible;
+
+    /// <summary>Applies a user toggle and restores the switch to the confirmed scheduler state.</summary>
+    private async void ApplicationStartup_Toggled(object sender, RoutedEventArgs e)
+    {
+        var toggle = (ToggleSwitch)sender;
+        var startup = ViewModel.ApplicationStartup;
+        if (toggle.IsOn == startup.IsOn) return;
+
+        await startup.SetEnabledAsync(toggle.IsOn);
+        toggle.IsOn = startup.IsOn;
+    }
+
     protected override void OnNavigatedFrom(NavigationEventArgs e)
     {
         if (e.SourcePageType != typeof(SettingsPage)) ViewModel.Dispose();
@@ -78,5 +103,5 @@ public sealed partial class SettingsPage : Page, ISectionNavigationPage
     }
 }
 
-/// <summary>Stores the selected preference category and its originating search in the shell journal.</summary>
-public sealed record SettingsPageNavigation(SettingsCategory Category, string Query);
+/// <summary>Stores a category or the category list with its search query in the shell journal.</summary>
+public sealed record SettingsPageNavigation(SettingsCategory? Category, string Query);

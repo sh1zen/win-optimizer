@@ -96,17 +96,24 @@ public sealed class UtilityViewModelTests
 
     [Theory]
     [InlineData(60)]
+    [InlineData(70)]
     [InlineData(80)]
+    [InlineData(90)]
     public async Task BatteryDefaultsToEightyAndAppliesOnlyTheSelectedSupportedLimit(int percentage)
     {
         var service = new Mock<IBatteryChargeService>();
-        var state = BatteryState([60, 80, 100], 100);
+        var state = BatteryState([60, 70, 80, 90, 100], 100);
         service.Setup(s => s.ReadAsync()).ReturnsAsync(state);
         service.Setup(s => s.SetLimitAsync(percentage)).ReturnsAsync(state with { ActiveLimit = percentage });
         using var vm = BatteryVm(service.Object);
         await vm.LoadAsync();
         Assert.Equal("Nav_Management", vm.SectionTitle);
         Assert.Equal(80, vm.Limits[vm.SelectedIndex].Percentage);
+        Assert.True(vm.ShowResumeSetting);
+        Assert.False(vm.ShowResumeChoices);
+        Assert.False(vm.CanSelectResume);
+        Assert.Equal("Utilities_BatteryResumeAutomatic", vm.ResumePlaceholder);
+        Assert.Equal("Utilities_BatteryResumeFirmware", vm.ResumeDescription);
         Assert.Equal("100%", vm.ActiveLimit);
         service.Verify(s => s.SetLimitAsync(It.IsAny<int>()), Times.Never);
         vm.SelectedIndex = vm.Limits.ToList().FindIndex(limit => limit.Percentage == percentage);
@@ -114,6 +121,104 @@ public sealed class UtilityViewModelTests
         await vm.ApplyCommand.ExecuteAsync(null);
         service.Verify(s => s.SetLimitAsync(percentage), Times.Once);
         Assert.Equal(percentage + "%", vm.ActiveLimit); Assert.False(vm.IsError);
+    }
+
+    [Fact]
+    public async Task BatteryFiltersResumeChoicesAndAppliesTheSelectedRelativeOrFixedThreshold()
+    {
+        var service = new Mock<IBatteryChargeService>();
+        var state = BatteryState([60, 70, 80, 90, 100], 100) with
+        {
+            ResumeThresholds = new Dictionary<int, BatteryResumeThresholds>
+            {
+                [60] = new(50, 55, 1), [70] = new(50, 65, 1), [80] = new(50, 75, 1),
+                [90] = new(50, 85, 1), [100] = new(50, 95, 1, SupportsStandardCharging: true)
+            }
+        };
+        service.Setup(s => s.ReadAsync()).ReturnsAsync(state);
+        service.Setup(s => s.SetLimitAsync(It.IsAny<int>(), It.IsAny<int>()))
+            .ReturnsAsync((int limit, int restart) => state with { ActiveLimit = limit, ActiveResumeThreshold = restart });
+        service.Setup(s => s.SetLimitAsync(100)).ReturnsAsync(state);
+        using var vm = BatteryVm(service.Object);
+        await vm.LoadAsync();
+        service.Verify(s => s.SetLimitAsync(It.IsAny<int>(), It.IsAny<int>()), Times.Never);
+        Assert.True(vm.ShowResumeSetting);
+        Assert.True(vm.ShowResumeChoices);
+        Assert.True(vm.CanSelectResume);
+        Assert.Empty(vm.ResumePlaceholder);
+        Assert.Empty(vm.ResumeDescription);
+        Assert.Equal(10, vm.ResumeChoices[vm.SelectedResumeIndex].Offset);
+        Assert.Equal(new int?[] { 60, 70, 70, 60, 75 }, vm.ResumeChoices.Select(choice => choice.Percentage));
+        await vm.ApplyCommand.ExecuteAsync(null);
+        service.Verify(s => s.SetLimitAsync(80, 70), Times.Once);
+        Assert.True(vm.HasActiveResumeThreshold);
+
+        vm.SelectedResumeIndex = vm.ResumeChoices.ToList().FindIndex(choice => choice.Offset == 20);
+        vm.SelectedIndex = 1;
+        Assert.Equal(50, vm.ResumeChoices[vm.SelectedResumeIndex].Percentage);
+        await vm.ApplyCommand.ExecuteAsync(null);
+        service.Verify(s => s.SetLimitAsync(70, 50), Times.Once);
+
+        vm.SelectedIndex = 0;
+        Assert.DoesNotContain(vm.ResumeChoices, choice => choice.Offset == 20 || choice.Percentage >= 60);
+
+        vm.SelectedIndex = 3;
+        vm.SelectedResumeIndex = vm.ResumeChoices.ToList().FindIndex(choice => choice.Percentage == 80 && choice.Offset == 0);
+        await vm.ApplyCommand.ExecuteAsync(null);
+        service.Verify(s => s.SetLimitAsync(90, 80), Times.Once);
+
+        vm.SelectedIndex = 4;
+        Assert.Equal(80, vm.ResumeChoices[vm.SelectedResumeIndex].Percentage);
+        vm.SelectedResumeIndex = vm.ResumeChoices.ToList().FindIndex(choice => choice.Offset == 10);
+        await vm.ApplyCommand.ExecuteAsync(null);
+        service.Verify(s => s.SetLimitAsync(100, 90), Times.Once);
+
+        vm.SelectedIndex = 2;
+        Assert.Equal(10, vm.ResumeChoices[vm.SelectedResumeIndex].Offset);
+        Assert.Equal(70, vm.ResumeChoices[vm.SelectedResumeIndex].Percentage);
+        vm.SelectedIndex = 4;
+        Assert.Equal(10, vm.ResumeChoices[vm.SelectedResumeIndex].Offset);
+        Assert.Equal(90, vm.ResumeChoices[vm.SelectedResumeIndex].Percentage);
+
+        vm.SelectedResumeIndex = vm.ResumeChoices.ToList().FindIndex(choice => !choice.Percentage.HasValue);
+        Assert.StartsWith("100%", vm.ResumeChoices[vm.SelectedResumeIndex].Label);
+        await vm.ApplyCommand.ExecuteAsync(null);
+        service.Verify(s => s.SetLimitAsync(100), Times.Once);
+        Assert.False(vm.HasActiveResumeThreshold);
+
+        vm.SelectedIndex = 2;
+        vm.SelectedResumeIndex = vm.ResumeChoices.ToList().FindIndex(choice => choice.IsSoonest);
+        Assert.Equal(75, vm.ResumeChoices[vm.SelectedResumeIndex].Percentage);
+        vm.SelectedIndex = 0;
+        Assert.True(vm.ResumeChoices[vm.SelectedResumeIndex].IsSoonest);
+        Assert.Equal(55, vm.ResumeChoices[vm.SelectedResumeIndex].Percentage);
+        await vm.ApplyCommand.ExecuteAsync(null);
+        service.Verify(s => s.SetLimitAsync(60, 55), Times.Once);
+    }
+
+    [Fact]
+    public async Task BatteryShowsObservedChargingAboveTheLimitWithoutAnApplySuccessBanner()
+    {
+        var service = new Mock<IBatteryChargeService>();
+        var state = BatteryState([80, 100], 80) with { ChargePercent = 93, IsChargingAboveLimit = true };
+        service.SetupSequence(s => s.ReadAsync()).ReturnsAsync(state)
+            .ReturnsAsync(state with { IsChargingAboveLimit = false });
+        service.Setup(s => s.SetLimitAsync(80)).ReturnsAsync(state);
+        _localization.Setup(s => s.GetString("Utilities_BatteryChargingAboveLimit")).Returns("Charging at {0}% above {1}%");
+        using var vm = BatteryVm(service.Object);
+
+        await vm.LoadAsync();
+        Assert.True(vm.IsChargingAboveLimit);
+        Assert.Equal("Charging at 93% above 80%", vm.ChargingAboveLimitMessage);
+        await vm.ApplyCommand.ExecuteAsync(null);
+        Assert.True(vm.IsChargingAboveLimit);
+        Assert.False(vm.HasStatus);
+        Assert.Equal("80%", vm.ActiveLimit);
+
+        await vm.LoadAsync();
+        Assert.False(vm.IsChargingAboveLimit);
+        Assert.Empty(vm.ChargingAboveLimitMessage);
+        service.Verify(s => s.SetLimitAsync(80), Times.Once);
     }
 
     [Fact]

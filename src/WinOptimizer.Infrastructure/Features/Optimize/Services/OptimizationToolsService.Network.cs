@@ -9,13 +9,20 @@ namespace WinOptimizer.Infrastructure.Features.Optimize.Services;
 public sealed partial class OptimizationToolsService
 {
     internal const string NetworkPriorityPath = @"HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\Tcpip\ServiceProvider";
+    internal const string DeliveryOptimizationPath = @"HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows\DeliveryOptimization";
+
+    private static readonly Dictionary<NetworkTuningOwner, string> NetworkRegistryPaths = new()
+    {
+        [NetworkTuningOwner.NameResolution] = NetworkPriorityPath,
+        [NetworkTuningOwner.DeliveryOptimization] = DeliveryOptimizationPath
+    };
 
     internal static readonly string ReadNetworkTuningsScript = BuildNetworkReadScript();
 
     public async Task<IReadOnlyList<NetworkTuningState>> ReadNetworkTuningsAsync()
     {
         await _gate.WaitAsync().ConfigureAwait(false);
-        try { return await ReadNetworkTuningsCoreAsync().ConfigureAwait(false); }
+        try { return await IncludeOriginalsAsync(await ReadNetworkTuningsCoreAsync().ConfigureAwait(false)).ConfigureAwait(false); }
         finally { _gate.Release(); }
     }
 
@@ -28,16 +35,18 @@ public sealed partial class OptimizationToolsService
         try
         {
             using var reservation = ReserveWrite();
-            var before = (await ReadNetworkTuningsCoreAsync().ConfigureAwait(false)).Single(state => state.Id == id);
+            var snapshot = await ReadNetworkTuningsCoreAsync().ConfigureAwait(false);
+            var before = snapshot.Single(state => state.Id == id);
             if (!before.IsAvailable)
                 throw new InvalidOperationException($"Network setting '{id}' is unavailable: {before.ErrorMessage}");
             if (!string.Equals(before.Value, expectedValue, StringComparison.Ordinal))
                 throw new InvalidOperationException("This network setting changed outside the page. Refresh before retrying.");
-            if (definition.Owner == NetworkTuningOwner.NameResolution)
+            await IncludeOriginalsAsync(snapshot).ConfigureAwait(false);
+            if (NetworkRegistryPaths.TryGetValue(definition.Owner, out var path))
             {
                 var success = value == null
-                    ? !registry.ValueExists(NetworkPriorityPath, definition.Property) || registry.DeleteValue(NetworkPriorityPath, definition.Property)
-                    : registry.SetValue(NetworkPriorityPath, definition.Property, int.Parse(value, CultureInfo.InvariantCulture), RegistryValueKind.DWord);
+                    ? !registry.ValueExists(path, definition.Property) || registry.DeleteValue(path, definition.Property)
+                    : registry.SetValue(path, definition.Property, unchecked((int)uint.Parse(value, CultureInfo.InvariantCulture)), RegistryValueKind.DWord);
                 if (!success) throw new InvalidOperationException($"Could not change '{definition.Property}'. Check administrator permissions.");
             }
             else
@@ -46,9 +55,35 @@ public sealed partial class OptimizationToolsService
             var actual = after.Single(state => state.Id == id);
             if (!actual.IsAvailable || !string.Equals(actual.Value, value, StringComparison.Ordinal))
                 throw new InvalidOperationException($"Windows did not confirm '{id}'. Refresh to inspect any partial changes. {actual.ErrorMessage}");
-            return after;
+            return await IncludeOriginalsAsync(after).ConfigureAwait(false);
         }
         finally { _gate.Release(); }
+    }
+
+    /// <summary>Joins the first observed values to a live readback without substituting them for live state.</summary>
+    private async Task<IReadOnlyList<NetworkTuningState>> IncludeOriginalsAsync(IReadOnlyList<NetworkTuningState> states)
+    {
+        var results = new NetworkTuningState[states.Count];
+        for (var index = 0; index < states.Count; index++)
+        {
+            var state = states[index];
+            results[index] = state with { Original = await originals.GetOrCaptureAsync(state).ConfigureAwait(false) };
+        }
+        return results;
+    }
+
+    /// <summary>Saves the two values affected by Enhance before its first native write.</summary>
+    private async Task CaptureEnhancementOriginalsAsync()
+    {
+        var needsAutoTuning = await originals.ReadAsync(NetworkTuningCatalog.AutoTuningId).ConfigureAwait(false) == null;
+        var needsRss = await originals.ReadAsync(NetworkTuningCatalog.RssId).ConfigureAwait(false) == null;
+        if (!needsAutoTuning && !needsRss) return;
+
+        var state = await ReadNetworkCoreAsync().ConfigureAwait(false);
+        if (needsAutoTuning)
+            await originals.GetOrCaptureAsync(new(NetworkTuningCatalog.AutoTuningId, state.AutoTuningLevel, true)).ConfigureAwait(false);
+        if (needsRss)
+            await originals.GetOrCaptureAsync(new(NetworkTuningCatalog.RssId, state.ReceiveSideScaling ? NetworkTuningCatalog.Enabled : "Disabled", true)).ConfigureAwait(false);
     }
 
     private async Task<IReadOnlyList<NetworkTuningState>> ReadNetworkTuningsCoreAsync()
@@ -60,7 +95,7 @@ public sealed partial class OptimizationToolsService
                 ?? throw new InvalidOperationException("Windows returned no network settings.");
             if (states.Any(state => state == null) || states.Length != NetworkTuningCatalog.All.Count || states.Select(state => state.Id).Distinct().Count() != states.Length
                 || NetworkTuningCatalog.All.Any(definition => states.All(state => state.Id != definition.Id))
-                || states.Any(state => state.IsAvailable && state.Value == null && NetworkTuningCatalog.Get(state.Id).Owner != NetworkTuningOwner.NameResolution))
+                || states.Any(state => state.IsAvailable && state.Value == null && !NetworkTuningCatalog.Get(state.Id).HasRegistryOverride))
                 throw new InvalidOperationException("Windows returned incomplete network settings. Refresh before making changes.");
             return states;
         }
@@ -84,14 +119,16 @@ public sealed partial class OptimizationToolsService
         return $"$ErrorActionPreference = 'Stop'\n{command} -{definition.Parameter} '{value}' -ErrorAction Stop | Out-Null";
     }
 
-    /// <summary>Reads each native source once, preserving per-owner errors and absent legacy registry overrides.</summary>
+    /// <summary>Reads each native source once, preserving per-owner errors and absent registry overrides.</summary>
     private static string BuildNetworkReadScript()
     {
         var definitions = JsonSerializer.Serialize(NetworkTuningCatalog.All.Select(item => new
-        { item.Id, Owner = item.Owner.ToString(), item.Property, item.Parameter, Input = item.Input.ToString() }));
+        { item.Id, Owner = item.Owner.ToString(), item.Property, item.Parameter, Input = item.Input.ToString(), item.HasRegistryOverride }));
+        var paths = JsonSerializer.Serialize(NetworkRegistryPaths);
         return $$"""
             $ErrorActionPreference = 'Stop'
             $definitions = '{{definitions}}' | ConvertFrom-Json
+            $paths = '{{paths}}' | ConvertFrom-Json
             $sources = @{}
             $errors = @{}
             $setters = @{}
@@ -102,22 +139,26 @@ public sealed partial class OptimizationToolsService
                     $sources[$owner] = if ($owner -eq 'Tcp') { Get-NetTCPSetting -SettingName Internet -ErrorAction Stop } else { & ('Get-' + $noun) -ErrorAction Stop }
                 } catch { $errors[$owner] = $_.Exception.Message }
             }
-            $legacy = $null
+            $keys = @{}
             try {
-                $priorityPath = 'Registry::HKEY_LOCAL_MACHINE\SYSTEM\CurrentControlSet\Services\Tcpip\ServiceProvider'
-                if (Test-Path -LiteralPath $priorityPath -ErrorAction Stop) { $legacy = Get-Item -LiteralPath $priorityPath -ErrorAction Stop }
-            } catch { $errors['NameResolution'] = $_.Exception.Message }
-            try {
+                foreach ($entry in $paths.PSObject.Properties) {
+                    try {
+                        $path = 'Registry::' + $entry.Value
+                        if (Test-Path -LiteralPath $path -ErrorAction Stop) { $keys[$entry.Name] = Get-Item -LiteralPath $path -ErrorAction Stop }
+                    } catch { $errors[$entry.Name] = $_.Exception.Message }
+                }
                 $results = foreach ($definition in $definitions) {
                     $value = $null
                     $errorText = $errors[$definition.Owner]
                     if (-not $errorText) {
                         try {
-                            if ($definition.Owner -eq 'NameResolution') {
-                                if ($null -ne $legacy) {
-                                    $raw = $legacy.GetValue($definition.Property, $null)
+                            if ($definition.HasRegistryOverride) {
+                                $key = $keys[$definition.Owner]
+                                if ($null -ne $key) {
+                                    $raw = $key.GetValue($definition.Property, $null)
                                     if ($null -ne $raw) {
-                                        if ($legacy.GetValueKind($definition.Property) -ne [Microsoft.Win32.RegistryValueKind]::DWord) { throw 'The priority override is not a DWORD value.' }
+                                        if ($key.GetValueKind($definition.Property) -ne [Microsoft.Win32.RegistryValueKind]::DWord) { throw 'The override is not a DWORD value.' }
+                                        if ($definition.Owner -eq 'DeliveryOptimization') { $raw = [int64]$raw -band 4294967295L }
                                         $value = [string]$raw
                                     }
                                 }
@@ -133,7 +174,7 @@ public sealed partial class OptimizationToolsService
                     [pscustomobject]@{ Id = $definition.Id; Value = $value; IsAvailable = -not [bool]$errorText; ErrorMessage = $errorText }
                 }
                 ConvertTo-Json -InputObject @($results) -Compress
-            } finally { if ($null -ne $legacy) { $legacy.Dispose() } }
+            } finally { foreach ($key in $keys.Values) { $key.Dispose() } }
             """;
     }
 }

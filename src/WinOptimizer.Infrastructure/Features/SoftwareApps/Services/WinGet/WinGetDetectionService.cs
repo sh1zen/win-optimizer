@@ -57,20 +57,13 @@ public class WinGetDetectionService : IWinGetDetectionService
 
     public async Task<HashSet<string>> GetInstalledPackageIdsAsync(CancellationToken cancellationToken = default)
     {
-        try
-        {
-            var (attempted, ids) = await GetInstalledPackageIdsViaCom(cancellationToken).ConfigureAwait(false);
-            if (ids is not null) return ids;
-            if (attempted) _logService.LogInformation("COM detection failed/timed out, falling back to CLI");
+        var (attempted, ids) = await GetInstalledPackageIdsViaCom(cancellationToken).ConfigureAwait(false);
+        if (ids is not null) return ids;
+        cancellationToken.ThrowIfCancellationRequested();
+        if (attempted) _logService.LogInformation("COM detection failed/timed out, falling back to CLI");
 
-            _logService.LogInformation("COM not available, falling back to CLI for installed package detection");
-            return await GetInstalledPackageIdsViaCli(cancellationToken).ConfigureAwait(false);
-        }
-        catch (Exception ex)
-        {
-            _logService.LogError($"Error in GetInstalledPackageIdsAsync: {ex.Message}");
-            return new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        }
+        _logService.LogInformation("COM not available, falling back to CLI for installed package detection");
+        return await GetInstalledPackageIdsViaCli(cancellationToken).ConfigureAwait(false);
     }
 
     /// <summary>Bounds activation, connection and enumeration together so a blocked COM call cannot delay the CLI fallback indefinitely.</summary>
@@ -115,7 +108,7 @@ public class WinGetDetectionService : IWinGetDetectionService
         if (compositeOptions.Catalogs.Count == 0)
         {
             _logService.LogWarning("No package catalogs available");
-            return (true, installedPackageIds);
+            return (true, null);
         }
         compositeOptions.CompositeSearchBehavior = CompositeSearchBehavior.LocalCatalogs;
 
@@ -154,8 +147,6 @@ public class WinGetDetectionService : IWinGetDetectionService
 
     private async Task<HashSet<string>> GetInstalledPackageIdsViaCli(CancellationToken cancellationToken)
     {
-        var installedPackageIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
         var cacheDir = AppDataPaths.WinGetCache;
         _fileSystemService.CreateDirectory(cacheDir);
         var exportPath = _fileSystemService.CombinePath(cacheDir, $"winget-packages-{Guid.NewGuid():N}.json");
@@ -164,195 +155,53 @@ public class WinGetDetectionService : IWinGetDetectionService
         const int retryDelayMs = 2000;
         const int timeoutMs = 10_000;
 
-        for (int attempt = 1; attempt <= maxRetries; attempt++)
+        try
         {
-            try
+            for (int attempt = 1; attempt <= maxRetries; attempt++)
             {
-                // Clean up any previous export file
-                if (_fileSystemService.FileExists(exportPath))
-                    _fileSystemService.DeleteFile(exportPath);
-
-                var arguments = $"export -o \"{exportPath}\" --accept-source-agreements --nowarn --disable-interactivity";
-                _logService?.LogInformation($"[winget-bundled] Running: winget {arguments} (attempt {attempt}/{maxRetries})");
-
-                var result = await _runExport(arguments, timeoutMs, cancellationToken).ConfigureAwait(false);
-
-                if (result.ExitCode != 0)
+                try
                 {
-                    _logService?.LogWarning($"winget export failed with exit code 0x{result.ExitCode:X8} (attempt {attempt}/{maxRetries})");
+                    if (_fileSystemService.FileExists(exportPath))
+                        _fileSystemService.DeleteFile(exportPath);
 
-                    // FailedToOpenAllSources = sources not initialized (no internet / no AppInstaller)
-                    // No point retrying — the sources won't appear on their own
+                    var arguments = $"export -o \"{exportPath}\" --accept-source-agreements --nowarn --disable-interactivity";
+                    _logService.LogInformation($"[winget-bundled] Running: winget {arguments} (attempt {attempt}/{maxRetries})");
+                    var result = await _runExport(arguments, timeoutMs, cancellationToken).ConfigureAwait(false);
                     if (result.ExitCode == WinGetExitCodes.FailedToOpenAllSources)
-                    {
-                        _logService?.LogWarning("Sources not available — skipping retries");
-                        return installedPackageIds;
-                    }
+                        break;
+                    if (result.ExitCode != 0)
+                        throw new IOException($"WinGet export exited with code 0x{result.ExitCode:X8}.");
+                    if (!_fileSystemService.FileExists(exportPath))
+                        throw new IOException("WinGet did not write an inventory export.");
 
-                    if (attempt < maxRetries)
-                    {
-                        await Task.Delay(retryDelayMs, cancellationToken).ConfigureAwait(false);
-                        continue;
-                    }
+                    var jsonBytes = await _fileSystemService.ReadAllBytesAsync(exportPath, cancellationToken).ConfigureAwait(false);
+                    using var doc = JsonDocument.Parse(jsonBytes);
+                    var installedPackageIds = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                    foreach (var source in doc.RootElement.GetProperty("Sources").EnumerateArray())
+                        foreach (var package in source.GetProperty("Packages").EnumerateArray())
+                            if (package.GetProperty("PackageIdentifier").GetString() is { Length: > 0 } id)
+                                installedPackageIds.Add(id);
+
+                    _logService.LogInformation($"WinGet CLI (export): Found {installedPackageIds.Count} installed packages");
                     return installedPackageIds;
                 }
-
-                if (!_fileSystemService.FileExists(exportPath))
+                catch (Exception ex) when (ex is not OperationCanceledException)
                 {
-                    _logService?.LogWarning($"winget export succeeded but file not found (attempt {attempt}/{maxRetries})");
-                    if (attempt < maxRetries)
-                    {
-                        await Task.Delay(retryDelayMs, cancellationToken).ConfigureAwait(false);
-                        continue;
-                    }
-                    return installedPackageIds;
-                }
-
-                // Parse JSON: root.Sources[].Packages[].PackageIdentifier
-                var jsonBytes = await _fileSystemService.ReadAllBytesAsync(exportPath, cancellationToken).ConfigureAwait(false);
-                using var doc = JsonDocument.Parse(jsonBytes);
-
-                if (doc.RootElement.TryGetProperty("Sources", out var sourcesElement))
-                {
-                    foreach (var source in sourcesElement.EnumerateArray())
-                    {
-                        if (source.TryGetProperty("Packages", out var packagesElement))
-                        {
-                            foreach (var package in packagesElement.EnumerateArray())
-                            {
-                                if (package.TryGetProperty("PackageIdentifier", out var idElement))
-                                {
-                                    var id = idElement.GetString();
-                                    if (!string.IsNullOrEmpty(id))
-                                        installedPackageIds.Add(id);
-                                }
-                            }
-                        }
-                    }
-                }
-
-                _logService?.LogInformation($"WinGet CLI (export): Found {installedPackageIds.Count} installed packages");
-                break;
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                _logService?.LogError($"Error getting installed packages via winget export (attempt {attempt}/{maxRetries}): {ex.Message}");
-                if (attempt < maxRetries)
-                {
+                    _logService.LogWarning($"WinGet export attempt {attempt}/{maxRetries} failed: {ex.Message}");
+                    if (attempt == maxRetries) throw new IOException("WinGet could not export the installed package inventory.", ex);
                     await Task.Delay(retryDelayMs, cancellationToken).ConfigureAwait(false);
                 }
             }
+            throw new IOException("WinGet could not open its package sources.");
         }
-
-        // Clean up export file
-        try
-        {
-            if (_fileSystemService.FileExists(exportPath))
-                _fileSystemService.DeleteFile(exportPath);
-        }
-        catch (Exception ex) { _logService?.LogDebug($"Best-effort export file cleanup failed: {ex.Message}"); }
-
-        return installedPackageIds;
-    }
-
-    public async Task<string?> GetInstallerTypeAsync(string packageId, CancellationToken cancellationToken = default)
-    {
-        if (string.IsNullOrWhiteSpace(packageId))
-            return null;
-
-        try
-        {
-            // Try COM first
-            if (_comSession.EnsureComInitialized())
-            {
-                var package = await FindPackageAsync(packageId, cancellationToken).ConfigureAwait(false);
-                if (package?.DefaultInstallVersion != null)
-                {
-                    var catalogInfo = package.DefaultInstallVersion.PackageCatalog?.Info;
-                    if (catalogInfo != null)
-                    {
-                        _logService?.LogInformation($"Package {packageId} from catalog: {catalogInfo.Name}");
-                    }
-                }
-            }
-
-            // CLI fallback: parse "winget show" output for Installer Type
-            var result = await WinGetCliRunner.RunAsync(
-                $"show --id {packageId} --accept-source-agreements --disable-interactivity",
-                cancellationToken: cancellationToken,
-                timeoutMs: 60_000,
-                interactiveUserService: _interactiveUserService).ConfigureAwait(false);
-
-            if (result.ExitCode == 0)
-            {
-                foreach (var rawLine in result.StandardOutput.Split('\n'))
-                {
-                    var line = rawLine.Trim();
-                    if (line.StartsWith("Installer Type:", StringComparison.OrdinalIgnoreCase))
-                    {
-                        var installerType = line.Substring("Installer Type:".Length).Trim();
-                        if (!string.IsNullOrEmpty(installerType))
-                        {
-                            _logService?.LogInformation($"Package {packageId} installer type: {installerType}");
-                            return installerType;
-                        }
-                    }
-                }
-            }
-
-            return null;
-        }
-        catch (Exception ex)
-        {
-            _logService?.LogWarning($"Could not determine installer type for {packageId}: {ex.Message}");
-            return null;
-        }
-    }
-
-    private async Task<CatalogPackage?> FindPackageAsync(string packageId, CancellationToken cancellationToken)
-    {
-        if (!_comSession.EnsureComInitialized() || _comSession.PackageManager == null || _comSession.Factory == null)
-            return null;
-
-        return await Task.Run(() =>
+        finally
         {
             try
             {
-                var catalogs = _comSession.PackageManager.GetPackageCatalogs().ToArray();
-
-                foreach (var catalogRef in catalogs)
-                {
-                    var connectResult = catalogRef.Connect();
-                    if (connectResult.Status != ConnectResultStatus.Ok)
-                        continue;
-
-                    var findOptions = _comSession.Factory.CreateFindPackagesOptions();
-                    var filter = _comSession.Factory.CreatePackageMatchFilter();
-                    filter.Field = PackageMatchField.Id;
-                    filter.Option = PackageFieldMatchOption.EqualsCaseInsensitive;
-                    filter.Value = packageId;
-                    findOptions.Filters.Add(filter);
-
-                    var findResult = connectResult.PackageCatalog.FindPackages(findOptions);
-
-                    var match = findResult.Matches.ToArray().FirstOrDefault();
-                    if (match != null)
-                    {
-                        return match.CatalogPackage;
-                    }
-                }
-
-                return null;
+                if (_fileSystemService.FileExists(exportPath))
+                    _fileSystemService.DeleteFile(exportPath);
             }
-            catch (Exception ex)
-            {
-                _logService?.LogError($"Error finding package {packageId}: {ex.Message}");
-                return null;
-            }
-        }, cancellationToken).ConfigureAwait(false);
+            catch (Exception ex) { _logService.LogDebug($"Best-effort export file cleanup failed: {ex.Message}"); }
+        }
     }
 }

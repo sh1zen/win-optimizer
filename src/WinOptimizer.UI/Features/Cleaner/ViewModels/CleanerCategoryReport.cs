@@ -30,16 +30,36 @@ public sealed class CleanerCategoryReport : ObservableObject
     public long EstimatedFreedFileBytes { get; private set; }
     public long RemovedRegistryBytes { get; private set; }
     public bool HasFileSelection => _selectedFiles > 0;
+    public bool HasRegistrySelection => _selectedRegistryValues > 0;
     public string FreedSize => HasFileSelection ? CleanerVisuals.FormatSize(EstimatedFreedFileBytes) : "—";
-    public string RegistrySize => _selectedRegistryValues > 0 ? CleanerVisuals.FormatSize(RemovedRegistryBytes) : "—";
+    public string RegistrySize => HasRegistrySelection ? CleanerVisuals.FormatSize(RemovedRegistryBytes) : "—";
     public string FoundLabel => _text.GetString("Cleaner_Found");
     public string SelectedLabel => _text.GetString("Cleaner_Selected");
-    public string CompletedLabel => _text.GetString("Logs_Level_Success");
+    public string CompletedLabel => _text.GetString(Area == CleanerArea.RegistryDefrag
+        ? "Cleaner_RegistryDefragScheduled" : "Logs_Level_Success");
     public string RemovedLabel => _text.GetString("Cleaner_ReportRemoved");
     public string FailedLabel => _text.GetString("Cleaner_ReportErrors");
     public string UnprocessedLabel => _text.GetString("Cleaner_ReportUnprocessed");
     public string FreedLabel => _text.GetString("Cleaner_ReportFreed");
     public string RegistryLabel => _text.GetString("Cleaner_ReportRegistryData");
+
+    /// <summary>Surfaces the most relevant result on the category card.</summary>
+    public string Overview
+    {
+        get
+        {
+            var (label, count) = this switch
+            {
+                { FailedCount: > 0 } => (FailedLabel, FailedCount),
+                { UnprocessedCount: > 0 } => (UnprocessedLabel, UnprocessedCount),
+                { FoundCount: 0 } => (FoundLabel, FoundCount),
+                { SelectedCount: 0 } => (SelectedLabel, SelectedCount),
+                { Area: CleanerArea.Disk or CleanerArea.RegistryDefrag } => (CompletedLabel, CompletedCount),
+                _ => (RemovedLabel, RemovedCount)
+            };
+            return $"{label} · {count:N0}";
+        }
+    }
 
     public CleanerCategoryReport(CleanerArea area, IReadOnlyList<CleanerResultItem> items,
         IReadOnlyList<SelectableResultGroup> reviewGroups, ILocalizationService text)

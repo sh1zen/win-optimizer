@@ -1,9 +1,242 @@
 {
+  "Nav_Internet": "Internet",
+  "SpeedTest_Title": "Test di velocità",
+  "SpeedTest_Description": "Misura la connessione verso Cloudflare.\nUsa fino a circa 70 MB per test.",
+  "SpeedTest_Start": "Avvia test",
+  "SpeedTest_Latency": "Latenza HTTPS",
+  "SpeedTest_Previous": "Precedente {0}",
+  "SpeedTest_Failed": "Il test di velocità non è riuscito. Controlla la connessione e riprova.",
+  "OptimizeNetwork_Group_DeliveryOptimization": "Ottimizzazione recapito",
+  "OptimizeNetwork_delivery-background-limit_Title": "Limite download in background (KB/s)",
+  "OptimizeNetwork_delivery-background-limit_Description": "Limita la banda usata dai download in background di Windows Update e Microsoft Store. Inserisci 0 per la regolazione automatica. Richiede un’edizione compatibile di Windows.",
+  "Experimental_ImportProfiles": "Importa profili di compatibilità",
+  "Experimental_ImportProfilesHint": "Sostituisci i profili locali con un file JSON.",
+  "Experimental_ProfilesImported": "Importati {0} profili di compatibilità.",
+  "Experimental_ImportedProfile": "Profilo di compatibilità importato dall’utente",
+  "Experimental_Title": "Funzionalità sperimentali",
+  "Experimental_Description": "Gestisci le forzature delle funzionalità di Windows. La disponibilità delle esperienze dipende da Windows.",
+  "Experimental_Shell": "Shell di Windows",
+  "Experimental_Search_Name": "Nuova ricerca di Windows",
+  "Experimental_Search_Description": "Mostra risultati riprogettati e azioni direttamente nella ricerca.",
+  "Experimental_Run_Name": "Finestra Esegui moderna",
+  "Experimental_Run_Description": "Dopo il riavvio, attiva la nuova finestra Esegui in Impostazioni → Sistema → Avanzate.",
+  "Experimental_Pointer_Name": "Indicatore del puntatore",
+  "Experimental_Pointer_Description": "Controlla il flag del puntatore DWM. Dopo il riavvio, attiva l’indicatore nelle impostazioni di Accessibilità.",
+  "Experimental_UnverifiedBuild": "Nessuna associazione verificata per questa build, revisione o architettura di Windows.",
+  "Experimental_WindowsClientRequired": "Richiede Windows client, build 19041 o successiva.",
+  "Experimental_EnglishWindows": "Richiede l’inglese come lingua di visualizzazione di Windows.",
+  "Experimental_Supported": "Supportata dalle fonti del catalogo.",
+  "Experimental_ConflictingRequirements": "La funzionalità ha requisiti in conflitto per gli ID.",
+  "Experimental_SharedConflict": "Un’altra funzionalità configurata usa un ID condiviso.",
+  "Experimental_QueryFailed": "Impossibile leggere la configurazione di Windows. Consulta i dettagli tecnici.",
+  "Experimental_HigherPriority": "Una configurazione con priorità superiore maschera la forzatura Utente.",
+  "Experimental_NormalMode": "Le modifiche richiedono la modalità Normale.",
+  "Experimental_OperationRunning": "È in corso un’operazione sulle funzionalità sperimentali.",
+  "Experimental_RecoveryRequired": "Annulla l’ultima modifica per ripristinare lo stato prima di procedere.",
+  "Experimental_NoUndo": "Nessuna modifica salvata per questa funzionalità.",
+  "Experimental_Elevation": "Sono necessarie autorizzazioni di amministratore.",
+  "Experimental_RecoveryBuild": "Il registro di ripristino appartiene a una versione diversa di Windows.",
+  "Experimental_ExternalChange": "Una configurazione interessata è cambiata all’esterno dell’operazione.",
+  "Experimental_Cancelled": "Operazione annullata.",
+  "Experimental_ChangeFailed": "Impossibile verificare completamente la modifica.",
+  "Experimental_ChangeVerified": "Configurazione verificata.",
+  "Experimental_NoChange": "Nessuna modifica necessaria.",
+  "Experimental_Action_RestoreDefault": "Ripristina il valore predefinito di Windows",
+  "Experimental_Action_Undo": "Annulla ultima modifica",
+  "Experimental_Configured": "Forzatura Utente configurata",
+  "Experimental_Runtime": "Stato osservato in esecuzione",
+  "Experimental_Restart": "Stato di riavvio",
+  "Experimental_Unverified": "Non verificato",
+  "Experimental_NoPendingRestart": "Nessun riavvio in sospeso",
+  "Experimental_SharedIds": "ID funzionalità condivisi",
+  "Experimental_Startup": "Istantanea all’avvio",
+  "Experimental_NoOverride": "Nessuna forzatura Utente",
+  "QuickPreview_Title": "Preview",
+  "Notch_Description": "Scegli i controlli e le informazioni da mostrare nella parte alta del desktop.",
+  "Notch_Enable": "Attiva Notch",
+  "Notch_StartWithWindows": "Avvia con Windows",
+  "Notch_StartupDescription": "Mostra Notch all'accesso a Windows quando Notch è attivo. La finestra principale resta nascosta. Richiede un account amministratore.",
+  "Notch_StartupRecoveryError": "Impossibile salvare l'impostazione di Notch o ripristinarne l'avvio con Windows. Riapri le impostazioni di Notch e riprova.",
+  "Notch_UpdateError": "Impossibile aggiornare Notch. Riprova dalla sezione Estensione.",
+  "Notch_Expand": "Espandi Notch",
+  "Notch_Collapse": "Riduci Notch",
+  "Notch_OpenOptimizer": "Apri le impostazioni di Notch in win-optimizer",
+  "Notch_MediaTab": "Multimedia",
+  "Notch_FocusTab": "Concentrazione",
+  "Notch_NoMedia": "Nessuna riproduzione attiva",
+  "Notch_MediaUnavailable": "Controlli multimediali di Windows non disponibili",
+  "Notch_MediaCommandFailed": "Il lettore non ha accettato il comando.",
+  "Notch_Previous": "Brano precedente",
+  "Notch_Next": "Brano successivo",
+  "Notch_Seek": "Posizione di riproduzione",
+  "Notch_Shape": "Forma del widget",
+  "Notch_Attached": "Notch ancorato",
+  "Notch_Floating": "Isola flottante",
+  "Notch_Display": "Monitor",
+  "Notch_PrimaryDisplay": "Monitor principale (automatico)",
+  "Notch_DisplayChoice": "Monitor {0} · {1} × {2}",
+  "Notch_DisplayUnavailable": "Monitor salvato (al momento non disponibile)",
+  "Notch_Play": "Riproduci",
+  "Notch_Pause": "Pausa",
+  "Notch_Start": "Avvia",
+  "Notch_Reset": "Azzera",
+  "Notch_Work": "Concentrazione · 25 min",
+  "Notch_ShortBreak": "Pausa breve · 5 min",
+  "Notch_LongBreak": "Pausa lunga · 15 min",
+  "Notch_Sessions": "Sessioni completate: {0}",
+  "Notch_Modules": "Moduli di Notch",
+  "Notch_ModulesDescription": "Scegli cosa mostrare nel Notch sul desktop. Le modifiche si applicano subito.",
+  "Notch_CompactPin": "Mostra {0} nel Notch compatto",
+  "Notch_ModuleCount": "{0}/{1} moduli attivi",
+  "Notch_MediaTabDescription": "Mostra il brano in riproduzione e controlla il lettore attivo in Windows.",
+  "Notch_FocusTabDescription": "Usa il timer di concentrazione con pause brevi e lunghe.",
+  "Notch_Calendar": "Calendario",
+  "Notch_CalendarDescription": "Visualizza la data di oggi e sfoglia il calendario mensile.",
+  "Notch_Batteries": "Batterie dei dispositivi",
+  "Notch_BatteriesDescription": "Mostra il livello e lo stato di carica delle batterie in una vista dedicata.",
+  "Notch_Cpu": "Utilizzo CPU",
+  "Notch_CpuDescription": "Mostra il carico complessivo del processore.",
+  "Notch_Memory": "Utilizzo RAM",
+  "Notch_MemoryDescription": "Mostra la memoria di sistema utilizzata e totale.",
+  "Notch_Gpu": "Utilizzo GPU",
+  "Notch_GpuDescription": "Mostra il carico rilevato sulle schede grafiche compatibili.",
+  "Notch_Clock": "Orologio",
+  "Notch_ClockDescription": "Mostra l’ora locale nel Notch compatto.",
+  "Notch_Traffic": "Traffico di rete",
+  "Notch_TrafficDescription": "Mostra le velocità correnti di download e upload e il traffico totale di oggi.",
+  "Notch_TrafficToday": "Oggi · {0}",
+  "Notch_Uptime": "Tempo di attività",
+  "Notch_UptimeDescription": "Mostra da quanto tempo è in esecuzione Windows.",
+  "Notch_UptimeDays": "{0} g {1} h {2} min",
+  "Notch_UptimeHours": "{0} h {1} min",
+  "Notch_SysInfo": "Info di sistema",
+  "Notch_SysInfoDescription": "Scegli quali letture di sistema mostrare in Notch.",
+  "Notch_Overview": "Panoramica",
+  "Notch_OverviewDescription": "Trascina una scheda dalla barra superiore nella panoramica per aggiungere o sostituire un riquadro.",
+  "Notch_Today": "Oggi",
+  "Notch_Empty": "Scegli quali moduli mostrare nella vista espansa dalle impostazioni di Notch.",
+  "Notch_PcBattery": "Questo PC",
+  "Notch_NoBatteries": "Nessuna batteria rilevata",
+  "Notch_Shortcuts": "Accessi rapidi",
+  "Notch_ShortcutsDescription": "Mostra gli elementi fissati nel widget Notch.",
+  "Notch_EditShortcuts": "Modifica",
+  "Notch_FinishEditingShortcuts": "Fine",
+  "Notch_RemoveShortcut": "Rimuovi {0} da Accesso rapido",
+  "Notch_FilePickerFailed": "Impossibile aprire la finestra di selezione dei file.",
+  "Notch_ShortcutsEmpty": "Usa + per fissare un’app.",
+  "Notch_QuickSettings": "Impostazioni rapide",
+  "Notch_QuickSettingsDescription": "Regola audio, schermo, connessioni wireless e alimentazione di Windows da Notch.",
+  "Notch_NightLight": "Luce notturna",
+  "Notch_QuickDoNotDisturb": "Non disturbare",
+  "Notch_Mute": "Disattiva audio",
+  "Notch_QuickSettingsError": "Windows non ha potuto completare la modifica.",
+  "Notch_PinApp": "Aggiungi app",
+  "Notch_ChooseApp": "Scegli un’app",
+  "Notch_AppListEmpty": "Non ci sono altre app da aggiungere.",
+  "Notch_AppListFailed": "Impossibile caricare le app installate.",
+  "Notch_PinFile": "Aggiungi file",
+  "Notch_ShortcutLocal": "Scegli un file o una cartella su un disco locale.",
+  "Notch_ShortcutLimit": "Puoi aggiungere fino a 12 accessi rapidi.",
+  "Notch_ShortcutOpenFailed": "Impossibile aprire il collegamento. Verifica che l’elemento esista ancora.",
+  "Notch_Weather": "Meteo",
+  "Notch_WeatherDescription": "Mostra le condizioni meteo attuali della città che scegli.",
+  "Notch_WeatherCity": "Località meteo",
+  "Notch_WeatherCityDescription": "Cerca una città e scegli un suggerimento. Photon trova le località e Open-Meteo fornisce il meteo.",
+  "Notch_WeatherSelectLocation": "Scegli una località dai suggerimenti.",
+  "Notch_WeatherSearching": "Ricerca delle località…",
+  "Notch_WeatherNoResults": "Nessuna località corrispondente.",
+  "Notch_WeatherSearchUnavailable": "Ricerca delle località non disponibile. Controlla la connessione e riprova.",
+  "Notch_WeatherChooseCity": "Scegli una città nelle impostazioni di Notch.",
+  "Notch_WeatherLoading": "Aggiornamento del meteo…",
+  "Notch_WeatherNextHours": "Prossime ore",
+  "Notch_WeatherWeek": "Previsioni a 7 giorni",
+  "Notch_WeatherUnavailable": "Meteo non disponibile. Controlla la città e la connessione.",
+  "Notch_WeatherClear": "Sereno",
+  "Notch_WeatherPartlyCloudy": "Parzialmente nuvoloso",
+  "Notch_WeatherCloudy": "Coperto",
+  "Notch_WeatherFog": "Nebbia",
+  "Notch_WeatherDrizzle": "Pioviggine",
+  "Notch_WeatherRain": "Pioggia",
+  "Notch_WeatherSnow": "Neve",
+  "Notch_WeatherStorm": "Temporali",
+  "Notch_WeatherUnknown": "Condizioni attuali",
+  "Notch_Save": "Salva",
+  "Notch_MicrophoneActive": "Microfono in uso",
+  "Notch_AudioVisualizer": "Visualizzatore audio",
+  "Notch_AudioVisualizerDescription": "Mostra l’attività del microfono e i livelli audio recenti del dispositivo di riproduzione predefinito di Windows.",
+  "Notch_StatusAlerts": "Cambi di stato",
+  "Notch_StatusAlertsDescription": "Mostra brevemente in Notch i cambi di ricarica, batteria, dispositivi connessi, volume e luminosità.",
+  "Notch_FrameRate": "FPS nei giochi",
+  "Notch_FrameRateDescription": "Mostra la frequenza dei fotogrammi presentati dai giochi DirectX compatibili a schermo intero sul monitor principale.",
+  "Notch_FpsValue": "{0} FPS",
+  "Notch_FrameRateUnavailable": "Rilevamento FPS non disponibile",
+  "Notch_PowerConnected": "Alimentazione collegata",
+  "Notch_OnBattery": "Alimentazione a batteria",
+  "Notch_LowBattery": "Batteria scarica",
+  "Notch_BatteryFull": "Batteria carica",
+  "Notch_ChargingPaused": "Ricarica in pausa",
+  "Notch_DeviceConnected": "{0} connesso",
+  "Notch_DeviceDisconnected": "{0} disconnesso",
+  "Notch_Volume": "Volume",
+  "Notch_VolumeMuted": "Volume disattivato",
+  "Notch_Brightness": "Luminosità",
+  "Notch_ShareToPhone": "Condividi con il telefono",
+  "Notch_ShareFailed": "Windows non ha potuto condividere il file selezionato.",
+  "Notch_CustomTimer": "Timer personalizzato",
+  "Notch_TimerMinutes": "Durata del timer in minuti",
+  "QuickPreview_Description": "Seleziona un file o una cartella sul desktop o in Esplora file e premi la barra spaziatrice per l’anteprima.",
+  "QuickPreview_Shortcut": "Anteprima con la barra spaziatrice",
+  "QuickPreview_Startup": "Avvia con Windows",
+  "QuickPreview_BackgroundOpacity": "Opacità dello sfondo",
+  "QuickPreview_Open": "Apri",
+  "QuickPreview_Close": "Chiudi",
+  "QuickPreview_Reveal": "Mostra in Esplora file",
+  "QuickPreview_Previous": "Pagina precedente",
+  "QuickPreview_Next": "Pagina successiva",
+  "QuickPreview_Page": "{0} di {1}",
+  "QuickPreview_Folder": "Cartella",
+  "QuickPreview_Modified": "Modifica",
+  "QuickPreview_Files": "File",
+  "QuickPreview_Subfolders": "Sottocartelle",
+  "QuickPreview_FolderContents": "Contenuto della cartella",
+  "QuickPreview_Size": "Dimensioni",
+  "QuickPreview_SizeOnDisk": "Su disco",
+  "QuickPreview_SizeUnavailable": "Non disponibili",
+  "QuickPreview_ByteCount": "{0} byte",
+  "QuickPreview_Created": "Creazione",
+  "QuickPreview_FolderPath": "Percorso",
+  "QuickPreview_Hidden": "Nascosta",
+  "QuickPreview_ReadOnly": "Sola lettura",
+  "QuickPreview_FolderPartial": "I totali della cartella sono parziali.",
+  "QuickPreview_FolderListLimited": "Sono mostrate solo le prime {0} voci al primo livello.",
+  "QuickPreview_Empty": "Nessun contenuto da visualizzare",
+  "QuickPreview_Unavailable": "Il contenuto di questo file non è disponibile per l’anteprima.",
+  "QuickPreview_Product": "Prodotto",
+  "QuickPreview_Publisher": "Editore",
+  "QuickPreview_FileVersion": "Versione del file",
+  "QuickPreview_ProductVersion": "Versione del prodotto",
+  "QuickPreview_Architecture": "Architettura",
+  "QuickPreview_Target": "Destinazione",
+  "TimeMachine_Title": "TimeMachine",
+  "TimeMachine_Snapshots": "Istantanee",
+  "TimeMachine_CreateSnapshot": "Crea istantanea",
+  "TimeMachine_ExploreSnapshot": "Esplora",
+  "TimeMachine_NoSnapshots": "Non ci sono istantanee salvate.",
+  "TimeMachine_DeleteSnapshotConfirm": "Eliminare l’istantanea del {0}?",
+  "TimeMachine_Compare": "Confronta con le impostazioni attuali",
+  "TimeMachine_RestoreSelected": "Ripristina selezione",
+  "TimeMachine_KeepDays": "Giorni di conservazione di istantanee e copie di ripristino",
+  "TimeMachine_SelectChanges": "Seleziona le modifiche da ripristinare.",
+  "TimeMachine_Confirm": "Ripristinare i valori precedenti delle modifiche selezionate? Alcune preferenze diventano effettive dopo il riavvio di win-optimizer.",
+  "TimeMachine_Result": "{0:N0} elementi · {1:N0} non disponibili o non riusciti",
   "OptimizeNetwork_Title": "Rete",
-  "OptimizeNetwork_TitleDescription": "Regola TCP, offload hardware, cache IPv4/IPv6 e priorità di risoluzione nomi precedenti. Controlla i valori correnti e conferma ogni modifica. I risultati dipendono da connessione e scheda.",
+  "OptimizeNetwork_SettingsTitle": "Impostazioni di rete",
+  "OptimizeNetwork_TitleDescription": "Controlla le impostazioni prima di applicare le modifiche.",
+  "OptimizeNetwork_ResultsHint": "I risultati dipendono da connessione e scheda.",
   "OptimizeNetwork_EnhanceDescription": "Abilita la regolazione automatica normale della finestra TCP e il receive-side scaling. Può ripristinare la velocità quando queste funzioni erano disabilitate. Le altre impostazioni di rete restano invariate.",
   "OptimizeNetwork_Controls": "{0} controlli di rete individuali",
-  "OptimizeNetwork_Value": "Valore attuale: {0}",
+  "OptimizeNetwork_OriginalValue": "Valore originale: {0}",
+  "OptimizeNetwork_SuggestedValue": "Valore suggerito: {0}",
   "OptimizeNetwork_Unavailable": "Non disponibile: {0}",
   "OptimizeNetwork_UnavailableCount": "Impossibile leggere {0} controlli, oppure non sono supportati. Consulta le schede interessate; Aggiorna ripete il rilevamento.",
   "OptimizeNetwork_NotConfigured": "Nessuna forzatura",
@@ -16,6 +249,8 @@
   "OptimizeNetwork_Group_IPv6": "Protocollo IPv6",
   "OptimizeNetwork_Group_NameResolution": "Priorità di risoluzione nomi precedenti",
   "OptimizeNetwork_Option_Disabled": "Disabilitata",
+  "OptimizeNetwork_Option_Enabled": "Abilitati",
+  "OptimizeNetwork_Option_Allowed": "Consentiti",
   "OptimizeNetwork_Option_HighlyRestricted": "Molto limitata",
   "OptimizeNetwork_Option_Restricted": "Limitata",
   "OptimizeNetwork_Option_Normal": "Normale",
@@ -71,7 +306,8 @@
   "OptimizeNetwork_priority-netbt_Title": "Priorità risoluzione nomi NetBT",
   "OptimizeNetwork_priority-netbt_Description": "Forzatura precedente NetbtPriority. Numeri bassi hanno priorità maggiore; valore storico comune: 2001, esempio: 7. Non abilita NetBIOS se disabilitato. La risoluzione moderna può ignorarla. Riavvia Windows dopo le modifiche.",
   "OptimizeNetwork_Enhance": "Migliora le prestazioni di rete",
-  "OptimizeNetwork_Current": "Regolazione automatica TCP: {0} • Receive-side scaling: {1}",
+  "OptimizeNetwork_AutoTuningLabel": "Regolazione automatica TCP",
+  "OptimizeNetwork_RssLabel": "Receive-side scaling",
   "OptimizeNetwork_Unknown": "Configurazione di rete non letta. Usa Aggiorna per riprovare.",
   "OptimizeNetwork_Applied": "Windows ha confermato la regolazione TCP normale e il receive-side scaling abilitato.",
   "OptimizeFeatures_Title": "Funzionalità",
@@ -113,6 +349,8 @@
   "ContextMenu_ProgramChangeFailed": "Non è stato possibile modificare tutte le voci di {0}:\n{1}",
   "Settings_AppColor": "Colore app",
   "Settings_AppColorDescription": "Scegli il colore per navigazione, titoli e controlli. Le modifiche si applicano subito.",
+  "Settings_BlurWindowBackground": "Sfondo finestra sfocato",
+  "Settings_BlurWindowBackgroundDescription": "Sfoca ciò che si trova dietro la finestra con una tinta al 98% di opacità.",
   "Settings_AppColorInvalid": "Il colore app salvato non è valido. Ripristina questa categoria per scegliere un nuovo colore.",
   "Settings_AppColor_Blue": "Blu",
   "Settings_AppColor_Teal": "Verde acqua",
@@ -210,6 +448,8 @@
   "Autoruns_Hint": "Gestisci Run/RunOnce, cartelle di esecuzione automatica e attività all’avvio o all’accesso. Per le app Windows si aprono le impostazioni di Windows. Seleziona una voce per esaminarne il comando e modificarne lo stato.",
   "Autoruns_AdvancedHint": "Microsoft Autoruns analizza tutte le categorie note: accesso, Explorer, attività, servizi, driver, Winlogon, WMI e altre. Include le voci Microsoft. I punti di sistema sono consultabili: si tratta dell’avvio configurato, non dei processi in esecuzione. La verifica delle firme può contattare servizi di certificazione.",
   "Autoruns_WindowsSettings": "Impostazioni avvio Windows",
+  "Autoruns_ApplicationStartup": "Avvia win-optimizer come amministratore",
+  "Autoruns_ApplicationStartupDescription": "Apri win-optimizer automaticamente quando accedi a Windows senza una nuova richiesta UAC. Servono un account amministratore e un’installazione protetta in Programmi.",
   "Autoruns_Enable": "Attiva",
   "Autoruns_Disable": "Disattiva",
   "Autoruns_Location": "Posizione della registrazione",
@@ -235,6 +475,7 @@
   "WindowsStatus_AnalyzeStore": "Analizza archivio componenti",
   "WindowsStatus_Repair": "Ripara immagine e file di sistema",
   "WindowsStatus_Cleanup": "Pulisci archivio componenti",
+  "WindowsStatus_CleanupDescription": "DISM rimuove i componenti sostituiti dopo che un controllo rapido ha confermato l’integrità dell’archivio componenti.",
   "WindowsStatus_Source": "Sorgente di riparazione facoltativa: file WIM o cartella Windows",
   "WindowsStatus_SourceHint": "Lascia vuoto per le sorgenti configurate e Windows Update. Per un WIM scegli l'indice dell'edizione Windows richiesta. Usa una sorgente compatibile con versione, architettura e lingue installate, aggiornata al livello cumulativo necessario; una sorgente meno aggiornata può non contenere i file richiesti.",
   "WindowsStatus_Index": "Indice immagine WIM",
@@ -276,7 +517,7 @@
   "WindowsStatus_ScanTitle": "Controlla lo stato di Windows",
   "WindowsStatus_ScanDescription": "Analizza l'archivio componenti e verifica i file protetti senza modificarli. Usa lo stato rapido per leggere le corruzioni già segnalate, oppure analizza separatamente l'utilizzo dell'archivio.",
   "WindowsStatus_RepairTitle": "Ripara Windows",
-  "WindowsStatus_RepairDescription": "DISM ha rilevato una corruzione riparabile. Avvia la riparazione di immagine e file di sistema, oppure espandi le opzioni per scegliere una sorgente compatibile. Prima delle modifiche verrà chiesta conferma.",
+  "WindowsStatus_RepairDescription": "DISM ha rilevato una corruzione riparabile. Se necessario, scegli una sorgente compatibile nelle opzioni di riparazione. Prima delle modifiche ti verrà chiesto di confermare la riparazione.",
   "WindowsStatus_DiagnosisShort": "Diagnosi",
   "WindowsStatus_RepairShort": "Ripara",
   "WindowsStatus_Results": "Risultati",
@@ -364,6 +605,15 @@
   "Utilities_CurrentCharge": "Carica batteria",
   "Utilities_ChargeLimit": "Interrompi la ricarica al",
   "Utilities_ActiveLimit": "Limite nel firmware",
+  "Utilities_BatteryResumeCharging": "Riprendi la ricarica",
+  "Utilities_BatteryResumeFirmware": "Per questo limite, il firmware decide quando riprendere la ricarica.",
+  "Utilities_BatteryResumeAutomatic": "Gestito dal firmware",
+  "Utilities_BatteryResumeSoonest": "Il prima possibile (sotto il {0}%)",
+  "Utilities_BatteryResumeBelow": "Attendi che la batteria scenda al {0}% prima di ricaricare",
+  "Utilities_BatteryResumeOffset": "{0} punti sotto il limite ({1}%)",
+  "Utilities_BatteryStandardCharging": "Ricarica standard",
+  "Utilities_BatteryResumeThreshold": "La ricarica riprende al {0}%",
+  "Utilities_BatteryChargingAboveLimit": "La batteria è ancora in carica al {0}%, oltre il limite del firmware del {1}%. Controlla il limite di carica nell’app del produttore.",
   "Utilities_ApplyLimit": "Applica limite",
   "Utilities_OemHelp": "Apri la guida del produttore",
   "Utilities_BatteryHint": "Inizialmente è selezionato 80%. Sono disponibili solo le percentuali supportate; 100% ripristina la ricarica completa. La soglia cambia solo premendo Applica limite.",
@@ -387,9 +637,9 @@
 
   "Drivers_IntroDescription": "Esamina pacchetti driver, dispositivi scollegati e aggiornamenti ufficiali in un’unica pagina.",
 
-  "Drivers_ReadyTitle": "Pronto per la scansione",
+  "Scan_ReadyTitle": "Pronto per la scansione",
 
-  "Drivers_ReadyDescription": "Avvia una scansione per raccogliere l’inventario dei driver e verificare gli aggiornamenti applicabili su Windows Update.",
+  "Drivers_ReadyDescription": "Analizza i driver del PC e consulta le fonti ufficiali abilitate.",
 
   "Nav_Restore": "Ripristino",
 
@@ -447,10 +697,10 @@
 
   "Progress_LoadingWindowsApps": "Caricamento delle app di Windows in corso...",
 
-  "SoftwareApps_Sort_Button": "Sort",
+  "SoftwareApps_Sort_Button": "Ordina",
 
 
-  "SoftwareApps_Sort_NameAZ": "Name A-Z",
+  "SoftwareApps_Sort_NameAZ": "Nome A-Z",
   "SoftwareApps_Sort_GroupsAZ": "Gruppi A-Z",
   "SoftwareApps_Sort_InstallationDate": "Data di installazione",
   "SoftwareApps_Sort_Size": "Dimensione",
@@ -566,7 +816,7 @@
 
   "Settings_Info": "Informazioni",
 
-  "Settings_InfoDescription": "Versione, aggiornamenti, supporto e assistenza.",
+  "Settings_GeneralDescription": "Lingua, aspetto, aggiornamenti e informazioni sull’app.",
 
   "Settings_AutomaticAppUpdates": "Controlla automaticamente gli aggiornamenti dell’app",
 
@@ -651,7 +901,6 @@
 
   "Settings_Appearance": "Lingua e aspetto",
 
-  "Settings_AppearanceDescription": "Lingua, tema e disposizione della navigazione",
 
   "Settings_PrivacyDescription": "Cache dei browser, cronologia Windows e tracce delle applicazioni",
 
@@ -673,7 +922,6 @@
 
   "Settings_ResetAll": "Ripristina tutte le impostazioni",
 
-  "Settings_OpenBackupFolder": "Apri cartella dei backup",
 
   "Settings_LanguageFailed": "Impossibile applicare la lingua selezionata.",
 
@@ -704,6 +952,10 @@
   "Theme_DarkNative": "Scuro",
 
   "Menu_CheckForUpdates": "Controlla aggiornamenti",
+
+  "Menu_Update_Checking": "Controllo degli aggiornamenti in corso…",
+
+  "Menu_Update_NotChecked": "Ultima versione ancora da verificare.",
 
   "Menu_WinOptimizerLogs": "Log di win-optimizer",
 
@@ -780,46 +1032,6 @@
   "Dialog_ImportConfig_Option_Recommended_Description": "Carica il file di configurazione consigliato di win-optimizer",
 
   "Dialog_ImportOptions_Message": "Scegli come vuoi importare una configurazione:",
-
-  "Dialog_Unified_Section_SoftwareAndApps": "Software e App",
-
-  "Dialog_Unified_Description_SoftwareAndApps": "Selezioni per pacchetti Windows e software esterno",
-
-  "Dialog_Unified_Section_WindowsApps": "App di Windows",
-
-  "Dialog_Unified_Description_WindowsApps": "Selezioni per le applicazioni integrate di Windows",
-
-  "Dialog_Unified_Section_ExternalApps": "Software esterno",
-
-  "Dialog_Unified_Description_ExternalApps": "Selezioni per applicazioni di terze parti",
-
-  "Dialog_Unified_Section_Optimize": "Impostazioni di ottimizzazione",
-
-  "Dialog_Unified_Description_Optimize": "Impostazioni di ottimizzazione di Windows",
-
-  "Dialog_Unified_Section_Customize": "Impostazioni di personalizzazione",
-
-  "Dialog_Unified_Description_Customize": "Impostazioni di personalizzazione dell'interfaccia utente di Windows",
-
-  "Dialog_Unified_Option_ApplyWallpaper": "Applica sfondo predefinito per il tema selezionato",
-
-  "Dialog_Unified_Option_CleanTaskbar": "Applica barra delle applicazioni pulita (rimuove tutti gli elementi aggiunti dalla barra delle applicazioni)",
-
-  "Dialog_Unified_Option_CleanStartMenu": "Applica menu Start pulito (rimuove tutti gli elementi aggiunti e applica un layout pulito)",
-
-  "Dialog_Unified_Option_ProcessRemoval": "Elabora ora la rimozione delle app",
-
-  "Dialog_Unified_Option_ManualRemoval": "Seleziona solo, elaborerò manualmente",
-
-  "Dialog_Unified_Option_ProcessInstallation": "Elabora ora l'installazione delle app",
-
-  "Dialog_Unified_Option_ManualInstallation": "Seleziona solo, elaborerò manualmente",
-
-  "Dialog_Unified_Error_NoSelection": "Seleziona almeno una sezione per continuare.",
-
-  "Dialog_Unified_Description_Import": "Seleziona quali impostazioni dal file di configurazione vuoi applicare al tuo computer.",
-
-  "Dialog_Unified_Error_NoSelection_Title": "Nessuna sezione selezionata",
 
   "Config_Export_Success_Title": "Configurazione salvata",
 
@@ -908,7 +1120,7 @@
 
   "Category_SoftwareApps_Title": "Software e App",
 
-  "Category_SoftwareApps_StatusText": "Disinstalla app Windows e programmi",
+  "Category_SoftwareApps_StatusText": "Gestisci le app e i programmi installati.",
 
   "Feature_Notifications_Name": "Notifiche",
 
@@ -2192,7 +2404,7 @@
 
   "Setting_gaming-performance-svchost-split-threshold_Description": "Imposta la soglia di memoria che determina quando Windows divide i servizi in processi svchost.exe separati. Valori più alti raggruppano più servizi insieme, riducendo il numero di processi. Seleziona il valore corrispondente alla RAM del tuo sistema",
 
-  "Setting_gaming-performance-svchost-split-threshold_Option_0": "Default",
+  "Setting_gaming-performance-svchost-split-threshold_Option_0": "Predefinito",
 
   "Setting_gaming-performance-svchost-split-threshold_Option_1": "4 GB",
 
@@ -2618,10 +2830,6 @@
 
   "Setting_accessibility-mousekeys-hotkey_Description": "Abilita la scorciatoia da tastiera per attivare i Tasti mouse, che consente di utilizzare il tastierino numerico per controllare il puntatore del mouse",
 
-  "Setting_accessibility-highcontrast-hotkey_Name": "Tasto di scelta rapida Contrasto elevato (Alt+Maiusc+Stamp)",
-
-  "Setting_accessibility-highcontrast-hotkey_Description": "Abilita la scorciatoia da tastiera per attivare la modalità Contrasto elevato premendo Alt sinistro + Maiusc sinistro + Stamp",
-
   "Template_TimeIntervals_Option_0": "Mai",
 
   "Template_TimeIntervals_Option_1": "1 minuto",
@@ -3022,17 +3230,19 @@
 
   "Setting_start-power-sleep-option_Description": "Visualizza l'opzione Sospensione nel menu del pulsante di alimentazione del menu Start",
 
-  "WindowsApps_ShowHiddenInstalled": "Mostra app installate nascoste o inattive",
+  "WindowsApps_ShowHiddenInstalled": "Mostra app nascoste o inattive",
   "WindowsApps_ShowHiddenInstalled_Tooltip": "Include i pacchetti delle app Windows presenti nel dispositivo ma non registrati per l'account corrente. Richiede i privilegi di amministratore. Le app assenti dal dispositivo restano nascoste.",
   "WindowsApps_Status_Inactive": "Installata (inattiva)",
   "WindowsApps_Status_Inactive_Tooltip": "Il pacchetto dell'app è presente nel dispositivo ma non risulta installato per l'account corrente.",
-  "WindowsApps_Section_Apps": "App di Windows",
+  "WindowsApps_Section_Apps": "App installate",
 
   "WindowsApps_Section_Capabilities": "Funzionalità di Windows",
 
   "WindowsApps_Section_OptionalFeatures": "Funzionalità facoltative di Windows",
 
-  "SoftwareApps_Button_UninstallSelected": "Disinstalla elementi selezionati",
+  "SoftwareApps_Button_UninstallSelected": "Disinstalla selezione",
+  "SoftwareApps_SearchLabel": "Cerca",
+  "SoftwareApps_SearchPlaceholder": "Cerca app",
 
   "SoftwareApps_Tab_WindowsApps": "App e funzionalità di Windows",
 
@@ -3042,7 +3252,7 @@
 
   "ViewMode_Card": "Vista scheda",
 
-  "ViewMode_Compact": "Compact View",
+  "ViewMode_Compact": "Visualizzazione compatta",
 
   "ExternalApps_Category_Browsers": "Browser",
 
@@ -3092,7 +3302,7 @@
 
   "PowerPlan_UltimatePerformance_Description": "Fornisce le massime prestazioni su PC di fascia alta.",
 
-  "PowerPlan_WinOptimizerPowerPlan_Name": "win-optimizer Power Plan",
+  "PowerPlan_WinOptimizerPowerPlan_Name": "Piano di alimentazione win-optimizer",
 
   "PowerPlan_WinOptimizerPowerPlan_Description": "Prestazioni massime con impostazioni ottimizzate da win-optimizer per le massime prestazioni.",
 
@@ -3622,16 +3832,6 @@
 
   "Dialog_NoAppsSelected_Config_Message": "Nessuna app di Windows è attualmente selezionata. Quando questo file di configurazione verrà importato, nessuna casella di controllo delle app sarà selezionata.\n\nVai alla sezione App di Windows e seleziona le app che desideri includere.\n\nVuoi continuare comunque?",
 
-  "Dialog_FallbackDownload": "Metodo di download alternativo",
-
-  "Dialog_UpdatePolicyBlocking_Title": "Aggiornamenti di Windows disabilitati",
-
-  "Dialog_UpdatePolicyBlocking_Message": "L'installazione di '{0}' non è stata completata, probabilmente perché gli aggiornamenti di Windows sono disabilitati.\n\nLa disabilitazione degli aggiornamenti di Windows impedisce il completamento delle installazioni di app dal Microsoft Store.\n\nVuoi che win-optimizer modifichi la politica di aggiornamento in 'Sospeso a lungo' e riprovi l'installazione?",
-
-  "WindowsApps_Msg_FallbackDownload": "Il pacchetto '{0}' non è stato trovato tramite WinGet, probabilmente a causa di restrizioni di mercato geografiche.\n\nwin-optimizer può scaricare questo pacchetto direttamente dai server di Microsoft utilizzando un metodo alternativo (store.rg-adguard.net).\n\n• I file del pacchetto provengono direttamente dal CDN ufficiale di Microsoft\n• Questo metodo è completamente legale e sicuro\n• Bypassa solo le restrizioni regionali\n\nVuoi procedere con il metodo di download alternativo?",
-
-  "WindowsApps_Checkbox_DontAskAgain": "Non chiedermelo di nuovo per le installazioni future",
-
   "Progress_RemovingOldFile": "Rimozione del vecchio file immagine in corso...",
 
   "Progress_ConversionCompleted": "Conversione completata correttamente",
@@ -3678,29 +3878,7 @@
 
   "Progress_IsoCreationFailed": "Creazione dell'ISO non riuscita",
 
-  "Progress_PreparingDownload": "Preparazione del download di {0} in corso...",
-
-  "Progress_FailedResolveUrl": "Impossibile risolvere l'URL di download per {0}",
-
-  "Progress_Downloading": "Download di {0} in corso...",
-
-  "Progress_FailedDownload": "Impossibile scaricare {0}",
-
-  "Progress_Installing": "Installazione di {0} in corso...",
-
-  "Progress_InstalledSuccess": "Installato correttamente {0}",
-
-  "Progress_FailedInstall": "Impossibile installare {0}",
-
-  "Progress_DownloadCancelled": "Il download di {0} è stato annullato",
-
   "Progress_Error": "Errore: {0}",
-
-  "Progress_DownloadProgress": "Download di {0}: {1} MB / {2} MB",
-
-  "Progress_LaunchingInstaller": "Avvio del programma di installazione per {0} in corso...",
-
-  "Progress_Extracting": "Estrazione di {0} in corso...",
 
   "Progress_CheckingRestorePoint": "Verifica del punto di ripristino del sistema in corso...",
 
@@ -3727,22 +3905,6 @@
   "Progress_Task_RemovingWindowsApps": "Rimozione di app di Windows",
 
   "Progress_Task_UninstallingExternalApps": "Disinstallazione di app esterne",
-
-  "Progress_WinGet_CheckingPrerequisites": "Verifica dei prerequisiti per {0} in corso...",
-
-  "Progress_WinGet_InstallingManager": "Installazione del gestore di pacchetti WinGet in corso...",
-
-  "Progress_WinGet_FailedInstallManager": "Impossibile installare WinGet. Impossibile installare {0}.",
-
-  "Progress_WinGet_StartingInstallation": "Avvio dell'installazione di {0} in corso...",
-
-  "Progress_WinGet_InstalledSuccess": "Installato correttamente {0}",
-
-  "Progress_WinGet_InstallationCancelled": "L'installazione di {0} è stata annullata",
-
-  "Progress_WinGet_NetworkError": "Errore di rete durante l'installazione di {0}. Controlla la tua connessione Internet e riprova.",
-
-  "Progress_WinGet_InstallationError": "Errore durante l'installazione di {0}: {1}",
 
   "Progress_WinGet_CheckingPrerequisitesUninstall": "Verifica dei prerequisiti per la disinstallazione di {0} in corso...",
 
@@ -3778,30 +3940,6 @@
 
   "Progress_WinGet_InstallError": "Errore durante l'installazione di WinGet: {0}",
 
-  "Progress_Store_FetchingLinks": "Recupero dei collegamenti per il download di {0} in corso...",
-
-  "Progress_Store_FailedDownload": "Impossibile scaricare {0}",
-
-  "Progress_Store_InstalledSuccess": "Installato correttamente {0}",
-
-  "Progress_Store_FailedInstall": "Impossibile installare {0}",
-
-  "Progress_Store_DownloadCancelled": "Il download di {0} è stato annullato",
-
-  "Progress_Store_InstallError": "Errore durante l'installazione di {0}: {1}",
-
-  "Progress_Store_DownloadingDependencies": "Download dei pacchetti di dipendenze richiesti per {0} in corso...",
-
-  "Progress_Store_InstallingWithDependencies": "Installazione di {0} con {1} dipendenze in corso...",
-
-  "Progress_Store_Installing": "Installazione di {0}...",
-
-  "Progress_Store_RequestingInfo": "Richiesta informazioni pacchetto per {0}...",
-
-  "Progress_Store_DownloadingMain": "Download del pacchetto principale {0}...",
-
-  "Progress_Store_NonRecoverableError": "Installazione non riuscita: {0}",
-
   "Progress_WinGet_CheckingUpdates": "Controllo aggiornamenti WinGet...",
 
   "Progress_WinGet_Updating": "Aggiornamento di WinGet...",
@@ -3832,28 +3970,6 @@
 
   "Progress_WinGet_ProvisionedSuccessfully": "WinGet fornito correttamente",
 
-  "Progress_WinGet_Error_BlockedByPolicy": "L'installazione di '{0}' è bloccata dai criteri di sistema.",
-
-  "Progress_WinGet_Error_CatalogError": "Errore del catalogo durante l'installazione di '{0}'. Riprovare.",
-
-  "Progress_WinGet_Error_InternalError": "Errore interno durante l'installazione di '{0}'. Riprovare.",
-
-  "Progress_WinGet_Error_InvalidOptions": "Opzioni non valide specificate per l'installazione di '{0}'.",
-
-  "Progress_WinGet_Error_DownloadError": "Errore di download durante l'installazione di '{0}'. Verificare la connessione Internet.",
-
-  "Progress_WinGet_Error_InstallError": "Errore di installazione per '{0}'. Codice errore: {1}",
-
-  "Progress_WinGet_Error_ManifestError": "Errore del manifesto del pacchetto per '{0}'.",
-
-  "Progress_WinGet_Error_NoApplicableInstallers": "Nessun programma di installazione applicabile trovato per '{0}' su questo sistema.",
-
-  "Progress_WinGet_Error_NoApplicableUpgrade": "Nessun aggiornamento applicabile trovato per '{0}'.",
-
-  "Progress_WinGet_Error_AgreementsNotAccepted": "Accordi del pacchetto non accettati per '{0}'.",
-
-  "Progress_WinGet_Error_InstallFailed": "Installazione non riuscita per '{0}'. Stato: {1}",
-
   "Progress_WinGet_Error_UninstallBlockedByPolicy": "La disinstallazione di '{0}' è bloccata dai criteri di sistema.",
 
   "Progress_WinGet_Error_UninstallCatalogError": "Errore del catalogo durante la disinstallazione di '{0}'.",
@@ -3865,8 +3981,6 @@
   "Progress_WinGet_Error_UninstallError": "Errore di disinstallazione per '{0}'. Codice errore: {1}",
 
   "Progress_WinGet_Error_UninstallFailed": "Disinstallazione non riuscita per '{0}'. Stato: {1}",
-
-  "Progress_WinGet_PackageNotFound": "Pacchetto '{0}' non trovato nei repository.",
 
   "Progress_WinGet_FoundPackage": "Pacchetto trovato: {0}",
 
@@ -4025,14 +4139,6 @@
 
   "Loading_CheckingSystemProtection": "Verifica della protezione di sistema...",
 
-  "Progress_Choco_Installing": "Installazione del gestore pacchetti Chocolatey...",
-
-  "Progress_Choco_Installed": "Chocolatey installato con successo",
-
-  "Progress_Choco_InstallingPackage": "Installazione di '{0}' tramite Chocolatey...",
-
-  "Progress_Choco_FallbackAttempt": "WinGet non riuscito, tentativo con Chocolatey per '{0}'...",
-
   "Progress_Choco_UninstallingPackage": "Disinstallazione di '{0}' tramite Chocolatey...",
 
   "Progress_UninstalledSuccess": "{0} disinstallato con successo",
@@ -4040,10 +4146,6 @@
   "View_TechnicalDetails": "Dettagli tecnici",
 
   "Nav_AdvancedTools_Locked_Tooltip": "Non disponibile durante la revisione della configurazione",
-
-  "QuickActions_ApplyRecommended": "Applica impostazioni consigliate",
-
-  "QuickActions_ResetDefaults": "Ripristina valori predefiniti di Windows",
 
   "InfoBadge_Recommended": "Consigliato",
 
@@ -4381,15 +4483,15 @@
 
   "Setting_taskbar-recall-pin_Description": "Mostra o nasconde il pin Recall nella barra delle applicazioni",
 
-  "Setting_gaming-ai-fabric-service_Name": "Windows AI Fabric Service",
+  "Setting_gaming-ai-fabric-service_Name": "Servizio Windows AI Fabric",
 
   "Setting_gaming-ai-fabric-service_Description": "Windows AI Fabric Service (WSAIFabricSvc) gestisce i carichi di lavoro AI. Disabilita se non usi le funzionalità Windows AI",
 
-  "Setting_gaming-task-windows-ai_Name": "Windows AI Tasks",
+  "Setting_gaming-task-windows-ai_Name": "Attività di Windows AI",
 
   "Setting_gaming-task-windows-ai_Description": "Attività pianificate Windows AI inclusa la configurazione di Recall. Disabilita per impedire l'esecuzione delle funzionalità AI in background",
 
-  "Setting_gaming-task-office-actions-server_Name": "Office Actions Server Task",
+  "Setting_gaming-task-office-actions-server_Name": "Attività del server azioni Office",
 
   "Setting_gaming-task-office-actions-server_Description": "Attività pianificata Office AI Actions Server. Disabilita per impedire l'esecuzione di Office AI in background",
 
@@ -4415,13 +4517,33 @@
 
   "Cleaner_IntroTitle": "Un PC più pulito, come vuoi tu",
 
-  "Cleaner_IntroDescription": "Seleziona le aree qui sotto e avvia la scansione. Personalizza pulizia e backup nelle Impostazioni.",
+  "Cleaner_IntroDescription": "Seleziona le aree qui sotto e avvia la scansione. Personalizza la pulizia nelle Impostazioni.",
 
   "Cleaner_StepScan": "1. Scansiona le aree selezionate",
 
   "Cleaner_Areas": "Cosa vuoi pulire?",
 
   "Cleaner_CategorySummary": "{0} aree selezionate su {1}",
+  "Cleaner_ScanActive": "Scansione delle aree selezionate",
+  "Cleaner_ScanAreas": "Aree di scansione",
+  "Cleaner_Scanning_Privacy": "Scansione delle tracce della privacy",
+  "Cleaner_Scanning_JunkFiles": "Scansione dei file inutili",
+  "Cleaner_Scanning_Shortcuts": "Scansione dei collegamenti",
+  "Cleaner_Scanning_Registry": "Scansione delle voci del registro",
+  "Cleaner_Scanning_RegistryDefrag": "Scansione degli hive del registro",
+  "Cleaner_Scanning_Disk": "Analisi dell’unità",
+  "Cleaner_ShortcutInventory": "Creazione dell’inventario dei collegamenti…",
+  "Cleaner_ReviewStepLabel": "Rivedi",
+  "Cleaner_CleanStepLabel": "Pulisci",
+  "Cleaner_Area_NotSelected": "Non selezionata",
+  "Cleaner_Area_Queued": "In coda",
+  "Cleaner_Area_Scanning": "Scansione in corso",
+  "Cleaner_Area_Scanned": "Scansionata",
+  "Cleaner_ScanInProgress": "SCANSIONE IN CORSO",
+  "Cleaner_CancelScan": "Annulla scansione",
+  "Cleaner_ViewScanDetails": "Mostra dettagli",
+  "Cleaner_ScanResultsHint": "I risultati appariranno al termine della scansione.",
+  "Cleaner_PreparingReview": "Preparazione dei risultati…",
 
   "Cleaner_Privacy_Description": "Tracce dei browser, di Windows e delle applicazioni",
 
@@ -4429,7 +4551,7 @@
 
   "Cleaner_Shortcuts_Description": "Collegamenti non validi di desktop e Start",
 
-  "Cleaner_RegistryDefrag_Description": "Compatta gli hive tramite Windows",
+  "Cleaner_RegistryDefrag_Description": "Compatta gli hive del registro al prossimo riavvio",
 
   "Cleaner_Registry_Description": "Verifica i riferimenti non validi nel registro",
 
@@ -4489,7 +4611,6 @@
 
   "Cleaner_StartMenu": "Collegamenti del menu Start",
 
-  "Cleaner_Backups": "Backup e ripristino Cleaner",
 
   "Cleaner_Scan": "Scansiona",
 
@@ -4505,7 +4626,6 @@
 
   "Cleaner_InvalidAge": "Inserisci un numero intero da 0 a 365.",
 
-  "Cleaner_NoBackups": "Non sono ancora stati creati backup del registro.",
 
   "Cleaner_ScanComplete": "{2:N0} controlli eseguiti: {0} risultati, {1}. Controlla le voci del registro e seleziona quelle da correggere.",
 
@@ -4553,21 +4673,14 @@
 
   "Cleaner_Registry_Firewall": "Impostazioni firewall (diagnostica)",
 
-  "Cleaner_BackupBeforeCleaning": "Backup di file e voci del registro prima della pulizia",
 
-  "Cleaner_BackupBeforeRegistryDefrag": "Backup degli hive del registro prima della deframmentazione",
+  "Cleaner_RegistryDefragScheduled": "In attesa del riavvio",
 
-  "Cleaner_BackupDescription": "Backup attivi per impostazione predefinita. Un backup richiesto non riuscito blocca la pulizia. Ripristina qui file e valori; gli hive completi richiedono il recupero offline con le istruzioni incluse.",
 
-  "Cleaner_RestoreBackup": "Ripristina backup selezionato",
 
-  "Cleaner_ReloadBackups": "Aggiorna elenco backup",
 
-  "Cleaner_SelectBackup": "Aggiorna l’elenco e seleziona un backup.",
 
-  "Cleaner_RestoreConfirm": "Ripristinare questa sessione di pulizia? Saranno recuperati file mancanti e valori del registro eliminati. File e valori diversi già presenti saranno mantenuti. Chiudi i browser prima di ripristinarne i dati.",
 
-  "Cleaner_RestoreComplete": "{0} elementi ripristinati, {1} conflitti o errori.",
 
   "Cleaner_CreatingBackup": "Creazione e verifica del backup della pulizia…",
 
@@ -4579,11 +4692,9 @@
 
   "Cleaner_BackupOn": "Backup prima della pulizia: attivo.",
 
-  "Cleaner_BackupOff": "Backup prima della pulizia: disattivato. La pulizia di file e registro non sarà annullabile tramite Cleaner.",
+  "Cleaner_BackupOff": "Backup prima della pulizia: disattivato.",
 
-  "Cleaner_HiveBackupOn": "Backup prima della deframmentazione del registro: attivo.",
-
-  "Cleaner_HiveBackupOff": "Backup prima della deframmentazione del registro: disattivato. Non verrà creata la copia di recupero degli hive.",
+  "Cleaner_RegistryDefragConfirmation": "Dopo aver applicato le modifiche, riavvia Windows per compattare gli hive selezionati prima del caricamento del sistema. Le copie di backup vengono create e verificate automaticamente.",
 
   "Cleaner_Discovering": "Inventario in corso",
 
@@ -4599,19 +4710,34 @@
 
   "Nav_Drivers": "Driver",
 
-  "Drivers_Description": "Cerca pacchetti driver non associati, dispositivi scollegati e aggiornamenti driver ufficiali da Microsoft Windows Update. I risultati sono candidati da esaminare: un dispositivo scollegato potrebbe servire ancora. La verifica della certificazione può scaricare pacchetti driver. La scansione non installa né rimuove driver.",
+  "Drivers_Description": "Controlla i pacchetti inutilizzati, i dispositivi disconnessi e i driver proposti dalle fonti ufficiali. La verifica può scaricare pacchetti. Installazione e rimozione sono azioni separate.",
 
   "Drivers_WhqlLabel": "Mostra solo aggiornamenti driver con test WHQL verificati",
 
-  "Drivers_WhqlDescription": "Attivo per impostazione predefinita. Sono mostrati solo pacchetti il cui catalogo è verificato da Windows come testato WHQL. Disattiva per includere le offerte ufficiali di Windows Update con stato WHQL non verificato. Le modifiche valgono dalla prossima scansione.",
+  "Drivers_WhqlDescription": "Attivo per impostazione predefinita. Il filtro mostra solo i candidati con evidenza WHQL nel catalogo del driver corrispondente. Le altre voci sono in Candidati filtrati.",
 
   "Drivers_FilterWhql": "Filtro aggiornamenti: solo WHQL verificati. Modificalo in Impostazioni → Driver.",
 
-  "Drivers_FilterAll": "Filtro aggiornamenti: tutte le offerte ufficiali di Windows Update, incluso lo stato WHQL non verificato. Modificalo in Impostazioni → Driver.",
+  "Drivers_FilterAll": "Filtro WHQL disattivato. I risultati possono includere pacchetti non verificati.",
 
   "Drivers_Inventory": "Lettura di dispositivi e pacchetti driver…",
 
-  "Drivers_SearchingUpdates": "Ricerca su Windows Update e download dei pacchetti candidati per la verifica…",
+  "Drivers_SearchingUpdates": "Consultazione delle fonti ufficiali dei driver…",
+  "Drivers_ScanInProgress": "SCANSIONE IN CORSO",
+  "Drivers_DetectingDevices": "Rilevamento dei dispositivi",
+  "Drivers_CheckingSourcesTitle": "Verifica delle fonti dei driver",
+  "Drivers_CheckingSourcesDescription": "Ricerca di aggiornamenti compatibili con i tuoi dispositivi.",
+  "Drivers_DetectDevicesStep": "Rileva dispositivi",
+  "Drivers_CheckSourcesStep": "Controlla fonti",
+  "Drivers_PrepareResultsStep": "Prepara risultati",
+  "Drivers_RecentActivity": "Attività recente",
+  "Drivers_ViewDetails": "Mostra dettagli",
+  "Drivers_DevicesDetected": "Dispositivi rilevati",
+  "Drivers_DriverVersionsLoaded": "Versioni dei driver installati caricate",
+  "Drivers_SourcesChecked": "Fonti ufficiali dei driver verificate",
+  "Drivers_PreparingResults": "Preparazione dei risultati…",
+  "Drivers_ScanResultsHint": "I risultati appariranno al termine della scansione.",
+  "Drivers_CancelScan": "Annulla scansione",
 
   "Drivers_VerifyingPackages": "Verifica dei cataloghi dei pacchetti driver…",
 
@@ -4619,11 +4745,11 @@
 
   "Drivers_Disconnected": "Dispositivi scollegati",
 
-  "Drivers_Updates": "Aggiornamenti ufficiali",
+  "Drivers_Updates": "Driver candidati",
 
-  "Drivers_Summary": "{0:N0} pacchetti non associati · {1:N0} dispositivi scollegati · {2:N0} aggiornamenti disponibili",
+  "Drivers_Summary": "{0:N0} pacchetti inutilizzati · {1:N0} dispositivi disconnessi · {2:N0} driver candidati",
 
-  "Drivers_UpdatesUnavailable": "Verifica online degli aggiornamenti non disponibile. Sono completi solo i risultati locali; consulta i dettagli.",
+  "Drivers_UpdatesUnavailable": "La ricerca online non è disponibile. Controlla lo stato delle fonti e i risultati in cache.",
 
   "Drivers_Rescan": "Il filtro salvato è cambiato. Ripeti la scansione per aggiornare i risultati.",
 
@@ -4636,6 +4762,24 @@
   "Drivers_CategoryEmpty": "Nessun elemento in questa categoria",
 
   "Drivers_CategoryEmptyDescription": "La scansione non ha trovato elementi corrispondenti. Scegli un'altra categoria per continuare.",
+  "Drivers_NoDevicesMatch": "Nessun dispositivo corrisponde alla ricerca.",
+  "Drivers_LimitedCoverage": "Scansione completata con copertura limitata",
+  "Drivers_CoverageSummary": "Non è stato possibile verificare completamente alcune fonti dei driver o associazioni dei dispositivi.",
+  "Drivers_ViewScanDetails": "Mostra dettagli della scansione",
+  "Drivers_WhqlOnly": "Solo WHQL",
+  "Drivers_AllCertification": "Tutte le certificazioni",
+  "Drivers_FilterSettings": "Impostazioni dei filtri",
+  "Drivers_ColumnDriver": "Driver",
+  "Drivers_ColumnDevice": "Dispositivo",
+  "Drivers_ColumnCandidate": "Candidato",
+  "Drivers_ColumnReleased": "Data di rilascio",
+  "Drivers_SearchDevices": "Cerca dispositivi",
+  "Drivers_DeviceResults": "Visualizzati {0:N0} dispositivi su {1:N0}",
+  "Drivers_DisconnectedSummary": "{0:N0} voci relative a dispositivi disconnessi",
+  "Drivers_CandidateSummary": "{0:N0} più recenti · {1:N0} della stessa versione",
+  "Drivers_ResultCount": "{0:N0} risultati",
+  "Drivers_SelectDownloads": "Seleziona i pacchetti driver da scaricare.",
+  "Drivers_SelectRemovals": "Seleziona i pacchetti o le voci dei dispositivi da disinstallare.",
 
   "Drivers_UpdatesUnavailableTitle": "Verifica aggiornamenti non disponibile",
 
@@ -4644,6 +4788,7 @@
   "Drivers_Date": "Data",
 
   "Drivers_Size": "Dimensione",
+  "Drivers_PackageSize": "Dimensione pacchetto",
 
   "Drivers_HardwareIds": "ID hardware e compatibili",
 
@@ -4660,6 +4805,7 @@
   "Drivers_RemovalCancelled": "Operazione interrotta. Le rimozioni completate sono mantenute; ripeti la scansione per aggiornare l'inventario.",
 
   "Drivers_RestartRequired": "Riavvia Windows per completare la rimozione.",
+  "Drivers_RemovalPending": "In attesa di riavvio",
 
   "Drivers_TestMode": "Esci dalla modalità Test per disinstallare driver o dispositivi.",
 
@@ -4667,6 +4813,39 @@
 
   "Drivers_Unknown": "Non indicato",
 
+  "Drivers_Sources": "Fonti",
+  "Drivers_Channels": "Canali di rilascio NVIDIA",
+  "Drivers_Verify": "Verifica pacchetto",
+  "Drivers_OpenSupport": "Apri il supporto ufficiale",
+  "Drivers_DownloadSelected": "Scarica selezionati",
+  "Drivers_DownloadCount": "{0:N0} selezionati per il download",
+  "Drivers_Downloading": "Download dei pacchetti driver…",
+  "Drivers_BetterIdentifier": "ID dispositivo più specifico",
+  "Drivers_PackageVersion": "Versione del pacchetto",
+  "Drivers_WhqlClaim": "WHQL dichiarato dalla fonte",
+  "Drivers_ValidSignature": "Firma del pacchetto valida",
+  "Drivers_Filtered": "Candidati filtrati",
+  "Drivers_LicenseRequired": "Verifica della licenza necessaria",
+  "Drivers_LicenseConfirm": "Consulta la licenza del produttore sulla sua pagina ufficiale. Continua solo se accetti le condizioni per i pacchetti elencati.",
+  "Drivers_Source_Success": "Controllata",
+  "Drivers_Source_Partial": "Controllata in parte",
+  "Drivers_Source_Unavailable": "Non disponibile",
+  "Drivers_Source_Unsupported": "Non supportata",
+  "Drivers_Source_Stale": "Dati in cache",
+  "Drivers_Source_VerificationFailed": "Verifica non riuscita",
+  "Drivers_Applicability_Unknown": "Compatibilità sconosciuta",
+  "Drivers_Applicability_WindowsUpdate": "Applicabile secondo Windows Update",
+  "Drivers_Applicability_PackageMatch": "Corrispondenza nel pacchetto",
+  "Drivers_Applicability_Incompatible": "Incompatibile",
+  "Drivers_Version_Unknown": "Versione sconosciuta",
+  "Drivers_Version_Newer": "Versione più recente",
+  "Drivers_Version_Current": "Stessa versione",
+  "Drivers_Version_Older": "Versione precedente",
+  "Drivers_Version_NotComparable": "Versioni non confrontabili",
+  "Drivers_NewestFound": "Versione compatibile più recente trovata",
+  "Drivers_GenericAlternative": "Alternativa generica del produttore",
+  "Drivers_OemRecommendation": "Consigliato dall’OEM",
+  "Drivers_VerificationPending": "Verifica del pacchetto in sospeso",
   "Drivers_WhqlVerified": "WHQL verificato",
 
   "Drivers_WhqlUnknown": "WHQL non verificato",
@@ -4973,7 +5152,7 @@
   "Cleaner_BrowserCache_opera": "Cache Internet di Opera",
   "Cleaner_BrowserCache_firefox": "Cache Internet di Mozilla Firefox",
   "Utilities_Connection": "Connessione",
-  "Utilities_ConnectionDescription": "Visualizza il traffico in tempo reale e l'utilizzo giornaliero, configura i DNS e gestisci i profili VPN di Windows.",
+  "Utilities_ConnectionDescription": "Visualizza il traffico di rete in tempo reale e il consumo giornaliero di dati.",
   "Connection_Dns": "Server DNS",
   "Connection_DnsHint": "Scegli una configurazione DNS per le schede di rete. Automatico ripristina i valori forniti dalla rete. Software VPN o criteri di rete possono sostituirli.",
   "Connection_ApplyDns": "Applica DNS a tutte le connessioni",
@@ -5019,6 +5198,24 @@
   "Security_Intro": "Analizza antivirus, firewall, minacce spyware note, debolezze del sistema e aggiornamenti di sicurezza nella cache. La scansione approfondita controlla anche ISATAP, Teredo, la protezione della pagina iniziale di Firefox e due impostazioni privacy. Esamina i risultati e seleziona le correzioni da applicare. Le minacce sono quelle già rilevate da Defender: non viene eseguita una scansione antivirus dei file.",
   "Security_Scan": "Scansione",
   "Security_DeepScan": "Scansione approfondita",
+  "Security_ScanProgressTitle": "Verifica della sicurezza di Windows",
+  "Security_ApplyStepLabel": "Applica correzioni",
+  "Security_ScanCoverage": "Copertura della scansione",
+  "Security_ThreatCoverageNote": "Il controllo delle minacce legge solo i rilevamenti esistenti di Microsoft Defender.",
+  "Security_DeepScanOptions": "Opzioni di scansione approfondita",
+  "Security_DeepScanOptionsDescription": "Controlli aggiuntivi di rete, browser e privacy",
+  "Security_CoverageDefender": "Rilevamenti di Defender",
+  "Security_CoverageUpdates": "Aggiornamenti di sicurezza",
+  "Security_CoverageDescription_Antivirus": "Stato dell’antivirus di Windows",
+  "Security_CoverageDescription_Firewall": "Impostazioni di protezione del firewall",
+  "Security_CoverageDescription_Spyware": "Rilevamenti di minacce esistenti",
+  "Security_CoverageDescription_Weaknesses": "Impostazioni relative alla sicurezza",
+  "Security_CoverageDescription_Updates": "Informazioni sugli aggiornamenti nella cache",
+  "Security_ScanInProgress": "SCANSIONE IN CORSO",
+  "Security_ScanResultsHint": "I risultati appariranno al termine della scansione.",
+  "Security_CancelScan": "Annulla scansione",
+  "Security_ViewScanDetails": "Mostra dettagli",
+  "Security_ReviewStepLabel": "Rivedi",
   "Security_Fix": "Applica correzioni selezionate",
   "Security_Item": "Elemento",
   "Security_State": "Stato",
@@ -5028,6 +5225,18 @@
   "Security_Summary": "Scansione del {0} · {1} elementi da esaminare · {2} controlli non disponibili",
   "Security_DeepSummary": "Scansione approfondita del {0} · {1} elementi da esaminare · {2} controlli non disponibili",
   "Security_CategorySummary": "{0} da esaminare · {1} non disponibili",
+  "Security_FindingsToReviewOne": "{0} risultato da esaminare",
+  "Security_FindingsToReviewMany": "{0} risultati da esaminare",
+  "Security_UnavailableOne": "{0} controllo non disponibile",
+  "Security_UnavailableMany": "{0} controlli non disponibili",
+  "Security_ResultsLastScan": "Ultima scansione · {0}",
+  "Security_ResultsLastDeepScan": "Ultima scansione approfondita · {0}",
+  "Security_ViewUnavailable": "Mostra controllo non disponibile",
+  "Security_CheckStatus": "Esito del controllo",
+  "Security_CurrentState": "Stato attuale",
+  "Security_CategoryReviewCount": "{0} da esaminare",
+  "Security_CategoryUnavailableCount": "{0} non disponibili",
+  "Security_NoCategoryChecks": "Nessun controllo in questa categoria.",
   "Security_Cancelled": "Scansione annullata. Ripeti la scansione per esaminare i risultati attuali.",
   "Security_Confirm": "Applicare solo le modifiche selezionate? Controlla gli effetti elencati. Le modifiche di rete possono influire su VPN, giochi o reti gestite. La protezione della pagina iniziale richiede il riavvio di Firefox. Windows può impedire modifiche gestite o protette contro le manomissioni.",
   "Security_Fixed": "Verificate {0} correzioni su {1}. Ripeti la scansione per aggiornare i risultati.",
@@ -5086,7 +5295,6 @@
   "Cleaner_ReportFreed": "Spazio file liberato stimato",
   "Cleaner_ReportRegistryData": "Dati del registro rimossi",
   "Cleaner_ReportProtected": "Voci protette",
-  "Cleaner_ReportNote": "Lo spazio dei file è stimato. I dati del registro e le operazioni di manutenzione sono conteggiati separatamente.",
   "Cleaner_ReportCancelled": "Annullata",
   "Cleaner_NoSelectableResults": "Nessuna voce selezionabile in questa categoria."
 }

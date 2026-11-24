@@ -17,6 +17,9 @@ using WinOptimizer.UI.Features.Settings.ViewModels;
 using WinOptimizer.UI.Features.SoftwareApps.Services;
 using WinOptimizer.UI.Features.SoftwareApps.ViewModels;
 using WinOptimizer.UI.ViewModels;
+using WinOptimizer.Core.Features.Extensions;
+using WinOptimizer.UI.Features.Extensions;
+using WinOptimizer.UI.Features.Extensions.Notch;
 
 namespace WinOptimizer.UI.Features.Common.Extensions.DI;
 
@@ -30,7 +33,7 @@ public static class UIServicesExtensions
     /// </summary>
     /// <param name="services">The service collection to configure</param>
     /// <returns>The service collection for method chaining</returns>
-    public static IServiceCollection AddUIServices(this IServiceCollection services)
+    public static IServiceCollection AddUIServices(this IServiceCollection services, bool desktopWidgetHost = false)
     {
         // Dispatcher Service (Singleton - UI thread dispatching)
         // Requires late initialization in MainWindow.xaml.cs after window creation
@@ -118,9 +121,12 @@ public static class UIServicesExtensions
 
         // Settings ViewModels
         services.AddTransient<SettingsViewModel>();
+        services.AddSingleton<ApplicationStartupViewModel>();
+        services.AddTransient<WinOptimizer.UI.Features.TimeMachine.TimeMachineViewModel>();
         services.AddTransient<WinOptimizer.UI.Features.Settings.ViewModels.LogsAndHistoryViewModel>();
         services.AddSingleton<WinOptimizer.UI.Features.Settings.ViewModels.UpdatePreferencesViewModel>();
         services.AddSingleton<WinOptimizer.UI.Features.Settings.ViewModels.SidebarPreferencesViewModel>();
+        services.AddSingleton<WinOptimizer.UI.Features.Settings.ViewModels.WindowBackgroundPreferencesViewModel>();
         services.AddSingleton(_ => Microsoft.UI.Xaml.Application.Current.Resources.MergedDictionaries
             .OfType<WinOptimizer.UI.Features.Common.Resources.AppColorResources>().Single());
         services.AddSingleton<WinOptimizer.UI.Features.Settings.ViewModels.AppColorPreferencesViewModel>();
@@ -132,8 +138,20 @@ public static class UIServicesExtensions
         services.AddTransient<WinOptimizer.UI.Features.SystemInformation.ViewModels.SystemInformationViewModel>();
         services.AddSingleton<Func<WinOptimizer.UI.Features.Extensions.ViewModels.SystemMonitorReadingsViewModel, WinOptimizer.UI.Features.Extensions.ISystemMonitorWindow>>(
             _ => readings => new WinOptimizer.UI.Features.Extensions.SystemMonitorWindow(readings));
-        services.AddSingleton<WinOptimizer.UI.Features.Extensions.ISystemMonitorWidgetHost, WinOptimizer.UI.Features.Extensions.SystemMonitorWidgetHost>();
+        if (desktopWidgetHost)
+        {
+            services.AddSingleton<ISystemMonitorWidgetHost, SystemMonitorWidgetHost>();
+            services.AddSingleton<NotchExtension>();
+        }
+        else
+        {
+            services.AddSingleton<ISystemMonitorWidgetHost, CompanionSystemMonitorHost>();
+            services.AddSingleton(sp => NotchExtension.CreateForShell(sp.GetRequiredService<IUserPreferencesService>(),
+                sp.GetRequiredService<ILocalizationService>(), sp.GetRequiredService<ILogService>(),
+                sp.GetRequiredService<INotchStartupService>(), sp.GetService<HttpClient>()));
+        }
         services.AddSingleton<WinOptimizer.UI.Features.Extensions.ViewModels.ExtensionsViewModel>();
+        services.AddSingleton<WinOptimizer.UI.Features.Extensions.Preview.PreviewSettingsViewModel>();
         services.AddSingleton<WinOptimizer.UI.Features.Utilities.ViewModels.UtilitiesCatalogViewModel>();
         services.AddSingleton<WinOptimizer.UI.Features.Management.ViewModels.ManagementViewModel>();
         services.AddSingleton<WinOptimizer.UI.Features.Management.ViewModels.EventsCleanupViewModel>();

@@ -1,5 +1,6 @@
 using Microsoft.UI.Xaml.Documents;
 using Microsoft.UI.Xaml.Media;
+using WinOptimizer.Core.Features.Common.Helpers;
 
 namespace WinOptimizer.UI.Features.Common.Utilities;
 
@@ -44,7 +45,7 @@ internal static class TerminalLineRenderer
     {
         var trimmed = line.TrimStart();
 
-        // Strip script slot prefix (e.g., "[EdgeRemoval] ") for content classification
+        // Strip the script slot prefix before classifying terminal output.
         if (trimmed.Length > 2 && trimmed[0] == '[')
         {
             var closeBracket = trimmed.IndexOf("] ", StringComparison.Ordinal);
@@ -91,17 +92,17 @@ internal static class TerminalLineRenderer
         bool hasFilledBlocks = false;
         foreach (char c in line)
         {
-            if (c >= '\u2588' && c <= '\u258F') { hasFilledBlocks = true; break; }
+            if (TerminalProgressBar.IsFilledBlock(c)) { hasFilledBlocks = true; break; }
         }
-        if (hasFilledBlocks && line.Contains('\u2591'))
+        if (hasFilledBlocks && line.Contains(TerminalProgressBar.Track))
         {
             var runs = new List<Run>();
             int i = 0;
             while (i < line.Length)
             {
-                bool isTrack = line[i] == '\u2591';
+                bool isTrack = line[i] == TerminalProgressBar.Track;
                 int start = i;
-                while (i < line.Length && (line[i] == '\u2591') == isTrack)
+                while (i < line.Length && (line[i] == TerminalProgressBar.Track) == isTrack)
                     i++;
 
                 var segment = line.Substring(start, i - start);
@@ -110,7 +111,7 @@ internal static class TerminalLineRenderer
                     // Unfilled track: render as █ in dim color (same char = same height)
                     runs.Add(new Run
                     {
-                        Text = segment.Replace('\u2591', '\u2588'),
+                        Text = segment.Replace(TerminalProgressBar.Track, TerminalProgressBar.FullBlock),
                         Foreground = BarTrackBrush
                     });
                 }
@@ -135,20 +136,5 @@ internal static class TerminalLineRenderer
             Text = line + nl,
             Foreground = GetLineBrush(line)
         }];
-    }
-
-    /// <summary>
-    /// Detects whether a line looks like a progress bar (contains Unicode block elements).
-    /// Used to catch the duplicate first progress bar line that winget sometimes emits
-    /// with \n before switching to \r.
-    /// </summary>
-    public static bool LooksLikeProgressBar(string line)
-    {
-        foreach (char c in line)
-        {
-            if (c >= '\u2588' && c <= '\u258F') return true;
-            if (c == '\u2591') return true; // ░ (unfilled track)
-        }
-        return false;
     }
 }

@@ -30,7 +30,7 @@
                     </StackPanel>
                 </InfoBar.Content>
             </InfoBar>
-            <StackPanel Spacing="16" Visibility="{x:Bind ViewModel.HasState, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <StackPanel Spacing="{StaticResource PageCardSpacing}" Visibility="{x:Bind ViewModel.HasState, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
                 <Border x:Name="BatterySummary" Padding="22" Style="{StaticResource PageCardStyle}">
                     <StackPanel Spacing="14">
                         <TextBlock Text="{x:Bind ViewModel.Device, Mode=OneWay}" FontSize="20" FontWeight="SemiBold" TextWrapping="Wrap"/>
@@ -40,24 +40,42 @@
                             <StackPanel Spacing="6"><TextBlock Text="{x:Bind ViewModel.ChargeLabel, Mode=OneWay}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><TextBlock Text="{x:Bind ViewModel.Charge, Mode=OneWay}" FontSize="30" FontWeight="SemiBold"/></StackPanel>
                             <StackPanel Grid.Column="1" Spacing="6"><TextBlock Text="{x:Bind ViewModel.ActiveLabel, Mode=OneWay}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><TextBlock Text="{x:Bind ViewModel.ActiveLimit, Mode=OneWay}" FontSize="30" FontWeight="SemiBold"/></StackPanel>
                         </Grid>
+                        <TextBlock Text="{x:Bind ViewModel.ActiveResumeThreshold, Mode=OneWay}" TextWrapping="Wrap"
+                                   Visibility="{x:Bind ViewModel.HasActiveResumeThreshold, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
                         <TextBlock Text="{x:Bind ViewModel.Provider, Mode=OneWay}" FontSize="12" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Visibility="{x:Bind ViewModel.HasProvider, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
                         <TextBlock Text="{x:Bind ViewModel.Diagnostic, Mode=OneWay}" TextWrapping="Wrap" FontSize="12" Visibility="{x:Bind ViewModel.HasDiagnostic, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
                     </StackPanel>
                 </Border>
+                <InfoBar IsOpen="{x:Bind ViewModel.IsChargingAboveLimit, Mode=OneWay}" Severity="Warning" IsClosable="False"
+                         Message="{x:Bind ViewModel.ChargingAboveLimitMessage, Mode=OneWay}"
+                         Visibility="{x:Bind ViewModel.IsChargingAboveLimit, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <InfoBar.ActionButton>
+                        <HyperlinkButton Content="{x:Bind ViewModel.HelpLabel, Mode=OneWay}" NavigateUri="{x:Bind ViewModel.HelpUri, Mode=OneWay}"/>
+                    </InfoBar.ActionButton>
+                </InfoBar>
                 <controls:SettingsCard Header="{x:Bind ViewModel.LimitLabel, Mode=OneWay}" Description="{x:Bind ViewModel.Hint, Mode=OneWay}" Style="{StaticResource PageSettingsCardStyle}">
                     <controls:SettingsCard.HeaderIcon><fluent:FluentIcon Icon="BatteryCharge" IconVariant="Regular" IconSize="Size20"/></controls:SettingsCard.HeaderIcon>
-                    <StackPanel Orientation="Horizontal" Spacing="12">
-                        <ComboBox MinWidth="100" ItemsSource="{x:Bind ViewModel.Limits}" SelectedIndex="{x:Bind ViewModel.SelectedIndex, Mode=TwoWay}" DisplayMemberPath="Label" IsEnabled="{x:Bind ViewModel.CanSelectLimit, Mode=OneWay}" AutomationProperties.Name="{x:Bind ViewModel.LimitLabel, Mode=OneWay}"/>
-                        <Button Content="{x:Bind ViewModel.ApplyLabel, Mode=OneWay}" Command="{x:Bind ViewModel.ApplyCommand}" Style="{StaticResource AccentButtonStyle}"/>
-                    </StackPanel>
+                    <ComboBox MinWidth="100" ItemsSource="{x:Bind ViewModel.Limits}" SelectedIndex="{x:Bind ViewModel.SelectedIndex, Mode=TwoWay}"
+                              DisplayMemberPath="Label" IsEnabled="{x:Bind ViewModel.CanSelectLimit, Mode=OneWay}" AutomationProperties.Name="{x:Bind ViewModel.LimitLabel, Mode=OneWay}"/>
                 </controls:SettingsCard>
+                <controls:SettingsCard Header="{x:Bind ViewModel.ResumeLabel, Mode=OneWay}" Style="{StaticResource PageSettingsCardStyle}"
+                                       Visibility="{x:Bind ViewModel.ShowResumeSetting, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
+                    <ComboBox MinWidth="100" ItemsSource="{x:Bind ViewModel.ResumeChoices}" SelectedIndex="{x:Bind ViewModel.SelectedResumeIndex, Mode=TwoWay}"
+                              DisplayMemberPath="Label" IsEnabled="{x:Bind ViewModel.CanSelectResume, Mode=OneWay}"
+                              PlaceholderText="{x:Bind ViewModel.ResumePlaceholder, Mode=OneWay}"
+                              AutomationProperties.HelpText="{x:Bind ViewModel.ResumeDescription, Mode=OneWay}"
+                              AutomationProperties.Name="{x:Bind ViewModel.ResumeLabel, Mode=OneWay}"/>
+                </controls:SettingsCard>
+                <Button HorizontalAlignment="Right" Content="{x:Bind ViewModel.ApplyLabel, Mode=OneWay}"
+                        Command="{x:Bind ViewModel.ApplyCommand}" Style="{StaticResource AccentButtonStyle}"/>
                 <StackPanel Spacing="10" Visibility="{x:Bind ViewModel.ShowTelemetry, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
                     <TextBlock Text="{x:Bind ViewModel.CapturedAt, Mode=OneWay}" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" Visibility="{x:Bind ViewModel.HasCapturedAt, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
                     <TextBlock Text="{x:Bind ViewModel.TelemetryUnavailable, Mode=OneWay}" TextWrapping="Wrap" Visibility="{x:Bind ViewModel.HasTelemetryUnavailable, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
                     <ItemsControl x:Name="BatteryTelemetryCards" ItemsSource="{x:Bind ViewModel.Batteries, Mode=OneWay}">
+                        <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Spacing="{StaticResource PageCardSpacing}"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                         <ItemsControl.ItemTemplate>
                             <DataTemplate x:DataType="vm:BatteryTelemetryCard">
-                                <Border Margin="0,0,0,12" Style="{StaticResource PageCardStyle}">
+                                <Border Style="{StaticResource PageCardStyle}">
                                     <StackPanel Spacing="16">
                                         <TextBlock Text="{x:Bind Name}" FontSize="20" FontWeight="SemiBold" TextWrapping="Wrap" AutomationProperties.HeadingLevel="Level2"/>
                                         <Grid SizeChanged="TelemetryPanels_SizeChanged" RowSpacing="20">

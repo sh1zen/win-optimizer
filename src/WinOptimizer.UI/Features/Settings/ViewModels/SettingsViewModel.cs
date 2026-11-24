@@ -6,6 +6,7 @@ using CommunityToolkit.Mvvm.Input;
 using FluentIcons.Common;
 using WinOptimizer.Core.Features.Common.Extensions;
 using WinOptimizer.Core.Features.Common.Interfaces;
+using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.UI.Features.Common.Interfaces;
 using WinOptimizer.UI.Features.Common.Services;
 using WinOptimizer.UI.Features.Cleaner.ViewModels;
@@ -24,6 +25,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     private readonly IThemeService _themeService;
     private readonly IUserPreferencesService _preferencesService;
     private readonly ILogService _logService;
+    private readonly ITimeMachineRetentionService _timeMachineRetention;
     public CleanerSettingsViewModel Cleaner { get; }
     public DriverSettingsViewModel Drivers { get; }
     public LogsAndHistoryViewModel Logs { get; }
@@ -31,21 +33,32 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     public UpdatePreferencesViewModel UpdatePreferences { get; }
     public SidebarPreferencesViewModel SidebarPreferences { get; }
     public AppColorPreferencesViewModel AppColorPreferences { get; }
+    public WindowBackgroundPreferencesViewModel WindowBackgroundPreferences { get; }
+    public ApplicationStartupViewModel ApplicationStartup { get; }
     private readonly PreferenceSaveQueue<string> _languageSaves;
     private Task? _initialization;
     public IReadOnlyList<SettingsCategoryItem> Categories { get; }
     public ObservableCollection<SettingsCategoryGroup> VisibleGroups { get; } = [];
     [ObservableProperty] public partial string Query { get; set; } = "";
     [ObservableProperty] public partial string Status { get; private set; } = "";
-    [ObservableProperty] [NotifyPropertyChangedFor(nameof(CanReset))] public partial bool IsResetting { get; private set; }
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(CanReset), nameof(CanSaveTimeMachineRetention)),
+     NotifyCanExecuteChangedFor(nameof(SaveTimeMachineRetentionCommand))]
+    public partial bool IsResetting { get; private set; }
+    [ObservableProperty] public partial double TimeMachineDays { get; set; } = TimeMachineRetention.DefaultDays;
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(CanReset), nameof(CanSaveTimeMachineRetention)),
+     NotifyCanExecuteChangedFor(nameof(SaveTimeMachineRetentionCommand))]
+    public partial bool IsSavingTimeMachineRetention { get; private set; }
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(CanSaveTimeMachineRetention)),
+     NotifyCanExecuteChangedFor(nameof(SaveTimeMachineRetentionCommand))]
+    public partial bool IsTimeMachineRetentionLoaded { get; private set; }
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(ShowCategories), nameof(ShowPlaceholder))]
     public partial bool IsWideLayout { get; set; } = true;
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(HasSelection), nameof(ShowCategories), nameof(ShowDetails), nameof(ShowPlaceholder),
-        nameof(SelectedTitle), nameof(SelectedDescription), nameof(SelectedIcon), nameof(ShowAppearance), nameof(ShowCleaner),
+        nameof(SelectedTitle), nameof(SelectedDescription), nameof(SelectedIcon), nameof(ShowGeneral), nameof(ShowCleaner),
         nameof(ShowDrivers), nameof(ShowRegistryAccounts), nameof(ShowCleanerAccounts), nameof(CleanerAccountChoices),
-        nameof(CleanerAccountsDescription), nameof(ShowResetAll), nameof(ShowLogsAndHistory), nameof(ShowPreferenceDetails), nameof(ShowInfo), nameof(ShowReset),
-        nameof(SelectedCleanerSection), nameof(ResetLabel), nameof(CanReset), nameof(ShowCategoryReset))]
+        nameof(CleanerAccountsDescription), nameof(ShowResetAll), nameof(ShowLogsAndHistory), nameof(ShowPreferenceDetails), nameof(ShowReset),
+        nameof(SelectedCleanerSection), nameof(ResetLabel), nameof(CanReset), nameof(ShowCategoryReset), nameof(ShowTimeMachine))]
     public partial SettingsCategoryItem? SelectedCategory { get; set; }
     public bool HasSelection => SelectedCategory is not null;
     public bool ShowCategories => IsWideLayout || !HasSelection;
@@ -55,22 +68,25 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     public bool ShowReset => HasSelection && !ShowLogsAndHistory;
     /// <summary>Keeps category reset actions in the footer while the full reset uses its own card.</summary>
     public bool ShowCategoryReset => ShowReset && !ShowResetAll;
-    public bool CanReset => ShowReset && !IsResetting;
+    public bool CanReset => ShowReset && !IsResetting && !IsSavingTimeMachineRetention;
+    public bool CanSaveTimeMachineRetention => IsTimeMachineRetentionLoaded && !IsSavingTimeMachineRetention && !IsResetting;
+    public string TimeMachineKeepDaysLabel => _localizationService.GetString("TimeMachine_KeepDays");
+    public string TimeMachineSaveLabel => _localizationService.GetString("WIMUtil_Label_Save");
     public string SelectedTitle => SelectedCategory?.Title ?? "";
     public string SelectedDescription => SelectedCategory?.Description ?? "";
     public Icon SelectedIcon => SelectedCategory?.Icon ?? Icon.Settings;
-    public bool ShowAppearance => SelectedCategory?.Category == SettingsCategory.Appearance;
+    public bool ShowGeneral => SelectedCategory?.Category == SettingsCategory.General;
     public bool ShowDrivers => SelectedCategory?.Category == SettingsCategory.Drivers;
     public bool ShowLogsAndHistory => SelectedCategory?.Category == SettingsCategory.LogsAndHistory;
+    public bool ShowTimeMachine => SelectedCategory?.Category == SettingsCategory.TimeMachine;
     public bool ShowPreferenceDetails => !ShowLogsAndHistory;
-    public bool ShowInfo => SelectedCategory?.Category == SettingsCategory.Info;
     public bool ShowRegistryAccounts => SelectedCategory?.Category == SettingsCategory.Registry;
     public bool ShowCleanerAccounts => CleanerAccountChoices is not null;
     public ObservableCollection<CleanerChoice<string>>? CleanerAccountChoices => Cleaner.AccountChoices(SelectedCleanerSection);
     public string CleanerAccountsDescription => Cleaner.AccountsDescription(SelectedCleanerSection);
     public bool ShowResetAll => SelectedCategory?.Category == SettingsCategory.ResetAll;
     public bool ShowCleaner => SelectedCategory?.Category is SettingsCategory.Privacy or SettingsCategory.Junk or
-        SettingsCategory.Registry or SettingsCategory.Shortcuts or SettingsCategory.Disk or SettingsCategory.Backups;
+        SettingsCategory.Registry or SettingsCategory.Shortcuts or SettingsCategory.Disk;
     public CleanerSettingsSection SelectedCleanerSection => SelectedCategory?.Category switch
     {
         SettingsCategory.Privacy => CleanerSettingsSection.Privacy,
@@ -78,7 +94,6 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         SettingsCategory.Registry => CleanerSettingsSection.Registry,
         SettingsCategory.Shortcuts => CleanerSettingsSection.Shortcuts,
         SettingsCategory.Disk => CleanerSettingsSection.Disk,
-        SettingsCategory.Backups => CleanerSettingsSection.Backups,
         _ => CleanerSettingsSection.All
     };
     public string SearchLabel => _localizationService.GetString("Settings_Search");
@@ -150,12 +165,15 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         ILogService logService, CleanerSettingsViewModel cleaner, DriverSettingsViewModel drivers,
         LogsAndHistoryViewModel logs,
         ApplicationInfoViewModel info, UpdatePreferencesViewModel updatePreferences,
-        SidebarPreferencesViewModel sidebarPreferences, AppColorPreferencesViewModel appColorPreferences)
+        SidebarPreferencesViewModel sidebarPreferences, AppColorPreferencesViewModel appColorPreferences,
+        WindowBackgroundPreferencesViewModel windowBackgroundPreferences,
+        ITimeMachineRetentionService timeMachineRetention, ApplicationStartupViewModel applicationStartup)
     {
         _localizationService = localizationService;
         _themeService = themeService;
         _preferencesService = preferencesService;
         _logService = logService;
+        _timeMachineRetention = timeMachineRetention;
         Cleaner = cleaner;
         Drivers = drivers;
         Logs = logs;
@@ -163,6 +181,8 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         UpdatePreferences = updatePreferences;
         SidebarPreferences = sidebarPreferences;
         AppColorPreferences = appColorPreferences;
+        WindowBackgroundPreferences = windowBackgroundPreferences;
+        ApplicationStartup = applicationStartup;
         _languageSaves = new(language => _preferencesService.SetPreferenceAsync("Language", language), _ => { },
             error =>
             {
@@ -200,7 +220,8 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
 
     private async Task InitializeCoreAsync()
     {
-        await Task.WhenAll(Cleaner.LoadAsync(), Drivers.LoadAsync(), UpdatePreferences.LoadAsync(), SidebarPreferences.LoadAsync(), AppColorPreferences.LoadAsync());
+        await Task.WhenAll(Cleaner.LoadAsync(), Drivers.LoadAsync(), UpdatePreferences.LoadAsync(),
+            SidebarPreferences.LoadAsync(), AppColorPreferences.LoadAsync(), WindowBackgroundPreferences.LoadAsync(), LoadTimeMachineRetentionAsync());
         if (!_disposed) RebuildGroups();
     }
 
@@ -209,15 +230,18 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         IEnumerable<string> Labels(params string[] keys) => keys.Select(_localizationService.GetString);
         return
         [
-            new(SettingsCategory.Appearance, "Settings_Appearance", "Settings_AppearanceDescription", "Settings_GroupApplication", Icon.PaintBrushSparkle, _localizationService,
-                () => Labels("Settings_Menu_Language", "Settings_Theme_Title", "Settings_ExpandNavigation", "Settings_ExpandNavigationDescription", "Settings_AppColor", "Settings_AppColorDescription")
+            new(SettingsCategory.General, "Category_General", "Settings_GeneralDescription", "Settings_GroupApplication", Icon.Settings, _localizationService,
+                () => Labels("Settings_Appearance", "Settings_Menu_Language", "Settings_Theme_Title", "Settings_ExpandNavigation", "Settings_ExpandNavigationDescription",
+                        "Settings_AppColor", "Settings_AppColorDescription", "Settings_BlurWindowBackground", "Settings_BlurWindowBackgroundDescription",
+                        "Settings_Info", "Logs_Topic_Updates", "Dialog_Update_CurrentVersion", "Menu_CheckForUpdates", "Menu_SupportWinOptimizer", "Tooltip_Documentation", "Tooltip_ReportBug",
+                        "Settings_AutomaticAppUpdates", "Settings_AutomaticScriptUpdates")
                     .Concat(Languages.Select(item => item.DisplayText)).Concat(Themes.Select(item => item.DisplayText))
-                    .Concat(AppColorPreferences.Colors.Select(item => item.DisplayText))),
+                    .Concat(AppColorPreferences.Colors.Select(item => item.DisplayText)).Append(Info.VersionInfo)
+                    .Append(ApplicationStartup.Title).Append(ApplicationStartup.Description)),
             new(SettingsCategory.LogsAndHistory, "Settings_LogsAndHistory", "Settings_LogsAndHistoryDescription", "Settings_GroupApplication", Icon.DocumentText, _localizationService,
                 () => Labels("Menu_WinOptimizerLogs", "Menu_ChangeHistory")),
-            new(SettingsCategory.Info, "Settings_Info", "Settings_InfoDescription", "Settings_GroupApplication", Icon.Info, _localizationService,
-                () => Labels("Dialog_Update_CurrentVersion", "Menu_CheckForUpdates", "Menu_SupportWinOptimizer", "Tooltip_Documentation", "Tooltip_ReportBug",
-                    "Settings_AutomaticAppUpdates", "Settings_AutomaticScriptUpdates").Append(Info.VersionInfo)),
+            new(SettingsCategory.TimeMachine, "TimeMachine_Title", "TimeMachine_KeepDays", "Settings_GroupApplication", Icon.History, _localizationService,
+                () => Labels("TimeMachine_KeepDays")),
             new(SettingsCategory.Privacy, "Cleaner_Privacy", "Settings_PrivacyDescription", "Cleaner_Settings", Icon.ShieldLock, _localizationService,
                 () => Labels("Cleaner_RecentFiles", "Cleaner_BrowserCache", "Cleaner_BrowserHistory", "Cleaner_RegistryAccounts").Concat(Cleaner.PrivacyAccounts.Select(item => item.Title))),
             new(SettingsCategory.Junk, "Cleaner_JunkFiles", "Settings_JunkDescription", "Cleaner_Settings", Icon.Delete, _localizationService,
@@ -227,8 +251,6 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
             new(SettingsCategory.Shortcuts, "Cleaner_Shortcuts", "Settings_ShortcutsDescription", "Cleaner_Settings", Icon.Link, _localizationService,
                 () => Labels("Cleaner_Desktop", "Cleaner_StartMenu", "Cleaner_RecentFiles", "Cleaner_RegistryAccounts").Concat(Cleaner.ShortcutAccounts.Select(item => item.Title))),
             new(SettingsCategory.Disk, "Cleaner_Disk", "Settings_DiskDescription", "Cleaner_Settings", Icon.HardDrive, _localizationService, () => Cleaner.Drives),
-            new(SettingsCategory.Backups, "Cleaner_Backups", "Cleaner_BackupDescription", "Cleaner_Settings", Icon.History, _localizationService,
-                () => Labels("Cleaner_BackupBeforeCleaning", "Cleaner_BackupBeforeRegistryDefrag", "Cleaner_RestoreBackup", "Cleaner_ReloadBackups")),
             new(SettingsCategory.Drivers, "Nav_Drivers", "Settings_DriversDescription", "Settings_GroupTools", Icon.PlugConnected, _localizationService,
                 () => Labels("Drivers_WhqlLabel", "Drivers_WhqlDescription")),
             new(SettingsCategory.ResetAll, "Settings_ResetAllTitle", "Settings_ResetAllDescription", "Settings_GroupConfiguration", Icon.ArrowReset, _localizationService,
@@ -245,7 +267,9 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         VisibleGroups.Clear();
         foreach (var group in matches.GroupBy(category => category.GroupKey))
             VisibleGroups.Add(new(_localizationService.GetString(group.Key), group.ToArray()));
-        SelectedCategory = matches.Contains(selected) ? selected : null;
+        // Replacing the grouped items clears the ListView selection, even when the category still matches.
+        if (selected != null && matches.Contains(selected)) OnPropertyChanged(nameof(SelectedCategory));
+        else SelectedCategory = null;
         OnPropertyChanged(nameof(NoMatches));
     }
 
@@ -253,6 +277,7 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     {
         Logs.CancelRead();
         if (value?.Category == SettingsCategory.LogsAndHistory) Logs.RefreshCommand.Execute(null);
+        if (value?.Category == SettingsCategory.General) _ = ApplicationStartup.RefreshAsync();
     }
 
     /// <summary>Resets the opened category; the full-reset destination explicitly covers all settings on this page.</summary>
@@ -268,23 +293,74 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         {
             await InitializeAsync();
             bool reset;
-            if (category == SettingsCategory.Appearance) reset = await ResetAppearanceAsync();
+            if (category == SettingsCategory.General)
+            {
+                var appearance = await ResetAppearanceAsync();
+                var updates = await UpdatePreferences.ResetAsync();
+                reset = appearance && updates;
+            }
             else if (category == SettingsCategory.Drivers) reset = await Drivers.ResetAsync();
-            else if (category == SettingsCategory.Info) reset = await UpdatePreferences.ResetAsync();
+            else if (category == SettingsCategory.TimeMachine)
+                reset = await ApplyTimeMachineRetentionAsync(TimeMachineRetention.DefaultDays);
             else if (category == SettingsCategory.ResetAll)
             {
                 var appearance = await ResetAppearanceAsync();
                 var cleaner = await Cleaner.ResetAllAsync();
                 var drivers = await Drivers.ResetAsync();
                 var updates = await UpdatePreferences.ResetAsync();
-                reset = appearance && cleaner && drivers && updates;
+                var timeMachine = await ApplyTimeMachineRetentionAsync(TimeMachineRetention.DefaultDays);
+                reset = appearance && cleaner && drivers && updates && timeMachine;
             }
             else reset = await Cleaner.ResetSectionAsync(cleanerSection);
             if (!reset && Status.Length == 0) Status = string.Join(Environment.NewLine,
-                new[] { Cleaner.Status, Drivers.Status, UpdatePreferences.Status, SidebarPreferences.Status, AppColorPreferences.Status }.Where(message => message.Length > 0));
+                new[] { Cleaner.Status, Drivers.Status, UpdatePreferences.Status, SidebarPreferences.Status,
+                    AppColorPreferences.Status, WindowBackgroundPreferences.Status }.Where(message => message.Length > 0));
         }
         finally { IsResetting = false; }
     }
+
+    private async Task LoadTimeMachineRetentionAsync()
+    {
+        try
+        {
+            TimeMachineDays = await _timeMachineRetention.RetentionDaysAsync();
+            IsTimeMachineRetentionLoaded = true;
+        }
+        catch (Exception ex) when (IsRetentionError(ex)) { Status = ex.Message; }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanSaveTimeMachineRetention))]
+    private async Task SaveTimeMachineRetentionAsync()
+    {
+        if (!CanSaveTimeMachineRetention) return;
+        var days = TimeMachineDays;
+        if (!double.IsFinite(days) || days != Math.Truncate(days) ||
+            days < TimeMachineRetention.MinDays || days > TimeMachineRetention.MaxDays)
+        {
+            Status = $"{TimeMachineRetention.MinDays}–{TimeMachineRetention.MaxDays}";
+            return;
+        }
+        Status = "";
+        await ApplyTimeMachineRetentionAsync((int)days);
+    }
+
+    /// <summary>Publishes the same persisted retention value for save and both reset commands.</summary>
+    private async Task<bool> ApplyTimeMachineRetentionAsync(int days)
+    {
+        IsSavingTimeMachineRetention = true;
+        try
+        {
+            await _timeMachineRetention.UpdateRetentionAsync(days);
+            TimeMachineDays = days;
+            IsTimeMachineRetentionLoaded = true;
+            return true;
+        }
+        catch (Exception ex) when (IsRetentionError(ex)) { Status = ex.Message; return false; }
+        finally { IsSavingTimeMachineRetention = false; }
+    }
+
+    private static bool IsRetentionError(Exception ex) => ex is IOException or UnauthorizedAccessException
+        or System.Security.SecurityException or System.Text.Json.JsonException;
 
     private async Task<bool> ResetAppearanceAsync()
     {
@@ -303,7 +379,8 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         var languageSaved = await _languageSaves.FlushAsync();
         var sidebarSaved = await SidebarPreferences.ResetAsync();
         var colorSaved = await AppColorPreferences.ResetAsync();
-        return languageSaved && sidebarSaved && colorSaved;
+        var backgroundSaved = await WindowBackgroundPreferences.ResetAsync();
+        return languageSaved && sidebarSaved && colorSaved && backgroundSaved;
     }
 
     /// <summary>
@@ -359,6 +436,9 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
     // Localized string properties for x:Bind
     public string PageTitle => _localizationService.GetString("Settings_Title") ?? "Settings";
     public string PageDescription => _localizationService.GetString("Settings_Description");
+    public string AppearanceHeading => _localizationService.GetString("Settings_Appearance");
+    public string UpdatesHeading => _localizationService.GetString("Logs_Topic_Updates");
+    public string InfoHeading => _localizationService.GetString("Settings_Info");
     public string LanguageHeader => _localizationService.GetString("Settings_Menu_Language") ?? "Language";
     public string LanguageDescription => _localizationService.GetString("Settings_Language_Description") ?? "Select your preferred language";
     public string ThemeHeader => _localizationService.GetString("Settings_Theme_Title") ?? "Theme";

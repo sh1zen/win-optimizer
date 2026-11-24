@@ -16,9 +16,7 @@ public class ChangeHistoryService(
 {
     private static readonly Encoding Utf8 = new UTF8Encoding(false);
     private readonly object _lock = new();
-    private int _batchDepth;
-    private string? _batchHeader;
-    private Guid? _batchId;
+    private readonly AsyncLocal<BatchScope?> _batch = new();
     private static string DirectoryPath => AppDataPaths.History;
     private static string FilePath => Path.Combine(DirectoryPath, "ChangeHistory.jsonl");
 
@@ -29,6 +27,10 @@ public class ChangeHistoryService(
     public void LogSettingAction(string displayName, string? localizedGroupName) =>
         WriteEntry(new() { Timestamp = DateTimeOffset.Now, Kind = HistoryEntryKind.SettingAction,
             Name = displayName, Group = localizedGroupName });
+
+    public void LogMaintenance(LogTopic topic, string name, string action, Guid? recoveryId = null, string? accountSid = null) =>
+        WriteEntry(new() { Timestamp = DateTimeOffset.Now, Kind = HistoryEntryKind.Maintenance,
+            Topic = topic, Name = name, ActionLabel = action, RecoveryId = recoveryId, AccountSid = accountSid });
 
     public void LogAppChange(string appDisplayName, AppChangeKind kind)
     {
@@ -45,14 +47,19 @@ public class ChangeHistoryService(
         { logService.Log(LogLevel.Warning, $"[ChangeHistoryService] Failed to write entry: {ex.Message}"); }
     }
 
-    /// <summary>Attaches the outer batch's label and stable identifier only to receipts that actually get written.</summary>
+    /// <summary>Shares an outer batch with its awaited work and keeps independent execution flows separate.</summary>
     public IDisposable BeginBatch(string localizedHeader)
     {
-        lock (_lock)
-        {
-            if (_batchDepth++ == 0) { _batchHeader = localizedHeader; _batchId = Guid.NewGuid(); }
-        }
-        return new BatchScope(this);
+        var previous = GetActiveScope(_batch.Value);
+        var scope = new BatchScope(this, previous, previous?.Batch ?? new HistoryBatch(localizedHeader, Guid.NewGuid()));
+        _batch.Value = scope;
+        return scope;
+    }
+
+    private static BatchScope? GetActiveScope(BatchScope? scope)
+    {
+        while (scope is { IsDisposed: true }) scope = scope.Previous;
+        return scope;
     }
 
     public string GetFilePath()
@@ -123,7 +130,8 @@ public class ChangeHistoryService(
         {
             try
             {
-                var receipt = entry with { Batch = _batchHeader, BatchId = _batchId };
+                var batch = GetActiveScope(_batch.Value)?.Batch;
+                var receipt = entry with { Batch = batch?.Label, BatchId = batch?.Id };
                 var line = JsonSerializer.Serialize(receipt, LogPageReader.JsonOptions) + "\r\n";
                 try { fileSystemService.AppendAllText(FilePath, line, Utf8); }
                 catch (DirectoryNotFoundException)
@@ -142,16 +150,19 @@ public class ChangeHistoryService(
         if (!fileSystemService.DirectoryExists(DirectoryPath)) fileSystemService.CreateDirectory(DirectoryPath);
     }
 
-    private sealed class BatchScope(ChangeHistoryService owner) : IDisposable
+    private sealed record HistoryBatch(string Label, Guid Id);
+
+    private sealed class BatchScope(ChangeHistoryService owner, BatchScope? previous, HistoryBatch batch) : IDisposable
     {
         private int _disposed;
+        public BatchScope? Previous { get; } = previous;
+        public HistoryBatch Batch { get; } = batch;
+        public bool IsDisposed => Volatile.Read(ref _disposed) != 0;
+
         public void Dispose()
         {
-            if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
-            lock (owner._lock)
-            {
-                if (--owner._batchDepth == 0) { owner._batchHeader = null; owner._batchId = null; }
-            }
+            if (Interlocked.Exchange(ref _disposed, 1) == 0 && ReferenceEquals(owner._batch.Value, this))
+                owner._batch.Value = GetActiveScope(Previous);
         }
     }
 }

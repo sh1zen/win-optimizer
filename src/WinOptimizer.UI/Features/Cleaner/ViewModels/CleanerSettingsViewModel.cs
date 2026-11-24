@@ -2,7 +2,6 @@ using WinOptimizer.Application.Preferences;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using CommunityToolkit.Mvvm.ComponentModel;
-using CommunityToolkit.Mvvm.Input;
 using WinOptimizer.Core.Features.Cleaner.Interfaces;
 using WinOptimizer.Core.Features.Cleaner.Models;
 using WinOptimizer.Core.Features.Common.Interfaces;
@@ -23,7 +22,7 @@ public sealed class CleanerChoice<T>(T value, string labelKey, ILocalizationServ
     public void RefreshText() { OnPropertyChanged(nameof(Title)); OnPropertyChanged(nameof(Description)); }
 }
 
-public enum CleanerSettingsSection { All, Backups, Registry, Privacy, Junk, Shortcuts, Disk }
+public enum CleanerSettingsSection { All, Registry, Privacy, Junk, Shortcuts, Disk }
 
 /// <summary>Shared Cleaner preferences with ordered automatic persistence and validated scan snapshots.</summary>
 public partial class CleanerSettingsViewModel : ObservableObject, IDisposable
@@ -31,11 +30,6 @@ public partial class CleanerSettingsViewModel : ObservableObject, IDisposable
     private readonly IUserPreferencesService _preferences;
     private readonly ICleanerBackend _backend;
     private readonly ILocalizationService _localization;
-    private readonly ITaskProgressService _tasks;
-    private readonly IExplorerWindowManager _explorer;
-    private readonly ICleanerBackupService _backups;
-    private readonly IDialogService _dialogs;
-    private readonly IApplicationModeService _applicationModeService;
     private bool _loaded;
     private bool _applyingOptions;
     private Task? _loadTask;
@@ -53,12 +47,8 @@ public partial class CleanerSettingsViewModel : ObservableObject, IDisposable
     private int _applicationRevision;
     private bool _disposed;
     public ObservableCollection<string> Drives { get; } = [];
-    public ObservableCollection<CleanerBackupInfo> Backups { get; } = [];
-    [ObservableProperty] public partial CleanerBackupInfo? SelectedBackup { get; set; }
 
     [ObservableProperty] public partial bool DeepClean { get; set; }
-    [ObservableProperty] public partial bool BackupBeforeCleaning { get; set; } = true;
-    [ObservableProperty] public partial bool BackupBeforeRegistryDefrag { get; set; } = true;
     [ObservableProperty] public partial bool RecentFiles { get; set; }
     [ObservableProperty] public partial bool BrowserCache { get; set; }
     [ObservableProperty] public partial bool BrowserHistory { get; set; }
@@ -129,29 +119,16 @@ public partial class CleanerSettingsViewModel : ObservableObject, IDisposable
     public string DesktopLabel => Text("Cleaner_Desktop");
     public string StartMenuLabel => Text("Cleaner_StartMenu");
     public string DiskLabel => Text("Cleaner_Disk");
-    public string BackupsLabel => Text("Cleaner_Backups");
-    public string BackupLabel => Text("Cleaner_BackupBeforeCleaning");
-    public string HiveBackupLabel => Text("Cleaner_BackupBeforeRegistryDefrag");
-    public string RestoreLabel => Text("Cleaner_RestoreBackup");
-    public string ReloadBackupsLabel => Text("Cleaner_ReloadBackups");
-    public string OpenBackupsLabel => Text("Settings_OpenBackupFolder");
     public string ShaderLabel => Text("Cleaner_ShaderCache");
     public string ThumbnailLabel => Text("Cleaner_ThumbnailCache");
     public string ReportsLabel => Text("Cleaner_ErrorReports");
     private string Text(string key) => _localization.GetString(key);
 
-    public CleanerSettingsViewModel(IUserPreferencesService preferences, ICleanerBackend backend,
-        ILocalizationService localization, ITaskProgressService tasks, IExplorerWindowManager explorer,
-        ICleanerBackupService backups, IDialogService dialogs, IApplicationModeService applicationModeService)
+    public CleanerSettingsViewModel(IUserPreferencesService preferences, ICleanerBackend backend, ILocalizationService localization)
     {
         _preferences = preferences;
         _backend = backend;
         _localization = localization;
-        _tasks = tasks;
-        _explorer = explorer;
-        _backups = backups;
-        _applicationModeService = applicationModeService;
-        _dialogs = dialogs;
         _saves = new(options => _preferences.SetPreferenceAsync("Cleaner", options), PublishOptions,
             error => Status = error ?? "", "Unable to save Cleaner preferences.");
         foreach (var category in Enum.GetValues<RegistryArea>())
@@ -222,8 +199,6 @@ public partial class CleanerSettingsViewModel : ObservableObject, IDisposable
         try
         {
             DeepClean = options.DeepClean;
-            BackupBeforeCleaning = options.BackupBeforeCleaning;
-            BackupBeforeRegistryDefrag = options.BackupBeforeRegistryDefrag;
             RecentFiles = options.RecentFiles;
             BrowserCache = options.BrowserCache;
             BrowserHistory = options.BrowserHistory;
@@ -289,7 +264,7 @@ public partial class CleanerSettingsViewModel : ObservableObject, IDisposable
             DeepClean = DeepClean, RecentFiles = RecentFiles, BrowserCache = BrowserCache, BrowserHistory = BrowserHistory,
             BrowserOfflineCache = BrowserOfflineCache, WindowsHistory = WindowsHistory, ApplicationHistory = ApplicationHistory,
             ApplicationPrivacyCaches = ApplicationPrivacyCaches, CertificateCache = CertificateCache, JumpLists = JumpLists, DefenderLogs = DefenderLogs,
-            BackupBeforeCleaning = BackupBeforeCleaning, BackupBeforeRegistryDefrag = BackupBeforeRegistryDefrag,
+            BackupBeforeCleaning = Options.BackupBeforeCleaning,
             ShaderCache = ShaderCache, ThumbnailCache = ThumbnailCache, ErrorReports = ErrorReports,
             WindowsLogs = WindowsLogs, CrashDumps = CrashDumps, InternetCache = InternetCache,
             UserTemp = UserTemp, WindowsTemp = WindowsTemp, DesktopShortcuts = DesktopShortcuts,
@@ -299,7 +274,6 @@ public partial class CleanerSettingsViewModel : ObservableObject, IDisposable
         };
         return (reset switch
         {
-            CleanerSettingsSection.Backups => current with { BackupBeforeCleaning = defaults.BackupBeforeCleaning, BackupBeforeRegistryDefrag = defaults.BackupBeforeRegistryDefrag },
             CleanerSettingsSection.Registry => current with { RegistryAreas = defaults.RegistryAreas, DeepClean = defaults.DeepClean, RegistryAccountSids = defaults.RegistryAccountSids },
             CleanerSettingsSection.Privacy => current with { RecentFiles = defaults.RecentFiles, BrowserCache = defaults.BrowserCache, BrowserHistory = defaults.BrowserHistory,
                 BrowserOfflineCache = defaults.BrowserOfflineCache, WindowsHistory = defaults.WindowsHistory, ApplicationHistory = defaults.ApplicationHistory,
@@ -326,7 +300,7 @@ public partial class CleanerSettingsViewModel : ObservableObject, IDisposable
         if (e.PropertyName is nameof(DeepClean) or nameof(RecentFiles) or nameof(BrowserCache) or nameof(BrowserHistory)
             or nameof(BrowserOfflineCache) or nameof(WindowsHistory) or nameof(ApplicationHistory) or nameof(ApplicationPrivacyCaches)
             or nameof(CertificateCache) or nameof(JumpLists) or nameof(DefenderLogs)
-            or nameof(BackupBeforeCleaning) or nameof(BackupBeforeRegistryDefrag) or nameof(UserTemp) or nameof(WindowsTemp)
+            or nameof(UserTemp) or nameof(WindowsTemp)
             or nameof(WindowsLogs) or nameof(CrashDumps) or nameof(InternetCache)
             or nameof(ShaderCache) or nameof(ThumbnailCache) or nameof(ErrorReports) or nameof(DesktopShortcuts)
             or nameof(StartMenuShortcuts) or nameof(RecentShortcuts) or nameof(MinimumAgeDays) or nameof(DiskRoot)) QueueSave();
@@ -405,65 +379,6 @@ public partial class CleanerSettingsViewModel : ObservableObject, IDisposable
             return await _saves.FlushAsync();
         }
         catch (Exception ex) when (ex is ArgumentException or OverflowException) { _saves.Reject(ex.Message); return false; }
-    }
-
-    [RelayCommand]
-    private async Task ReloadBackupsAsync()
-    {
-        if (IsBusy || _tasks.IsTaskRunning) { Status = Text("Cleaner_Wait"); return; }
-        IsBusy = true;
-        try
-        {
-            var list = await _backups.ListAsync(CancellationToken.None);
-            Backups.Clear();
-            foreach (var item in list) Backups.Add(item);
-            SelectedBackup = Backups.FirstOrDefault();
-            Status = Backups.Count == 0 ? Text("Cleaner_NoBackups") : "";
-        }
-        catch (Exception ex) { Status = ex.Message; }
-        finally { IsBusy = false; }
-    }
-
-    [RelayCommand]
-    private async Task RestoreBackupAsync()
-    {
-        if (_applicationModeService.CurrentMode == WinOptimizer.Core.Features.Common.Enums.WinOptimizerMode.Builder)
-        { Status = Text("TrialMode_Blocked"); return; }
-        if (IsBusy || _tasks.IsTaskRunning) { Status = Text("Cleaner_Wait"); return; }
-        if (SelectedBackup is null) { Status = Text("Cleaner_SelectBackup"); return; }
-        var selected = SelectedBackup;
-        IsBusy = true;
-        CancellationTokenSource? cts = null;
-        try
-        {
-            var confirmation = await _dialogs.ShowConfirmationAsync(new WinOptimizer.Core.Features.Common.Models.ConfirmationRequest
-            {
-                Title = RestoreLabel, Message = Text("Cleaner_RestoreConfirm"), ConfirmButtonText = RestoreLabel,
-                CancelButtonText = Text("Button_Cancel")
-            });
-            if (!confirmation.Confirmed) return;
-            if (_applicationModeService.CurrentMode == WinOptimizer.Core.Features.Common.Enums.WinOptimizerMode.Builder)
-            { Status = Text("TrialMode_Blocked"); return; }
-            if (_tasks.IsTaskRunning) { Status = Text("Cleaner_Wait"); return; }
-            cts = _tasks.StartTask(RestoreLabel, isIndeterminate: true);
-            var result = await _backups.RestoreAsync(selected.Id, cts.Token);
-            Status = string.Format(Text("Cleaner_RestoreComplete"), result.Restored, result.Errors.Count);
-            if (result.Errors.Count > 0) Status += Environment.NewLine + string.Join(Environment.NewLine, result.Errors);
-        }
-        catch (OperationCanceledException) { Status = Text("Cleaner_Cancelled"); }
-        catch (Exception ex) { Status = ex.Message; }
-        finally { if (cts is not null) _tasks.CompleteTask(); IsBusy = false; }
-    }
-
-    [RelayCommand]
-    private async Task OpenBackupsAsync()
-    {
-        try
-        {
-            if (!Directory.Exists(_backend.BackupDirectory)) { Status = Text("Cleaner_NoBackups"); return; }
-            await _explorer.OpenFolderAsync(_backend.BackupDirectory);
-        }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { Status = ex.Message; }
     }
 
     private void OnLanguageChanged(object? sender, EventArgs e)

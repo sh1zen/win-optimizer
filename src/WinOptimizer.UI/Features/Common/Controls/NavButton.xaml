@@ -10,7 +10,7 @@
 
     <Grid x:Name="RootGrid"
           Width="{x:Bind ActualButtonWidth, Mode=OneWay}"
-          Height="{x:Bind ActualButtonHeight, Mode=OneWay}"
+          MinHeight="{x:Bind ActualButtonHeight, Mode=OneWay}"
           PointerEntered="RootGrid_PointerEntered"
           PointerExited="RootGrid_PointerExited"
           PointerPressed="RootGrid_PointerPressed"
@@ -34,6 +34,19 @@
                     </VisualState.Setters>
                 </VisualState>
             </VisualStateGroup>
+            <VisualStateGroup x:Name="LayoutStates">
+                <VisualState x:Name="CompactLayout">
+                    <VisualState.StateTriggers>
+                        <StateTrigger IsActive="{x:Bind IsCompact, Mode=OneWay}"/>
+                    </VisualState.StateTriggers>
+                    <VisualState.Setters>
+                        <Setter Target="ButtonContent.HorizontalAlignment" Value="Center"/>
+                        <Setter Target="ButtonContent.Padding" Value="0"/>
+                        <Setter Target="ButtonContent.ColumnSpacing" Value="0"/>
+                        <Setter Target="SelectionIndicator.Visibility" Value="Collapsed"/>
+                    </VisualState.Setters>
+                </VisualState>
+            </VisualStateGroup>
         </VisualStateManager.VisualStateGroups>
 
         <!-- Main Button Background -->
@@ -41,20 +54,23 @@
                 Background="Transparent"
                 CornerRadius="13"/>
 
-        <!-- Content Stack.
-             Spacing 2 (not 4) so that when Windows' "Make text bigger" scale
-             bumps the 2-line label height past its default ~24dp, the icon +
-             gap + text stack still fits inside the fixed 60dp button without
-             clipping the icon's top edge (issue #668 iter3). -->
-        <StackPanel HorizontalAlignment="Center"
-                    VerticalAlignment="Center"
-                    Spacing="2"
-                    Opacity="{x:Bind ContentOpacity, Mode=OneWay}">
+        <Rectangle x:Name="SelectionIndicator" Width="2" RadiusX="1" RadiusY="1"
+                   Margin="0,5" HorizontalAlignment="Left" IsHitTestVisible="False"
+                   Fill="{ThemeResource AccentFillColorDefaultBrush}"
+                   Visibility="{x:Bind IsSelected, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+
+        <Grid x:Name="ButtonContent" Padding="13,6,10,6" ColumnSpacing="12"
+              Opacity="{x:Bind ContentOpacity, Mode=OneWay}">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
             <!-- A shared coordinate space keeps every navigation icon at the same visual scale. -->
             <Viewbox x:Name="ButtonIcon"
                      Width="{x:Bind IconSize, Mode=OneWay}"
                      Height="{x:Bind IconSize, Mode=OneWay}"
                      HorizontalAlignment="Center"
+                     VerticalAlignment="Center"
                      Margin="{x:Bind IconMargin, Mode=OneWay}"
                      Visibility="{x:Bind IconVisibility, Mode=OneWay}">
                 <Canvas Width="24" Height="24">
@@ -66,29 +82,17 @@
                 </Canvas>
             </Viewbox>
 
-            <!-- Text (Hidden when compact).
-                 Wrap to 2 lines so the default-scale rendering keeps the
-                 natural "Software & Apps" / "Advanced Tools" / etc. wrap
-                 behaviour; TextTrimming kicks in only when the wrapped text
-                 still exceeds 2 lines at higher Windows text-scale settings
-                 ("Software\n& App…"). Combined with the parent StackPanel's
-                 reduced Spacing=2, this fits inside the fixed 60dp button
-                 even at typical 125-150% text scale.
-                 AutomationProperties.Name on the parent UserControl binds the
-                 full text for screen readers, so trimming loses no info for
-                 accessibility (issue #668 iter3). -->
-            <TextBlock x:Name="ButtonText"
+            <!-- Long translations can wrap while the automation name retains the full text. -->
+            <TextBlock x:Name="ButtonText" Grid.Column="1"
                        Text="{x:Bind Text, Mode=OneWay}"
-                       FontSize="10"
+                       FontSize="14"
                        Foreground="{ThemeResource TextFillColorSecondaryBrush}"
                        TextWrapping="Wrap"
                        TextTrimming="CharacterEllipsis"
                        MaxLines="2"
-                       TextAlignment="Center"
-                       MaxWidth="60"
-                       HorizontalAlignment="Center"
+                       VerticalAlignment="Center"
                        Visibility="{x:Bind TextVisibility, Mode=OneWay}"/>
-        </StackPanel>
+        </Grid>
 
         <!-- InfoBadge Overlay -->
         <InfoBadge x:Name="Badge"

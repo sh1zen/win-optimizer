@@ -56,10 +56,8 @@ public class AutounattendScriptBuilder
 
         if (config.WindowsApps.Items.Count > 0)
         {
-            await _appRemovalSection.AppendBloatRemovalScriptAsync(sb, config.WindowsApps.Items, "    ").ConfigureAwait(false);
+            _appRemovalSection.AppendBloatRemovalScript(sb, config.WindowsApps.Items, "    ");
         }
-
-        _appRemovalSection.AppendWinOptimizerInstallerScriptContent(sb, "    ");
 
         // 2b. Power settings
         await _powerSettingsSection.AppendPowerSettingsSectionAsync(sb, config, allSettings, "    ").ConfigureAwait(false);

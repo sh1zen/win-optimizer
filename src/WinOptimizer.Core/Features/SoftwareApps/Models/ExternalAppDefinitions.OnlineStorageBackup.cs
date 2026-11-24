@@ -87,11 +87,6 @@ public static partial class ExternalAppDefinitions
                         WinGetPackageId = ["Hekasoft.Backup-Restore"],
                         MsStoreId = "9NLJQ1B18MZT",
                         WebsiteUrl = "https://hekasoft.com/hekasoft-backup-restore/",
-                        ExternalApp = new ExternalAppMetadata
-                        {
-                            DownloadUrl = "https://hekasoft.com/?download=112",
-                            FallbackDownloadUrl = "https://hekasoft.com/?download=612",
-                        },
                     },
                 }
             };

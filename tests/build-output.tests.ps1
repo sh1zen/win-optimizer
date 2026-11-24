@@ -42,6 +42,15 @@ if (@(Get-ChildItem -LiteralPath $PublishDirectory -Recurse -File -Filter '*.pdb
 foreach ($file in @('win-optimizer.exe', 'win-optimizer.pri', 'coreclr.dll', 'Microsoft.UI.Xaml.dll', 'WindowsPackageManager.Interop.dll')) {
     if (-not (Test-Path -LiteralPath (Join-Path $PublishDirectory $file) -PathType Leaf)) { throw "Missing runtime file: $file" }
 }
+$appResourceHash = (Get-FileHash -LiteralPath (Join-Path $PublishDirectory 'win-optimizer.pri')).Hash
+foreach ($companion in @('win-optimizer-preview', 'win-optimizer-widgets')) {
+    if (-not (Test-Path -LiteralPath (Join-Path $PublishDirectory "$companion.exe") -PathType Leaf)) {
+        throw "Missing companion executable: $companion.exe"
+    }
+    if ((Get-FileHash -LiteralPath (Join-Path $PublishDirectory "$companion.pri")).Hash -ne $appResourceHash) {
+        throw "Companion resources do not match the app index: $companion.pri"
+    }
+}
 $archive = [IO.Compression.ZipFile]::OpenRead((Resolve-Path -LiteralPath $SymbolArchive).Path)
 try {
     if ($archive.Entries.Count -ne $assemblies.Count) { throw 'The symbol archive must contain exactly the application and project PDBs.' }

@@ -107,6 +107,27 @@ public class DependencyManagerTests
     }
 
     [Fact]
+    public async Task HandleSettingEnabled_WhenPrerequisiteIsRejected_ReturnsFalse()
+    {
+        var parent = CreateSetting("parent");
+        var child = CreateSetting("child", [new SettingDependency
+        {
+            DependentSettingId = "child", RequiredSettingId = "parent",
+            DependencyType = SettingDependencyType.RequiresEnabled
+        }]);
+        _mockRegistry.Setup(r => r.GetSetting("parent", null)).Returns(parent);
+        _mockDiscovery.Setup(d => d.GetSettingStatesAsync(It.IsAny<IEnumerable<SettingDefinition>>()))
+            .ReturnsAsync(new Dictionary<string, SettingStateResult> { ["parent"] = new() { Success = true, IsEnabled = false } });
+        _mockSettingApp.Setup(s => s.ApplySettingAsync(It.Is<ApplySettingRequest>(r => r.SettingId == "parent" && r.Enable)))
+            .ReturnsAsync(OperationResult.Failed("The prerequisite write failed"));
+
+        var accepted = await _manager.HandleSettingEnabledAsync("child", [parent, child], _mockSettingApp.Object, _mockDiscovery.Object);
+
+        accepted.Should().BeFalse();
+        _mockSettingApp.Verify(s => s.ApplySettingAsync(It.Is<ApplySettingRequest>(r => r.SettingId == "parent" && r.Enable)), Times.Once);
+    }
+
+    [Fact]
     public async Task HandleSettingDisabled_NoDependents_DoesNotApplyAnything()
     {
         var settings = new ISettingItem[] { CreateSetting("s1") };

@@ -76,7 +76,7 @@ public class ConfigAppSelectionService : IConfigAppSelectionService
             {
                 var vmItem = FindMatchingExternalApp(_externalAppsVM.Items, configItem);
                 if (vmItem != null)
-                    vmItem.IsSelected = true;
+                    vmItem.IsSelected = configItem.IsSelected ?? true;
             }
         }
 

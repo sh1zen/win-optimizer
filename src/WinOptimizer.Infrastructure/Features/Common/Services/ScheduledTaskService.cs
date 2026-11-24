@@ -68,6 +68,23 @@ public class ScheduledTaskService(ILogService logService, IFileSystemService fil
         exception is COMException or IOException &&
         (exception.HResult == unchecked((int)0x80070002) || exception.HResult == unchecked((int)0x80070003));
 
+    /// <summary>Distinguishes an absent logon task from a scheduler or permissions failure.</summary>
+    public Task<bool> IsUserLogonApplicationEnabledAsync(string taskName) => Task.Run(() =>
+    {
+        object? service = null;
+        try
+        {
+            service = _createTaskService();
+            return ReadConnectedTaskState(service, $"\\win-optimizer\\{taskName}");
+        }
+        catch (Exception ex) when (IsMissingTaskResource(ex) && service is not null) { return false; }
+        catch (COMException ex)
+        {
+            throw new InvalidOperationException($"Unable to read Windows startup: {ex.Message}", ex);
+        }
+        finally { ReleaseComObject(service); }
+    });
+
     /// <summary>Builds a user-scoped logon task that keeps a desktop session alive on battery power.</summary>
     internal static string BuildUserLogonApplicationXml(string executablePath, string arguments, string userSid)
     {
@@ -139,17 +156,17 @@ public class ScheduledTaskService(ILogService logService, IFileSystemService fil
                 try
                 {
                     existingTask = folder.GetTask(taskName);
-                    if (existingTask != null)
-                    {
-                        folder.DeleteTask(taskName, 0);
-                        logService.LogInformation($"Unregistered task: {taskName}");
-                    }
                 }
-                catch (Exception ex)
+                catch (Exception ex) when (ex.HResult == unchecked((int)0x80070002))
                 {
                     logService.Log(Core.Features.Common.Enums.LogLevel.Debug, $"[ScheduledTaskService] Task '{taskName}' not found: {ex.Message}");
                 }
 
+                if (existingTask != null)
+                {
+                    folder.DeleteTask(taskName, 0);
+                    logService.LogInformation($"Unregistered task: {taskName}");
+                }
                 return OperationResult.Succeeded();
             }
             catch (Exception ex)

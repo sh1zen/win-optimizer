@@ -53,8 +53,12 @@ public class RegistryCommandEmitterTests
     // EmitRegistryValue - Binary with ModifyByteOnly
     // ---------------------------------------------------------------
 
-    [Fact]
-    public void EmitRegistryValue_BinaryModifyByteOnly_EmitsSetBinaryByte()
+    [Theory]
+    [InlineData((byte)0xAB, "0xAB")]
+    [InlineData(15, "0x0F")]
+    [InlineData(255, "0xFF")]
+    [InlineData("unknown", "0x00")]
+    public void EmitRegistryValue_BinaryModifyByteOnly_EmitsSetBinaryByte(object value, string expectedByte)
     {
         var sb = new StringBuilder();
         var regSetting = new RegistrySetting
@@ -68,12 +72,12 @@ public class RegistryCommandEmitterTests
             DefaultValue = null
         };
 
-        _sut.EmitRegistryValue(sb, regSetting, 255, "Byte Setting", "'HKLM:\\Software\\Test'", "ByteVal", "");
+        _sut.EmitRegistryValue(sb, regSetting, value, "Byte Setting", "'HKLM:\\Software\\Test'", "ByteVal", "");
 
         var output = sb.ToString();
         output.Should().Contain("Set-BinaryByte");
         output.Should().Contain("-ByteIndex 5");
-        output.Should().Contain("-ByteValue 0xFF");
+        output.Should().Contain($"-ByteValue {expectedByte}");
     }
 
     // ---------------------------------------------------------------
@@ -103,75 +107,34 @@ public class RegistryCommandEmitterTests
     }
 
     // ---------------------------------------------------------------
-    // EmitRegistryValueFromDefinition - ModifyByteOnly
+    // AppendToggleCommandsFiltered - Definition bit state
     // ---------------------------------------------------------------
 
-    [Fact]
-    public void EmitRegistryValueFromDefinition_ModifyByteOnly_ByteValue_FormatsCorrectly()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void AppendToggleCommandsFiltered_BitMaskUsesToggleState(bool isSelected)
     {
         var sb = new StringBuilder();
-        var regSetting = new RegistrySetting
-        {
-            KeyPath = "HKEY_LOCAL_MACHINE\\Software\\Test",
-            ValueName = "Val",
-            ValueType = RegistryValueKind.Binary,
-            BinaryByteIndex = 2,
-            ModifyByteOnly = true,
-            RecommendedValue = null,
-            DefaultValue = null
-        };
+        var setting = CreateSettingDefinition("test-bit", "Bit setting",
+        [
+            new RegistrySetting
+            {
+                KeyPath = "HKEY_LOCAL_MACHINE\\Software\\Test",
+                ValueName = "Val",
+                ValueType = RegistryValueKind.Binary,
+                BinaryByteIndex = 0,
+                BitMask = 0x04,
+                EnabledValue = [(byte)0],
+                DisabledValue = [(byte)4],
+                RecommendedValue = null,
+                DefaultValue = null
+            }
+        ]);
 
-        _sut.EmitRegistryValueFromDefinition(sb, regSetting, (byte)0xAB, isEnabled: true,
-            "Def Byte", "'HKLM:\\Software\\Test'", "Val", "");
+        _sut.AppendToggleCommandsFiltered(sb, setting, new ConfigurationItem { Id = setting.Id, IsSelected = isSelected }, isHkcu: false);
 
-        var output = sb.ToString();
-        output.Should().Contain("Set-BinaryByte");
-        output.Should().Contain("0xAB");
-    }
-
-    [Fact]
-    public void EmitRegistryValueFromDefinition_ModifyByteOnly_IntValue_CastsToByte()
-    {
-        var sb = new StringBuilder();
-        var regSetting = new RegistrySetting
-        {
-            KeyPath = "HKEY_LOCAL_MACHINE\\Software\\Test",
-            ValueName = "Val",
-            ValueType = RegistryValueKind.Binary,
-            BinaryByteIndex = 0,
-            ModifyByteOnly = true,
-            RecommendedValue = null,
-            DefaultValue = null
-        };
-
-        _sut.EmitRegistryValueFromDefinition(sb, regSetting, 15, isEnabled: true,
-            "Def Int", "'HKLM:\\Software\\Test'", "Val", "");
-
-        var output = sb.ToString();
-        output.Should().Contain("Set-BinaryByte");
-        output.Should().Contain("0x0F");
-    }
-
-    [Fact]
-    public void EmitRegistryValueFromDefinition_ModifyByteOnly_UnknownType_Defaults0x00()
-    {
-        var sb = new StringBuilder();
-        var regSetting = new RegistrySetting
-        {
-            KeyPath = "HKEY_LOCAL_MACHINE\\Software\\Test",
-            ValueName = "Val",
-            ValueType = RegistryValueKind.Binary,
-            BinaryByteIndex = 0,
-            ModifyByteOnly = true,
-            RecommendedValue = null,
-            DefaultValue = null
-        };
-
-        _sut.EmitRegistryValueFromDefinition(sb, regSetting, "unknown", isEnabled: true,
-            "Def Unknown", "'HKLM:\\Software\\Test'", "Val", "");
-
-        var output = sb.ToString();
-        output.Should().Contain("0x00");
+        sb.ToString().Should().Contain("Set-BinaryBit").And.Contain($"-SetBit ${isSelected}");
     }
 
     // ---------------------------------------------------------------

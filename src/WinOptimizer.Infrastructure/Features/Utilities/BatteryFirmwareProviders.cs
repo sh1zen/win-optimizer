@@ -1,23 +1,30 @@
+using System.Collections.Immutable;
 using System.Globalization;
 using WinOptimizer.Core.Features.Utilities;
 
 namespace WinOptimizer.Infrastructure.Features.Utilities;
 
 internal sealed record FirmwareChargeState(string Provider, IReadOnlyList<int> Limits, int? ActiveLimit,
-    BatteryControlIssue Issue = BatteryControlIssue.None);
+    BatteryControlIssue Issue = BatteryControlIssue.None)
+{
+    public int? ActiveResumeThreshold { get; init; }
+    public IReadOnlyDictionary<int, BatteryResumeThresholds> ResumeThresholds { get; init; } =
+        ImmutableDictionary<int, BatteryResumeThresholds>.Empty;
+}
 
 /// <summary>One manufacturer's charge-control protocol; construction performs no hardware calls.</summary>
 internal interface IBatteryFirmwareProvider
 {
     bool Matches(string manufacturer);
     FirmwareChargeState Read();
-    void SetLimit(int percentage);
+    void SetLimit(int percentage, int? resumeThreshold = null);
 }
 
 /// <summary>Uses Dell's agentless BIOS attribute API and validates the discovered writable ranges.</summary>
 internal sealed class DellBatteryFirmware(IBatteryWmi wmi) : IBatteryFirmwareProvider
 {
     internal const string Scope = @"root\dcim\sysman\biosattributes";
+    private const int MinimumGap = 5;
     public bool Matches(string manufacturer) => manufacturer.Contains("Dell", StringComparison.OrdinalIgnoreCase);
     private IReadOnlyDictionary<string, object?>? Attribute(string type, string name) => wmi.Query(Scope,
         $"SELECT * FROM {type} WHERE AttributeName='{name}'").SingleOrDefault();
@@ -31,36 +38,79 @@ internal sealed class DellBatteryFirmware(IBatteryWmi wmi) : IBatteryFirmwarePro
         if (mode == null) return new("Dell BIOS WMI", [], null, BatteryControlIssue.InterfaceUnavailable);
         if (!Writable(mode)) return new("Dell BIOS WMI", [], null, BatteryControlIssue.FirmwareLocked);
         var limits = new List<int>();
-        if (Values(mode).Contains("Standard", StringComparer.OrdinalIgnoreCase)) limits.Add(100);
+        var resumeThresholds = ImmutableDictionary.CreateBuilder<int, BatteryResumeThresholds>();
+        var supportsStandard = Values(mode).Contains("Standard", StringComparer.OrdinalIgnoreCase);
+        if (supportsStandard) limits.Add(100);
         var stop = Attribute("IntegerAttribute", "CustomChargeStop");
         var start = Attribute("IntegerAttribute", "CustomChargeStart");
+        var currentMode = mode.GetValueOrDefault("CurrentValue") as string;
+        var custom = string.Equals(currentMode, "Custom", StringComparison.OrdinalIgnoreCase);
         if (Values(mode).Contains("Custom", StringComparer.OrdinalIgnoreCase) && stop != null && start != null && Writable(stop) && Writable(start) &&
             stop.GetValueOrDefault("LowerBound") is { } lower && stop.GetValueOrDefault("UpperBound") is { } upper &&
             start.GetValueOrDefault("LowerBound") is { } startLower && start.GetValueOrDefault("UpperBound") is { } startUpper)
         {
-            var minimum = Math.Max(55, Math.Max(Convert.ToInt32(lower), Convert.ToInt32(startLower) + 5));
+            var minimumStart = Convert.ToInt32(startLower);
+            var maximumStart = Convert.ToInt32(startUpper);
+            var startStep = Math.Max(1, Convert.ToInt32(start.GetValueOrDefault("ScalarIncrement") ?? 1));
+            var minimumStop = Convert.ToInt32(lower);
+            var minimum = Math.Max(55, Math.Max(minimumStop, minimumStart + MinimumGap));
             var maximum = Math.Min(100, Convert.ToInt32(upper));
             var step = Math.Max(1, Convert.ToInt32(stop.GetValueOrDefault("ScalarIncrement") ?? 1));
-            for (var value = minimum; value <= maximum; value++)
-                if ((value - Convert.ToInt32(lower)) % step == 0 && Convert.ToInt32(startLower) <= Convert.ToInt32(startUpper)) limits.Add(value);
+            for (var value = minimum; value <= maximum && minimumStart <= maximumStart; value++)
+            {
+                if ((value - minimumStop) % step != 0) continue;
+                limits.Add(value);
+                var closest = Math.Min(value - MinimumGap, maximumStart);
+                closest -= (closest - minimumStart) % startStep;
+                resumeThresholds.Add(value, new(minimumStart, closest, startStep, value == 100 && supportsStandard));
+            }
         }
-        var currentMode = mode.GetValueOrDefault("CurrentValue") as string;
         int? active = string.Equals(currentMode, "Standard", StringComparison.OrdinalIgnoreCase) ? 100 :
-            string.Equals(currentMode, "Custom", StringComparison.OrdinalIgnoreCase) && stop?.GetValueOrDefault("CurrentValue") is { } current
-                ? Convert.ToInt32(current) : null;
-        return new("Dell BIOS WMI", limits.Distinct().Order().ToArray(), active);
+            custom && stop?.GetValueOrDefault("CurrentValue") is { } current ? Convert.ToInt32(current) : null;
+        return new("Dell BIOS WMI", limits.Distinct().Order().ToArray(), active)
+        {
+            ActiveResumeThreshold = custom && start?.GetValueOrDefault("CurrentValue") is { } currentStart
+                ? Convert.ToInt32(currentStart) : null,
+            ResumeThresholds = resumeThresholds.ToImmutable()
+        };
     }
 
-    public void SetLimit(int percentage)
+    /// <summary>Writes the pair in an order that preserves Dell's minimum gap between writes.</summary>
+    public void SetLimit(int percentage, int? resumeThreshold = null)
     {
-        if (percentage == 100) { Write("PrimaryBattChargeCfg", "Standard"); return; }
-        var start = Attribute("IntegerAttribute", "CustomChargeStart") ?? throw new UtilityOperationException("Dell custom charge start is unavailable.");
-        var startValue = Math.Clamp(Convert.ToInt32(start.GetValueOrDefault("CurrentValue")),
-            Convert.ToInt32(start["LowerBound"]), Math.Min(percentage - 5, Convert.ToInt32(start["UpperBound"])));
-        Write("CustomChargeStart", startValue.ToString(CultureInfo.InvariantCulture));
-        Write("CustomChargeStop", percentage.ToString(CultureInfo.InvariantCulture));
+        if (percentage == 100 && !resumeThreshold.HasValue &&
+            Values(Attribute("EnumerationAttribute", "PrimaryBattChargeCfg")).Contains("Standard", StringComparer.OrdinalIgnoreCase))
+        {
+            Write("PrimaryBattChargeCfg", "Standard");
+            return;
+        }
+        if (resumeThreshold is not { } startValue)
+        {
+            var start = Attribute("IntegerAttribute", "CustomChargeStart") ?? throw new UtilityOperationException("Dell custom charge start is unavailable.");
+            var minimum = Convert.ToInt32(start["LowerBound"]);
+            var step = Math.Max(1, Convert.ToInt32(start.GetValueOrDefault("ScalarIncrement") ?? 1));
+            startValue = Math.Clamp(Convert.ToInt32(start.GetValueOrDefault("CurrentValue")),
+                minimum, Math.Min(percentage - MinimumGap, Convert.ToInt32(start["UpperBound"])));
+            startValue -= (startValue - minimum) % step;
+        }
+        var startText = startValue.ToString(CultureInfo.InvariantCulture);
+        var stopText = percentage.ToString(CultureInfo.InvariantCulture);
+        if (resumeThreshold.HasValue && startValue > ReadCurrentStop() - MinimumGap)
+        {
+            Write("CustomChargeStop", stopText);
+            Write("CustomChargeStart", startText);
+        }
+        else
+        {
+            Write("CustomChargeStart", startText);
+            Write("CustomChargeStop", stopText);
+        }
         Write("PrimaryBattChargeCfg", "Custom");
     }
+
+    private int ReadCurrentStop() => Attribute("IntegerAttribute", "CustomChargeStop")?.GetValueOrDefault("CurrentValue") is { } current
+        ? Convert.ToInt32(current)
+        : throw new UtilityOperationException("Dell custom charge stop is unavailable.");
 
     private void Write(string name, string value) => wmi.Invoke(Scope, "BIOSAttributeInterface", "SetAttribute",
         new Dictionary<string, object> { ["SecType"] = 0u, ["SecHndCount"] = 0u, ["SecHandle"] = Array.Empty<byte>(),
@@ -94,7 +144,7 @@ internal sealed class HpBatteryFirmware(IBatteryWmi wmi) : IBatteryFirmwareProvi
             string.Equals(current, Full, StringComparison.OrdinalIgnoreCase) ? 100 : null);
     }
 
-    public void SetLimit(int percentage)
+    public void SetLimit(int percentage, int? resumeThreshold = null)
     {
         var value = percentage switch { 80 => Limited, 100 => Full, _ => throw new ArgumentOutOfRangeException(nameof(percentage)) };
         var values = Setting()?.GetValueOrDefault("PossibleValues") as string[] ?? [];

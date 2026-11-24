@@ -9,7 +9,7 @@ namespace WinOptimizer.UI.Features.Common.Controls;
 /// <summary>
 /// Non-virtualising panel that lays children out in a wrapping grid: every
 /// cell uses ItemWidth and a minimum ItemHeight, gaps are fixed at ColumnSpacing /
-/// RowSpacing, items are left-aligned within the available width. The
+/// RowSpacing. Rows are left-aligned by default. The
 /// SoftwareAppsPage centres its containing StackPanel (with a MaxWidth
 /// computed from card column count) so that headers, select-all checkboxes,
 /// and the card grid all share the same horizontal extents — matches the
@@ -99,6 +99,16 @@ public sealed partial class UniformWrapPanel : Panel
         set => SetValue(MaxColumnsProperty, value);
     }
 
+    /// <summary>Centers each row within the panel while keeping the cell widths uniform.</summary>
+    public bool CenterRows
+    {
+        get => (bool)GetValue(CenterRowsProperty);
+        set => SetValue(CenterRowsProperty, value);
+    }
+
+    public static readonly DependencyProperty CenterRowsProperty = DependencyProperty.Register(
+        nameof(CenterRows), typeof(bool), typeof(UniformWrapPanel), new PropertyMetadata(false, OnLayoutPropertyChanged));
+
     protected override Size MeasureOverride(Size availableSize)
     {
         int count = Children.Count;
@@ -148,12 +158,20 @@ public sealed partial class UniformWrapPanel : Panel
         var cellHeight = _measuredCellHeight;
         var columnStride = cellWidth + columnSpacing;
         var rowStride = cellHeight + rowSpacing;
+        var centerRows = CenterRows;
+        var rowOffset = 0d;
 
         for (int i = 0; i < count; i++)
         {
             int col = i % columns;
             int row = i / columns;
-            double x = col * columnStride;
+            if (centerRows && col == 0)
+            {
+                var rowItems = Math.Min(columns, count - i);
+                var rowWidth = rowItems * columnStride - columnSpacing;
+                rowOffset = Math.Max(0, (finalSize.Width - rowWidth) / 2);
+            }
+            double x = rowOffset + col * columnStride;
             double y = row * rowStride;
             Children[i].Arrange(new Rect(x, y, cellWidth, cellHeight));
         }

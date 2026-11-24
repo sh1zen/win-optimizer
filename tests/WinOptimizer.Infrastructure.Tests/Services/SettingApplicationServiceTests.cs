@@ -1,11 +1,15 @@
 using FluentAssertions;
 using Moq;
+using WinOptimizer.Core.Features.Common.Constants;
 using WinOptimizer.Core.Features.Common.Enums;
 using WinOptimizer.Core.Features.Common.Events;
 using WinOptimizer.Core.Features.Common.Events.Settings;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Models;
+using WinOptimizer.Core.Features.Common.Native;
+using WinOptimizer.Core.Features.Optimize.Models;
 using WinOptimizer.Infrastructure.Features.Common.Services;
+using WinOptimizer.Infrastructure.Features.Optimize.Services;
 using Xunit;
 
 namespace WinOptimizer.Infrastructure.Tests.Services;
@@ -105,7 +109,7 @@ public class SettingApplicationServiceTests
     }
 
     [Fact]
-    public async Task ApplySettingAsync_RegistersSettingInGlobalRegistry()
+    public async Task ApplySettingAsync_RegistersTheSettingAndHandlesDependencies()
     {
         SetupSettingInRegistry("test-setting");
 
@@ -117,19 +121,6 @@ public class SettingApplicationServiceTests
 
         _mockRegistry.Verify(r => r.RegisterSetting("TestDomain",
             It.Is<SettingDefinition>(s => s.Id == "test-setting")), Times.Once);
-    }
-
-    [Fact]
-    public async Task ApplySettingAsync_HandlesDependencies()
-    {
-        SetupSettingInRegistry("test-setting");
-
-        await _service.ApplySettingAsync(new ApplySettingRequest
-        {
-            SettingId = "test-setting",
-            Enable = true,
-        });
-
         _mockDepResolver.Verify(d => d.HandleDependenciesAsync(
             "test-setting",
             It.IsAny<IEnumerable<SettingDefinition>>(),
@@ -241,23 +232,86 @@ public class SettingApplicationServiceTests
     }
 
     [Fact]
-    public async Task ApplySettingAsync_ExecutorFails_StillPublishesEvent()
+    public async Task NativePowerPlanRejectionDoesNotFallThroughToGenericSuccess()
+    {
+        const string id = SettingIds.PowerPlanSelection;
+        SetupSettingInRegistry(id);
+        var planId = Guid.NewGuid();
+        var options = new Mock<IPowerPlanComboBoxService>();
+        options.Setup(service => service.ResolvePowerPlanByIndexAsync(1)).ReturnsAsync(
+            new PowerPlanResolutionResult { Success = true, Guid = planId.ToString(), DisplayName = "Fixture" });
+        var plans = new Mock<IPowerSettingsQueryService>();
+        plans.Setup(service => service.GetAvailablePowerPlansAsync()).ReturnsAsync(
+            [new PowerPlan { Guid = planId.ToString(), Name = "Fixture" }]);
+        var native = new Mock<IPowerSchemeOperations>(MockBehavior.Strict);
+        native.Setup(service => service.SetActiveScheme(planId)).Returns(5u);
+        var handler = new PowerService(_mockLog.Object, plans.Object, _mockSettingsRegistry.Object, _mockEventBus.Object,
+            options.Object, Mock.Of<IProcessExecutor>(), Mock.Of<IFileSystemService>(), native.Object, new ConfigImportState());
+        _mockSpecialHandlerRegistry.Setup(registry => registry.TryGet(id)).Returns(handler);
+
+        var result = await _service.ApplySettingAsync(new ApplySettingRequest { SettingId = id, Enable = true, Value = 1 });
+
+        Assert.False(result.Success);
+        native.Verify(service => service.SetActiveScheme(planId), Times.Once);
+        _mockExecutor.VerifyNoOtherCalls();
+        _mockEventBus.Verify(bus => bus.Publish(It.Is<SettingAppliedEvent>(evt => evt.IsEnabled)), Times.Never);
+    }
+
+    [Fact]
+    public async Task ApplySettingAsync_ExecutorFails_PublishesObservedStateInsteadOfRequestedState()
     {
         SetupSettingInRegistry("fail-event");
+        var observed = new SettingStateResult { Success = true, IsEnabled = false };
+        _mockDiscovery.Setup(d => d.GetSettingStatesAsync(It.IsAny<IEnumerable<SettingDefinition>>()))
+            .ReturnsAsync(new Dictionary<string, SettingStateResult> { ["fail-event"] = observed });
         _mockExecutor
             .Setup(e => e.ApplySettingOperationsAsync(
                 It.Is<SettingDefinition>(s => s.Id == "fail-event"),
                 It.IsAny<bool>(), It.IsAny<object?>()))
             .ReturnsAsync(OperationResult.Failed("Some failure"));
 
-        await _service.ApplySettingAsync(new ApplySettingRequest
+        var result = await _service.ApplySettingAsync(new ApplySettingRequest
         {
             SettingId = "fail-event",
             Enable = true,
         });
 
+        result.Success.Should().BeFalse();
         _mockEventBus.Verify(e => e.Publish(It.Is<SettingAppliedEvent>(
-            evt => evt.SettingId == "fail-event")), Times.Once);
+            evt => evt.SettingId == "fail-event" && !evt.IsEnabled && evt.ObservedState == observed)), Times.Once);
+        _mockEventBus.Verify(e => e.Publish(It.Is<SettingAppliedEvent>(evt => evt.IsEnabled)), Times.Never);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ApplySettingAsync_PublishesPresetOnlyAfterItsRequiredSettingsSucceed(bool childSucceeds)
+    {
+        var preset = CreateSetting("preset") with
+        {
+            InputType = InputType.Selection,
+            SettingPresets = new() { [1] = new() { ["child"] = true } }
+        };
+        var child = CreateSetting("child");
+        _mockSettingsRegistry.Setup(r => r.GetById("preset")).Returns(preset);
+        _mockSettingsRegistry.Setup(r => r.GetById("child")).Returns(child);
+        _mockSettingsRegistry.Setup(r => r.GetFeatureIdForSetting(It.IsAny<string>())).Returns("Feature");
+        _mockSettingsRegistry.Setup(r => r.GetFilteredSettings("Feature")).Returns([preset, child]);
+        _mockCompatFilter.Setup(r => r.FilterSettingsByWindowsVersion(It.IsAny<IEnumerable<SettingDefinition>>())).Returns([child]);
+        List<string> writes = [];
+        _mockExecutor.Setup(x => x.ApplySettingOperationsAsync(child, true, null, false))
+            .Callback(() => writes.Add(child.Id))
+            .ReturnsAsync(childSucceeds ? OperationResult.Succeeded() : OperationResult.Failed("Windows rejected the child"));
+        _mockExecutor.Setup(x => x.ApplySettingOperationsAsync(preset, true, 1, false))
+            .Callback(() => writes.Add(preset.Id)).ReturnsAsync(OperationResult.Succeeded());
+
+        var result = await _service.ApplySettingAsync(new ApplySettingRequest { SettingId = preset.Id, Enable = true, Value = 1 });
+
+        result.Success.Should().Be(childSucceeds);
+        writes.Should().Equal(childSucceeds ? ["child", "preset"] : new[] { "child" });
+        _mockEventBus.Verify(x => x.Publish(It.Is<SettingAppliedEvent>(evt => evt.SettingId == "preset")),
+            childSucceeds ? Times.Once() : Times.Never());
+        if (!childSucceeds) result.ErrorMessage.Should().Contain("Windows rejected the child");
     }
 
     // ---------------------------------------------------------------

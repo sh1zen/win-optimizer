@@ -4,7 +4,7 @@ using WinOptimizer.Core.Features.Common.Interfaces;
 
 namespace WinOptimizer.UI.Features.Settings.ViewModels;
 
-public enum SettingsCategory { Appearance, Privacy, Junk, Registry, Shortcuts, Disk, Backups, Drivers, ResetAll, LogsAndHistory, Info }
+public enum SettingsCategory { General, Privacy, Junk, Registry, Shortcuts, Disk, Drivers, ResetAll, LogsAndHistory, TimeMachine }
 
 /// <summary>A settings destination whose searchable labels come from its owning controls.</summary>
 public sealed class SettingsCategoryItem(SettingsCategory category, string titleKey, string descriptionKey,

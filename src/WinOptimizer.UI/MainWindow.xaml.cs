@@ -1,24 +1,29 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.UI.Composition.SystemBackdrops;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Input;
 using Microsoft.UI.Xaml.Media;
+using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.System;
 using Windows.UI.ViewManagement;
 using WinOptimizer.Core.Features.Common.Enums;
-using WinOptimizer.Core.Features.Common.Extensions;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.Core.Features.Common.Services;
 using WinOptimizer.UI.Features.Common.Controls;
+using WinOptimizer.UI.Features.Common.Helpers;
 using WinOptimizer.UI.Features.Common.Interfaces;
+using WinOptimizer.UI.Features.Common.Resources;
 using WinOptimizer.UI.Features.Common.Services;
 using WinOptimizer.UI.Features.Common.Utilities;
 using WinOptimizer.UI.Helpers;
 using WinOptimizer.UI.Features.Extensions;
+using WinOptimizer.UI.Features.Extensions.Notch;
 using WinOptimizer.UI.Features.Extensions.ViewModels;
+using WinOptimizer.UI.Features.Settings.ViewModels;
 using WinOptimizer.UI.ViewModels;
 using System;
 using System.ComponentModel;
@@ -33,6 +38,7 @@ namespace WinOptimizer.UI;
 /// </summary>
 public sealed partial class MainWindow : Window, INotifyPropertyChanged
 {
+    private const float BackgroundTintOpacity = 0.98f;
     private MainWindowViewModel? _viewModel;
     private WindowSizeManager? _windowSizeManager;
     private Task? _windowPlacementInitialization;
@@ -42,18 +48,16 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
     private ILogService? _logService;
     private bool _isStartupLoading = true;
     private bool _startupOperationsStarted;
-    private bool _openExtensionSettingsAfterStartup;
-    private ExtensionApplicationLifetime? _extensionLifetime;
+    private string? _extensionDestinationAfterStartup;
     private readonly StartupLoadingView _loadingView;
     private bool _shellInitialized;
     internal bool IsClosed { get; private set; }
-    internal bool IsManualActivationRequested { get; private set; }
 
     // Helper classes (Phases 2-5)
     private TaskProgressCoordinator? _taskProgressCoordinator;
     private NavigationRouter? _navigationRouter;
     private StartupUiCoordinator? _startupUiCoordinator;
-    private PageBlurTransition? _pageBlurTransition;
+    private PageFadeTransition? _pageFadeTransition;
     private UISettings? _uiSettings;
     private TitleBarManager? _titleBarManager;
 
@@ -113,26 +117,29 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
         Closed += (_, _) =>
         {
             IsClosed = true;
-            _pageBlurTransition?.Dispose();
+            _pageFadeTransition?.Dispose();
             ViewModel?.UpdateCheck.Dispose();
         };
     }
 
     /// <summary>Builds the shell in the existing window after storage and preferences are available.</summary>
-    internal void InitializeShell()
+    internal void InitializeShell(WindowBackgroundPreferencesViewModel backgroundPreferences, AppColorResources colors)
     {
         if (_shellInitialized || IsClosed) return;
         var requestedTheme = _loadingView.RequestedTheme;
         Content = null;
         this.InitializeComponent();
-        _pageBlurTransition = new PageBlurTransition(PageTransitionOverlay, _logService);
+        TitleBarIcon.Source = new BitmapImage(new Uri(AppBranding.ImageUri));
+        _pageFadeTransition = new PageFadeTransition(ContentFrame);
         RootGrid.RequestedTheme = requestedTheme;
+        InitializeBackground(backgroundPreferences, colors);
         _loadingView.RequestedTheme = ElementTheme.Default;
         LoadingOverlay.Children.Add(_loadingView);
         _shellInitialized = true;
         StartupLogger.Log("MainWindow", "InitializeComponent completed");
 
         SetTitleBar(AppTitleBar);
+        UpdatesButton.Flyout.Placement = FlyoutPlacementMode.BottomEdgeAlignedRight;
 
         RootGrid.ActualThemeChanged += (_, _) => _titleBarManager?.ApplyThemeToCaptionButtons(RootGrid.ActualTheme);
         RootGrid.Loaded += (_, _) => _titleBarManager?.ApplyThemeToCaptionButtons(RootGrid.ActualTheme);
@@ -146,16 +153,44 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
         // Initialize DispatcherService - MUST be done before any service uses it
         InitializeDispatcherService();
 
-        App.Services.GetRequiredService<ISystemMonitorWidgetHost>().SettingsRequested += OpenExtensionSettings;
-
         // Apply initial FlowDirection for RTL languages and subscribe to language changes
         InitializeFlowDirection();
 
         // Set up title bar after loaded
         AppTitleBar.Loaded += AppTitleBar_Loaded;
+        NavSidebar.SizeChanged += (_, _) => UpdateSidebarLayout();
 
         // Set default navigation after sidebar is loaded
         NavSidebar.Loaded += NavSidebar_Loaded;
+    }
+
+    /// <summary>Updates the native background when Settings changes the shared preference.</summary>
+    private void InitializeBackground(WindowBackgroundPreferencesViewModel preferences, AppColorResources colors)
+    {
+        if (!DesktopAcrylicController.IsSupported()) return;
+
+        void ApplyBackground()
+        {
+            if (preferences.IsBlurEnabled)
+            {
+                SystemBackdrop ??= new TintedDesktopBackdrop(BackgroundTintOpacity, colors.GetCanvasColor);
+                SolidCanvas.Visibility = Visibility.Collapsed;
+            }
+            else
+            {
+                SolidCanvas.Visibility = Visibility.Visible;
+                SystemBackdrop = null;
+            }
+        }
+
+        void OnBackgroundChanged(object? sender, PropertyChangedEventArgs args)
+        {
+            if (args.PropertyName == nameof(WindowBackgroundPreferencesViewModel.IsBlurEnabled)) ApplyBackground();
+        }
+
+        ApplyBackground();
+        preferences.PropertyChanged += OnBackgroundChanged;
+        Closed += (_, _) => preferences.PropertyChanged -= OnBackgroundChanged;
     }
 
     /// <summary>Waits for the actual loading frame before constructing the full shell.</summary>
@@ -213,39 +248,47 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
                 _isStartupLoading = false;
                 UpdateNavigationState();
                 _ = App.Services.GetRequiredService<ExtensionsViewModel>().LoadAsync();
-                if (_openExtensionSettingsAfterStartup)
+                _ = App.Services.GetRequiredService<NotchExtension>().LoadAsync();
+                if (_extensionDestinationAfterStartup is { } destination)
                 {
-                    _openExtensionSettingsAfterStartup = false;
-                    _navigationRouter?.NavigateToPage(ContentFrame, "SysMonitor");
+                    _extensionDestinationAfterStartup = null;
+                    _navigationRouter?.NavigateToPage(ContentFrame, destination);
                 }
             });
     }
 
-    /// <summary>Loads only widget preferences and telemetry during the scheduled desktop launch.</summary>
-    public Task StartWidgetStartupAsync()
+    /// <summary>Activates the current shell and routes requests from a widget’s settings button.</summary>
+    internal void ActivateFromLaunch(string? destination = null)
     {
-        if (_extensionLifetime is { } lifetime) return lifetime.StartInBackgroundAsync();
-        RestoreFromBackground();
-        return Task.CompletedTask;
-    }
-
-    /// <summary>Opens the widget's configuration within the Features navigation context.</summary>
-    private void OpenExtensionSettings(object? sender, EventArgs e)
-    {
-        if (_isStartupLoading) _openExtensionSettingsAfterStartup = true;
-        else _navigationRouter?.NavigateToPage(ContentFrame, "SysMonitor");
-        RestoreFromBackground();
-    }
-
-    /// <summary>Restores the existing main window without interrupting a background widget.</summary>
-    public void RestoreFromBackground()
-    {
-        IsManualActivationRequested = true;
+        if (destination is not null)
+        {
+            if (_isStartupLoading) _extensionDestinationAfterStartup = destination;
+            else _navigationRouter?.NavigateToPage(ContentFrame, destination);
+        }
         if (_windowPlacementInitialization?.IsCompletedSuccessfully != true) return;
-        if (!_shellInitialized) { AppWindow.Show(); Activate(); return; }
         StartStartupOperations();
-        if (_extensionLifetime is { } lifetime) lifetime.ShowMainWindow();
-        else { AppWindow.Show(); Activate(); }
+        AppWindow.Show();
+        Activate();
+    }
+
+    /// <summary>Refreshes settings edited directly in the desktop companion.</summary>
+    internal void InitializeWidgetPreferenceWatcher()
+    {
+        try
+        {
+            var watcher = new WidgetPreferencesWatcher(App.Services.GetRequiredService<IInteractiveUserService>(), DispatcherQueue,
+                async () =>
+                {
+                    var monitor = App.Services.GetRequiredService<ExtensionsViewModel>();
+                    await Task.WhenAll(monitor.RefreshAsync(automaticLaunch: false, applyToWidget: false),
+                        App.Services.GetRequiredService<NotchExtension>().RefreshAsync(automaticLaunch: false));
+                    if (App.Services.GetRequiredService<ISystemMonitorWidgetHost>() is CompanionSystemMonitorHost host)
+                        host.UpdateObservedState(monitor.Options.Enabled);
+                }, _logService!);
+            Closed += (_, _) => watcher.Dispose();
+        }
+        catch (Exception ex) when (ex is System.IO.IOException or UnauthorizedAccessException or ArgumentException)
+        { _logService?.LogError("Unable to watch desktop widget preferences.", ex); }
     }
 
     /// <summary>
@@ -259,14 +302,7 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
 
             var applicationCloseService = App.Services.GetRequiredService<IApplicationCloseService>();
             if (applicationCloseService is ApplicationCloseService closeService)
-            {
-                var shutdown = closeService.ShutdownAction;
-                _extensionLifetime = new ExtensionApplicationLifetime(
-                    App.Services.GetRequiredService<ISystemMonitorWidgetHost>(),
-                    App.Services.GetRequiredService<ExtensionsViewModel>(),
-                    () => AppWindow.Hide(), () => { StartStartupOperations(); AppWindow.Show(); Activate(); }, shutdown, _logService!);
-                closeService.ShutdownAction = () => _extensionLifetime.CloseAsync().FireAndForget(_logService!);
-            }
+                closeService.BeforeRestart = WinOptimizer.Infrastructure.Features.Extensions.DesktopExtensionProcess.StopForUpdateAsync;
             applicationCloseService.BeforeShutdown = async () =>
             {
                 if (_windowSizeManager != null)
@@ -279,18 +315,20 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
                     App.Services.GetRequiredService<WinOptimizer.UI.Features.Optimize.ViewModels.FeatureOptimizationViewModel>().WaitForWriteAsync(),
                     App.Services.GetRequiredService<WinOptimizer.UI.Features.Utilities.ViewModels.HostsEditorViewModel>().WaitForWriteAsync(),
                     App.Services.GetRequiredService<WinOptimizer.UI.Features.Utilities.ViewModels.BatteryChargeViewModel>().WaitForWriteAsync(),
-                    App.Services.GetRequiredService<WinOptimizer.UI.Features.Utilities.ViewModels.ConnectionViewModel>().WaitForWriteAsync(),
                     App.Services.GetRequiredService<WinOptimizer.UI.Features.Management.ViewModels.EventsCleanupViewModel>().WaitForWriteAsync(),
                     App.Services.GetRequiredService<WinOptimizer.UI.Features.Security.SecurityViewModel>().WaitForWriteAsync(),
                     App.Services.GetRequiredService<WinOptimizer.UI.Features.Management.ViewModels.WindowsStatusViewModel>().WaitForWriteAsync(),
                     App.Services.GetRequiredService<WinOptimizer.UI.Features.Management.ViewModels.AutorunsViewModel>().WaitForWriteAsync(),
+                    App.Services.GetRequiredService<WinOptimizer.UI.Features.Settings.ViewModels.ApplicationStartupViewModel>().WaitForWriteAsync(),
                     App.Services.GetRequiredService<WinOptimizer.UI.Features.Management.ViewModels.ProcessMonitorViewModel>().DeactivateAsync(),
                     App.Services.GetRequiredService<ExtensionsViewModel>().FlushAsync(),
+                    App.Services.GetRequiredService<NotchExtension>().FlushAsync(),
                     App.Services.GetRequiredService<WinOptimizer.UI.Features.Cleaner.ViewModels.CleanerSettingsViewModel>().FlushAsync(),
                     App.Services.GetRequiredService<WinOptimizer.UI.Features.Drivers.ViewModels.DriverSettingsViewModel>().FlushAsync(),
                     App.Services.GetRequiredService<WinOptimizer.UI.Features.Settings.ViewModels.UpdatePreferencesViewModel>().FlushAsync(),
                     App.Services.GetRequiredService<WinOptimizer.UI.Features.Settings.ViewModels.SidebarPreferencesViewModel>().FlushAsync(),
-                    App.Services.GetRequiredService<WinOptimizer.UI.Features.Settings.ViewModels.AppColorPreferencesViewModel>().FlushAsync());
+                    App.Services.GetRequiredService<WinOptimizer.UI.Features.Settings.ViewModels.AppColorPreferencesViewModel>().FlushAsync(),
+                    App.Services.GetRequiredService<WindowBackgroundPreferencesViewModel>().FlushAsync());
             };
 
             this.AppWindow.Closing += async (sender, args) =>
@@ -317,6 +355,7 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
             var prefs = App.Services.GetRequiredService<IUserPreferencesService>();
             _logService ??= App.Services.GetRequiredService<ILogService>();
             _uiZoomManager = new UiZoomManager(ZoomViewport, ZoomHost, prefs, _logService);
+            _uiZoomManager.FactorChanged += (_, _) => UpdateSidebarLayout();
 
             // Main-row +/- keys (OemPlus=187, OemMinus=189) — not expressible in XAML.
             RootGrid.KeyboardAccelerators.Add(MakeZoomAccelerator((VirtualKey)187, ZoomInAccelerator_Invoked));
@@ -389,6 +428,8 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
         {
             _titleBarManager?.SetTitleBarPadding(
                 LeftPaddingColumn, RightPaddingColumn, AppTitleBar, RootGrid.FlowDirection);
+            UpdateSidebarLayout();
+            DispatcherQueue.TryEnqueue(UpdateTitleBarInputRegions);
         }
     }
 
@@ -440,19 +481,33 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
     {
         _titleBarManager?.SetTitleBarPadding(
             LeftPaddingColumn, RightPaddingColumn, AppTitleBar, RootGrid.FlowDirection);
+        UpdateSidebarLayout();
 
         // Defer passthrough region setup to ensure all elements are laid out
-        DispatcherQueue.TryEnqueue(() =>
-            _titleBarManager?.SetPassthroughRegions(AppTitleBar, TitleBarNavigation, TitleBarButtons));
+        DispatcherQueue.TryEnqueue(UpdateTitleBarInputRegions);
 
-        AppTitleBar.SizeChanged += (_, _) =>
-            _titleBarManager?.SetPassthroughRegions(AppTitleBar, TitleBarNavigation, TitleBarButtons);
-        TitleBarButtons.SizeChanged += (_, _) =>
-            _titleBarManager?.SetPassthroughRegions(AppTitleBar, TitleBarNavigation, TitleBarButtons);
+        AppTitleBar.SizeChanged += (_, _) => UpdateTitleBarInputRegions();
+        TitleBarLeadingContent.SizeChanged += (_, _) => UpdateTitleBarInputRegions();
+        TitleBarButtons.SizeChanged += (_, _) => UpdateTitleBarInputRegions();
 
         // Initialize ViewModel and wire up bindings
         InitializeViewModel();
     }
+
+    /// <summary>Aligns the unscaled title bar and backdrop with the zoomed navigation pane.</summary>
+    private void UpdateSidebarLayout()
+    {
+        var margin = NavSidebar.Margin;
+        var width = (NavSidebar.ActualSidebarWidth + margin.Left + margin.Right) * (_uiZoomManager?.Factor ?? 1);
+        SidebarColumn.Width = new GridLength(width);
+
+        // The branding can use more space when caption buttons are on the sidebar side.
+        TitleBarLeadingContent.MinWidth = Math.Max(0, width - LeftPaddingColumn.Width.Value);
+    }
+
+    /// <summary>Keeps the two button groups clickable and leaves the branding in the window drag region.</summary>
+    private void UpdateTitleBarInputRegions() =>
+        _titleBarManager?.SetPassthroughRegions(AppTitleBar, TitleBarNavigation, TitleBarButtons);
 
     /// <summary>
     /// Initializes the ViewModel and wires up button commands and helper classes.
@@ -482,21 +537,14 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
                 // Pass ViewModel to NavSidebar for localized nav button text
                 NavSidebar.ViewModel = ViewModel;
 
-                // Wire up Task Progress Coordinator (Phase 2)
-                _taskProgressCoordinator = new TaskProgressCoordinator(
-                    TaskProgressControl, TaskProgressControl2, TaskProgressControl3,
-                    _logService!, this.DispatcherQueue);
+                _taskProgressCoordinator = new TaskProgressCoordinator(TaskProgressControl, this.DispatcherQueue);
 
                 TaskProgressControl.CancelCommand = ViewModel.TaskProgress.CancelCommand;
                 TaskProgressControl.CancelText = ViewModel.TaskProgress.CancelButtonLabel;
                 TaskProgressControl.ShowDetailsCommand = ViewModel.TaskProgress.ShowDetailsCommand;
-                TaskProgressControl2.ShowDetailsCommand = ViewModel.TaskProgress.ShowDetailsCommand;
-                TaskProgressControl3.ShowDetailsCommand = ViewModel.TaskProgress.ShowDetailsCommand;
 
                 ViewModel.TaskProgress.PropertyChanged += (s, e) =>
                     _taskProgressCoordinator?.HandlePropertyChanged(ViewModel.TaskProgress, e.PropertyName);
-                ViewModel.TaskProgress.ScriptProgressReceived +=
-                    (slotIndex, detail) => _taskProgressCoordinator?.HandleScriptProgressReceived(slotIndex, detail);
 
                 // Wire up Navigation Router (Phase 3)
                 _configReviewService = App.Services.GetService<IConfigReviewService>();
@@ -613,7 +661,7 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
         if (!_isStartupLoading)
         {
             _uiSettings ??= new UISettings();
-            _pageBlurTransition?.Play(TrialToolsOverlay.Visibility == Visibility.Collapsed && _uiSettings.AnimationsEnabled);
+            _pageFadeTransition?.Play(TrialToolsOverlay.Visibility == Visibility.Collapsed && _uiSettings.AnimationsEnabled);
         }
     }
 

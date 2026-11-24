@@ -1,11 +1,15 @@
 # Autorun management
 
 Open **Control → Autorun management** to load ordinary startup sources.
-Refresh replaces its dated snapshot. Search sits on the left, with category and
-state filters on the right of the same row. Search covers names, commands, locations,
-publishers, signers and accounts; filters work locally. The advanced Microsoft
-filter shares the row on wide windows and wraps below it on narrow windows.
-Selecting an entry exposes its complete registration and command for copying.
+The toolbar contains search, category and state filters, and the Advanced mode
+switch. Search covers names, commands, locations, publishers, signers and accounts.
+Refresh replaces the dated snapshot. The list card's tools menu opens Windows
+startup settings or clears all filters. Expand the count below the list for scan
+coverage and warnings.
+
+Select an entry to see its state, category, account and copyable command in the
+details panel. Expand **Technical Details** to inspect the complete registration.
+The list and details sit side by side on wide windows and stack on narrow windows.
 Entries are grouped under **User accounts**, **All users**, **System** and
 **Unspecified account**, with counts for the current filters. Reported machine-wide
 registrations are shared by all users; built-in system and service accounts have
@@ -28,7 +32,7 @@ without readable current state is shown as **State unavailable**, never inferred
 from the manifest's requested default. Publisher/author metadata in the ordinary
 view is not signature verification.
 
-Select one entry and choose Enable or Disable, then review its name, location and
+Use the state switch in the entry details, then review the name, location and
 command in the confirmation. Current processes are not stopped; changes affect
 future starts. Writes require normal application mode. Machine-wide resources and
 tasks may require administrator permissions. Under elevation with another user's

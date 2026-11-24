@@ -4,7 +4,7 @@
         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
         <common:PageHeader Title="{x:Bind ViewModel.Title, Mode=OneWay}" Description="{x:Bind ViewModel.Description, Mode=OneWay}" Icon="History"/>
         <ScrollViewer Padding="{StaticResource ScrollContentPadding}" Grid.Row="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-            <StackPanel Spacing="{StaticResource PageSectionSpacing}">
+            <StackPanel Spacing="{StaticResource PageCardSpacing}">
                 <!-- Cards sit directly on the page; each section owns its heading and spacing. -->
                 <StackPanel Spacing="{StaticResource PageCardSpacing}">
                     <TextBlock Text="{x:Bind ViewModel.ConfigurationLabel, Mode=OneWay}" Style="{StaticResource BodyStrongTextBlockStyle}" TextWrapping="Wrap" AutomationProperties.HeadingLevel="Level2"/>

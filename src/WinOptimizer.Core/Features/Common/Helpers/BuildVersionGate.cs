@@ -3,7 +3,7 @@ using WinOptimizer.Core.Features.Common.Models;
 namespace WinOptimizer.Core.Features.Common.Helpers;
 
 /// <summary>
-/// Windows compatibility rules shared by setting discovery, import and bulk actions.
+/// Windows compatibility rules shared by setting discovery, import and feature recommendations.
 /// When a setting has both a major-build bound and a revision bound, the revision is
 /// only compared when the current major build equals the boundary.
 /// </summary>

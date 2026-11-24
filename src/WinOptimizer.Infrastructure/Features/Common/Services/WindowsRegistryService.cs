@@ -12,8 +12,18 @@ using WinOptimizer.Core.Features.Common.Models;
 namespace WinOptimizer.Infrastructure.Features.Common.Services;
 
 [SupportedOSPlatform("windows")]
-public class WindowsRegistryService(ILogService logService, IInteractiveUserService interactiveUserService) : IWindowsRegistryService
+public partial class WindowsRegistryService(ILogService logService, IInteractiveUserService interactiveUserService,
+    TimeMachineStore? timeMachine = null) : IWindowsRegistryService
 {
+    private readonly Func<RegistryHive, RegistryKey> _getRoot = GetWindowsRoot;
+
+    /// <summary>Uses caller-owned registry roots for a private Windows registry namespace.</summary>
+    internal WindowsRegistryService(ILogService logService, IInteractiveUserService interactiveUserService,
+        Func<RegistryHive, RegistryKey> getRoot) : this(logService, interactiveUserService)
+    {
+        _getRoot = getRoot;
+    }
+
     private static object? GetWriteValue(object?[]? values) => values?.FirstOrDefault(v => v != null);
 
     /// <summary>
@@ -54,13 +64,10 @@ public class WindowsRegistryService(ILogService logService, IInteractiveUserServ
     {
         try
         {
+            if (timeMachine is not null && FindTrackedValue(keyPath, valueName) is { } tracked)
+                return WriteTimeMachineValue(tracked, EncodeRegistryValue(value, valueKind));
             var (rootKey, subKeyPath) = ParseKeyPath(keyPath);
-            using var targetKey = rootKey.CreateSubKey(subKeyPath, true);
-            if (targetKey == null)
-                return false;
-
-            targetKey.SetValue(valueName, value, valueKind);
-            return true;
+            return SetRawValue(rootKey, subKeyPath, valueName, value, valueKind);
         }
         catch (Exception ex)
         {
@@ -106,41 +113,47 @@ public class WindowsRegistryService(ILogService logService, IInteractiveUserServ
     };
 
     /// <summary>Protects broad system branches while allowing individual setting keys below them.</summary>
-    internal static bool IsProtectedDeletionPath(string subKeyPath)
+    internal static bool IsProtectedDeletionPath(string subKeyPath) =>
+        IsProtectedCanonicalDeletionPath(string.Join('\\', subKeyPath.Split('\\', StringSplitOptions.RemoveEmptyEntries)));
+
+    private static bool IsProtectedCanonicalDeletionPath(string canonicalPath)
     {
-        var canonicalPath = string.Join('\\', subKeyPath.Split('\\', StringSplitOptions.RemoveEmptyEntries));
         var parentSeparator = canonicalPath.LastIndexOf('\\');
         return ProtectedSubKeyRoots.Contains(canonicalPath) ||
-            (parentSeparator >= 0 && ProtectedSubKeyRoots.Contains(canonicalPath[..parentSeparator]));
+            (parentSeparator >= 0 && ProtectedSubKeyRoots.Contains(canonicalPath[..parentSeparator])) ||
+            ProtectedSubKeyRoots.Any(root => root.StartsWith(canonicalPath + "\\", StringComparison.OrdinalIgnoreCase));
     }
 
     public bool DeleteKey(string keyPath)
     {
         try
         {
-            if (!KeyExists(keyPath))
-                return true;
+            var (hive, subKeyPath) = ResolveKeyPath(keyPath);
+            var root = _getRoot(hive);
+            using (var existing = root.OpenSubKey(subKeyPath, writable: false))
+            {
+                if (existing is null) return true;
+            }
 
-            var (rootKey, subKeyPath) = ParseKeyPath(keyPath);
-
-            // Safeguard: reject paths that are too shallow (e.g. "SOFTWARE" or "SOFTWARE\Microsoft")
+            // In HKEY_USERS the first component identifies the loaded account hive, not a key inside it.
             var segments = subKeyPath.Split('\\', StringSplitOptions.RemoveEmptyEntries);
-            if (segments.Length < MinDeleteDepth)
+            var scope = hive == RegistryHive.Users && segments.Length > 0 ? 1 : 0;
+            var depth = segments.Length - scope;
+            if (depth < MinDeleteDepth)
             {
                 logService.Log(LogLevel.Warning,
-                    $"[WindowsRegistryService] Refusing to delete shallow registry key '{keyPath}' (depth {segments.Length} < {MinDeleteDepth})");
+                    $"[WindowsRegistryService] Refusing to delete shallow registry key '{keyPath}' (depth {depth} < {MinDeleteDepth})");
                 return false;
             }
 
-            // Reject protected roots and their immediate child branches before recursive deletion.
-            if (IsProtectedDeletionPath(subKeyPath))
+            if (IsProtectedCanonicalDeletionPath(string.Join("\\", segments, scope, depth)))
             {
                 logService.Log(LogLevel.Warning,
                     $"[WindowsRegistryService] Refusing to delete protected registry key '{keyPath}'");
                 return false;
             }
 
-            rootKey.DeleteSubKeyTree(subKeyPath, false);
+            root.DeleteSubKeyTree(subKeyPath, false);
             return true;
         }
         catch (Exception ex)
@@ -154,19 +167,31 @@ public class WindowsRegistryService(ILogService logService, IInteractiveUserServ
     {
         try
         {
+            if (timeMachine is not null && FindTrackedValue(keyPath, valueName) is { } tracked)
+                return WriteTimeMachineValue(tracked, TimeMachineValue.Missing);
             var (rootKey, subKeyPath) = ParseKeyPath(keyPath);
-            using var key = rootKey.OpenSubKey(subKeyPath, true);
-            if (key == null)
-                return false;
-
-            key.DeleteValue(valueName, false);
-            return true;
+            return DeleteRawValue(rootKey, subKeyPath, valueName);
         }
         catch (Exception ex)
         {
             logService.LogDebug($"[WindowsRegistryService] Failed to delete value '{keyPath}\\{valueName}': {ex.Message}");
             return false;
         }
+    }
+
+    private static bool SetRawValue(RegistryKey root, string path, string name, object value, RegistryValueKind kind)
+    {
+        using var key = root.CreateSubKey(path, writable: true);
+        if (key is null) return false;
+        key.SetValue(name, value, kind);
+        return true;
+    }
+
+    private static bool DeleteRawValue(RegistryKey root, string path, string name)
+    {
+        using var key = root.OpenSubKey(path, writable: true);
+        key?.DeleteValue(name, throwOnMissingValue: false);
+        return true;
     }
 
     public bool KeyExists(string keyPath)
@@ -834,33 +859,47 @@ public class WindowsRegistryService(ILogService logService, IInteractiveUserServ
 
     private (RegistryKey rootKey, string subKeyPath) ParseKeyPath(string keyPath)
     {
+        var (hive, path) = ResolveKeyPath(keyPath);
+        return (_getRoot(hive), path);
+    }
+
+    private (RegistryHive hive, string subKeyPath) ResolveKeyPath(string keyPath)
+    {
         var parts = keyPath.Split('\\', 2);
         if (parts.Length < 2)
             throw new ArgumentException($"Invalid registry key path: {keyPath}");
 
-        var hive = parts[0].ToUpperInvariant();
-
-        // OTS elevation: redirect HKCU to HKU\{interactive user SID}
-        if ((hive == "HKEY_CURRENT_USER" || hive == "HKCU")
-            && interactiveUserService.IsOtsElevation
-            && interactiveUserService.InteractiveUserSid != null)
+        var hive = ParseHive(parts[0]);
+        if (InteractiveUserSidFor(hive) is { } sid)
         {
-            var redirectedSubKey = $"{interactiveUserService.InteractiveUserSid}\\{parts[1]}";
-            return (Registry.Users, redirectedSubKey);
+            return (RegistryHive.Users, $"{sid}\\{parts[1]}");
         }
 
-        var rootKey = hive switch
-        {
-            "HKEY_CURRENT_USER" or "HKCU" => Registry.CurrentUser,
-            "HKEY_LOCAL_MACHINE" or "HKLM" => Registry.LocalMachine,
-            "HKEY_CLASSES_ROOT" or "HKCR" => Registry.ClassesRoot,
-            "HKEY_USERS" or "HKU" => Registry.Users,
-            "HKEY_CURRENT_CONFIG" or "HKCC" => Registry.CurrentConfig,
-            _ => throw new ArgumentException($"Invalid registry hive: {parts[0]}"),
-        };
-
-        return (rootKey, parts[1]);
+        return (hive, parts[1]);
     }
+
+    private string? InteractiveUserSidFor(RegistryHive hive) =>
+        hive == RegistryHive.CurrentUser && interactiveUserService.IsOtsElevation ? interactiveUserService.InteractiveUserSid : null;
+
+    private static RegistryHive ParseHive(string hive) => hive.ToUpperInvariant() switch
+    {
+        "HKEY_CURRENT_USER" or "HKCU" => RegistryHive.CurrentUser,
+        "HKEY_LOCAL_MACHINE" or "HKLM" => RegistryHive.LocalMachine,
+        "HKEY_CLASSES_ROOT" or "HKCR" => RegistryHive.ClassesRoot,
+        "HKEY_USERS" or "HKU" => RegistryHive.Users,
+        "HKEY_CURRENT_CONFIG" or "HKCC" => RegistryHive.CurrentConfig,
+        _ => throw new ArgumentException($"Unrecognized registry hive: '{hive}'"),
+    };
+
+    private static RegistryKey GetWindowsRoot(RegistryHive hive) => hive switch
+    {
+        RegistryHive.CurrentUser => Registry.CurrentUser,
+        RegistryHive.LocalMachine => Registry.LocalMachine,
+        RegistryHive.ClassesRoot => Registry.ClassesRoot,
+        RegistryHive.Users => Registry.Users,
+        RegistryHive.CurrentConfig => Registry.CurrentConfig,
+        _ => throw new ArgumentOutOfRangeException(nameof(hive)),
+    };
 
     public Dictionary<string, object?> GetBatchValues(IEnumerable<(string keyPath, string? valueName)> queries)
     {
@@ -869,7 +908,7 @@ public class WindowsRegistryService(ILogService logService, IInteractiveUserServ
 
         foreach (var hiveGroup in queriesByHive)
         {
-            var rootKey = hiveGroup.Key;
+            var rootKey = _getRoot(hiveGroup.Key);
             var opened = new Dictionary<string, RegistryKey?>();
             var remaining = hiveGroup.GroupBy(query => query.keyPath).ToDictionary(group => group.Key, group => group.Count());
 
@@ -886,7 +925,7 @@ public class WindowsRegistryService(ILogService logService, IInteractiveUserServ
                         // Retain one handle per path for the batch, including when its values are interleaved.
                         if (!opened.TryGetValue(keyPath, out var subKey))
                         {
-                            var (_, subKeyPath) = ParseKeyPath(keyPath);
+                            var (_, subKeyPath) = ResolveKeyPath(keyPath);
                             subKey = rootKey.OpenSubKey(subKeyPath, false);
                             opened.Add(keyPath, subKey);
                         }
@@ -912,28 +951,10 @@ public class WindowsRegistryService(ILogService logService, IInteractiveUserServ
         return results;
     }
 
-    private RegistryKey GetHiveFromPath(string keyPath)
+    private RegistryHive GetHiveFromPath(string keyPath)
     {
-        var parts = keyPath.Split('\\', 2);
-        var hive = parts[0].ToUpperInvariant();
-
-        // OTS: redirect HKCU to HKU
-        if ((hive == "HKEY_CURRENT_USER" || hive == "HKCU")
-            && interactiveUserService.IsOtsElevation
-            && interactiveUserService.InteractiveUserSid != null)
-        {
-            return Registry.Users;
-        }
-
-        return hive switch
-        {
-            "HKEY_CURRENT_USER" or "HKCU" => Registry.CurrentUser,
-            "HKEY_LOCAL_MACHINE" or "HKLM" => Registry.LocalMachine,
-            "HKEY_CLASSES_ROOT" or "HKCR" => Registry.ClassesRoot,
-            "HKEY_USERS" or "HKU" => Registry.Users,
-            "HKEY_CURRENT_CONFIG" or "HKCC" => Registry.CurrentConfig,
-            _ => throw new ArgumentException($"Unrecognized registry hive: '{hive}' in path '{keyPath}'"),
-        };
+        var hive = ParseHive(keyPath.Split('\\', 2)[0]);
+        return InteractiveUserSidFor(hive) is null ? hive : RegistryHive.Users;
     }
 
     private static bool CompareValues(object? current, object? desired)

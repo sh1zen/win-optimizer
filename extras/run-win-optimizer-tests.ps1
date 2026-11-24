@@ -32,16 +32,22 @@ function Run-TestProject {
 
     $projectName = [System.IO.Path]::GetFileNameWithoutExtension($ProjectPath)
     $trxFile = Join-Path $resultsRoot "$projectName.trx"
-    $testArguments = @('test', $ProjectPath, '--verbosity', 'quiet',
+    $testArguments = @('test', $ProjectPath, '--disable-build-servers', '-m:1', '--verbosity', 'quiet',
         '--logger', "trx;LogFileName=$projectName.trx", '--results-directory', $resultsRoot)
     $originalErrorAction = $ErrorActionPreference
+    $originalTelemetry = [Environment]::GetEnvironmentVariable('DOTNET_CLI_TELEMETRY_OPTOUT', 'Process')
     try {
+        # Keep SDK telemetry and shared service processes outside the test run.
+        [Environment]::SetEnvironmentVariable('DOTNET_CLI_TELEMETRY_OPTOUT', '1', 'Process')
         # In PowerShell 5.1, capture native stderr before checking the native exit code.
         $ErrorActionPreference = 'Continue'
         $output = & dotnet @testArguments 2>&1 | Out-String
         $exitCode = $LASTEXITCODE
     }
-    finally { $ErrorActionPreference = $originalErrorAction }
+    finally {
+        [Environment]::SetEnvironmentVariable('DOTNET_CLI_TELEMETRY_OPTOUT', $originalTelemetry, 'Process')
+        $ErrorActionPreference = $originalErrorAction
+    }
     if ($output.Trim()) { Write-Host $output -ForegroundColor DarkGray }
 
     # TRX results are independent of the SDK's console language.

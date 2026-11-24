@@ -141,6 +141,21 @@ public class WimStep2XmlViewModelTests
     }
 
     [Fact]
+    public async Task SelectXmlFileCommand_InvalidAnswerFileDisplaysValidationError()
+    {
+        _sut.WorkingDirectory = @"C:\WorkDir";
+        _mockFilePickerService.Setup(picker => picker.PickFile(It.IsAny<string[]>(), It.IsAny<string?>())).Returns(@"C:\invalid.xml");
+        _mockWimCustomizationService.Setup(service => service.AddXmlToImageAsync(@"C:\invalid.xml", _sut.WorkingDirectory))
+            .ThrowsAsync(new InvalidDataException("Invalid Windows answer file"));
+
+        await _sut.SelectXmlFileCommand.ExecuteAsync(null);
+
+        Assert.False(_sut.IsXmlAdded);
+        Assert.True(_sut.SelectXmlCard.HasFailed);
+        _mockDialogService.Verify(dialog => dialog.ShowErrorAsync("WIMUtil_Msg_XmlInvalidError", It.IsAny<string>()), Times.Once);
+    }
+
+    [Fact]
     public async Task SelectXmlFileCommand_WhenCancelled_DoesNothing()
     {
         _sut.WorkingDirectory = "C:\\WorkDir";

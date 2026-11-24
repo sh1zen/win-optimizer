@@ -253,17 +253,22 @@ public class WimImageFormatViewModelTests : IDisposable
             It.IsAny<IProgress<TaskProgressDetail>>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
-    [Fact]
-    public async Task DeleteWimCommand_OnSuccess_RedetectsFormats()
+    [Theory]
+    [InlineData(ImageFormat.Wim)]
+    [InlineData(ImageFormat.Esd)]
+    public async Task DeleteImageCommand_OnSuccess_RemovesRequestedFormatAndRedetects(ImageFormat format)
     {
         _sut.WorkingDirectory = "C:\\WorkDir";
+        var title = $"WIMUtil_Button_Delete{format}";
+        var confirmation = $"WIMUtil_Msg_Delete{format}Confirm";
         _mockDialogService
-            .Setup(d => d.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>()))
+            .Setup(d => d.ShowConfirmationAsync(It.Is<ConfirmationRequest>(
+                request => request.Title == title && request.Message == confirmation)))
             .ReturnsAsync(new ConfirmationResponse { Confirmed = true });
 
         _mockWimImageService
             .Setup(s => s.DeleteImageFileAsync(
-                It.IsAny<string>(), ImageFormat.Wim,
+                "C:\\WorkDir", format,
                 It.IsAny<IProgress<TaskProgressDetail>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(true);
 
@@ -271,9 +276,11 @@ public class WimImageFormatViewModelTests : IDisposable
             .Setup(s => s.DetectAllImageFormatsAsync(It.IsAny<string>()))
             .ReturnsAsync(new ImageDetectionResult());
 
-        await _sut.DeleteWimCommand.ExecuteAsync(null);
+        var command = format == ImageFormat.Wim ? _sut.DeleteWimCommand : _sut.DeleteEsdCommand;
+        await command.ExecuteAsync(null);
 
         _mockWimImageService.Verify(s => s.DetectAllImageFormatsAsync(It.IsAny<string>()), Times.Once);
+        _mockDialogService.Verify(d => d.ShowInformationAsync($"WIMUtil_Msg_Delete{format}Success", title), Times.Once);
     }
 
     [Fact]

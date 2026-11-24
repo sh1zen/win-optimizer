@@ -15,7 +15,10 @@ public sealed class SelectableResultGroup : ObservableObject, IDisposable
     private bool _isExpanded;
 
     public IReadOnlyList<ISelectableResultItem> Items { get; }
-    public string Header => $"{_localization.GetString(_labelKey)} ({Items.Count:N0})";
+    public string LabelKey => _labelKey;
+    public string Title => _localization.GetString(_labelKey);
+    public string CountLabel => Items.Count.ToString("N0");
+    public string Header => $"{Title} ({CountLabel})";
     public string Size { get; }
     public FluentIcons.Common.Icon Icon { get; }
     public bool CanClean => _cleanableCount > 0;
@@ -63,7 +66,12 @@ public sealed class SelectableResultGroup : ObservableObject, IDisposable
     }
 
     /// <summary>Refreshes the localized header without replacing items or expansion state.</summary>
-    public void RefreshText() => OnPropertyChanged(nameof(Header));
+    public void RefreshText()
+    {
+        OnPropertyChanged(nameof(Title));
+        OnPropertyChanged(nameof(CountLabel));
+        OnPropertyChanged(nameof(Header));
+    }
 
     /// <summary>Releases the completed scan's subscriptions when results are replaced.</summary>
     public void Dispose()

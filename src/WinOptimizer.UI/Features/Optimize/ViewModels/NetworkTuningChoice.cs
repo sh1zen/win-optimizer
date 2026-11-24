@@ -14,7 +14,7 @@ public sealed class NetworkTuningOption(string value, ILocalizationService local
     public void RefreshText() => OnPropertyChanged(nameof(Label));
 }
 
-/// <summary>Presents the last native readback; edits never overwrite this baseline before confirmation.</summary>
+/// <summary>Presents the original and suggested values alongside an editor bound to live Windows state.</summary>
 public sealed partial class NetworkTuningChoice(NetworkTuningDefinition definition, ILocalizationService localization) : ObservableObject
 {
     public NetworkTuningDefinition Definition { get; } = definition;
@@ -25,6 +25,7 @@ public sealed partial class NetworkTuningChoice(NetworkTuningDefinition definiti
     public IReadOnlyList<NetworkTuningOption> Options { get; } = definition.Input == NetworkTuningInput.Selection
         ? definition.Options.Select(value => new NetworkTuningOption(value, localization)).ToArray() : [];
     public NetworkTuningState State { get; private set; } = new(definition.Id, null, false);
+    [ObservableProperty] public partial bool IsVisible { get; set; } = true;
     public bool IsUpdating { get; private set; }
     public bool IsAvailable => State.IsAvailable;
     public bool IsOn => State.Value == "Enabled";
@@ -36,10 +37,16 @@ public sealed partial class NetworkTuningChoice(NetworkTuningDefinition definiti
     public Visibility ToggleVisibility => Visible(Definition.Input == NetworkTuningInput.Toggle);
     public Visibility SelectionVisibility => Visible(Definition.Input == NetworkTuningInput.Selection);
     public Visibility NumberVisibility => Visible(Definition.Input == NetworkTuningInput.Number);
-    public Visibility ResetVisibility => Visible(Definition.Owner == NetworkTuningOwner.NameResolution && State.Value != null);
-    public string CurrentLabel => !State.IsAvailable
-        ? string.Format(localization.GetString("OptimizeNetwork_Unavailable"), State.ErrorMessage ?? localization.GetString("OptimizeNetwork_Unknown"))
-        : string.Format(localization.GetString("OptimizeNetwork_Value"), FormatValue(State.Value));
+    public Visibility ResetVisibility => Visible(Definition.HasRegistryOverride && State.Value != null);
+    public string OriginalLabel => string.Format(localization.GetString("OptimizeNetwork_OriginalValue"), FormatReference(State.Original));
+    public string SuggestedLabel => string.Format(localization.GetString("OptimizeNetwork_SuggestedValue"),
+        FormatReference(Definition.Suggestion ?? State.Original));
+    public Visibility UnavailableVisibility => Visible(!IsAvailable);
+    public string UnavailableLabel => string.Format(localization.GetString("OptimizeNetwork_Unavailable"),
+        State.ErrorMessage ?? localization.GetString("OptimizeNetwork_Unknown"));
+
+    private string FormatReference(NetworkTuningValue? reference) => reference == null
+        ? localization.GetString("Utilities_Unknown") : FormatValue(reference.Value);
 
     public string FormatValue(string? value) => value == null ? Placeholder
         : Definition.Input == NetworkTuningInput.Toggle ? localization.GetString(value == "Enabled" ? "Common_On" : "Common_Off")
@@ -63,9 +70,10 @@ public sealed partial class NetworkTuningChoice(NetworkTuningDefinition definiti
 }
 
 /// <summary>Groups the same choice instances under localized native-owner headings.</summary>
-public sealed class NetworkTuningGroup(NetworkTuningOwner owner, IReadOnlyList<NetworkTuningChoice> choices, ILocalizationService localization) : ObservableObject
+public sealed partial class NetworkTuningGroup(NetworkTuningOwner owner, IReadOnlyList<NetworkTuningChoice> choices, ILocalizationService localization) : ObservableObject
 {
     public string Title => localization.GetString("OptimizeNetwork_Group_" + owner);
     public IReadOnlyList<NetworkTuningChoice> Choices { get; } = choices;
+    [ObservableProperty] public partial bool IsVisible { get; set; } = true;
     public void RefreshText() => OnPropertyChanged(nameof(Title));
 }

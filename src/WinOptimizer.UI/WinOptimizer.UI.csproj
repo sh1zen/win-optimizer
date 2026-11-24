@@ -49,6 +49,8 @@
     <InternalsVisibleTo Include="WinOptimizer.UI.Tests" />
     <InternalsVisibleTo Include="WinOptimizer.Startup.Tests" />
     <InternalsVisibleTo Include="WinOptimizer.SoftwareApps.Tests" />
+    <InternalsVisibleTo Include="WinOptimizer.Popup.Tests" />
+    <InternalsVisibleTo Include="WinOptimizer.SystemMonitor.Tests" />
   </ItemGroup>
 
   <ItemGroup>
@@ -63,11 +65,9 @@
          uses; those are stripped from the installer instead - see
          extras/win-optimizer.Installer.iss. Ref: microsoft/WindowsAppSDK#5969. -->
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260416003" />
-    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.4654" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.4654" GeneratePathProperty="true" />
     <!-- CsWinRT - WinRT projections for .NET (needed for CommunityToolkit.WinUI 8.2+) -->
     <PackageReference Include="Microsoft.Windows.CsWinRT" Version="2.2.0" />
-    <!-- Uses the Win2D version already supplied by the Windows App SDK for the page blur effect. -->
-    <PackageReference Include="Microsoft.Graphics.Win2D" Version="1.3.2" />
 
     <!-- MVVM -->
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.0" />
@@ -106,6 +106,12 @@
     <ProjectReference Include="..\WinOptimizer.Infrastructure\WinOptimizer.Infrastructure.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Keep the project license and component notices with the distributed application. -->
+    <None Include="..\..\LICENSE.txt;..\..\THIRD-PARTY-NOTICES.txt"
+          Link="%(Filename)%(Extension)" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <!-- Content files (localization) - uses local UI project files -->
   <ItemGroup>
     <Content Include="Features\Common\Localization\*.json">
@@ -137,6 +143,46 @@
         <RelativePath>$(ProjectPriFileName)</RelativePath>
         <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
       </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
+
+  <!-- Derive the companion from the final SDK manifest so it keeps all registration-free WinRT classes. -->
+  <ItemGroup>
+    <DesktopExtensionHost Include="win-optimizer-preview.exe" ExecutionLevel="asInvoker" />
+    <DesktopExtensionHost Include="win-optimizer-widgets.exe" ExecutionLevel="requireAdministrator" />
+  </ItemGroup>
+  <Target Name="BuildDesktopExtensionHosts" AfterTargets="CopyFilesToOutputDirectory"
+          Condition="'$(UseAppHost)' == 'true' and '$(DesignTimeBuild)' != 'true'"
+          Inputs="$(TargetDir)$(AssemblyName).exe;$(MSBuildProjectFullPath)"
+          Outputs="$(TargetDir)%(DesktopExtensionHost.Identity)">
+    <PropertyGroup>
+      <PreviewAppHost>$(TargetDir)%(DesktopExtensionHost.Identity)</PreviewAppHost>
+      <PreviewManifestTool>$(PkgMicrosoft_Windows_SDK_BuildTools)\bin\10.0.26100.0\x64\mt.exe</PreviewManifestTool>
+      <PreviewEmbeddedManifest>$(IntermediateOutputPath)%(DesktopExtensionHost.Filename).manifest</PreviewEmbeddedManifest>
+      <PreviewManifestNamespaces>&lt;Namespace Prefix="a" Uri="urn:schemas-microsoft-com:asm.v1"/&gt;&lt;Namespace Prefix="v2" Uri="urn:schemas-microsoft-com:asm.v2"/&gt;&lt;Namespace Prefix="v3" Uri="urn:schemas-microsoft-com:asm.v3"/&gt;</PreviewManifestNamespaces>
+    </PropertyGroup>
+    <Copy SourceFiles="$(TargetDir)$(AssemblyName).exe" DestinationFiles="$(PreviewAppHost).tmp" />
+    <Exec Command="&quot;$(PreviewManifestTool)&quot; -nologo -inputresource:&quot;$(PreviewAppHost).tmp&quot;;#1 -out:&quot;$(PreviewEmbeddedManifest)&quot;" />
+    <XmlPoke XmlInputPath="$(PreviewEmbeddedManifest)" Namespaces="$(PreviewManifestNamespaces)"
+             Query="/a:assembly/v2:trustInfo/v2:security/v3:requestedPrivileges/v3:requestedExecutionLevel/@level" Value="%(DesktopExtensionHost.ExecutionLevel)" />
+    <Exec Command="&quot;$(PreviewManifestTool)&quot; -nologo -manifest &quot;$(PreviewEmbeddedManifest)&quot; -outputresource:&quot;$(PreviewAppHost).tmp&quot;;#1" />
+    <Move SourceFiles="$(PreviewAppHost).tmp" DestinationFiles="$(PreviewAppHost)" OverwriteReadOnlyFiles="true" />
+    <ItemGroup><FileWrites Include="$(PreviewAppHost);$(PreviewEmbeddedManifest)" /></ItemGroup>
+  </Target>
+  <!-- Unpackaged WinUI locates its resource index by executable name. -->
+  <Target Name="BuildDesktopExtensionResources" AfterTargets="AfterGenerateProjectPriFile"
+          Condition="'$(UseAppHost)' == 'true' and '$(DesignTimeBuild)' != 'true'"
+          Inputs="$(ProjectPriFullPath)" Outputs="$(TargetDir)%(DesktopExtensionHost.Filename).pri">
+    <Copy SourceFiles="$(ProjectPriFullPath)" DestinationFiles="$(TargetDir)%(DesktopExtensionHost.Filename).pri" />
+    <ItemGroup><FileWrites Include="$(TargetDir)%(DesktopExtensionHost.Filename).pri" /></ItemGroup>
+  </Target>
+  <Target Name="PublishDesktopExtensionHosts" BeforeTargets="ComputeResolvedFilesToPublishList"
+          Condition="'$(CopyBuildOutputToPublishDirectory)' == 'true' and '$(UseAppHost)' == 'true'">
+    <ItemGroup>
+      <ResolvedFileToPublish Include="@(DesktopExtensionHost->'$(TargetDir)%(Identity)')" RelativePath="%(DesktopExtensionHost.Identity)"
+                            CopyToPublishDirectory="PreserveNewest" />
+      <ResolvedFileToPublish Include="$(TargetDir)%(DesktopExtensionHost.Filename).pri" RelativePath="%(DesktopExtensionHost.Filename).pri"
+                            CopyToPublishDirectory="PreserveNewest" />
     </ItemGroup>
   </Target>
 </Project>

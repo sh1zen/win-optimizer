@@ -2,9 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
-using System.Runtime.InteropServices;
+using System.ComponentModel;
 using System.Threading.Tasks;
 using WinOptimizer.Core.Features.Common.Enums;
+using WinOptimizer.Core.Features.Common.Helpers;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.Core.Features.Common.Native;
@@ -16,7 +17,8 @@ public class PowerCfgApplier(
     IPowerSettingsQueryService powerSettingsQueryService,
     IHardwareDetectionService hardwareDetectionService,
     IComboBoxResolver comboBoxResolver,
-    ILogService logService) : IPowerCfgApplier
+    ILogService logService,
+    IPowerSchemeOperations schemeOperations) : IPowerCfgApplier
 {
     public async Task<OperationResult> ApplyPowerCfgSettingsAsync(SettingDefinition setting, bool enable, object? value)
     {
@@ -38,7 +40,7 @@ public class PowerCfgApplier(
                 ["DCValue"] = dcPowerCfgValue
             };
 
-            await ExecutePowerCfgSettings(setting.PowerCfgSettings, convertedDict, await hardwareDetectionService.HasBatteryAsync().ConfigureAwait(false)).ConfigureAwait(false);
+            return await ExecutePowerCfgSettingsAsync(setting.PowerCfgSettings, convertedDict, await hardwareDetectionService.HasBatteryAsync().ConfigureAwait(false)).ConfigureAwait(false);
         }
         else if (setting.InputType == InputType.Selection &&
             setting.PowerCfgSettings[0].PowerModeSupport == PowerModeSupport.Separate &&
@@ -58,7 +60,7 @@ public class PowerCfgApplier(
                 ["DCValue"] = dcPowerCfgValue
             };
 
-            await ExecutePowerCfgSettings(setting.PowerCfgSettings, convertedDict, await hardwareDetectionService.HasBatteryAsync().ConfigureAwait(false)).ConfigureAwait(false);
+            return await ExecutePowerCfgSettingsAsync(setting.PowerCfgSettings, convertedDict, await hardwareDetectionService.HasBatteryAsync().ConfigureAwait(false)).ConfigureAwait(false);
         }
         else if (setting.InputType == InputType.NumericRange &&
                  setting.PowerCfgSettings[0].PowerModeSupport == PowerModeSupport.Separate &&
@@ -69,17 +71,15 @@ public class PowerCfgApplier(
             var acValue = numericDict.TryGetValue("ACValue", out var ac) ? ExtractSingleValue(ac) : 0;
             var dcValue = numericDict.TryGetValue("DCValue", out var dc) ? ExtractSingleValue(dc) : 0;
 
-            var displayUnits = GetDisplayUnits(setting);
-            var acSystemValue = ConvertToSystemUnits(acValue, displayUnits);
-            var dcSystemValue = ConvertToSystemUnits(dcValue, displayUnits);
+            var scale = PowerSettingUnits.SystemUnitsPerDisplayUnit(PowerSettingUnits.GetDisplayUnits(setting));
 
             var convertedDict = new Dictionary<string, object?>
             {
-                ["ACValue"] = acSystemValue,
-                ["DCValue"] = dcSystemValue
+                ["ACValue"] = acValue * scale,
+                ["DCValue"] = dcValue * scale
             };
 
-            await ExecutePowerCfgSettings(setting.PowerCfgSettings, convertedDict, await hardwareDetectionService.HasBatteryAsync().ConfigureAwait(false)).ConfigureAwait(false);
+            return await ExecutePowerCfgSettingsAsync(setting.PowerCfgSettings, convertedDict, await hardwareDetectionService.HasBatteryAsync().ConfigureAwait(false)).ConfigureAwait(false);
         }
         else
         {
@@ -92,125 +92,64 @@ public class PowerCfgApplier(
             {
                 InputType.Toggle => enable ? 1 : 0,
                 InputType.Selection when value is int index => comboBoxResolver.GetValueFromIndex(setting, index),
-                InputType.NumericRange when value != null => ConvertToSystemUnits(NumericConversionHelper.ConvertNumericValue(value), GetDisplayUnits(setting)),
+                InputType.NumericRange when value != null => NumericConversionHelper.ConvertNumericValue(value)
+                    * PowerSettingUnits.SystemUnitsPerDisplayUnit(PowerSettingUnits.GetDisplayUnits(setting)),
                 _ => throw new NotSupportedException($"Input type '{setting.InputType}' not supported for PowerCfg operations")
             };
 
             logService.Log(LogLevel.Info, $"[PowerCfgApplier] Applying {setting.PowerCfgSettings.Count} PowerCfg settings for '{setting.Id}' with value: {valueToApply}");
-            await ExecutePowerCfgSettings(setting.PowerCfgSettings, valueToApply, await hardwareDetectionService.HasBatteryAsync().ConfigureAwait(false)).ConfigureAwait(false);
+            return await ExecutePowerCfgSettingsAsync(setting.PowerCfgSettings, valueToApply, await hardwareDetectionService.HasBatteryAsync().ConfigureAwait(false)).ConfigureAwait(false);
         }
-
-        return OperationResult.Succeeded();
     }
 
-    private async Task ExecutePowerCfgSettings(IReadOnlyList<PowerCfgSetting> powerCfgSettings, object valueToApply, bool hasBattery = true)
+    /// <summary>Applies and activates power settings, retaining precise errors from each native operation.</summary>
+    private async Task<OperationResult> ExecutePowerCfgSettingsAsync(IReadOnlyList<PowerCfgSetting> powerCfgSettings, object valueToApply, bool hasBattery)
     {
-        var activeSchemeResult = PowerProf.PowerGetActiveScheme(IntPtr.Zero, out var activeSchemePtr);
-        if (activeSchemeResult != PowerProf.ERROR_SUCCESS)
-        {
-            logService.Log(LogLevel.Error, "[PowerCfgApplier] Failed to get active power scheme");
-            return;
-        }
-
-        var activeSchemeGuid = Marshal.PtrToStructure<Guid>(activeSchemePtr);
-        PowerProf.LocalFree(activeSchemePtr);
+        var status = schemeOperations.GetActiveScheme(out var scheme);
+        if (status != PowerProf.ERROR_SUCCESS)
+            return OperationResult.Failed(FormatFailure("get the active power scheme", status));
 
         int changeCount = 0;
-
-        foreach (var powerCfgSetting in powerCfgSettings)
+        var failures = new List<string>();
+        foreach (var setting in powerCfgSettings)
         {
-            var (currentAc, currentDc) = await powerSettingsQueryService.GetPowerSettingACDCValuesAsync(powerCfgSetting).ConfigureAwait(false);
-            var subgroupGuid = Guid.Parse(powerCfgSetting.SubgroupGuid);
-            var settingGuid = Guid.Parse(powerCfgSetting.SettingGuid);
+            var (currentAc, currentDc) = await powerSettingsQueryService.GetPowerSettingACDCValuesAsync(setting).ConfigureAwait(false);
+            var subgroup = Guid.Parse(setting.SubgroupGuid);
+            var settingId = Guid.Parse(setting.SettingGuid);
+            var (acValue, dcValue) = ExtractACDCValues(valueToApply);
 
-            switch (powerCfgSetting.PowerModeSupport)
+            if (setting.PowerModeSupport != PowerModeSupport.DCOnly && currentAc != acValue)
+                WriteValue(onAc: true, acValue);
+            if (hasBattery && setting.PowerModeSupport != PowerModeSupport.ACOnly && currentDc != dcValue)
+                WriteValue(onAc: false, dcValue);
+
+            void WriteValue(bool onAc, int value)
             {
-                case PowerModeSupport.Both:
-                    var singleValue = ExtractSingleValue(valueToApply);
-
-                    if (currentAc != singleValue)
-                    {
-                        PowerProf.PowerWriteACValueIndex(IntPtr.Zero, ref activeSchemeGuid, ref subgroupGuid, ref settingGuid, (uint)singleValue);
-                        changeCount++;
-                    }
-
-                    if (hasBattery && currentDc != singleValue)
-                    {
-                        PowerProf.PowerWriteDCValueIndex(IntPtr.Zero, ref activeSchemeGuid, ref subgroupGuid, ref settingGuid, (uint)singleValue);
-                        changeCount++;
-                    }
-                    break;
-
-                case PowerModeSupport.Separate:
-                    var (acValue, dcValue) = ExtractACDCValues(valueToApply);
-
-                    if (currentAc != acValue)
-                    {
-                        PowerProf.PowerWriteACValueIndex(IntPtr.Zero, ref activeSchemeGuid, ref subgroupGuid, ref settingGuid, (uint)acValue);
-                        changeCount++;
-                    }
-
-                    if (hasBattery && currentDc != dcValue)
-                    {
-                        PowerProf.PowerWriteDCValueIndex(IntPtr.Zero, ref activeSchemeGuid, ref subgroupGuid, ref settingGuid, (uint)dcValue);
-                        changeCount++;
-                    }
-                    break;
-
-                case PowerModeSupport.ACOnly:
-                    var acOnlyValue = ExtractSingleValue(valueToApply);
-                    if (currentAc != acOnlyValue)
-                    {
-                        PowerProf.PowerWriteACValueIndex(IntPtr.Zero, ref activeSchemeGuid, ref subgroupGuid, ref settingGuid, (uint)acOnlyValue);
-                        changeCount++;
-                    }
-                    break;
-
-                case PowerModeSupport.DCOnly:
-                    if (hasBattery)
-                    {
-                        var dcOnlyValue = ExtractSingleValue(valueToApply);
-                        if (currentDc != dcOnlyValue)
-                        {
-                            PowerProf.PowerWriteDCValueIndex(IntPtr.Zero, ref activeSchemeGuid, ref subgroupGuid, ref settingGuid, (uint)dcOnlyValue);
-                            changeCount++;
-                        }
-                    }
-                    break;
+                var writeStatus = schemeOperations.WriteValue(scheme, subgroup, settingId, onAc, (uint)value);
+                if (writeStatus == PowerProf.ERROR_SUCCESS)
+                    changeCount++;
+                else
+                    failures.Add(FormatFailure($"write {(onAc ? "AC" : "DC")} value for {settingId}", writeStatus));
             }
         }
 
-        if (changeCount == 0)
+        if (changeCount > 0)
         {
-            logService.Log(LogLevel.Info, "[PowerCfgApplier] No powercfg changes needed (values already match)");
-            return;
+            var activationStatus = schemeOperations.SetActiveScheme(scheme);
+            powerSettingsQueryService.InvalidateCache();
+            if (activationStatus != PowerProf.ERROR_SUCCESS)
+                failures.Add(FormatFailure("activate the updated power scheme", activationStatus));
         }
 
-        PowerProf.PowerSetActiveScheme(IntPtr.Zero, ref activeSchemeGuid);
+        if (failures.Count > 0)
+            return OperationResult.Failed(string.Join("; ", failures));
 
         logService.Log(LogLevel.Info, $"[PowerCfgApplier] Applied {changeCount} powercfg changes via P/Invoke");
+        return OperationResult.Succeeded();
     }
 
-    private int ConvertToSystemUnits(int displayValue, string? units)
-    {
-        return units?.ToLowerInvariant() switch
-        {
-            "minutes" => displayValue * 60,
-            "hours" => displayValue * 3600,
-            // Mirror of UnitConversionHelper: "Milliseconds" is the only setting where the
-            // system unit and display unit match 1:1. Was `/ 1000`, which silently divided
-            // every USB suspend timeout write by 1000.
-            "milliseconds" => displayValue,
-            _ => displayValue
-        };
-    }
-
-    private string GetDisplayUnits(SettingDefinition setting)
-    {
-        if (setting.NumericRange?.Units is { } unitsStr)
-            return unitsStr;
-        return setting.PowerCfgSettings?[0]?.Units ?? string.Empty;
-    }
+    private static string FormatFailure(string operation, uint status) =>
+        $"Could not {operation} (Windows error {status}: {new Win32Exception((int)status).Message}).";
 
     private int ExtractSingleValue(object? value)
     {

@@ -16,6 +16,8 @@ public interface IScheduledTaskService
     Task<OperationResult> CreateUserLogonTaskAsync(string taskName, string command, string username, bool deleteAfterRun = true);
     /// <summary>Registers a persistent interactive desktop launch, or removes that exact task.</summary>
     Task<OperationResult> ConfigureUserLogonApplicationAsync(string taskName, string executablePath, string arguments, string userSid, bool enabled);
+    /// <summary>Reads an app logon task, treating only a missing task or folder as disabled.</summary>
+    Task<bool> IsUserLogonApplicationEnabledAsync(string taskName);
     Task<OperationResult> EnableTaskAsync(string taskPath);
     Task<OperationResult> DisableTaskAsync(string taskPath);
     Task<bool?> IsTaskEnabledAsync(string taskPath);

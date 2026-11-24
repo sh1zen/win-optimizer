@@ -1,0 +1,26 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Dark">
+            <SolidColorBrush x:Key="DriverScanAccentBrush" Color="#FFFFB36B"/>
+            <SolidColorBrush x:Key="DriverScanIconBackgroundBrush" Color="#FF553722"/>
+            <SolidColorBrush x:Key="DriverScanTrackBrush" Color="#FF43444B"/>
+            <SolidColorBrush x:Key="DriverScanStrokeBrush" Color="#FF3C3D44"/>
+            <SolidColorBrush x:Key="DriverScanActionTextBrush" Color="#FF26170C"/>
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Light">
+            <SolidColorBrush x:Key="DriverScanAccentBrush" Color="#FF9B4200"/>
+            <SolidColorBrush x:Key="DriverScanIconBackgroundBrush" Color="#FFFFE8D3"/>
+            <SolidColorBrush x:Key="DriverScanTrackBrush" Color="#FFD6D1CD"/>
+            <SolidColorBrush x:Key="DriverScanStrokeBrush" Color="#FFD2CFCC"/>
+            <SolidColorBrush x:Key="DriverScanActionTextBrush" Color="White"/>
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="HighContrast">
+            <SolidColorBrush x:Key="DriverScanAccentBrush" Color="{ThemeResource SystemColorHotlightColor}"/>
+            <SolidColorBrush x:Key="DriverScanIconBackgroundBrush" Color="{ThemeResource SystemColorWindowColor}"/>
+            <SolidColorBrush x:Key="DriverScanTrackBrush" Color="{ThemeResource SystemColorWindowTextColor}"/>
+            <SolidColorBrush x:Key="DriverScanStrokeBrush" Color="{ThemeResource SystemColorWindowTextColor}"/>
+            <SolidColorBrush x:Key="DriverScanActionTextBrush" Color="{ThemeResource SystemColorWindowColor}"/>
+        </ResourceDictionary>
+    </ResourceDictionary.ThemeDictionaries>
+</ResourceDictionary>

@@ -89,13 +89,15 @@ public class WallpaperServiceTests
     {
         // Arrange
         _mockInteractiveUserService.Setup(s => s.IsOtsElevation).Returns(true);
+        _mockRegistryService.Setup(r => r.SetValue(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<object>(),
+            Microsoft.Win32.RegistryValueKind.String)).Returns(true);
         _mockSystemParametersService
             .Setup(s => s.SystemParametersInfo(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<int>()))
             .Returns(1);
         var wallpaperPath = @"C:\Windows\Web\Wallpaper\Windows\img0.jpg";
 
         // Act
-        await _service.SetWallpaperAsync(wallpaperPath);
+        Assert.True(await _service.SetWallpaperAsync(wallpaperPath));
 
         // Assert — verify registry is written under OTS elevation
         _mockRegistryService.Verify(
@@ -108,25 +110,19 @@ public class WallpaperServiceTests
     }
 
     [Fact]
-    public async Task SetWallpaperAsync_NotOtsElevation_DoesNotWriteToRegistry()
+    public async Task SetWallpaperAsync_OtsRegistryRejectionStopsBeforeNativeWallpaperChange()
     {
-        // Arrange
-        _mockInteractiveUserService.Setup(s => s.IsOtsElevation).Returns(false);
-        _mockSystemParametersService
-            .Setup(s => s.SystemParametersInfo(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<int>()))
-            .Returns(1);
+        _mockInteractiveUserService.Setup(service => service.IsOtsElevation).Returns(true);
+        _mockRegistryService.Setup(service => service.SetValue(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<object>(),
+            Microsoft.Win32.RegistryValueKind.String)).Returns(false);
 
-        // Act
-        await _service.SetWallpaperAsync(@"C:\some\wallpaper.jpg");
+        Assert.False(await _service.SetWallpaperAsync(@"C:\fixture\wallpaper.jpg"));
 
-        // Assert — no direct registry write when not using OTS
-        _mockRegistryService.Verify(
-            r => r.SetValue(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<object>(), It.IsAny<Microsoft.Win32.RegistryValueKind>()),
-            Times.Never);
+        _mockSystemParametersService.VerifyNoOtherCalls();
     }
 
     [Fact]
-    public async Task SetWallpaperAsync_Success_ReturnsTrueAndLogs()
+    public async Task SetWallpaperAsync_InteractiveSuccess_UsesNativeApiAndLogs()
     {
         // Arrange
         _mockInteractiveUserService.Setup(s => s.IsOtsElevation).Returns(false);
@@ -139,6 +135,9 @@ public class WallpaperServiceTests
 
         // Assert
         result.Should().BeTrue();
+        _mockRegistryService.Verify(
+            r => r.SetValue(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<object>(), It.IsAny<Microsoft.Win32.RegistryValueKind>()),
+            Times.Never);
         _mockLogService.Verify(
             l => l.Log(LogLevel.Info, It.Is<string>(msg => msg.Contains("Wallpaper set to"))),
             Times.Once);

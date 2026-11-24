@@ -6,6 +6,8 @@ namespace WinOptimizer.Core.Features.Common.Interfaces;
 
 public interface IConfigurationApplicationBridgeService
 {
+    Task ApplyDefaultWallpaperForCurrentThemeAsync();
+
     Task<bool> ApplyConfigurationSectionAsync(
         ConfigSection section,
         string sectionName,

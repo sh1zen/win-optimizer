@@ -9,7 +9,6 @@ build/
 GEMINI.md
 .gemini/
 .plans/
-docs/
 .superpowers/
 .prompts/
 .agent/

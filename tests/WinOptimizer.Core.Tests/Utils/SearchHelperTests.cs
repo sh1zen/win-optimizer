@@ -16,7 +16,6 @@ public class SearchHelperTests
         Assert.True(SearchHelper.Prepare(" \t ").Matches([]));
     }
 
-
     [Fact]
     public void MatchesSearchTerm_MultiWordSearch_AllTermsMustMatch()
     {
@@ -26,31 +25,9 @@ public class SearchHelperTests
     }
 
     [Fact]
-    public void MatchesSearchTerm_MultiWordSearch_OneTermMissing_ReturnsFalse()
+    public void MatchesSearchTerm_NoFieldsWithText_ReturnsFalse()
     {
-        // "xyz" does not appear in any field
-        SearchHelper.MatchesSearchTerm("power xyz", "Power Settings", "General")
-            .Should().BeFalse();
-    }
-
-    [Fact]
-    public void MatchesSearchTerm_NullFieldsInArray_HandledGracefully()
-    {
-        SearchHelper.MatchesSearchTerm("test", null!, "test value", null!)
-            .Should().BeTrue();
-    }
-
-    [Fact]
-    public void MatchesSearchTerm_AllNullFields_ReturnsFalse()
-    {
-        SearchHelper.MatchesSearchTerm("test", null!, null!)
-            .Should().BeFalse();
-    }
-
-    [Fact]
-    public void MatchesSearchTerm_EmptyFieldsArray_ReturnsFalse()
-    {
-        SearchHelper.MatchesSearchTerm("test")
-            .Should().BeFalse();
+        SearchHelper.MatchesSearchTerm("test", null!, null!).Should().BeFalse();
+        SearchHelper.MatchesSearchTerm("test").Should().BeFalse();
     }
 }

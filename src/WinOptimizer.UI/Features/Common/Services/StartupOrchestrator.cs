@@ -24,6 +24,7 @@ public class StartupOrchestrator : IStartupOrchestrator
     private readonly IConfigurationService _configurationService;
     private readonly ILogService _logService;
     private readonly IWindowsAppsItemsProvider _windowsApps;
+    private readonly WinOptimizer.Infrastructure.Features.Common.Services.TimeMachineService? _timeMachine;
 
     public StartupOrchestrator(
         ICompatibleSettingsRegistry settingsRegistry,
@@ -32,7 +33,8 @@ public class StartupOrchestrator : IStartupOrchestrator
         IUserPreferencesService preferencesService,
         IConfigurationService configurationService,
         ILogService logService,
-        IWindowsAppsItemsProvider windowsApps)
+        IWindowsAppsItemsProvider windowsApps,
+        WinOptimizer.Infrastructure.Features.Common.Services.TimeMachineService? timeMachine = null)
     {
         _settingsRegistry = settingsRegistry;
         _settingsPreloader = settingsPreloader;
@@ -41,6 +43,7 @@ public class StartupOrchestrator : IStartupOrchestrator
         _configurationService = configurationService;
         _logService = logService;
         _windowsApps = windowsApps;
+        _timeMachine = timeMachine;
     }
 
     /// <inheritdoc />
@@ -90,6 +93,7 @@ public class StartupOrchestrator : IStartupOrchestrator
     private async Task<StartupResult> RunDeferredInitializationCoreAsync()
     {
         using var logTopic = _logService.BeginTopic(LogTopic.Startup);
+        _timeMachine?.StartRetentionMaintenance();
         await LoadWindowsAppsAsync().ConfigureAwait(false);
         var isFirstLaunch = false;
 

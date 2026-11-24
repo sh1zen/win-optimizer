@@ -1,3 +1,8 @@
+using System.Text.Json;
+using Microsoft.UI.Xaml;
+using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Media;
 using Moq;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Models;
@@ -5,7 +10,9 @@ using WinOptimizer.Core.Features.Common.Enums;
 using WinOptimizer.Core.Features.Drivers.Interfaces;
 using WinOptimizer.Core.Features.Drivers.Models;
 using WinOptimizer.UI.Features.Common.Interfaces;
+using WinOptimizer.UI.Features.Drivers;
 using WinOptimizer.UI.Features.Drivers.ViewModels;
+using WinOptimizer.UI.Helpers;
 using Xunit;
 
 namespace WinOptimizer.UI.Tests.ViewModels;
@@ -18,6 +25,7 @@ public sealed class DriversViewModelTests : IDisposable
     private readonly Mock<ITaskProgressService> _tasks = new();
     private readonly Mock<IDispatcherService> _dispatcher = new();
     private readonly Mock<IDriverRemovalService> _removal = new();
+    private readonly Mock<IDriverPackageService> _packages = new();
     private readonly Mock<IDialogService> _dialogs = new();
     private readonly Mock<IApplicationModeService> _mode = new();
     private readonly DriverSettingsViewModel _settings;
@@ -32,7 +40,8 @@ public sealed class DriversViewModelTests : IDisposable
         _tasks.SetupGet(x => x.CurrentTaskCancellationSource).Returns(() => _owner);
         _dispatcher.Setup(x => x.RunOnUIThread(It.IsAny<Action>())).Callback<Action>(action => action());
         _settings = new(_preferences.Object, _localization.Object);
-        _vm = new(_scanner.Object, _settings, _localization.Object, _tasks.Object, _dispatcher.Object, _removal.Object, _dialogs.Object, _mode.Object);
+        _vm = new(_scanner.Object, _settings, _localization.Object, _tasks.Object, _dispatcher.Object, _removal.Object, _dialogs.Object, _mode.Object,
+            _packages.Object);
         _scanner.Setup(x => x.ScanAsync(It.IsAny<DriverScanOptions>(), It.IsAny<IProgress<DriverScanProgress>?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(Report(new()));
     }
@@ -53,7 +62,7 @@ public sealed class DriversViewModelTests : IDisposable
         Assert.True(_vm.ShowScanInformation);
         Assert.False(_vm.HasStatus);
         Assert.False(_vm.HasNotices);
-        Assert.Equal("Drivers_ReadyTitle", _vm.EmptyTitle);
+        Assert.Equal("Scan_ReadyTitle", _vm.EmptyTitle);
         _preferences.VerifyNoOtherCalls(); _scanner.VerifyNoOtherCalls();
     }
     [Fact]
@@ -79,6 +88,67 @@ public sealed class DriversViewModelTests : IDisposable
         using var restarted = new DriverSettingsViewModel(_preferences.Object, _localization.Object);
         Assert.True(await restarted.LoadAsync());
         Assert.False(restarted.OnlyWhqlUpdates);
+    }
+
+    [Fact]
+    public async Task ChangingSourcesChannelsAndWhqlKeepsAllFieldsAcrossPendingWritesAndReload()
+    {
+        var original = new DriverScanOptions
+        {
+            Sources = DriverSources.WindowsUpdate | DriverSources.Nvidia | DriverSources.Asus,
+            NvidiaChannels = NvidiaChannels.Studio, AutomaticVerificationLimit = 6
+        };
+        _preferences.Setup(x => x.GetPreferenceAsync("Drivers", It.IsAny<DriverScanOptions>())).ReturnsAsync(original);
+        var pending = new TaskCompletionSource<OperationResult>();
+        DriverScanOptions written = original;
+        _preferences.Setup(x => x.SetPreferenceAsync("Drivers", It.IsAny<DriverScanOptions>()))
+            .Callback<string, DriverScanOptions>((_, value) => written = value).Returns(pending.Task);
+        await _settings.LoadAsync();
+        Assert.False(_settings.GameReady);
+        _settings.OnlyWhqlUpdates = false;
+        _settings.GameReady = true;
+        Assert.True(_settings.Options.OnlyWhqlUpdates);
+        _settings.SourceChoices.Single(item => item.Source == DriverSources.Asus).Enabled = false;
+        pending.SetResult(OperationResult.Succeeded());
+        Assert.True(await _settings.FlushAsync());
+        Assert.Equal(original with { OnlyWhqlUpdates = false, NvidiaChannels = NvidiaChannels.Both,
+            Sources = DriverSources.WindowsUpdate | DriverSources.Nvidia }, written);
+        _preferences.Setup(x => x.GetPreferenceAsync("Drivers", It.IsAny<DriverScanOptions>())).ReturnsAsync(written);
+        using var reopened = new DriverSettingsViewModel(_preferences.Object, _localization.Object);
+        Assert.True(await reopened.LoadAsync());
+        Assert.Equal(written, reopened.Options);
+        Assert.False(reopened.SourceChoices.Single(item => item.Source == DriverSources.Asus).Enabled);
+    }
+
+    [Fact]
+    public async Task DownloadSelectionCannotSelectRemovalAndUsesDedicatedPackageOperation()
+    {
+        var report = Report(new() { OnlyWhqlUpdates = false });
+        var match = Assert.Single(report.Updates);
+        var payload = new Uri("https://download.windowsupdate.com/driver.cab");
+        var update = match.Update with { Catalog = new([new(DriverSources.MicrosoftCatalog, "update", "1",
+            DateTimeOffset.UnixEpoch, null, null, [payload])], [new(payload, [])]) };
+        _scanner.Setup(scanner => scanner.ScanAsync(It.IsAny<DriverScanOptions>(), It.IsAny<IProgress<DriverScanProgress>?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(report with { Updates = [match with { Update = update }] });
+        _packages.Setup(service => service.AcquireAsync(update, report.Inventory, true, It.IsAny<IProgress<DriverScanProgress>?>(),
+            It.IsAny<CancellationToken>(), false)).ReturnsAsync(new DriverPackageResult(update, @"C:\Drivers\fixture"));
+        await _vm.ScanCommand.ExecuteAsync(null);
+        var removal = Assert.IsType<DriverResultItem>(Assert.Single(_vm.ResultGroups[0].Items));
+        var download = Assert.IsType<DriverResultItem>(Assert.Single(_vm.ResultGroups[2].Items));
+        removal.IsDownloadSelected = true;
+        download.IsSelected = true;
+        Assert.False(removal.IsDownloadSelected);
+        Assert.False(download.IsSelected);
+        removal.IsSelected = true;
+        download.IsDownloadSelected = true;
+        Assert.True(_vm.DownloadCommand.CanExecute(null));
+        Assert.Equal(1, _vm.SelectedCount);
+        await _vm.DownloadCommand.ExecuteAsync(null);
+        Assert.Equal(1, _vm.SelectedCount);
+        Assert.False(_vm.DownloadCommand.CanExecute(null));
+        Assert.Contains(@"C:\Drivers\fixture", _vm.Status);
+        _packages.VerifyAll();
+        _removal.VerifyNoOtherCalls();
     }
     [Fact]
     public async Task FailedSave_PreservesPublishedPolicy_AndExposesFailure()
@@ -282,6 +352,211 @@ public sealed class DriversViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task ResultsPageShowsEvidenceAndLimitsDeviceBulkSelectionToSearchMatches()
+    {
+        var strings = await UseEnglishAsync();
+        var report = Report(new());
+        var device = new DriverDevice("USB\\BLUETOOTH", "Bluetooth adapter", "Bluetooth", "oem2.inf", false, "1.0", []);
+        var other = new DriverDevice("HID\\MOUSE", "USB mouse", "Mouse", "oem3.inf", false, "1.0", []);
+        var publisher = new Uri("https://www.catalog.update.microsoft.com/");
+        var payload = new Uri("https://download.windowsupdate.com/driver.cab");
+        var catalog = new DriverCatalogRecord(
+            [new(DriverSources.MicrosoftCatalog, "update", "1", DateTimeOffset.UnixEpoch, publisher, null, [payload])],
+            [new(payload, [])]) { Verification = DriverVerification.Verified };
+        var component = new DriverComponent("driver.inf", "Bluetooth", "OEM", "2.0", "2026-01-03",
+            [], [], "", "", "", true, DriverCertification.Whql);
+        var identifier = new DriverIdentifier("USB\\BLUETOOTH", DriverIdentifierKind.Hardware, 0);
+        var match = report.Updates[0] with
+        {
+            Update = report.Updates[0].Update with { Catalog = catalog },
+            Devices = [device],
+            Comparisons = [new(device, component, identifier, identifier, DriverVersionRelation.Newer, false)]
+        };
+        const string coverageNotice = "Catalog query limit reached.";
+        _scanner.Setup(scanner => scanner.ScanAsync(It.IsAny<DriverScanOptions>(), It.IsAny<IProgress<DriverScanProgress>?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(report with
+            {
+                DisconnectedDevices = [device, other],
+                Updates = [match],
+                Notices = [coverageNotice],
+                Sources = [new(DriverSources.MicrosoftCatalog, DriverSourceState.Partial, 1, [coverageNotice], publisher)]
+            });
+        var page = new DriversPage(_vm) { RequestedTheme = ElementTheme.Dark, Width = 1120 };
+        var surface = new Grid { Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 24, 25, 28)) };
+        surface.Children.Add(page);
+        var window = new Window { Content = surface };
+        try
+        {
+            window.AppWindow.ResizeClient(new Windows.Graphics.SizeInt32(1120, 720));
+            window.Activate();
+            await StartupUiCoordinator.RunAfterFirstRenderAsync(page, () => Task.CompletedTask);
+            await _vm.ScanCommand.ExecuteAsync(null);
+            var coverage = Assert.IsType<Border>(page.FindName("CoverageBanner"));
+            Assert.Equal(Visibility.Visible, coverage.Visibility);
+            Assert.Contains(VisibleLabels(coverage), label => label.Text == coverageNotice);
+            var details = Assert.IsType<Border>(page.FindName("CoverageDetailsPanel"));
+            Assert.Equal(Visibility.Collapsed, details.Visibility);
+            var toggle = Assert.IsType<ToggleButton>(page.FindName("CoverageToggle"));
+            toggle.IsChecked = true;
+            Assert.Equal(Visibility.Visible, details.Visibility);
+            await StartupUiCoordinator.RunAfterFirstRenderAsync(page, () => Task.CompletedTask);
+            page.UpdateLayout();
+            Assert.Contains(VisibleLabels(details), label => label.Text.Contains(coverageNotice, StringComparison.Ordinal));
+            toggle.IsChecked = false;
+
+            var results = Assert.IsType<DriverResultsView>(Assert.IsType<Border>(page.FindName("ResultsPanel")).Child);
+            await StartupUiCoordinator.RunAfterFirstRenderAsync(page, () => Task.CompletedTask);
+            var tabs = Assert.IsType<ListView>(results.FindName("CategoryTabs"));
+            var columns = Assert.IsType<Grid>(results.FindName("CandidateColumns"));
+            var rows = Assert.IsType<ListView>(results.FindName("DriverRows"));
+            Assert.Equal(Visibility.Visible, tabs.Visibility);
+            tabs.SelectedItem = _vm.ResultGroups[2];
+            await StartupUiCoordinator.RunAfterFirstRenderAsync(page, () => Task.CompletedTask);
+            page.UpdateLayout();
+            Assert.Equal(Visibility.Visible, columns.Visibility);
+            Assert.Contains(VisibleLabels(rows), label => label.Text == device.Name);
+            Assert.Contains(VisibleLabels(rows), label => label.Text == "1.0");
+            Assert.Contains(VisibleLabels(rows), label => label.Text == "2.0");
+            Assert.Contains(VisibleLabels(rows), label => label.Text == strings["Drivers_Version_Newer"]);
+            Assert.Contains(VisibleLabels(rows), label => label.Text == strings["Drivers_WhqlVerified"]);
+            var filter = Assert.IsType<Button>(results.FindName("FilterSettingsButton"));
+            var flyout = Assert.IsType<Flyout>(filter.Flyout);
+            Assert.Same(_settings, Assert.IsType<DriverSettingsControl>(Assert.IsType<ScrollViewer>(flyout.Content).Content).ViewModel);
+            var selected = Assert.IsType<ListViewItem>(tabs.ContainerFromItem(tabs.SelectedItem));
+            var tabRoot = Assert.IsType<Grid>(VisualTreeHelper.GetChild(selected, 0));
+            Assert.Equal(1, Assert.IsType<Border>(tabRoot.Children[1]).Opacity);
+            var check = Assert.IsType<CheckBox>(results.FindName("VisibleSelectionCheck"));
+            check.IsChecked = true;
+            Assert.True(_vm.CanDownload);
+
+            tabs.SelectedItem = _vm.ResultGroups[1];
+            await StartupUiCoordinator.RunAfterFirstRenderAsync(page, () => Task.CompletedTask);
+            var packageSize = Assert.IsType<TextBlock>(results.FindName("InventorySizeColumn"));
+            Assert.Equal(Visibility.Visible, packageSize.Visibility);
+            Assert.Equal(strings["Drivers_PackageSize"], packageSize.Text);
+            var search = Assert.IsType<TextBox>(results.FindName("DriverDeviceSearch"));
+            search.Text = "bluetooth";
+            Assert.Equal(device.Name, Assert.IsType<DriverResultItem>(Assert.Single(rows.Items)).Name);
+            check.IsChecked = true;
+            Assert.Equal(1, _vm.SelectedCount);
+            Assert.True(_vm.CanDownload);
+            search.Text = "";
+            Assert.Equal(2, rows.Items.Count);
+            Assert.Null(check.IsChecked);
+            Assert.False(Assert.IsType<DriverResultItem>(rows.Items[1]).IsSelected);
+
+            page.Width = 520;
+            window.AppWindow.ResizeClient(new Windows.Graphics.SizeInt32(520, 720));
+            await StartupUiCoordinator.RunAfterFirstRenderAsync(page, () => Task.CompletedTask);
+            page.UpdateLayout();
+            var picker = Assert.IsType<ComboBox>(results.FindName("CategoryPicker"));
+            Assert.Equal(Visibility.Visible, picker.Visibility);
+            picker.SelectedItem = _vm.ResultGroups[2];
+            Assert.Equal(Visibility.Collapsed, columns.Visibility);
+            Assert.Single(rows.Items);
+            Assert.True(_vm.CanDownload);
+        }
+        finally { window.Close(); }
+    }
+
+    [Fact]
+    public async Task ScanPageShowsLiveMilestonesAndActivityAndReturnsToResults()
+    {
+        var strings = await UseEnglishAsync();
+        var completion = new TaskCompletionSource<DriverScanReport>();
+        IProgress<DriverScanProgress>? reporter = null;
+        _scanner.Setup(scanner => scanner.ScanAsync(It.IsAny<DriverScanOptions>(), It.IsAny<IProgress<DriverScanProgress>?>(), It.IsAny<CancellationToken>()))
+            .Returns((DriverScanOptions _, IProgress<DriverScanProgress>? progress, CancellationToken _) =>
+            {
+                reporter = progress;
+                return completion.Task;
+            });
+        var page = new DriversPage(_vm) { RequestedTheme = ElementTheme.Dark, Width = 1000, HorizontalAlignment = HorizontalAlignment.Left };
+        var surface = new Grid { Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 24, 25, 28)) };
+        surface.Children.Add(page);
+        var window = new Window { Content = surface };
+        Task scan = Task.CompletedTask;
+        try
+        {
+            window.AppWindow.ResizeClient(new Windows.Graphics.SizeInt32(1000, 580));
+            window.Activate();
+            await StartupUiCoordinator.RunAfterFirstRenderAsync(page, () => Task.CompletedTask);
+            var viewport = Assert.IsType<ScrollViewer>(page.FindName("ScanProgressViewport"));
+            var title = Assert.IsType<TextBlock>(page.FindName("ScanPhaseTitle"));
+            var activity = Assert.IsType<ItemsControl>(page.FindName("ScanActivityList"));
+            var card = Assert.IsType<Border>(page.FindName("ScanProgressCard"));
+            var results = Assert.IsType<Border>(page.FindName("ResultsPanel"));
+
+            Assert.Equal(Visibility.Collapsed, viewport.Visibility);
+            scan = Assert.IsAssignableFrom<CommunityToolkit.Mvvm.Input.IAsyncRelayCommand>(
+                Assert.IsType<Button>(page.FindName("ScanButton")).Command).ExecuteAsync(null);
+            Assert.Equal(Visibility.Visible, viewport.Visibility);
+            Assert.Equal(strings["Drivers_DetectingDevices"], title.Text);
+            Assert.Single(activity.Items);
+
+            reporter!.Report(new("Drivers_SearchingUpdates") { Phase = DriverScanPhase.CheckSources });
+            Assert.Equal(strings["Drivers_CheckingSourcesTitle"], title.Text);
+            Assert.Collection(activity.Items.Cast<DriverScanActivity>(),
+                item => Assert.True(item.IsComplete), item => Assert.True(item.IsComplete), item => Assert.True(item.IsActive));
+            Assert.True(_vm.SourcesMilestone.IsCurrent);
+            Assert.True(Assert.IsType<Button>(page.FindName("CancelScanButton")).IsEnabled);
+            Assert.True(Assert.IsType<Button>(page.FindName("ScanDetailsButton")).IsEnabled);
+
+            foreach (var width in new[] { 1000, 520 })
+            {
+                page.Width = width;
+                window.AppWindow.ResizeClient(new Windows.Graphics.SizeInt32(width, 580));
+                await StartupUiCoordinator.RunAfterFirstRenderAsync(page, () => Task.CompletedTask);
+                page.UpdateLayout();
+                Assert.InRange(card.ActualWidth, 300, Math.Min(page.ActualWidth, 846));
+                Assert.True(card.ActualHeight > 300);
+                var milestone = Assert.Single(VisibleLabels(card), label => label.Text == strings["Drivers_CheckSourcesStep"]);
+                Assert.Equal(Microsoft.UI.Text.FontWeights.SemiBold.Weight, milestone.FontWeight.Weight);
+                Assert.Contains(VisibleLabels(card), label => label.Text == strings["Drivers_DriverVersionsLoaded"]);
+                var active = Assert.Single(VisibleLabels(card), label => label.Text == strings["Drivers_SearchingUpdates"]);
+                Assert.Equal(Windows.UI.Color.FromArgb(255, 255, 179, 107), Assert.IsType<SolidColorBrush>(active.Foreground).Color);
+                var left = card.TransformToVisual(page).TransformPoint(default).X;
+                Assert.InRange(Math.Abs(left - (page.ActualWidth - card.ActualWidth) / 2), 0, 1);
+            }
+
+            reporter.Report(new("Drivers_PreparingResults") { Phase = DriverScanPhase.PrepareResults });
+            Assert.Equal(strings["Drivers_PreparingResults"], title.Text);
+            Assert.True(_vm.ResultsMilestone.IsCurrent);
+            Assert.Equal(Visibility.Collapsed, results.Visibility);
+            completion.SetResult(Report(new()));
+            await scan;
+            Assert.Equal(Visibility.Collapsed, viewport.Visibility);
+            Assert.Equal(Visibility.Visible, results.Visibility);
+        }
+        finally
+        {
+            completion.TrySetCanceled();
+            await scan;
+            window.Close();
+        }
+    }
+
+    private async Task<Dictionary<string, string>> UseEnglishAsync()
+    {
+        var strings = JsonSerializer.Deserialize<Dictionary<string, string>>(await File.ReadAllTextAsync(
+            Path.Combine(AppContext.BaseDirectory, "Localization", "en.json")))!;
+        _localization.Setup(service => service.GetString(It.IsAny<string>())).Returns((string key) => strings[key]);
+        return strings;
+    }
+
+    /// <summary>Reads the text rendered by the page and its active row templates.</summary>
+    private static IEnumerable<TextBlock> VisibleLabels(DependencyObject element)
+    {
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(element); i++)
+        {
+            var child = VisualTreeHelper.GetChild(element, i);
+            if (child is TextBlock { Visibility: Visibility.Visible } label) yield return label;
+            if (child is UIElement { Visibility: Visibility.Collapsed }) continue;
+            foreach (var descendant in VisibleLabels(child)) yield return descendant;
+        }
+    }
+
+    [Fact]
     public async Task Scan_UsesFooterProgress_WhileRetainingLifecycleAndCancellation()
     {
         var tasks = new WinOptimizer.Infrastructure.Features.Common.Services.TaskProgressService(Mock.Of<ILogService>());
@@ -296,21 +571,28 @@ public sealed class DriversViewModelTests : IDisposable
         Assert.True(shell.IsTaskRunning);
         Assert.True(shell.IsLoading);
         Assert.True(shell.IsIndeterminate);
-        reporter!.Report(new("Drivers_VerifyingPackages", 2, 8));
+        reporter!.Report(new("Drivers_SearchingUpdates") { Phase = DriverScanPhase.CheckSources });
+        reporter.Report(new("Drivers_VerifyingPackages", 2, 8));
         Assert.Equal(25, shell.ProgressValue);
         Assert.False(shell.IsIndeterminate);
         Assert.Equal("Drivers_VerifyingPackages (2/8)", shell.LastTerminalLine);
         Assert.False(page.HasStatus);
         Assert.False(shell.IsTaskFailed);
         Assert.True(shell.IsLoading);
-        shell.CancelCommand.Execute(null);
+        await page.ShowScanDetailsCommand.ExecuteAsync(null);
+        _dialogs.Verify(dialogs => dialogs.ShowTaskOutputDialogAsync("Dialog_TerminalOutput_Title",
+            It.Is<IReadOnlyList<string>>(lines => lines.SequenceEqual(new[] { "Drivers_SearchingUpdates", "Drivers_VerifyingPackages (2/8)" }))), Times.Once);
+        page.CancelScanCommand.Execute(null);
         Assert.True(tasks.CurrentTaskCancellationSource!.IsCancellationRequested);
+        Assert.True(page.IsScanCancelling);
+        Assert.False(page.CancelScanCommand.CanExecute(null));
         completion.SetResult(Report(new()));
         await scan;
         Assert.False(tasks.IsTaskRunning);
         Assert.False(shell.IsLoading);
         Assert.False(page.IsBusy);
         Assert.False(page.HasReport);
+        Assert.False(page.IsScanning);
     }
 
     [Fact]
@@ -374,8 +656,9 @@ public sealed class DriversViewModelTests : IDisposable
     }
 
     [Fact]
-    public async Task ConfirmedBatch_RemovesOnlySuccessfulRows_AndRetainsFailuresAndCategory()
+    public async Task ConfirmedBatch_KeepsRestartPendingAndFailedRowsOutOfCompletedCount()
     {
+        _localization.Setup(loc => loc.GetString("Drivers_RemovalComplete")).Returns("Removed {0}, failed {1}");
         await _vm.ScanCommand.ExecuteAsync(null);
         _vm.ResultGroups[0].IsSelected = true; _vm.ResultGroups[1].IsSelected = true;
         _vm.SelectedGroup = _vm.ResultGroups[1];
@@ -387,11 +670,15 @@ public sealed class DriversViewModelTests : IDisposable
                 new(new(DriverRemovalKind.Package, "oem1.inf"), true, true),
                 new(new(DriverRemovalKind.Device, "device"), false, false, "access denied")], true));
         await _vm.UninstallCommand.ExecuteAsync(null);
-        Assert.Empty(_vm.ResultGroups[0].Items);
+        var pending = Assert.IsType<DriverResultItem>(Assert.Single(_vm.ResultGroups[0].Items));
+        Assert.Contains("Drivers_RemovalPending", pending.Name);
+        Assert.False(pending.CanClean);
+        Assert.False(pending.IsSelected);
         Assert.True(Assert.Single(_vm.ResultGroups[1].Items).IsSelected);
         Assert.Same(_vm.ResultGroups[1], _vm.SelectedGroup);
         Assert.Equal(1, _vm.SelectedCount);
         Assert.Contains("access denied", _vm.Notices);
+        Assert.Contains("Removed 0, failed 1", _vm.Status);
         Assert.Contains("Drivers_RestartRequired", _vm.Status);
         Assert.Contains("Drivers_RemovalCancelled", _vm.Status);
         Assert.False(_vm.IsBusy);

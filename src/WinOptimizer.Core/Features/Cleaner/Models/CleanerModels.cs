@@ -20,7 +20,6 @@ public sealed record CleanerOptions
     public string[]? ShortcutAccountSids { get; init; }
     public bool DeepClean { get; init; }
     public bool BackupBeforeCleaning { get; init; } = true;
-    public bool BackupBeforeRegistryDefrag { get; init; } = true;
     public bool RecentFiles { get; init; } = true;
     public bool BrowserCache { get; init; } = true;
     public bool BrowserHistory { get; init; }
@@ -106,6 +105,7 @@ public sealed record CleanerScanResult(IReadOnlyList<CleanerFinding> Findings, I
 public sealed record CleanerItemResult(CleanerFinding Finding, string? Error)
 {
     public bool Succeeded => Error is null;
+    public bool Scheduled => Succeeded && Finding.Target is CleanerHiveTarget;
     public bool Removed => Succeeded && Finding.Target is CleanerFileTarget or CleanerRegistryTarget;
     public long EstimatedFreedFileBytes => Succeeded && Finding.Target is CleanerFileTarget file ? file.Length : 0;
     public long RemovedRegistryBytes => Succeeded && Finding.Target is CleanerRegistryTarget ? Finding.Bytes : 0;
@@ -115,6 +115,7 @@ public sealed record CleanerItemResult(CleanerFinding Finding, string? Error)
 public sealed record CleanerApplyResult(int Completed, IReadOnlyList<string> Errors)
 {
     public IReadOnlyList<CleanerItemResult> Items { get; init; } = [];
+    public int Scheduled => Items.Count(item => item.Scheduled);
     public bool IsCancelled { get; init; }
 }
 public sealed record CleanerApplication(string Id, string DisplayName);
@@ -122,9 +123,13 @@ public sealed record CleanerApplicationInventory(IReadOnlyList<CleanerApplicatio
 /// <summary>A registered Windows profile offered for account-scoped Cleaner operations.</summary>
 public sealed record CleanerRegistryAccount(string Sid, string DisplayName, bool IsCurrent);
 
+/// <summary>Ordered scan areas, completed count and the area currently being checked.</summary>
+public sealed record CleanerScanStage(IReadOnlyList<CleanerArea> Areas, int CompletedAreas, CleanerArea? ActiveArea);
+
 /// <summary>Measured work within a scan/apply stage; an unknown total means discovery or a native Windows call.</summary>
 public sealed record CleanerProgress(string Message, int Completed, int Total, int Stage = 1, int Stages = 1)
 {
+    public CleanerScanStage? ScanStage { get; init; }
     public bool IsIndeterminate => Total <= 0;
     public double Percentage => 100d * (Stage - 1 + (Total > 0 ? Math.Clamp((double)Completed / Total, 0, 1) : 0)) / Math.Max(1, Stages);
 }

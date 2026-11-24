@@ -10,9 +10,9 @@
             </Grid>
         </DataTemplate>
     </UserControl.Resources>
-    <Grid Style="{StaticResource PageGridStyle}" RowSpacing="0">
+    <Grid Style="{StaticResource PageGridStyle}">
         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
-        <Grid x:Name="HeaderLayout" RowSpacing="16" Margin="0,0,0,24">
+        <Grid x:Name="HeaderLayout" RowSpacing="{StaticResource PageCardSpacing}">
             <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
             <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
             <local:PageHeader Title="{x:Bind ViewModel.PageTitle}" Description="{x:Bind ViewModel.PageDescription}" Icon="{x:Bind Icon, Mode=OneTime}"/>

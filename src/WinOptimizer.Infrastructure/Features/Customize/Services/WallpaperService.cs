@@ -52,11 +52,15 @@ public class WallpaperService : IWallpaperService
             {
                 // Under OTS, SPIF_UPDATEINIFILE would persist to the admin's profile.
                 // Write to the interactive user's registry instead, then only broadcast.
-                _registryService.SetValue(
+                if (!_registryService.SetValue(
                     @"HKEY_CURRENT_USER\Control Panel\Desktop",
                     "Wallpaper",
                     wallpaperPath,
-                    Microsoft.Win32.RegistryValueKind.String);
+                    Microsoft.Win32.RegistryValueKind.String))
+                {
+                    _logService.Log(LogLevel.Error, "Could not save the wallpaper in the interactive user's profile.");
+                    return Task.FromResult(false);
+                }
 
                 flags = SPIF_SENDCHANGE;
             }

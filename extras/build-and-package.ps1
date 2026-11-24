@@ -1,5 +1,5 @@
 # Builds, tests and packages win-optimizer, with optional certificate-store signing.
-# Toolchain, options and examples: README.md#development.
+# See docs/DEVELOPMENT.md for build requirements, options, and examples.
 # Build ownership and ordering: ARCHITECTURE.md#build-configuration.
 [CmdletBinding()]
 param (

@@ -55,7 +55,6 @@ public partial class ApplicationInfoViewModel : ObservableObject, IDisposable
     {
         OnPropertyChanged(nameof(DocumentationLabel));
         OnPropertyChanged(nameof(ReportBugLabel));
-        OnPropertyChanged(nameof(CheckForUpdatesLabel));
         OnPropertyChanged(nameof(SupportLabel));
         OnPropertyChanged(nameof(VersionLabel));
     }
@@ -81,9 +80,6 @@ public partial class ApplicationInfoViewModel : ObservableObject, IDisposable
 
     public string ReportBugLabel =>
         _localizationService.GetString("Tooltip_ReportBug") ?? "Report a Bug";
-
-    public string CheckForUpdatesLabel =>
-        _localizationService.GetString("Menu_CheckForUpdates") ?? "Check for Updates";
 
     public string SupportLabel =>
         _localizationService.GetString("Menu_SupportWinOptimizer") ?? "Support win-optimizer";

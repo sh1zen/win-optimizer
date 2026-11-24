@@ -10,21 +10,22 @@ using System.ComponentModel;
 using System.Runtime.CompilerServices;
 using Microsoft.Extensions.DependencyInjection;
 using WinOptimizer.Core.Features.Common.Interfaces;
+using WinOptimizer.UI.Features.Common.Helpers;
 
 namespace WinOptimizer.UI.Features.Common.Controls;
 
 /// <summary>
-/// Custom navigation button with icon-over-text layout, selection styling,
+/// Custom navigation button with a horizontal label, selection styling,
 /// lock overlay, and compact mode support.
 /// </summary>
 public sealed partial class NavButton : UserControl, INotifyPropertyChanged
 {
     // Expanded dimensions
-    private const double ExpandedWidth = 70;
-    private const double ExpandedHeight = 60;
+    internal const double ExpandedWidth = 184;
+    private const double ExpandedMinHeight = 42;
 
     // Compact dimensions (matching NavigationView items)
-    private const double CompactWidth = 40;
+    internal const double CompactWidth = 40;
     private const double CompactHeight = 40;
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -120,7 +121,7 @@ public sealed partial class NavButton : UserControl, INotifyPropertyChanged
     }
 
     /// <summary>
-    /// The text label displayed below the icon.
+    /// The text label displayed beside the icon in expanded mode.
     /// </summary>
     public string Text
     {
@@ -183,13 +184,13 @@ public sealed partial class NavButton : UserControl, INotifyPropertyChanged
         set => SetValue(BadgeStatusProperty, value);
     }
 
-    // Icon sizes (matching NavigationView)
-    private const double ExpandedIconSize = 20;
-    private const double CompactIconSize = 16;
+    private const double ExpandedIconSize = 26;
+    private const double CompactIconSize = 24;
 
     // Computed properties for bindings
     public double ActualButtonWidth => IsCompact ? CompactWidth : ExpandedWidth;
-    public double ActualButtonHeight => IsCompact ? CompactHeight : ExpandedHeight;
+    // A minimum lets wrapped labels grow the row beyond the base height.
+    public double ActualButtonHeight => IsCompact ? CompactHeight : Math.Max(ExpandedMinHeight, 28 * TextScaleHelper.Factor);
     public double IconSize => IsCompact ? CompactIconSize : ExpandedIconSize;
     public Visibility TextVisibility => IsCompact ? Visibility.Collapsed : Visibility.Visible;
     public Visibility LockedVisibility => IsLocked ? Visibility.Visible : Visibility.Collapsed;

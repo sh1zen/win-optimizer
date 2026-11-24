@@ -19,6 +19,7 @@ public class UserPreferencesService : IUserPreferencesService
     private readonly ILogService _logService;
     private readonly IInteractiveUserService _interactiveUserService;
     private readonly IFileSystemService _fileSystemService;
+    private readonly TimeMachineStore? _timeMachine;
 
     // Serializes read-modify-write operations so concurrent preference saves retain every change.
     private readonly SemaphoreSlim _fileLock = new(1, 1);
@@ -28,11 +29,13 @@ public class UserPreferencesService : IUserPreferencesService
         WriteIndented = true,
     };
 
-    public UserPreferencesService(ILogService logService, IInteractiveUserService interactiveUserService, IFileSystemService fileSystemService)
+    public UserPreferencesService(ILogService logService, IInteractiveUserService interactiveUserService,
+        IFileSystemService fileSystemService, TimeMachineStore? timeMachine = null)
     {
         _logService = logService ?? throw new ArgumentNullException(nameof(logService));
         _interactiveUserService = interactiveUserService ?? throw new ArgumentNullException(nameof(interactiveUserService));
         _fileSystemService = fileSystemService ?? throw new ArgumentNullException(nameof(fileSystemService));
+        _timeMachine = timeMachine;
     }
 
     /// <summary>Uses the interactive account's preferences in the common application data root.</summary>
@@ -45,12 +48,22 @@ public class UserPreferencesService : IUserPreferencesService
         return path;
     }
 
+    /// <summary>Serializes access to this account's preference document across app processes.</summary>
+    private Task<Stream> LockDocumentAsync(string path)
+    {
+        var lockPath = path + ".lock";
+        AppDataStorage.ValidatePath(lockPath);
+        return _fileSystemService.OpenExclusiveFileAsync(lockPath);
+    }
+
     public async Task<Dictionary<string, object>> GetPreferencesAsync()
     {
         await _fileLock.WaitAsync().ConfigureAwait(false);
         try
         {
-            return await GetPreferencesUnsafeAsync(GetPreferencesFilePath()).ConfigureAwait(false);
+            var path = GetPreferencesFilePath();
+            using var document = await LockDocumentAsync(path).ConfigureAwait(false);
+            return await GetPreferencesUnsafeAsync(path).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -102,7 +115,10 @@ public class UserPreferencesService : IUserPreferencesService
         await _fileLock.WaitAsync().ConfigureAwait(false);
         try
         {
-            return await SavePreferencesUnsafeAsync(preferences).ConfigureAwait(false);
+            var path = GetPreferencesFilePath();
+            using var document = await LockDocumentAsync(path).ConfigureAwait(false);
+            var previous = _timeMachine is null ? null : await GetPreferencesUnsafeAsync(path).ConfigureAwait(false);
+            return await SaveTrackedPreferencesAsync(previous, preferences, path).ConfigureAwait(false);
         }
         finally
         {
@@ -166,10 +182,12 @@ public class UserPreferencesService : IUserPreferencesService
         {
             // Use the same account path on both sides of the read/modify/write transaction.
             var filePath = GetPreferencesFilePath();
+            using var document = await LockDocumentAsync(filePath).ConfigureAwait(false);
             var preferences = await GetPreferencesUnsafeAsync(filePath).ConfigureAwait(false);
 
-            foreach (var (key, value) in changes) preferences[key] = value;
-            return await SavePreferencesUnsafeAsync(preferences, filePath).ConfigureAwait(false);
+            var updated = new Dictionary<string, object>(preferences);
+            foreach (var (key, value) in changes) updated[key] = value;
+            return await SaveTrackedPreferencesAsync(preferences, updated, filePath).ConfigureAwait(false);
         }
         catch (Exception ex)
         {
@@ -182,6 +200,85 @@ public class UserPreferencesService : IUserPreferencesService
         }
     }
 
+    /// <summary>Records user-facing choices; excludes startup markers, paths and credentials.</summary>
+    internal static IReadOnlyList<string> TimeMachineKeys { get; } =
+    [
+        "Language", "Theme", "Cleaner", "Drivers", "SoftwareAppsViewMode", "SoftwareAppsSortMode",
+        UserPreferenceKeys.AppColor, UserPreferenceKeys.BlurWindowBackground, UserPreferenceKeys.SidebarExpanded, UserPreferenceKeys.UiZoomFactor,
+        UserPreferenceKeys.Updates, UserPreferenceKeys.EnableWindowsVersionFilter
+    ];
+
+    internal async Task<IReadOnlyList<TimeMachineState>> ReadTimeMachinePreferencesAsync()
+    {
+        await _fileLock.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            var path = GetPreferencesFilePath();
+            using var document = await LockDocumentAsync(path).ConfigureAwait(false);
+            var values = await GetPreferencesUnsafeAsync(path).ConfigureAwait(false);
+            return TimeMachineKeys.Select(key => PreferenceState(key, values)).ToArray();
+        }
+        finally { _fileLock.Release(); }
+    }
+
+    internal async Task<int> ReadTimeMachineRetentionAsync()
+    {
+        await _fileLock.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            var path = GetPreferencesFilePath();
+            using var document = await LockDocumentAsync(path).ConfigureAwait(false);
+            var values = await GetPreferencesUnsafeAsync(path).ConfigureAwait(false);
+            return TimeMachineRetention.Normalize(values.TryGetValue(TimeMachineRetention.PreferenceKey, out var value)
+                ? UserPreferencesSnapshot.ConvertValue(value, TimeMachineRetention.DefaultDays) : TimeMachineRetention.DefaultDays);
+        }
+        finally { _fileLock.Release(); }
+    }
+
+    internal async Task RestoreTimeMachinePreferenceAsync(string key, TimeMachineValue desired, TimeMachineValue expected)
+    {
+        if (!TimeMachineKeys.Contains(key)) throw new IOException("This preference is unavailable for restore.");
+        await _fileLock.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            var path = GetPreferencesFilePath();
+            using var document = await LockDocumentAsync(path).ConfigureAwait(false);
+            var previous = await GetPreferencesUnsafeAsync(path).ConfigureAwait(false);
+            if (!PreferenceState(key, previous).Value.SameAs(expected))
+                throw new IOException("The preference changed after review. Compare again.");
+            var updated = new Dictionary<string, object>(previous);
+            if (desired.Json is null) updated.Remove(key);
+            else updated[key] = JsonSerializer.Deserialize<JsonElement>(desired.Json);
+            var result = await SaveTrackedPreferencesAsync(previous, updated, path).ConfigureAwait(false);
+            if (!result.Success) throw new IOException(result.ErrorMessage);
+        }
+        finally { _fileLock.Release(); }
+    }
+
+    private static TimeMachineState PreferenceState(string key, Dictionary<string, object> values) =>
+        new(new(TimeMachineArea.Preference, key), key,
+            values.TryGetValue(key, out var value) ? TimeMachineValue.From(value) : TimeMachineValue.Missing);
+
+    private async Task<OperationResult> SaveTrackedPreferencesAsync(Dictionary<string, object>? previous,
+        Dictionary<string, object> updated, string path)
+    {
+        if (_timeMachine is null || previous is null)
+            return await SavePreferencesUnsafeAsync(updated, path).ConfigureAwait(false);
+
+        List<TimeMachineUndo> entries = [];
+        foreach (var key in TimeMachineKeys)
+        {
+            var before = PreferenceState(key, previous);
+            var after = PreferenceState(key, updated).Value;
+            if (!before.Value.SameAs(after)) entries.Add(_timeMachine.PrepareUndo(before, after));
+        }
+        var result = await SavePreferencesUnsafeAsync(updated, path).ConfigureAwait(false);
+        if (result.Success)
+            foreach (var entry in entries)
+                _timeMachine.Record(LogTopic.Settings, entry.Before.Label, "App preference changed", entry);
+        return result;
+    }
+
     /// <summary>
     /// Synchronous version for use during startup to avoid async deadlocks on UI thread.
     /// </summary>
@@ -190,6 +287,7 @@ public class UserPreferencesService : IUserPreferencesService
         try
         {
             string filePath = GetPreferencesFilePath();
+            using var document = LockDocumentAsync(filePath).GetAwaiter().GetResult();
 
             if (!_fileSystemService.FileExists(filePath))
             {

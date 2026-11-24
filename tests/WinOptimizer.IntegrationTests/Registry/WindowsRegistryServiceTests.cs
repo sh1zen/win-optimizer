@@ -2,7 +2,9 @@ using FluentAssertions;
 using Microsoft.Win32;
 using Moq;
 using WinOptimizer.Core.Features.Common.Interfaces;
+using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.Infrastructure.Features.Common.Services;
+using WinOptimizer.Tests.Fixtures;
 using Xunit;
 
 namespace WinOptimizer.IntegrationTests.Registry;
@@ -10,25 +12,51 @@ namespace WinOptimizer.IntegrationTests.Registry;
 [Trait("Category", "Integration")]
 public class WindowsRegistryServiceTests : IDisposable
 {
-    private readonly string _testKeyRoot;
+    private readonly PrivateRegistryHive _hive = new();
+    private readonly Mock<IInteractiveUserService> _user = new();
     private readonly WindowsRegistryService _service;
 
     public WindowsRegistryServiceTests()
     {
-        var guid = Guid.NewGuid().ToString("N");
-        _testKeyRoot = $@"Software\WinOptimizerIntegrationTests\{guid}";
-
-        var logService = new Mock<ILogService>();
-        var interactiveUserService = new Mock<IInteractiveUserService>();
-        interactiveUserService.Setup(s => s.IsOtsElevation).Returns(false);
-
-        _service = new WindowsRegistryService(logService.Object, interactiveUserService.Object);
+        _service = new WindowsRegistryService(Mock.Of<ILogService>(), _user.Object, _hive.GetRoot);
     }
 
-    private string TestPath(string subKey = "") =>
-        string.IsNullOrEmpty(subKey)
-            ? $@"HKCU\{_testKeyRoot}"
-            : $@"HKCU\{_testKeyRoot}\{subKey}";
+    private static string TestPath(string subKey) => $@"HKCU\Software\Fixture\{subKey}";
+
+    [Fact]
+    public void WindowsDefaultsClearsManagedPolicyButPreservesNeighbouringValuesAndSubkeys()
+    {
+        var path = TestPath("Policies");
+        var child = path + @"\OtherVendor";
+        Assert.True(_service.SetValue(path, "Managed", 1, RegistryValueKind.DWord));
+        Assert.True(_service.SetValue(path, "Custom", 2, RegistryValueKind.DWord));
+        Assert.True(_service.SetValue(child, "Custom", 3, RegistryValueKind.DWord));
+        var catalogue = new Mock<ICompatibleSettingsRegistry>();
+        catalogue.Setup(service => service.GetAllBypassedSettings()).Returns(
+            new Dictionary<string, IEnumerable<SettingDefinition>>
+            {
+                ["Fixture"] =
+                [
+                    new()
+                    {
+                        Id = "fixture", Name = "Fixture", Description = "Fixture",
+                        RegistrySettings =
+                        [
+                            new() { KeyPath = path, ValueName = "Managed", IsGroupPolicy = true, ValueType = RegistryValueKind.DWord, RecommendedValue = 1, DefaultValue = null },
+                            new() { KeyPath = path + @"\Absent", ValueName = "Managed", IsGroupPolicy = true, ValueType = RegistryValueKind.DWord, RecommendedValue = 1, DefaultValue = null }
+                        ]
+                    }
+                ]
+            });
+
+        var cleanup = new PolicyCleanupService(catalogue.Object, _service, Mock.Of<ILogService>());
+        cleanup.CleanupPolicyValues();
+
+        Assert.Null(_service.GetValue(path, "Managed"));
+        Assert.Equal(2, _service.GetValue(path, "Custom"));
+        Assert.Equal(3, _service.GetValue(child, "Custom"));
+        Assert.False(_service.KeyExists(path + @"\Absent"));
+    }
 
     [Fact]
     public void SetValue_DWord_ReadBackMatches()
@@ -79,37 +107,20 @@ public class WindowsRegistryServiceTests : IDisposable
     }
 
     [Fact]
-    public void KeyExists_AfterCreate_ReturnsTrue()
-    {
-        // Arrange
-        var path = TestPath("KeyExistsTest");
-        _service.SetValue(path, "Marker", 1, RegistryValueKind.DWord);
-
-        // Act & Assert
-        _service.KeyExists(path).Should().BeTrue();
-    }
-
-    [Fact]
-    public void KeyExists_NonExistent_ReturnsFalse()
-    {
-        // Act & Assert
-        _service.KeyExists(TestPath("NonExistentKey_" + Guid.NewGuid().ToString("N")))
-            .Should().BeFalse();
-    }
-
-    [Fact]
     public void DeleteValue_RemovesValue()
     {
         // Arrange
         var path = TestPath("DeleteValueTest");
         _service.SetValue(path, "ToDelete", "gone", RegistryValueKind.String);
         _service.ValueExists(path, "ToDelete").Should().BeTrue();
+        _service.ValueExists(path, "DoesNotExist").Should().BeFalse();
 
         // Act
         var result = _service.DeleteValue(path, "ToDelete");
 
         // Assert
         result.Should().BeTrue();
+        _service.KeyExists(path).Should().BeTrue();
         _service.ValueExists(path, "ToDelete").Should().BeFalse();
     }
 
@@ -181,43 +192,61 @@ public class WindowsRegistryServiceTests : IDisposable
     }
 
     [Fact]
-    public void ValueExists_AfterSet_ReturnsTrue()
+    public void BatchUsesTheInteractiveUsersHiveWithoutMixingTheElevatedAccount()
     {
-        // Arrange
-        var path = TestPath("ValueExistsTest");
-        _service.SetValue(path, "Exists", "yes", RegistryValueKind.String);
+        const string sid = "S-1-5-21-1-2-3-1001";
+        const string userPath = @"HKCU\Software\Fixture";
+        const string machinePath = @"HKLM\Software\Fixture";
+        string interactivePath = $@"HKU\{sid}\Software\Fixture";
+        _service.SetValue(userPath, "Owner", "elevated", RegistryValueKind.String).Should().BeTrue();
+        _service.SetValue(machinePath, "Owner", "machine", RegistryValueKind.String).Should().BeTrue();
+        _user.SetupGet(user => user.InteractiveUserSid).Returns(sid);
+        _user.SetupGet(user => user.IsOtsElevation).Returns(true);
+        _service.SetValue(userPath, "Owner", "interactive", RegistryValueKind.String).Should().BeTrue();
 
-        // Act & Assert
-        _service.ValueExists(path, "Exists").Should().BeTrue();
-        _service.ValueExists(path, "DoesNotExist").Should().BeFalse();
+        var batch = _service.GetBatchValues([(userPath, "Owner"), (machinePath, "Owner"), (interactivePath, "Owner")]);
+
+        batch[$@"{userPath}\Owner"].Should().Be("interactive");
+        batch[$@"{interactivePath}\Owner"].Should().Be("interactive");
+        batch[$@"{machinePath}\Owner"].Should().Be("machine");
+        _user.SetupGet(user => user.IsOtsElevation).Returns(false);
+        _service.GetValue(userPath, "Owner").Should().Be("elevated");
     }
 
-    public void Dispose()
+    [Theory]
+    [InlineData(@"HKCU\Software", true)]
+    [InlineData(@"HKCU\Software\Policies", true)]
+    [InlineData(@"HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion", true)]
+    [InlineData(@"HKU\S-1-5-21-1-2-3-1001\Software\Policies", false)]
+    [InlineData(@"HKLM\Software\Microsoft", false)]
+    public void DeleteKeyPreservesProtectedBranchesAcrossRegistryRoots(string path, bool alternateAccount)
     {
-        try
-        {
-            Microsoft.Win32.Registry.CurrentUser.DeleteSubKeyTree(
-                _testKeyRoot, throwOnMissingSubKey: false);
-        }
-        catch
-        {
-            // Best effort cleanup
-        }
+        _user.SetupGet(user => user.IsOtsElevation).Returns(alternateAccount);
+        _user.SetupGet(user => user.InteractiveUserSid).Returns("S-1-5-21-1-2-3-1001");
+        var child = path + @"\Fixture";
+        _service.SetValue(child, "Marker", 42, RegistryValueKind.DWord).Should().BeTrue();
+        _service.KeyExists(path).Should().BeTrue();
 
-        // Also clean up parent "WinOptimizerIntegrationTests" if empty
-        try
-        {
-            using var parent = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
-                @"Software\WinOptimizerIntegrationTests", writable: false);
-            if (parent?.SubKeyCount == 0)
-            {
-                Microsoft.Win32.Registry.CurrentUser.DeleteSubKeyTree(
-                    @"Software\WinOptimizerIntegrationTests", throwOnMissingSubKey: false);
-            }
-        }
-        catch
-        {
-            // Best effort cleanup
-        }
+        _service.DeleteKey(path).Should().BeFalse();
+
+        _service.GetValue(child, "Marker").Should().Be(42);
     }
+
+    [Fact]
+    public void DeleteKeyStillRemovesATargetedKeyFromTheInteractiveAccount()
+    {
+        const string path = @"HKCU\Software\Fixture\Target";
+        _service.SetValue(path, "Marker", "elevated", RegistryValueKind.String).Should().BeTrue();
+        _user.SetupGet(user => user.IsOtsElevation).Returns(true);
+        _user.SetupGet(user => user.InteractiveUserSid).Returns("S-1-5-21-1-2-3-1001");
+        _service.SetValue(path, "Marker", "interactive", RegistryValueKind.String).Should().BeTrue();
+
+        _service.DeleteKey(path).Should().BeTrue();
+
+        _service.KeyExists(path).Should().BeFalse();
+        _user.SetupGet(user => user.IsOtsElevation).Returns(false);
+        _service.GetValue(path, "Marker").Should().Be("elevated");
+    }
+
+    public void Dispose() => _hive.Dispose();
 }

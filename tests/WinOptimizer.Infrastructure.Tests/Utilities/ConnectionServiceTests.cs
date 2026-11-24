@@ -98,5 +98,7 @@ public sealed class ConnectionServiceTests
     {
         public IReadOnlyList<WinOptimizer.Core.Features.Utilities.ConnectionAdapter> Adapters { get; set; } = [];
         public IReadOnlyList<WinOptimizer.Core.Features.Utilities.ConnectionAdapter> Read() => Adapters;
+        public IReadOnlyList<WinOptimizer.Core.Features.Utilities.ConnectionAdapterReading> ReadCounters() =>
+            throw new InvalidOperationException("Inventory should use the full adapter read.");
     }
 }

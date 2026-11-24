@@ -99,6 +99,9 @@ public sealed partial class ContextMenuApplication : Microsoft.UI.Xaml.Applicati
         var archive = vm.Programs.Single(program => program.Name == "Blue Archive");
         while (!Tree<ToggleSwitch>(page).Any(toggle => ReferenceEquals(toggle.Tag, archive) && toggle.IsLoaded)) await Task.Delay(20);
         var programToggle = Tree<ToggleSwitch>(page).Single(toggle => ReferenceEquals(toggle.Tag, archive));
+        var singleToggles = vm.Programs.Where(program => program.IsSingle)
+            .Select(program => Tree<ToggleSwitch>(page).Single(toggle => ReferenceEquals(toggle.Tag, program.First)))
+            .ToArray();
         Require(!archive.IsExpanded && programToggle.IsOn, "A collapsed program must expose its current master-toggle state.");
         programToggle.IsOn = false;
         while (vm.IsBusy) await Task.Delay(20);
@@ -123,6 +126,13 @@ public sealed partial class ContextMenuApplication : Microsoft.UI.Xaml.Applicati
             _window!.AppWindow.ResizeClient(new SizeInt32(width, 900));
             // Allow the native expander transition to finish before measuring and capturing its children.
             await Task.Delay(600); shell.UpdateLayout();
+            var programToggleX = programToggle.TransformToVisual(page).TransformPoint(new Point(0, 0)).X;
+            foreach (var toggle in singleToggles)
+            {
+                var singleToggleX = toggle.TransformToVisual(page).TransformPoint(new Point(0, 0)).X;
+                Require(Math.Abs(singleToggleX - programToggleX) <= 1,
+                    $"Single and expandable program switches are misaligned at width {width}: {singleToggleX} vs {programToggleX}.");
+            }
             foreach (var toggle in Tree<ToggleSwitch>(page).Where(control => control.ActualWidth > 0))
             {
                 var origin = toggle.TransformToVisual(page).TransformPoint(new Point(0, 0));
@@ -130,6 +140,7 @@ public sealed partial class ContextMenuApplication : Microsoft.UI.Xaml.Applicati
             }
             await CaptureAsync(shell, $"context-menu-{theme}-{width}.png");
         }
+        Console.WriteLine($"PASS: context-menu switch alignment and bounds at 1240 and 480 pixels ({theme}).");
         var offEntry = archive.Entries[1];
         var offToggle = Tree<ToggleSwitch>(page).Single(toggle => ReferenceEquals(toggle.Tag, offEntry));
         offToggle.IsOn = true;

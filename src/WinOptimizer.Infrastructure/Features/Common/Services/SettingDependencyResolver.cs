@@ -156,13 +156,17 @@ public class SettingDependencyResolver(
 
                 var valueToApply = GetValueToApplyForRequirement(requiredSetting, dependency.RequiredValue);
 
-                await settingApplicationService.ApplySettingAsync(new ApplySettingRequest
+                var result = await settingApplicationService.ApplySettingAsync(new ApplySettingRequest
                 {
                     SettingId = dependency.RequiredSettingId,
                     Enable = true,
                     Value = valueToApply,
                     SkipValuePrerequisites = true
                 }).ConfigureAwait(false);
+                if (!result.Success)
+                    throw new InvalidOperationException(
+                        $"Cannot apply '{settingId}': prerequisite '{dependency.RequiredSettingId}' failed: {result.ErrorMessage}",
+                        result.Exception);
 
                 logService.Log(LogLevel.Info,
                     $"[ValuePrereq] Successfully auto-fixed '{dependency.RequiredSettingId}', proceeding with '{settingId}'");

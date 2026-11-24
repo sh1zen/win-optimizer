@@ -100,7 +100,7 @@ internal interface IHardwareMonitorSession : IDisposable
 }
 
 /// <summary>Opens the library explicitly on first sampling and owns its native resource lifetime.</summary>
-internal sealed class LibreHardwareMonitorSession : IHardwareMonitorSession
+internal sealed class LibreHardwareMonitorSession(bool graphicsOnly = false) : IHardwareMonitorSession
 {
     private Computer? _computer;
     public bool HasLowLevelAccess => PawnIo.IsInstalled;
@@ -111,8 +111,8 @@ internal sealed class LibreHardwareMonitorSession : IHardwareMonitorSession
         {
             var computer = new Computer
             {
-                IsCpuEnabled = true, IsGpuEnabled = true, IsMotherboardEnabled = true,
-                IsControllerEnabled = true, IsStorageEnabled = true
+                IsCpuEnabled = !graphicsOnly, IsGpuEnabled = true, IsMotherboardEnabled = !graphicsOnly,
+                IsControllerEnabled = !graphicsOnly, IsStorageEnabled = !graphicsOnly
             };
             try { computer.Open(); _computer = computer; }
             catch { computer.Close(); throw; }

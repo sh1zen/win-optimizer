@@ -1,10 +1,10 @@
 using System;
+using WinOptimizer.Core.Features.Common.Models;
 
 namespace WinOptimizer.Core.Features.Common.Events.Settings;
 
 /// <summary>
-/// Domain event that is published when a setting has been successfully applied.
-/// This event allows other parts of the system to react to setting changes without coupling.
+/// Publishes a committed setting value or the state observed after a partial write.
 /// </summary>
 public class SettingAppliedEvent : IDomainEvent
 {
@@ -26,12 +26,16 @@ public class SettingAppliedEvent : IDomainEvent
     /// </summary>
     public object? Value { get; }
 
-    public SettingAppliedEvent(string settingId, bool isEnabled, object? value = null)
+    /// <summary>System readback used when the requested change could only be applied in part.</summary>
+    public SettingStateResult? ObservedState { get; }
+
+    public SettingAppliedEvent(string settingId, bool isEnabled, object? value = null, SettingStateResult? observedState = null)
     {
         Timestamp = DateTime.UtcNow;
         EventId = Guid.NewGuid();
         SettingId = settingId ?? throw new ArgumentNullException(nameof(settingId));
         IsEnabled = isEnabled;
         Value = value;
+        ObservedState = observedState;
     }
 }

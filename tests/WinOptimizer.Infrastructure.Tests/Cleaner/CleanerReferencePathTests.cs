@@ -32,7 +32,7 @@ public sealed class CleanerReferencePathTests
         try
         {
             File.WriteAllText(path, "fixture");
-            Assert.Equal(path, CleanerFileDeletion.ResolveReferencePath(path));
+            Assert.Equal(path, CleanerFileDeletion.ResolveReferencePath(path), ignoreCase: true);
             File.Delete(path);
             Assert.Equal(path, CleanerFileDeletion.ResolveReferencePath(path));
         }

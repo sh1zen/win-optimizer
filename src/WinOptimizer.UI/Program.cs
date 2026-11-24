@@ -6,6 +6,9 @@ using WinOptimizer.Core.Features.Common.Services;
 using Windows.Win32;
 using Windows.Win32.UI.WindowsAndMessaging;
 using WinOptimizer.Core.Features.Extensions;
+using WinOptimizer.Infrastructure.Features.Extensions;
+using WinOptimizer.UI.Features.Extensions;
+using WinOptimizer.UI.Features.Extensions.Preview;
 
 namespace WinOptimizer.UI;
 
@@ -16,14 +19,47 @@ namespace WinOptimizer.UI;
 public static class Program
 {
     private const string AppKey = "win-optimizer-SingleInstance-Key";
-    public static bool IsWidgetStartup { get; private set; }
+    private static volatile string? _extensionDestination;
+    internal static string? ExtensionDestination => _extensionDestination;
 
     [STAThread]
     public static void Main(string[] args)
     {
+        var executable = Path.GetFileName(Environment.ProcessPath);
+        bool preview = string.Equals(executable, DesktopExtensionProcess.Preview.Executable, StringComparison.OrdinalIgnoreCase);
+        if (preview && DesktopExtensionSettingsChannel.TryParseWorkerArguments(args, out var connection, out var startLanguage))
+        {
+            try
+            {
+                new PreviewApplication().RunSettings(args, connection, startLanguage);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine(ex);
+                Environment.ExitCode = 1;
+            }
+            return;
+        }
+        if (preview)
+        {
+            new PreviewApplication().Run(DesktopExtensionProcess.Preview, args);
+            return;
+        }
+        if (string.Equals(executable, DesktopWidgetLaunch.Executable, StringComparison.OrdinalIgnoreCase))
+        {
+            if (DesktopWidgetLaunch.IsAutomatic(args)) args = [DesktopWidgetLaunch.StartupArgument];
+            using var application = new DesktopWidgetsApplication(args);
+            application.Run(DesktopExtensionProcess.Widgets, args);
+            return;
+        }
+        if (DesktopWidgetLaunch.IsAutomatic(args))
+        {
+            DesktopExtensionProcess.LaunchWidgets(startup: true);
+            return;
+        }
         try
         {
-            IsWidgetStartup = SystemMonitorLaunch.IsAutomatic(args);
+            _extensionDestination = GetExtensionDestination(args.LastOrDefault());
             StartupLogger.Log("Program", "=== Application Starting ===");
             StartupLogger.Log("Program", $"Args: {string.Join(", ", args)}");
             StartupLogger.Log("Program", $"CurrentDirectory: {Environment.CurrentDirectory}");
@@ -100,7 +136,7 @@ public static class Program
         redirectTask.Wait();
 
         // Bring existing window to foreground using reliable Win32 approach
-        if (!IsWidgetStartup) ActivateExistingWindow(keyInstance);
+        ActivateExistingWindow(keyInstance);
     }
 
     /// <summary>
@@ -137,10 +173,17 @@ public static class Program
     /// </summary>
     private static void OnActivated(object? sender, AppActivationArguments args)
     {
-        if (args.Data is Windows.ApplicationModel.Activation.ILaunchActivatedEventArgs launch &&
-            SystemMonitorLaunch.IsAutomatic(launch.Arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries))) return;
-        // A hidden shell has no process MainWindowHandle; restore the authoritative window on its UI thread.
+        var destination = args.Data is Windows.ApplicationModel.Activation.ILaunchActivatedEventArgs launch
+            ? GetExtensionDestination(launch.Arguments.TrimEnd().Split(' ')[^1]) : null;
+        if (destination is not null) _extensionDestination = destination;
         if (App.MainWindow is MainWindow window)
-            window.DispatcherQueue.TryEnqueue(window.RestoreFromBackground);
+            window.DispatcherQueue.TryEnqueue(() => window.ActivateFromLaunch(destination));
     }
+
+    private static string? GetExtensionDestination(string? argument) => argument switch
+    {
+        DesktopExtensionProcess.OpenMonitorArgument => "SysMonitor",
+        DesktopExtensionProcess.OpenNotchArgument => "Notch",
+        _ => null
+    };
 }

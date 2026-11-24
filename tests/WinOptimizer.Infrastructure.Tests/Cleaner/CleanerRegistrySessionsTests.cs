@@ -152,30 +152,27 @@ public sealed class CleanerRegistrySessionsTests : IDisposable
     }
 
     [Fact]
-    public void OfflineCompactionReopensItsNativeMount_AndKeepsItAliveThroughBackupAndCompression()
+    public async Task OfflineCompactionRevalidatesTheProfileAndReleasesTheMountBeforeScheduling()
     {
         Directory.CreateDirectory(_root);
         var original = Path.Combine(_root, "NTUSER.DAT");
         File.WriteAllBytes(original, new byte[16384]);
         _native.SetupSequence(native => native.Mount(original)).Returns("scan-mount").Returns("apply-mount");
         var hives = new Mock<IRegistryHiveOperations>();
-        hives.SetupGet(hives => hives.IsAvailable).Returns(true);
         hives.Setup(hives => hives.Save(It.IsAny<string>(), It.IsAny<string>()))
             .Callback<string, string>((_, path) => File.WriteAllBytes(path, new byte[4096]));
-        hives.Setup(hives => hives.Compact(@"HKEY_USERS\apply-mount")).Callback(() =>
-        {
-            _native.Verify(native => native.Unmount("apply-mount"), Times.Never);
-            Assert.Single(Directory.GetFiles(Path.Combine(_root, "vault"), "hive-*.hiv"));
-        });
-        var compactor = new RegistryHiveCompactor(_sessions, new TestCleanerBackupVault(Path.Combine(_root, "vault")), hives.Object);
+        var boot = new Mock<IRegistryDefragBoot>();
+        boot.Setup(x => x.ScheduleAsync(It.IsAny<IReadOnlyList<string>>(), It.IsAny<CancellationToken>()))
+            .Callback(() => _native.Verify(native => native.Unmount("apply-mount"), Times.Once)).Returns(Task.CompletedTask);
+        var compactor = new RegistryHiveCompactor(_sessions, new TestCleanerBackupVault(Path.Combine(_root, "vault")), hives.Object, boot.Object);
         var result = compactor.Scan(new() { RegistryAccountSids = [Sid] }, default);
         var target = Assert.IsType<CleanerHiveTarget>(Assert.Single(result.Findings).Target);
         Assert.Equal(@"HKEY_USERS\" + Sid, target.KeyPath);
         Assert.Equal(original, target.SourcePath);
-        compactor.Clean(target, default);
+        await compactor.ScheduleAsync([target], default);
         hives.Verify(hives => hives.Save(@"HKEY_USERS\scan-mount", It.IsAny<string>()), Times.Once);
-        hives.Verify(hives => hives.Save(@"HKEY_USERS\apply-mount", It.IsAny<string>()), Times.Once);
-        hives.Verify(hives => hives.Compact(@"HKEY_USERS\apply-mount"), Times.Once);
+        boot.Verify(x => x.ScheduleAsync(It.Is<IReadOnlyList<string>>(paths => paths.SequenceEqual(new[] { original })),
+            It.IsAny<CancellationToken>()), Times.Once);
         _native.Verify(native => native.Unmount("scan-mount"), Times.Once);
         _native.Verify(native => native.Unmount("apply-mount"), Times.Once);
     }

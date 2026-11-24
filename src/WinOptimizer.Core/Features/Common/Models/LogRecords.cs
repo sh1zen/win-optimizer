@@ -16,7 +16,7 @@ public sealed record AppLogEntry
 
 public sealed record LogExceptionInfo(string Type, string Message, string? StackTrace, string? InnerException);
 
-public enum HistoryEntryKind { SettingChange, SettingAction, AppInstalled, AppRemoved }
+public enum HistoryEntryKind { SettingChange, SettingAction, AppInstalled, AppRemoved, Maintenance }
 
 /// <summary>A change receipt retaining the original setting values and enclosing batch.</summary>
 public sealed record ChangeHistoryEntry
@@ -30,6 +30,9 @@ public sealed record ChangeHistoryEntry
     public string? Batch { get; init; }
     public Guid? BatchId { get; init; }
     public string? ActionLabel { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public LogTopic? Topic { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public Guid? RecoveryId { get; init; }
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] public string? AccountSid { get; init; }
 }
 
 /// <summary>A service-owned saved file identifier; callers never supply arbitrary filesystem paths.</summary>

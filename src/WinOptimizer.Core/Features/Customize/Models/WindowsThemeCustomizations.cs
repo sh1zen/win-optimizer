@@ -8,6 +8,9 @@ namespace WinOptimizer.Core.Features.Customize.Models;
 
 public static class WindowsThemeCustomizations
 {
+    public const string ThemeRegistryPath = @"HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize";
+    public const string SystemThemeValueName = "SystemUsesLightTheme";
+
     public static class Wallpaper
     {
         public const string Windows11BasePath = @"C:\Windows\Web\Wallpaper\Windows";
@@ -53,8 +56,7 @@ public static class WindowsThemeCustomizations
                     {
                         new RegistrySetting
                         {
-                            KeyPath =
-                                @"HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
+                            KeyPath = ThemeRegistryPath,
                             ValueName = "AppsUseLightTheme",
                             RecommendedValue = null,
                             DefaultValue = null,
@@ -62,9 +64,8 @@ public static class WindowsThemeCustomizations
                         },
                         new RegistrySetting
                         {
-                            KeyPath =
-                                @"HKEY_CURRENT_USER\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
-                            ValueName = "SystemUsesLightTheme",
+                            KeyPath = ThemeRegistryPath,
+                            ValueName = SystemThemeValueName,
                             RecommendedValue = null,
                             DefaultValue = null,
                             ValueType = RegistryValueKind.DWord,

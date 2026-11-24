@@ -2,13 +2,18 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Animation;
+using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Xaml.Hosting;
 using Microsoft.UI.Composition;
+using Microsoft.UI.Composition.SystemBackdrops;
 using Moq;
 using WinOptimizer.Core.Features.Common.Constants;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.UI.Features.Common.Controls;
+using WinOptimizer.UI.Features.Common.Resources;
+using WinOptimizer.UI.Features.Settings.ViewModels;
+using WinOptimizer.UI.Features.Utilities;
 using WinOptimizer.UI.Helpers;
 using Xunit;
 
@@ -17,40 +22,132 @@ namespace WinOptimizer.UI.Tests.Services;
 /// <summary>Checks the production startup frame boundary on a native WinUI dispatcher.</summary>
 public sealed class StartupPresentationTests
 {
-    /// <summary>Exercises the compositor effect, rapid navigation, and reduced-motion cancellation.</summary>
+    /// <summary>Checks the real hosts toolbar at both desktop and compact widths.</summary>
     [Fact]
-    public async Task PageBlurOverlayClearsAfterTheLatestTransition()
+    public async Task HostsEditorAlignsTheCountAndActionsAboveTheEditor()
     {
-        var overlay = new Border { IsHitTestVisible = false };
-        var content = new Grid { Children = { new TextBlock { Text = "Page content" }, overlay } };
-        var window = new Window { Content = content };
+        var page = new HostsEditorPage();
+        var window = new Window { Content = page };
         try
         {
-            using var transition = new PageBlurTransition(overlay, null);
             window.Activate();
-            await StartupUiCoordinator.RunAfterFirstRenderAsync(content, () => Task.CompletedTask);
+            await page.ViewModel.LoadAsync();
+            var toolbar = Assert.IsType<Grid>(page.FindName("HostsToolbar"));
+            var count = Assert.IsType<TextBlock>(page.FindName("HostsEntryCount"));
+            var actions = Assert.IsAssignableFrom<Panel>(page.FindName("HostsActions"));
+            var entries = Assert.IsType<ListView>(page.FindName("HostsEntriesList"));
+            var textMode = Assert.IsType<ToggleSwitch>(page.FindName("TextModeSwitch"));
+            var editor = Assert.IsType<TextBox>(page.FindName("HostsContent"));
+            Windows.Foundation.Rect Bounds(FrameworkElement element) => element.TransformToVisual(page)
+                .TransformBounds(new Windows.Foundation.Rect(0, 0, element.ActualWidth, element.ActualHeight));
 
-            transition.Play(false);
-            Assert.Null(ElementCompositionPreview.GetElementChildVisual(overlay));
-            transition.Play(true);
-            var visual = Assert.IsType<SpriteVisual>(ElementCompositionPreview.GetElementChildVisual(overlay));
-            Assert.IsType<CompositionEffectBrush>(visual.Brush);
-            Assert.Equal(System.Numerics.Vector2.One, visual.RelativeSizeAdjustment);
+            foreach (var width in new[] { 1100d, 520d })
+            {
+                page.Width = width;
+                await StartupUiCoordinator.RunAfterFirstRenderAsync(page, () => Task.CompletedTask);
+                page.UpdateLayout();
+                Assert.Equal("2 entries", count.Text);
+                Assert.InRange(Math.Abs(Bounds(count).Left - Bounds(toolbar).Left), 0, 1);
+                Assert.InRange(Math.Abs(Bounds(actions).Right - Bounds(toolbar).Right), 0, 1);
+                Assert.True(Bounds(count).Right < Bounds(actions).Left);
+                Assert.InRange(Bounds(entries).Top - Bounds(toolbar).Bottom, 0, 12);
+                Assert.All(actions.Children.OfType<FrameworkElement>().Where(control => control.Visibility == Visibility.Visible),
+                    control => Assert.InRange(Bounds(control).Right, Bounds(actions).Left, Bounds(actions).Right + 1));
+            }
 
-            transition.Play(true);
-            Assert.Same(visual, ElementCompositionPreview.GetElementChildVisual(overlay));
-            transition.Play(false);
-            Assert.Null(ElementCompositionPreview.GetElementChildVisual(overlay));
-            transition.Play(true);
-            await WaitForOverlayToClearAsync().WaitAsync(TimeSpan.FromSeconds(3));
+            textMode.IsOn = true;
+            await StartupUiCoordinator.RunAfterFirstRenderAsync(page, () => Task.CompletedTask);
+            Assert.Equal(Visibility.Collapsed, count.Visibility);
+            Assert.Equal(Visibility.Visible, editor.Visibility);
+            Assert.InRange(Bounds(editor).Top - Bounds(toolbar).Bottom, 0, 12);
         }
         finally { window.Close(); }
+    }
 
-        async Task WaitForOverlayToClearAsync()
+    /// <summary>Checks the environment toolbar and its live result count on the production page.</summary>
+    [Fact]
+    public async Task EnvironmentEditorAlignsTheFilteredCountAndActionsAboveTheList()
+    {
+        var page = new EnvironmentEditorPage();
+        var window = new Window { Content = page };
+        try
         {
-            while (ElementCompositionPreview.GetElementChildVisual(overlay) != null)
-                await StartupUiCoordinator.RunAfterFirstRenderAsync(overlay, () => Task.CompletedTask);
+            window.Activate();
+            await page.ViewModel.LoadAsync();
+            var toolbar = Assert.IsType<Grid>(page.FindName("VariablesToolbar"));
+            var count = Assert.IsType<TextBlock>(page.FindName("VariableEntryCount"));
+            var actions = Assert.IsAssignableFrom<Panel>(page.FindName("VariableActions"));
+            var variables = Assert.IsType<ListView>(page.FindName("VariablesPane"));
+            var search = Assert.IsType<TextBox>(page.FindName("VariableSearch"));
+            Windows.Foundation.Rect Bounds(FrameworkElement element) => element.TransformToVisual(page)
+                .TransformBounds(new Windows.Foundation.Rect(0, 0, element.ActualWidth, element.ActualHeight));
+
+            foreach (var width in new[] { 1100d, 520d })
+            {
+                page.Width = width;
+                await StartupUiCoordinator.RunAfterFirstRenderAsync(page, () => Task.CompletedTask);
+                page.UpdateLayout();
+                Assert.Equal("1 entries", count.Text);
+                Assert.InRange(Math.Abs(Bounds(count).Left - Bounds(toolbar).Left), 0, 1);
+                Assert.InRange(Math.Abs(Bounds(actions).Right - Bounds(toolbar).Right), 0, 1);
+                Assert.True(Bounds(count).Right < Bounds(actions).Left);
+                Assert.InRange(Bounds(variables).Top - Bounds(toolbar).Bottom, 0, 12);
+                Assert.All(actions.Children.OfType<FrameworkElement>().Where(control => control.Visibility == Visibility.Visible),
+                    control => Assert.InRange(Bounds(control).Right, Bounds(actions).Left, Bounds(actions).Right + 1));
+            }
+
+            search.Text = "nonexistent";
+            Assert.Empty(variables.Items);
+            Assert.Equal("0 entries", count.Text);
+            search.Text = "Path";
+            Assert.Single(variables.Items);
+            Assert.Equal("1 entries", count.Text);
         }
+        finally { window.Close(); }
+    }
+
+    /// <summary>Checks fade completion and cancellation across committed frame navigation.</summary>
+    [Fact]
+    public async Task PageFadeSettlesAfterRapidNavigationAndSkipsDisabledAnimations()
+    {
+        var frame = new Frame();
+        var window = new Window { Content = frame };
+        try
+        {
+            using var transition = new PageFadeTransition(frame);
+            var animate = false;
+            frame.Navigated += (_, _) => transition.Play(animate);
+            window.Activate();
+            await StartupUiCoordinator.RunAfterFirstRenderAsync(frame, () => Task.CompletedTask);
+
+            var visual = ElementCompositionPreview.GetElementVisual(frame);
+            Assert.True(frame.Navigate(typeof(NavigationOtherPage), null, new SuppressNavigationTransitionInfo()));
+            Assert.Null(visual.TryGetAnimationController(nameof(Visual.Opacity)));
+
+            animate = true;
+            Assert.True(frame.Navigate(typeof(NavigationDetailPage), null, new SuppressNavigationTransitionInfo()));
+            Assert.NotNull(visual.TryGetAnimationController(nameof(Visual.Opacity)));
+            frame.GoBack();
+            Assert.IsType<NavigationOtherPage>(frame.Content);
+
+            using var batch = visual.Compositor.CreateScopedBatch(CompositionBatchTypes.Animation);
+            var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            batch.Completed += (_, _) => completed.SetResult();
+            frame.GoForward();
+            batch.End();
+            Assert.IsType<NavigationDetailPage>(frame.Content);
+            Assert.NotNull(visual.TryGetAnimationController(nameof(Visual.Opacity)));
+            await completed.Task.WaitAsync(TimeSpan.FromSeconds(3));
+            Assert.Equal(1f, visual.Opacity);
+
+            frame.GoBack();
+            Assert.NotNull(visual.TryGetAnimationController(nameof(Visual.Opacity)));
+            animate = false;
+            frame.GoForward();
+            Assert.Null(visual.TryGetAnimationController(nameof(Visual.Opacity)));
+            Assert.Equal(1f, visual.Opacity);
+        }
+        finally { window.Close(); }
     }
 
     /// <summary>Checks the state brushes consumed by the rendered card and input templates.</summary>
@@ -196,6 +293,8 @@ public sealed class StartupPresentationTests
             window.InitializeLoadingPresentation(localization.Object);
             loader.RequestedTheme = ElementTheme.Dark;
             var preferences = new Mock<IUserPreferencesService>(MockBehavior.Strict);
+            preferences.Setup(service => service.SetPreferenceAsync(UserPreferenceKeys.BlurWindowBackground, It.IsAny<bool>()))
+                .ReturnsAsync(OperationResult.Succeeded());
             var log = Mock.Of<ILogService>();
             var saved = new UserPreferencesSnapshot(new Dictionary<string, object>
             {
@@ -233,12 +332,100 @@ public sealed class StartupPresentationTests
 
             // The production handover keeps the same loader and native window alive.
             var id = window.AppWindow.Id;
-            window.InitializeShell();
+            using var background = new WindowBackgroundPreferencesViewModel(preferences.Object, localization.Object);
+            Assert.True(await background.LoadAsync(saved));
+            Assert.False(background.IsBlurEnabled);
+            preferences.Verify(service => service.SetPreferenceAsync(UserPreferenceKeys.BlurWindowBackground, It.IsAny<bool>()), Times.Never);
+            var colors = Microsoft.UI.Xaml.Application.Current.Resources.MergedDictionaries.OfType<AppColorResources>().Single();
+            window.InitializeShell(background, colors);
             var shell = Assert.IsType<Grid>(window.Content);
+            var solidCanvas = Assert.IsType<Border>(shell.FindName("SolidCanvas"));
+            Assert.Equal(Visibility.Visible, solidCanvas.Visibility);
+            Assert.Null(window.SystemBackdrop);
+            background.IsBlurEnabled = true;
+            if (DesktopAcrylicController.IsSupported())
+            {
+                Assert.Equal(0.98f, Assert.IsType<TintedDesktopBackdrop>(window.SystemBackdrop).TintOpacity);
+                Assert.Equal(Visibility.Collapsed, solidCanvas.Visibility);
+            }
+            else
+            {
+                Assert.Null(window.SystemBackdrop);
+                Assert.Equal(Visibility.Visible, solidCanvas.Visibility);
+            }
+            background.IsBlurEnabled = false;
+            Assert.Null(window.SystemBackdrop);
+            Assert.Equal(Visibility.Visible, solidCanvas.Visibility);
+            Assert.True(await background.FlushAsync());
+            preferences.Verify(service => service.SetPreferenceAsync(UserPreferenceKeys.BlurWindowBackground, false), Times.Once);
             var frame = Assert.IsType<Frame>(shell.FindName("ContentFrame"));
             var navigation = Assert.IsType<NavigationThemeTransition>(Assert.Single(frame.ContentTransitions));
             Assert.IsType<SuppressNavigationTransitionInfo>(navigation.DefaultNavigationTransitionInfo);
             await StartupUiCoordinator.RunAfterFirstRenderAsync(shell, () => Task.CompletedTask);
+            var titleIcon = Assert.IsType<Image>(shell.FindName("TitleBarIcon"));
+            var appName = Assert.IsType<TextBlock>(shell.FindName("TitleBarAppName"));
+            var arrows = Assert.IsType<StackPanel>(shell.FindName("TitleBarNavigation"));
+            var sidebar = Assert.IsType<NavSidebar>(shell.FindName("NavSidebar"));
+            var sidebarSurface = Assert.IsType<Grid>(shell.FindName("SidebarSurface"));
+            var separator = Assert.IsType<Microsoft.UI.Xaml.Shapes.Rectangle>(shell.FindName("SidebarSeparator"));
+            Assert.Equal("WinOptimizer", appName.Text);
+            Assert.Equal(new Uri(AppBranding.ImageUri), Assert.IsType<BitmapImage>(titleIcon.Source).UriSource);
+            Assert.Equal(1, separator.Width);
+            Assert.False(sidebarSurface.IsHitTestVisible);
+
+            var highContrast = new Windows.UI.ViewManagement.AccessibilitySettings().HighContrast;
+            var palette = Assert.IsType<ResourceDictionary>(colors.ThemeDictionaries[highContrast ? "HighContrast" : "Default"]);
+            Assert.Equal(Assert.IsType<SolidColorBrush>(palette["AppSurfaceBrush"]).Color,
+                Assert.IsType<SolidColorBrush>(sidebarSurface.Background).Color);
+            Assert.Equal(Assert.IsType<SolidColorBrush>(palette["AppSurfaceStrokeBrush"]).Color,
+                Assert.IsType<SolidColorBrush>(separator.Fill).Color);
+
+            foreach (var expanded in new[] { true, false, true })
+            {
+                sidebar.IsPaneOpen = expanded;
+                await StartupUiCoordinator.RunAfterFirstRenderAsync(shell, () => Task.CompletedTask);
+
+                var iconBounds = Bounds(titleIcon);
+                var nameBounds = Bounds(appName);
+                var arrowsBounds = Bounds(arrows);
+                var sidebarBounds = Bounds(sidebar);
+                var separatorBounds = Bounds(separator);
+                Assert.True(iconBounds.Width > 0);
+                Assert.Equal(expanded ? Visibility.Visible : Visibility.Collapsed, appName.Visibility);
+                Assert.InRange(arrowsBounds.Width, 69, 71);
+                Assert.InRange(arrowsBounds.Height, 31, 33);
+                Assert.InRange(Math.Abs(separatorBounds.Top - Bounds(shell).Top), 0, 1);
+                Assert.InRange(Math.Abs(separatorBounds.Bottom - Bounds(shell).Bottom), 0, 1);
+                if (shell.FlowDirection == FlowDirection.RightToLeft)
+                {
+                    Assert.InRange(Math.Abs(sidebarBounds.Left - separatorBounds.Left), 0, 1);
+                    Assert.True(arrowsBounds.Right < separatorBounds.Left);
+                    if (expanded) Assert.True(nameBounds.Right <= iconBounds.Left);
+                }
+                else
+                {
+                    Assert.InRange(Math.Abs(sidebarBounds.Right - separatorBounds.Right), 0, 1);
+                    Assert.InRange(arrowsBounds.Left - separatorBounds.Right, 19, 21);
+                    Assert.True(iconBounds.Right < separatorBounds.Left);
+                    if (expanded) Assert.True(iconBounds.Right <= nameBounds.Left && nameBounds.Right < separatorBounds.Left);
+                }
+            }
+
+            var actions = Assert.IsType<StackPanel>(shell.FindName("TitleBarButtons"));
+            var updatesButton = Assert.IsType<Button>(shell.FindName("UpdatesButton"));
+            Assert.Contains(updatesButton, actions.Children);
+            var updatesMenu = Assert.IsType<Flyout>(updatesButton.Flyout);
+            Assert.Equal(Microsoft.UI.Xaml.Controls.Primitives.FlyoutPlacementMode.BottomEdgeAlignedRight, updatesMenu.Placement);
+            var updateDetails = Assert.IsType<StackPanel>(updatesMenu.Content);
+            Assert.Collection(updateDetails.Children,
+                child => Assert.Equal("UpdateCurrentVersion", Assert.IsType<TextBlock>(child).Name),
+                child => Assert.Equal("UpdateLatestVersion", Assert.IsType<TextBlock>(child).Name),
+                child => Assert.Equal("UpdateCheckStatus", Assert.IsType<TextBlock>(child).Name),
+                child => Assert.Equal("CheckForUpdatesAction", Assert.IsType<Button>(child).Name));
+            updatesMenu.ShowAt(updatesButton);
+            Assert.True(updatesMenu.IsOpen);
+            updatesMenu.Hide();
+
             var overlay = Assert.IsType<Grid>(shell.FindName("LoadingOverlay"));
             Assert.Same(loader, Assert.Single(overlay.Children));
             Assert.Equal(id, window.AppWindow.Id);
@@ -292,7 +479,7 @@ public sealed class StartupPresentationTests
         finally { window.Close(); }
     }
 
-    /// <summary>Defers redirected activation until placement is ready during widget startup.</summary>
+    /// <summary>Defers redirected activation until the shell's saved placement is ready.</summary>
     [Fact]
     public async Task ManualActivationDuringEarlyStartupShowsTheSameWindow()
     {
@@ -300,13 +487,11 @@ public sealed class StartupPresentationTests
         try
         {
             var loader = window.Content;
-            window.RestoreFromBackground();
-            Assert.True(window.IsManualActivationRequested);
+            window.ActivateFromLaunch();
             Assert.False(window.AppWindow.IsVisible);
             await window.InitializeWindowPlacementAsync(Mock.Of<IUserPreferencesService>(), Mock.Of<ILogService>());
-            window.RestoreFromBackground();
+            window.ActivateFromLaunch();
             await window.WaitForLoadingFrameAsync().WaitAsync(TimeSpan.FromSeconds(5));
-            Assert.True(window.IsManualActivationRequested);
             Assert.True(window.AppWindow.IsVisible);
             Assert.Same(loader, window.Content);
             Assert.Null(window.ViewModel);
@@ -330,7 +515,22 @@ public sealed class StartupPresentationTests
                 presenter = VisualTreeHelper.GetParent(presenter);
             var viewport = Assert.IsType<ScrollContentPresenter>(presenter);
             var button = Assert.IsType<NavButton>(sidebar.GetButton("SoftwareApps"));
+            button.Text = "Software & Apps";
             var background = Assert.IsType<Border>(button.FindName("BackgroundBorder"));
+            var icon = Assert.IsType<Viewbox>(button.FindName("ButtonIcon"));
+            var label = Assert.IsType<TextBlock>(button.FindName("ButtonText"));
+            var indicator = Assert.IsType<Microsoft.UI.Xaml.Shapes.Rectangle>(button.FindName("SelectionIndicator"));
+            var topDivider = Assert.IsType<Microsoft.UI.Xaml.Shapes.Rectangle>(sidebar.FindName("TopGroupDivider"));
+            var bottomDivider = Assert.IsType<Microsoft.UI.Xaml.Shapes.Rectangle>(sidebar.FindName("BottomGroupDivider"));
+            Assert.Equal(14, label.FontSize);
+
+            var timeMachine = Assert.IsType<NavButton>(sidebar.GetButton("TimeMachine"));
+            var timeMachineIcon = Assert.IsType<Microsoft.UI.Xaml.Shapes.Path>(timeMachine.FindName("IconPath"));
+            var iconBounds = timeMachineIcon.Data.Bounds;
+            Assert.InRange(iconBounds.Width, 16, 19);
+            Assert.InRange(iconBounds.Height, 17.5, 19);
+            Assert.InRange(iconBounds.X + iconBounds.Width / 2, 11, 13);
+            Assert.InRange(iconBounds.Y + iconBounds.Height / 2, 11, 13);
 
             var colors = Microsoft.UI.Xaml.Application.Current.Resources.MergedDictionaries
                 .OfType<WinOptimizer.UI.Features.Common.Resources.AppColorResources>().Single();
@@ -342,9 +542,12 @@ public sealed class StartupPresentationTests
                 var palette = Assert.IsType<ResourceDictionary>(colors.ThemeDictionaries[highContrast ? "HighContrast" : themeKey]);
                 var selected = Assert.IsType<SolidColorBrush>(palette["AccentSelectionBackgroundBrush"]);
                 Assert.Equal(selected.Color, Assert.IsType<SolidColorBrush>(background.Background).Color);
+                var stroke = Assert.IsType<SolidColorBrush>(palette["AppSurfaceStrokeBrush"]);
+                Assert.Equal(stroke.Color, Assert.IsType<SolidColorBrush>(topDivider.Fill).Color);
+                Assert.Equal(stroke.Color, Assert.IsType<SolidColorBrush>(bottomDivider.Fill).Color);
             }
 
-            foreach (var expanded in new[] { true, false })
+            foreach (var expanded in new[] { true, false, true })
             foreach (var height in new[] { 800d, 300d })
             {
                 sidebar.IsPaneOpen = expanded;
@@ -356,7 +559,46 @@ public sealed class StartupPresentationTests
                 var offset = background.TransformToVisual(viewport).TransformPoint(new Windows.Foundation.Point());
                 Assert.InRange(offset.X, 0, viewport.ActualWidth - background.ActualWidth);
                 Assert.InRange(offset.Y, 0, viewport.ActualHeight - background.ActualHeight);
+                var expandedVisibility = expanded ? Visibility.Visible : Visibility.Collapsed;
+                Assert.Equal(expandedVisibility, label.Visibility);
+                Assert.Equal(expandedVisibility, indicator.Visibility);
+                Assert.Equal(expandedVisibility, topDivider.Visibility);
+                Assert.Equal(expandedVisibility, bottomDivider.Visibility);
+                Assert.Equal(expanded ? 26 : 24, icon.Width);
+                var iconOffset = icon.TransformToVisual(background).TransformPoint(default);
+                if (expanded)
+                {
+                    Assert.Equal("Software & Apps", label.Text);
+                    Assert.True(label.ActualWidth > 0);
+                    var labelOffset = label.TransformToVisual(background).TransformPoint(default);
+                    Assert.True(iconOffset.X + icon.ActualWidth < labelOffset.X);
+                    Assert.InRange(Math.Abs(iconOffset.Y + icon.ActualHeight / 2 - labelOffset.Y - label.ActualHeight / 2), 0, 1);
+                }
+                else
+                {
+                    Assert.InRange(Math.Abs(iconOffset.X + icon.ActualWidth / 2 - background.ActualWidth / 2), 0, 1);
+                }
             }
+
+            // Exercise wrapped labels at a larger text size without changing Windows preferences.
+            var standardHeight = background.ActualHeight;
+            button.Text = "Advanced Tools";
+            label.FontSize = 24;
+            sidebar.UpdateLayout();
+            Assert.False(label.IsTextTrimmed);
+            Assert.True(background.ActualHeight > standardHeight);
+
+            sidebar.SelectedTag = "Optimize";
+            var optimize = Assert.IsType<NavButton>(sidebar.GetButton("Optimize"));
+            var optimizeIndicator = Assert.IsType<Microsoft.UI.Xaml.Shapes.Rectangle>(optimize.FindName("SelectionIndicator"));
+            Assert.Equal(Visibility.Collapsed, indicator.Visibility);
+            Assert.Equal(Visibility.Visible, optimizeIndicator.Visibility);
+
+            sidebar.SelectedTag = "Internet";
+            var internet = Assert.IsType<NavButton>(sidebar.GetButton("Internet"));
+            var internetIndicator = Assert.IsType<Microsoft.UI.Xaml.Shapes.Rectangle>(internet.FindName("SelectionIndicator"));
+            Assert.Equal(Visibility.Collapsed, optimizeIndicator.Visibility);
+            Assert.Equal(Visibility.Visible, internetIndicator.Visibility);
         }
         finally { window.Close(); }
     }

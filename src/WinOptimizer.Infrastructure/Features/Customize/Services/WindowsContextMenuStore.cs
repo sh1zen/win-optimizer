@@ -14,12 +14,19 @@ public sealed class WindowsContextMenuStore : IContextMenuStore
 {
     private const string DisabledValue = "LegacyDisable";
     private readonly Func<IReadOnlyList<ContextMenuRegistryRoot>> _openRoots;
+    private readonly Action _notifyShell;
     private readonly Dictionary<string, Registration> _registrations = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _programNames = new(StringComparer.OrdinalIgnoreCase);
     private sealed record Registration(string RootId, string Path, bool Handler, string Evidence, ContextMenuEntry Entry);
 
-    public WindowsContextMenuStore(IInteractiveUserService user) : this(() => OpenRoots(user)) { }
-    internal WindowsContextMenuStore(Func<IReadOnlyList<ContextMenuRegistryRoot>> openRoots) => _openRoots = openRoots;
+    public WindowsContextMenuStore(IInteractiveUserService user)
+        : this(() => OpenRoots(user), () => SHChangeNotify(0x08000000, 0, IntPtr.Zero, IntPtr.Zero)) { }
+
+    internal WindowsContextMenuStore(Func<IReadOnlyList<ContextMenuRegistryRoot>> openRoots, Action notifyShell)
+    {
+        _openRoots = openRoots;
+        _notifyShell = notifyShell;
+    }
 
     /// <summary>Enumerates each physical scope/view separately, retaining exact registry evidence for edits.</summary>
     public IReadOnlyList<ContextMenuEntry> Read()
@@ -145,7 +152,7 @@ public sealed class WindowsContextMenuStore : IContextMenuStore
             if (updated == null || updated.Entry.IsEnabled != enabled)
                 throw new IOException("Windows did not retain the requested context menu state. Refresh and retry.");
             _registrations[original.Id] = updated;
-            SHChangeNotify(0x08000000, 0, IntPtr.Zero, IntPtr.Zero);
+            _notifyShell();
             return updated.Entry;
         }
         finally { foreach (var root in roots) root.Key.Dispose(); }

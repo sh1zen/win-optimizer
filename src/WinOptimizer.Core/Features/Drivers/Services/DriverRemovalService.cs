@@ -66,6 +66,7 @@ public sealed class DriverRemovalService(IDriverInventorySource inventorySource,
         var device = current.Devices.SingleOrDefault(device => device.InstanceId.Equals(target.Id, StringComparison.OrdinalIgnoreCase));
         return device is { Present: false } && device.InfName.Equals(previous.InfName, StringComparison.OrdinalIgnoreCase) &&
             device.Version == previous.Version && device.ClassName == previous.ClassName && device.Date == previous.Date &&
-            device.HardwareIds.SequenceEqual(previous.HardwareIds, StringComparer.OrdinalIgnoreCase);
+            device.HardwareIds.SequenceEqual(previous.HardwareIds, StringComparer.OrdinalIgnoreCase) &&
+            device.CompatibleIds.SequenceEqual(previous.CompatibleIds, StringComparer.OrdinalIgnoreCase);
     }
 }

@@ -15,9 +15,10 @@
             <InfoBar IsOpen="{x:Bind ViewModel.HasDiagnostic, Mode=OneWay}" Visibility="{x:Bind ViewModel.HasDiagnostic, Mode=OneWay}" Message="{x:Bind ViewModel.Diagnostic, Mode=OneWay}" Severity="Warning" IsClosable="False"/>
             <TextBlock Text="{x:Bind ViewModel.EmptyLabel, Mode=OneWay}" Visibility="{x:Bind ViewModel.ShowEmpty, Mode=OneWay}" TextWrapping="Wrap"/>
             <ItemsControl ItemsSource="{x:Bind ViewModel.Profiles, Mode=OneWay}">
+                <ItemsControl.ItemsPanel><ItemsPanelTemplate><StackPanel Spacing="{StaticResource PageCardSpacing}"/></ItemsPanelTemplate></ItemsControl.ItemsPanel>
                 <ItemsControl.ItemTemplate>
                     <DataTemplate x:DataType="vm:SavedWifiCard">
-                        <Border Style="{StaticResource PageCardStyle}" Margin="0,0,0,12">
+                        <Border Style="{StaticResource PageCardStyle}">
                             <StackPanel Spacing="8">
                                 <TextBlock Text="{x:Bind Name}" Style="{StaticResource SubtitleTextBlockStyle}" IsTextSelectionEnabled="True" TextWrapping="Wrap"/>
                                 <TextBlock Text="{x:Bind Details}" Foreground="{ThemeResource TextFillColorSecondaryBrush}" TextWrapping="Wrap"/>

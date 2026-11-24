@@ -589,7 +589,6 @@ public static class WindowsAppDefinitions
                     CanBeReinstalled = false,
                 },
 
-                // Special Items that require dedicated scripts or carry instability warnings
                 new ItemDefinition
                 {
                     Id = "windows-app-edge",
@@ -599,9 +598,9 @@ public static class WindowsAppDefinitions
                     GroupName = "Browsers",
                     AppxPackageName = ["Microsoft.MicrosoftEdge.Stable"],
                     WinGetPackageId = ["Microsoft.Edge"],
+                    RegistryDisplayName = "Microsoft Edge",
                     MsStoreId = "XPFFTQ037JWMHS",
                     CanBeReinstalled = true,
-                    RemovalScript = () => EdgeRemovalScript.GetScript()
                 },
                 new ItemDefinition
                 {
@@ -623,8 +622,8 @@ public static class WindowsAppDefinitions
                     GroupName = "System",
                     AppxPackageName = ["Microsoft.OneDriveSync"],
                     WinGetPackageId = ["Microsoft.OneDrive"],
+                    RegistryDisplayName = "Microsoft OneDrive",
                     CanBeReinstalled = true,
-                    RemovalScript = () => OneDriveRemovalScript.GetScript()
                 },
                 new ItemDefinition
                 {
@@ -636,8 +635,7 @@ public static class WindowsAppDefinitions
                     MsStoreId = "XPFFZHVGQWWLHB",
                     CanBeReinstalled = true,
                     RegistrySubKeyName = "OneNoteFreeRetail - {locale}",
-                    RegistryDisplayName = "Microsoft OneNote - {locale}",
-                    ProcessesToStop = ["OneNote", "ONENOTE", "ONENOTEM"]
+                    RegistryDisplayName = "Microsoft OneNote - {locale}"
                 }
             }
         };

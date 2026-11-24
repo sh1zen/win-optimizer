@@ -14,6 +14,7 @@ public sealed class SecurityLocalizationTests
         var directory = Path.Combine(TestContext.SolutionDir, "src", "WinOptimizer.UI", "Features", "Common", "Localization");
         var keys = Enum.GetNames<SecurityCheckId>().SelectMany(id => new[] { "Security_Check_" + id, "Security_Description_" + id, "Security_Action_" + id })
             .Concat(Enum.GetNames<SecurityArea>().Select(area => "Security_Area_" + area))
+            .Concat(Enum.GetNames<SecurityArea>().Select(area => "Security_CoverageDescription_" + area))
             .Concat(Enum.GetNames<SecurityCheckState>().Select(state => "Security_Status_" + state)).ToArray();
         foreach (var file in Directory.EnumerateFiles(directory, "*.json"))
         {

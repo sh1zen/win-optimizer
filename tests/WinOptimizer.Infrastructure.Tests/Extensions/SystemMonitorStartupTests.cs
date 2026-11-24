@@ -12,6 +12,24 @@ namespace WinOptimizer.Infrastructure.Tests.Extensions;
 public sealed class SystemMonitorStartupTests
 {
     [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task NotchRegistrationUsesAnIndependentTaskForTheInteractiveAccount(bool enabled)
+    {
+        const string sid = "S-1-5-21-1-2-3-1001";
+        var tasks = new Mock<IScheduledTaskService>(MockBehavior.Strict);
+        tasks.Setup(t => t.ConfigureUserLogonApplicationAsync($"Notch-{sid}", Path.Combine(AppContext.BaseDirectory, DesktopWidgetLaunch.Executable),
+            DesktopWidgetLaunch.NotchArgument, sid, enabled)).ReturnsAsync(OperationResult.Succeeded());
+        var service = new NotchStartupService(tasks.Object, Mock.Of<IInteractiveUserService>(u => u.InteractiveUserSid == sid));
+
+        Assert.True((await service.ApplyAsync(enabled)).Success);
+        tasks.VerifyAll();
+        Assert.True(DesktopWidgetLaunch.IsAutomatic([DesktopWidgetLaunch.NotchArgument]));
+        Assert.True(DesktopWidgetLaunch.IsAutomatic([SystemMonitorLaunch.Argument]));
+        Assert.False(DesktopWidgetLaunch.IsAutomatic(["--startup"]));
+    }
+
+    [Theory]
     [InlineData(false, false)]
     [InlineData(false, true)]
     [InlineData(true, false)]
@@ -24,7 +42,8 @@ public sealed class SystemMonitorStartupTests
         var service = new SystemMonitorStartupService(tasks.Object, Mock.Of<IInteractiveUserService>());
         Assert.True((await service.ApplyAsync(new() { Enabled = enabled, StartWithWindows = startup })).Success);
         tasks.Verify(t => t.ConfigureUserLogonApplicationAsync(It.Is<string>(name => name.StartsWith("SysMonitor-S-1-")),
-            Environment.ProcessPath!, SystemMonitorLaunch.Argument, It.Is<string>(sid => sid.StartsWith("S-1-")), enabled && startup), Times.Once);
+            Path.Combine(AppContext.BaseDirectory, DesktopWidgetLaunch.Executable), SystemMonitorLaunch.Argument,
+            It.Is<string>(sid => sid.StartsWith("S-1-")), enabled && startup), Times.Once);
     }
 
     [Fact]

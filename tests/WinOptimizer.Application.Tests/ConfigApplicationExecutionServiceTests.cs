@@ -1,9 +1,11 @@
 using WinOptimizer.Application.Configuration;
 using FluentAssertions;
 using Moq;
+using WinOptimizer.Core.Features.Common.Constants;
 using WinOptimizer.Core.Features.Common.Enums;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Models;
+using WinOptimizer.Core.Features.SoftwareApps.Models;
 using Xunit;
 
 namespace WinOptimizer.Application.Tests;
@@ -38,18 +40,85 @@ public class ConfigApplicationExecutionServiceTests
     [Theory]
     [InlineData("Taskbar")]
     [InlineData("StartMenu")]
-    [InlineData("WindowsTheme")]
     public async Task EmptyConfigurationStillExecutesTheRequestedAction(string feature)
     {
         _mockConfigLoadService.Setup(service => service.DetectIncompatibleSettings(It.IsAny<UnifiedConfigurationFile>())).Returns([]);
         _mockBridgeService.Setup(bridge => bridge.ApplyConfigurationSectionAsync(It.IsAny<ConfigSection>(), It.IsAny<string>(),
             It.IsAny<Func<string, object?, SettingDefinition, Task<(bool confirmed, bool checkboxResult)>>?>())).ReturnsAsync(false);
-        var options = new ImportOptions { ApplyCleanTaskbar = feature == "Taskbar", ApplyCleanStartMenu = feature == "StartMenu", ApplyThemeWallpaper = feature == "WindowsTheme" };
+        var options = new ImportOptions { ApplyCleanTaskbar = feature == "Taskbar", ApplyCleanStartMenu = feature == "StartMenu" };
 
         await CreateService().ExecuteConfigImportAsync(new UnifiedConfigurationFile(), options);
 
         _mockBridgeService.Verify(bridge => bridge.ApplyConfigurationSectionAsync(It.Is<ConfigSection>(section => section.Items.Count > 0),
             "Customize." + feature, It.IsAny<Func<string, object?, SettingDefinition, Task<(bool confirmed, bool checkboxResult)>>?>()), Times.Once);
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("unrelated-theme-setting")]
+    [InlineData(SettingIds.ThemeModeWindows)]
+    public async Task WallpaperRequestUsesCurrentThemeUnlessAThemeModeIsImported(string? settingId)
+    {
+        var config = new UnifiedConfigurationFile();
+        if (settingId is not null)
+            config.Customize.Features = new Dictionary<string, ConfigSection>
+            {
+                [FeatureIds.WindowsTheme] = new() { Items = [new() { Id = settingId, Name = settingId }] }
+            };
+        _mockConfigLoadService.Setup(service => service.DetectIncompatibleSettings(config)).Returns([]);
+        _mockBridgeService.Setup(bridge => bridge.ApplyConfigurationSectionAsync(It.IsAny<ConfigSection>(), It.IsAny<string>(),
+            It.IsAny<Func<string, object?, SettingDefinition, Task<(bool confirmed, bool checkboxResult)>>?>())).ReturnsAsync(true);
+        _mockWindowsUIManagementService.Setup(service => service.IsProcessRunning("explorer")).Returns(true);
+
+        await CreateService().ExecuteConfigImportAsync(config, new ImportOptions { ApplyThemeWallpaper = true });
+
+        _mockBridgeService.Verify(bridge => bridge.ApplyDefaultWallpaperForCurrentThemeAsync(),
+            settingId == SettingIds.ThemeModeWindows ? Times.Never() : Times.Once());
+        _mockBridgeService.Verify(bridge => bridge.ApplyConfigurationSectionAsync(
+            It.Is<ConfigSection>(s => s.Items.Count == 1 && s.Items[0].Id == settingId), "Customize.WindowsTheme",
+            It.IsAny<Func<string, object?, SettingDefinition, Task<(bool confirmed, bool checkboxResult)>>?>()),
+            settingId is null ? Times.Never() : Times.Once());
+    }
+
+    [Theory]
+    [InlineData("policy")]
+    [InlineData("explorer-launch")]
+    [InlineData("explorer-stop")]
+    public async Task ImportDoesNotAnnounceSuccessAfterPolicyOrExplorerFailure(string operation)
+    {
+        var config = new UnifiedConfigurationFile();
+        if (operation == "policy")
+        {
+            config.WindowsApps.Items = [new() { Id = "fixture", Name = "Fixture" }];
+            _mockPolicyCleanupService.Setup(service => service.CleanupPolicyValues()).Throws(new IOException("Managed policy write denied"));
+        }
+        else
+        {
+            config.Optimize.Features = new Dictionary<string, ConfigSection>
+            {
+                ["Privacy"] = new() { Items = [new() { Id = "fixture", Name = "Fixture" }] }
+            };
+            _mockBridgeService.Setup(bridge => bridge.ApplyConfigurationSectionAsync(It.IsAny<ConfigSection>(), It.IsAny<string>(),
+                It.IsAny<Func<string, object?, SettingDefinition, Task<(bool confirmed, bool checkboxResult)>>?>())).ReturnsAsync(true);
+            _mockProcessExecutor.Setup(process => process.ShellExecuteAsync("explorer.exe", null, false, default)).ReturnsAsync((int?)null);
+            if (operation == "explorer-stop")
+            {
+                _mockWindowsUIManagementService.Setup(service => service.IsProcessRunning("explorer")).Returns(true);
+                _mockWindowsUIManagementService.Setup(service => service.KillProcess("explorer", true))
+                    .Throws(new System.ComponentModel.Win32Exception(5));
+            }
+        }
+        _mockConfigLoadService.Setup(service => service.DetectIncompatibleSettings(config)).Returns([]);
+
+        await CreateService().ExecuteConfigImportAsync(config, new ImportOptions { IsWindowsDefaults = operation != "explorer-launch" });
+
+        var expected = operation == "policy" ? "Managed policy write denied" : "Explorer could not be restarted";
+        _mockDialogService.Verify(dialog => dialog.ShowMessage(It.Is<string>(message => message.Contains(expected)), "Error"), Times.Once);
+        _mockDialogService.Verify(dialog => dialog.ShowInformationAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        _mockProcessExecutor.Verify(process => process.ShellExecuteAsync("explorer.exe", null, false, default),
+            operation == "explorer-launch" ? Times.Once() : Times.Never());
+        _mockPolicyCleanupService.Verify(service => service.CleanupPolicyValues(),
+            operation == "explorer-launch" ? Times.Never() : Times.Once());
     }
 
     [Fact]
@@ -65,8 +134,101 @@ public class ConfigApplicationExecutionServiceTests
 
         _mockDialogService.Verify(dialog => dialog.ShowMessage(It.Is<string>(message => message.Contains("failed")), "Error"), Times.Once);
         _mockDialogService.Verify(dialog => dialog.ShowInformationAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
-        _mockWindowsUIManagementService.Verify(ui => ui.KillProcess(It.IsAny<string>()), Times.Never);
+        _mockWindowsUIManagementService.Verify(ui => ui.KillProcess(It.IsAny<string>(), It.IsAny<bool>()), Times.Never);
         _mockProcessExecutor.VerifyNoOtherCalls();
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task WindowsAppRemovalUsesTheImportOptionsAtTheExecutionBoundary(bool saveScripts)
+    {
+        var marker = new IOException("Synthetic removal failed before Explorer handling.");
+        _mockVmCoordinator.Setup(coordinator => coordinator.RemoveWindowsAppsAsync(true, saveScripts)).ThrowsAsync(marker);
+        var options = new ImportOptions { ProcessWindowsAppsRemoval = true, SaveRemovalScripts = saveScripts };
+
+        var error = await Assert.ThrowsAsync<IOException>(() =>
+            CreateService().ApplyConfigurationWithOptionsAsync(new UnifiedConfigurationFile(), ["WindowsApps"], options));
+
+        Assert.Same(marker, error);
+        _mockVmCoordinator.Verify(coordinator => coordinator.RemoveWindowsAppsAsync(true, saveScripts), Times.Once);
+        _mockProcessExecutor.VerifyNoOtherCalls();
+    }
+
+    [Theory]
+    [InlineData("Taskbar", "taskbar-clean", false)]
+    [InlineData("Taskbar", "taskbar-clean", true)]
+    [InlineData("StartMenu", "start-menu-clean-11", false)]
+    [InlineData("StartMenu", "start-menu-clean-11", true)]
+    public async Task CleanupRequiresConsentAndRunsOnceWhenAlsoListedInTheFile(string feature, string action, bool approved)
+    {
+        var config = new UnifiedConfigurationFile();
+        config.Customize.Features = new Dictionary<string, ConfigSection>
+        {
+            [feature] = new() { Items = [new() { Id = action, Name = action, IsSelected = true }, new() { Id = "regular", Name = "Regular setting" }] }
+        };
+        _mockConfigLoadService.Setup(service => service.DetectIncompatibleSettings(config)).Returns([]);
+        _mockWindowsVersionService.Setup(service => service.IsWindows11()).Returns(true);
+        List<string> applied = [];
+        _mockBridgeService.Setup(bridge => bridge.ApplyConfigurationSectionAsync(It.IsAny<ConfigSection>(), "Customize." + feature,
+                It.IsAny<Func<string, object?, SettingDefinition, Task<(bool, bool)>>>())).ReturnsAsync(
+            (ConfigSection section, string _, Func<string, object?, SettingDefinition, Task<(bool, bool)>> _) =>
+            {
+                applied.AddRange(section.Items.Select(item => item.Id));
+                return section.Items.All(item => item.Id != "regular");
+            });
+
+        await CreateService().ExecuteConfigImportAsync(config, new ImportOptions
+        {
+            ApplyCleanTaskbar = approved && feature == "Taskbar",
+            ApplyCleanStartMenu = approved && feature == "StartMenu"
+        });
+
+        Assert.Equal(approved ? [action, "regular"] : new[] { "regular" }, applied);
+        Assert.Contains(config.Customize.Features[feature].Items, item => item.Id == action);
+        _mockWindowsUIManagementService.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task SelectOnlyImportsTheSelectionWithoutRestartingExplorer()
+    {
+        var config = new UnifiedConfigurationFile
+        {
+            WindowsApps = new() { Items = [new() { Id = "fixture", Name = "Fixture", IsSelected = true }] }
+        };
+        _mockConfigLoadService.Setup(service => service.DetectIncompatibleSettings(config)).Returns([]);
+
+        await CreateService().ExecuteConfigImportAsync(config, new ImportOptions());
+
+        _mockConfigAppSelectionService.Verify(selection => selection.SelectWindowsAppsFromConfigAsync(config.WindowsApps), Times.Once);
+        _mockVmCoordinator.VerifyNoOtherCalls();
+        _mockWindowsUIManagementService.VerifyNoOtherCalls();
+        _mockProcessExecutor.VerifyNoOtherCalls();
+        _mockDialogService.Verify(dialog => dialog.ShowInformationAsync("Config_Import_Success_Message", It.IsAny<string>(), It.IsAny<string>()), Times.Once);
+    }
+
+    [Theory]
+    [InlineData(UninstallVerificationState.StillInstalled)]
+    [InlineData(UninstallVerificationState.Unknown)]
+    [InlineData(UninstallVerificationState.Deferred)]
+    public async Task UnverifiedWindowsAppRemovalReportsItsOutcomeInsteadOfImportSuccess(UninstallVerificationState state)
+    {
+        var config = new UnifiedConfigurationFile
+        {
+            WindowsApps = new() { Items = [new() { Id = "fixture", Name = "Fixture", IsSelected = true }] }
+        };
+        _mockConfigLoadService.Setup(service => service.DetectIncompatibleSettings(config)).Returns([]);
+        _mockConfigAppSelectionService.Setup(selection => selection.ConfirmWindowsAppsRemovalAsync()).ReturnsAsync((true, false));
+        _mockVmCoordinator.Setup(coordinator => coordinator.RemoveWindowsAppsAsync(true, false)).ReturnsAsync(
+            OperationResult<AppUninstallResult>.Succeeded(new(
+                [new("first", "First app", UninstallVerificationState.Removed, "Verified"),
+                 new("fixture", "Fixture", state, "Removal unconfirmed")], [])));
+
+        await CreateService().ExecuteConfigImportAsync(config, new ImportOptions { ProcessWindowsAppsRemoval = true });
+
+        _mockDialogService.Verify(dialog => dialog.ShowMessage(It.Is<string>(message => message.Contains("Fixture: Removal unconfirmed")), "Error"), Times.Once);
+        _mockDialogService.Verify(dialog => dialog.ShowInformationAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        _mockWindowsUIManagementService.VerifyNoOtherCalls();
     }
     private readonly Mock<ILogService> _mockLogService = new();
     private readonly Mock<IDialogService> _mockDialogService = new();
@@ -199,70 +361,6 @@ public class ConfigApplicationExecutionServiceTests
     }
 
     [Fact]
-    public async Task ExecuteConfigImportAsync_WithWindowsApps_SelectsAppsFromConfig()
-    {
-        var config = new UnifiedConfigurationFile
-        {
-            WindowsApps = new ConfigSection
-            {
-                Items = new List<ConfigurationItem>
-                {
-                    new ConfigurationItem { Id = "app1", Name = "App 1" }
-                }
-            }
-        };
-
-        var options = new ImportOptions
-        {
-            ProcessWindowsAppsRemoval = false
-        };
-
-        _mockConfigLoadService
-            .Setup(s => s.DetectIncompatibleSettings(It.IsAny<UnifiedConfigurationFile>()))
-            .Returns(new List<string>());
-
-        // The config has only WindowsApps but no optimize/customize, so only that section
-        var service = CreateService();
-        await service.ExecuteConfigImportAsync(config, options);
-
-        _mockConfigAppSelectionService.Verify(
-            s => s.SelectWindowsAppsFromConfigAsync(It.IsAny<ConfigSection>()),
-            Times.Once);
-    }
-
-    [Fact]
-    public async Task ExecuteConfigImportAsync_WithRemoval_ConfirmsWithUser()
-    {
-        var config = new UnifiedConfigurationFile
-        {
-            WindowsApps = new ConfigSection
-            {
-                Items = new List<ConfigurationItem>
-                {
-                    new ConfigurationItem { Id = "app1", Name = "App 1" }
-                }
-            }
-        };
-
-        var options = new ImportOptions { ProcessWindowsAppsRemoval = true };
-
-        _mockConfigLoadService
-            .Setup(s => s.DetectIncompatibleSettings(It.IsAny<UnifiedConfigurationFile>()))
-            .Returns(new List<string>());
-
-        _mockConfigAppSelectionService
-            .Setup(s => s.ConfirmWindowsAppsRemovalAsync())
-            .ReturnsAsync((false, true));
-
-        var service = CreateService();
-        await service.ExecuteConfigImportAsync(config, options);
-
-        _mockConfigAppSelectionService.Verify(
-            s => s.ConfirmWindowsAppsRemovalAsync(),
-            Times.Once);
-    }
-
-    [Fact]
     public async Task ExecuteConfigImportAsync_WhenRemovalCancelled_ClearsWindowsAppsSelection()
     {
         var config = new UnifiedConfigurationFile
@@ -289,6 +387,7 @@ public class ConfigApplicationExecutionServiceTests
         var service = CreateService();
         await service.ExecuteConfigImportAsync(config, options);
 
+        _mockConfigAppSelectionService.Verify(s => s.ConfirmWindowsAppsRemovalAsync(), Times.Once);
         _mockConfigAppSelectionService.Verify(
             s => s.ClearWindowsAppsSelectionAsync(),
             Times.Once);
@@ -415,7 +514,7 @@ public class ConfigApplicationExecutionServiceTests
         var service = CreateService();
         await service.ExecuteConfigImportAsync(config, options);
 
-        _mockPolicyCleanupService.Verify(p => p.CleanupPolicyKeys(), Times.Once);
+        _mockPolicyCleanupService.Verify(p => p.CleanupPolicyValues(), Times.Once);
     }
 
     [Fact]
@@ -464,6 +563,6 @@ public class ConfigApplicationExecutionServiceTests
         var service = CreateService();
         await service.ExecuteConfigImportAsync(config, options);
 
-        _mockPolicyCleanupService.Verify(p => p.CleanupPolicyKeys(), Times.Never);
+        _mockPolicyCleanupService.Verify(p => p.CleanupPolicyValues(), Times.Never);
     }
 }

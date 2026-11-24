@@ -14,7 +14,6 @@ namespace WinOptimizer.Infrastructure.Features.AdvancedTools.Helpers;
 
 /// <summary>
 /// Emits PowerShell registry commands for toggle and selection settings.
-/// Eliminates duplication between toggle command emission and selection value resolution.
 /// </summary>
 internal class RegistryCommandEmitter
 {
@@ -30,8 +29,7 @@ internal class RegistryCommandEmitter
     }
 
     /// <summary>
-    /// Emits a single registry value set command, handling Binary/BitMask/ModifyByteOnly patterns.
-    /// This is the core method that eliminates duplication between toggle and selection code paths.
+    /// Emits a registry write. Definition-based toggles supply the desired bit state explicitly.
     /// </summary>
     public void EmitRegistryValue(
         StringBuilder sb,
@@ -40,7 +38,8 @@ internal class RegistryCommandEmitter
         string escapedDescription,
         string pathExpr,
         string escapedValueName,
-        string indent)
+        string indent,
+        bool? bitState = null)
     {
         var valueType = ConvertToRegistryType(regSetting.ValueType);
 
@@ -48,10 +47,11 @@ internal class RegistryCommandEmitter
         {
             if (regSetting.BitMask.HasValue)
             {
-                var setBit = Convert.ToBoolean(value);
+                var setBit = bitState ?? Convert.ToBoolean(value);
                 sb.AppendLine($"{indent}Set-BinaryBit -Path {pathExpr} -Name '{escapedValueName}' -ByteIndex {regSetting.BinaryByteIndex.Value} -BitMask 0x{regSetting.BitMask.Value:X2} -SetBit ${setBit} -Description '{escapedDescription}'");
+                return;
             }
-            else if (regSetting.ModifyByteOnly)
+            if (regSetting.ModifyByteOnly)
             {
                 var byteValue = value switch
                 {
@@ -60,65 +60,12 @@ internal class RegistryCommandEmitter
                     _ => "0x00"
                 };
                 sb.AppendLine($"{indent}Set-BinaryByte -Path {pathExpr} -Name '{escapedValueName}' -ByteIndex {regSetting.BinaryByteIndex.Value} -ByteValue {byteValue} -Description '{escapedDescription}'");
-            }
-            else
-            {
-                var formattedValue = FormatValueForPowerShell(value, regSetting.ValueType);
-                sb.AppendLine($"{indent}Set-RegistryValue -Path {pathExpr} -Name '{escapedValueName}' -Type '{valueType}' -Value {formattedValue} -Description '{escapedDescription}'");
+                return;
             }
         }
-        else
-        {
-            var formattedValue = FormatValueForPowerShell(value, regSetting.ValueType);
-            sb.AppendLine($"{indent}Set-RegistryValue -Path {pathExpr} -Name '{escapedValueName}' -Type '{valueType}' -Value {formattedValue} -Description '{escapedDescription}'");
-        }
-    }
 
-    /// <summary>
-    /// Emits a single registry value set command using the fallback definition values path.
-    /// Handles the special case where BinaryByteIndex requires different byte formatting
-    /// when we have a definition value (not a raw registry value).
-    /// </summary>
-    public void EmitRegistryValueFromDefinition(
-        StringBuilder sb,
-        RegistrySetting regSetting,
-        object value,
-        bool? isEnabled,
-        string escapedDescription,
-        string pathExpr,
-        string escapedValueName,
-        string indent)
-    {
-        var valueType = ConvertToRegistryType(regSetting.ValueType);
-
-        if (regSetting.ValueType == RegistryValueKind.Binary && regSetting.BinaryByteIndex.HasValue)
-        {
-            if (regSetting.BitMask.HasValue)
-            {
-                var setBit = isEnabled == true;
-                sb.AppendLine($"{indent}Set-BinaryBit -Path {pathExpr} -Name '{escapedValueName}' -ByteIndex {regSetting.BinaryByteIndex.Value} -BitMask 0x{regSetting.BitMask.Value:X2} -SetBit ${setBit} -Description '{escapedDescription}'");
-            }
-            else if (regSetting.ModifyByteOnly)
-            {
-                var byteValue = value switch
-                {
-                    byte b => $"0x{b:X2}",
-                    int i => $"0x{(byte)i:X2}",
-                    _ => "0x00"
-                };
-                sb.AppendLine($"{indent}Set-BinaryByte -Path {pathExpr} -Name '{escapedValueName}' -ByteIndex {regSetting.BinaryByteIndex.Value} -ByteValue {byteValue} -Description '{escapedDescription}'");
-            }
-            else
-            {
-                var formattedValue = FormatValueForPowerShell(value, regSetting.ValueType);
-                sb.AppendLine($"{indent}Set-RegistryValue -Path {pathExpr} -Name '{escapedValueName}' -Type '{valueType}' -Value {formattedValue} -Description '{escapedDescription}'");
-            }
-        }
-        else
-        {
-            var formattedValue = FormatValueForPowerShell(value, regSetting.ValueType);
-            sb.AppendLine($"{indent}Set-RegistryValue -Path {pathExpr} -Name '{escapedValueName}' -Type '{valueType}' -Value {formattedValue} -Description '{escapedDescription}'");
-        }
+        var formattedValue = FormatValueForPowerShell(value, regSetting.ValueType);
+        sb.AppendLine($"{indent}Set-RegistryValue -Path {pathExpr} -Name '{escapedValueName}' -Type '{valueType}' -Value {formattedValue} -Description '{escapedDescription}'");
     }
 
     public void AppendToggleCommandsFiltered(StringBuilder sb, SettingDefinition setting, ConfigurationItem configItem, bool isHkcu, string indent = "")
@@ -208,7 +155,7 @@ internal class RegistryCommandEmitter
             }
 
             // Pattern 4: Regular Value Setting
-            EmitRegistryValueFromDefinition(sb, regSetting, value, isEnabled, escapedDescription!, effectivePath!, escapedValueName!, innerIndent);
+            EmitRegistryValue(sb, regSetting, value, escapedDescription!, effectivePath!, escapedValueName!, innerIndent, bitState: isEnabled == true);
             if (isPerSubkey) sb.AppendLine($"{indent}}}");
         }
 

@@ -109,10 +109,6 @@ public static partial class ExternalAppDefinitions
                         GroupName = "Customization Utilities",
                         WinGetPackageId = ["valinet.ExplorerPatcher"],
                         WebsiteUrl = "https://github.com/valinet/ExplorerPatcher",
-                        ExternalApp = new ExternalAppMetadata
-                        {
-                            DownloadUrl = "https://github.com/valinet/ExplorerPatcher/releases/latest/download/ep_setup.exe",
-                        },
                     },
                     new ItemDefinition
                     {
@@ -147,10 +143,6 @@ public static partial class ExternalAppDefinitions
                         GroupName = "Customization Utilities",
                         WinGetPackageId = ["WinStep.Nexus"],
                         WebsiteUrl = "https://www.winstep.net/nexus.asp",
-                        ExternalApp = new ExternalAppMetadata
-                        {
-                            DownloadUrl = "https://www.winstep.net/nexus.zip",
-                        },
                     },
                     new ItemDefinition
                     {
@@ -166,10 +158,6 @@ public static partial class ExternalAppDefinitions
                         ChocoPackageId = "autohotkey",
                         MsStoreId = "9PLQFDG8HH9D",
                         WebsiteUrl = "https://www.autohotkey.com/",
-                        ExternalApp = new ExternalAppMetadata
-                        {
-                            DownloadUrl = "https://www.autohotkey.com/download/ahk-v2.exe",
-                        },
                     },
                     new ItemDefinition
                     {
@@ -179,11 +167,6 @@ public static partial class ExternalAppDefinitions
                         RegistryDisplayName = "AutoHotkey 1.{version}",
                         GroupName = "Customization Utilities",
                         WebsiteUrl = "https://www.autohotkey.com/",
-                        ExternalApp = new ExternalAppMetadata
-                        {
-                            DownloadUrl = "https://www.autohotkey.com/download/ahk-install.exe",
-                            RequiresDirectDownload = true,
-                        },
                     }
                 }
             };

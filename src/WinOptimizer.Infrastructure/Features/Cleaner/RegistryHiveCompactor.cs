@@ -9,13 +9,12 @@ namespace WinOptimizer.Infrastructure.Features.Cleaner;
 /// <summary>Native Windows boundary, replaceable in isolated compaction tests.</summary>
 public interface IRegistryHiveOperations
 {
-    bool IsAvailable { get; }
     void Save(string keyPath, string destination);
-    void Compact(string keyPath);
 }
 
-/// <summary>Measures recoverable hive space and requires a completed backup before native compaction.</summary>
-public sealed class RegistryHiveCompactor(ICleanerRegistrySessions accounts, ICleanerBackupVault vault, IRegistryHiveOperations native)
+/// <summary>Measures recoverable hive space and resolves reviewed targets for offline compaction.</summary>
+public sealed class RegistryHiveCompactor(ICleanerRegistrySessions accounts, ICleanerBackupVault vault,
+    IRegistryHiveOperations native, IRegistryDefragBoot boot)
 {
     private static Dictionary<string, string> MachineHives() => new(StringComparer.OrdinalIgnoreCase)
     {
@@ -25,9 +24,9 @@ public sealed class RegistryHiveCompactor(ICleanerRegistrySessions accounts, ICl
 
     public CleanerScanResult Scan(CleanerOptions options, CancellationToken ct, IProgress<CleanerProgress>? progress = null)
     {
-        if (!native.IsAvailable) return new([], ["Native registry compaction is unavailable on this Windows version."]);
         List<CleanerFinding> findings = [];
         List<string> notices = [];
+        if (boot.GetStatusNotice() is { } status) notices.Add(status);
         options.Validate();
         int total = (options.RegistryAccountSids?.Distinct(StringComparer.Ordinal).Count() ?? 1) + (options.DeepClean ? 2 : 0);
         int completed = 0;
@@ -70,110 +69,64 @@ public sealed class RegistryHiveCompactor(ICleanerRegistrySessions accounts, ICl
         }
     }
 
-    public void Clean(CleanerHiveTarget target, CancellationToken ct, bool createBackup = true)
+    /// <summary>Re-resolves every reviewed hive before handing one job to the boot scheduler.</summary>
+    public Task ScheduleAsync(IReadOnlyList<CleanerHiveTarget> targets, CancellationToken ct)
     {
-        if (!native.IsAvailable) throw new IOException("Native registry compaction is unavailable on this Windows version.");
-        ct.ThrowIfCancellationRequested();
-        ICleanerRegistrySession? account = null;
-        try
+        var machineHives = MachineHives();
+        var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var target in targets)
         {
-            CleanerRegistryHive hive;
-            if (MachineHives().TryGetValue(target.KeyPath, out var file)) hive = new(target.KeyPath, file);
-            else
-            {
-                var sid = target.KeyPath == "HKEY_CURRENT_USER" ? null : target.KeyPath.StartsWith(@"HKEY_USERS\", StringComparison.Ordinal)
-                    ? target.KeyPath[@"HKEY_USERS\".Length..] : throw new IOException("Unsupported registry hive.");
-                account = accounts.Open(sid);
-                if (account.UserPrefix != target.KeyPath) throw new IOException("The selected account changed. Scan again.");
-                hive = account.GetUserHive();
-            }
-            if (target.SourcePath is not null && !string.Equals(target.SourcePath, hive.FilePath, StringComparison.OrdinalIgnoreCase))
-                throw new IOException("The registered account hive changed. Scan again.");
-            if (createBackup) CreateBackup(hive);
             ct.ThrowIfCancellationRequested();
-            native.Compact(hive.KeyPath);
+            var path = machineHives.TryGetValue(target.KeyPath, out var machineFile)
+                ? machineFile : ResolveProfileHive(target.KeyPath);
+            if (!string.Equals(target.SourcePath, path, StringComparison.OrdinalIgnoreCase))
+                throw new IOException("The registered account hive changed. Scan again.");
+            paths.Add(path);
         }
-        finally { account?.Dispose(); }
+        return boot.ScheduleAsync(paths.ToArray(), ct);
     }
 
-    private void CreateBackup(CleanerRegistryHive hive)
+    private string ResolveProfileHive(string keyPath)
     {
-        var backup = Path.Combine(vault.RootDirectory, $"hive-{DateTime.UtcNow:yyyyMMdd-HHmmss}-{Guid.NewGuid():N}.hiv");
-        CleanerPaths.ValidateDescendant(vault.RootDirectory, backup);
-        vault.EnsureDirectory(vault.RootDirectory);
-        var partial = backup + ".partial";
-        try
-        {
-            native.Save(hive.KeyPath, partial);
-            if (!File.Exists(partial) || new FileInfo(partial).Length == 0) throw new IOException("Registry hive backup was not created.");
-            File.Move(partial, backup);
-        }
-        finally { if (File.Exists(partial)) File.Delete(partial); }
-        var original = hive.FilePath;
-        using var backupStream = File.OpenRead(backup);
-        var hash = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(backupStream));
-        File.WriteAllText(backup + ".txt", $"Registry hive: {hive.KeyPath}\r\nBackup: {backup}\r\nOriginal hive location: {original}\r\n" +
-            "Restore this hive from Windows Recovery Environment after identifying the correct offline Windows volume. " +
-            "Unlock BitLocker if enabled. Back up the current hive to a separate file first. " +
-            "Copy the verified backup to the original hive location with Windows offline, adjusting drive letters to the recovery environment. " +
-            "Move the current .LOG1/.LOG2 transaction logs beside the saved current hive before installing the backup, then restart. " +
-            "A whole-hive restore also reverts registry changes made after the backup.\r\n" +
-            $"SHA256: {hash}\r\n");
+        const string usersPrefix = @"HKEY_USERS\";
+        var sid = keyPath == "HKEY_CURRENT_USER" ? null :
+            keyPath.StartsWith(usersPrefix, StringComparison.Ordinal) && CleanerOptions.IsAccountSid(keyPath[usersPrefix.Length..])
+            ? keyPath[usersPrefix.Length..] : throw new IOException("Unsupported registry hive.");
+        using var account = accounts.Open(sid);
+        if (account.UserPrefix != keyPath) throw new IOException("The selected account changed. Scan again.");
+        return account.GetUserHive().FilePath;
     }
 }
 
-/// <summary>Uses the native hive compactor with scoped backup/restore privileges and explicit NTSTATUS checks.</summary>
+/// <summary>Exports a hive with scoped backup privileges for the read-only space estimate.</summary>
 public sealed class WindowsRegistryHiveOperations : IRegistryHiveOperations
 {
-    public bool IsAvailable
-    {
-        get
-        {
-            if (!NativeLibrary.TryLoad(Path.Combine(Environment.SystemDirectory, "ntdll.dll"), out var module)) return false;
-            try { return NativeLibrary.TryGetExport(module, "NtCompressKey", out _); }
-            finally { NativeLibrary.Free(module); }
-        }
-    }
-
     public void Save(string keyPath, string destination)
     {
         using var backup = new RegistryPrivilegeScope("SeBackupPrivilege");
-        using var key = OpenHive(keyPath, writable: false);
+        using var key = OpenHive(keyPath);
         int status = RegSaveKeyEx(key.Handle, destination, IntPtr.Zero, 2);
         if (status != 0) throw new Win32Exception(status, "Unable to save registry hive: " + new Win32Exception(status).Message);
     }
 
-    public void Compact(string keyPath)
+    private static RegistryKey OpenHive(string keyPath)
     {
-        using var backup = new RegistryPrivilegeScope("SeBackupPrivilege");
-        using var restore = new RegistryPrivilegeScope("SeRestorePrivilege");
-        using var key = OpenHive(keyPath, writable: true);
-        int status = NtCompressKey(key.Handle);
-        if (status < 0) throw new Win32Exception(unchecked((int)RtlNtStatusToDosError(status)), $"Registry compaction failed (NTSTATUS 0x{status:X8}).");
-    }
-
-    private static RegistryKey OpenHive(string keyPath, bool writable)
-    {
-        if (keyPath == "HKEY_CURRENT_USER") return Registry.CurrentUser.OpenSubKey("", writable) ?? throw new IOException("User hive is unavailable.");
+        if (keyPath == "HKEY_CURRENT_USER") return Registry.CurrentUser.OpenSubKey("") ?? throw new IOException("User hive is unavailable.");
         const string machinePrefix = @"HKEY_LOCAL_MACHINE\";
         if (keyPath is @"HKEY_LOCAL_MACHINE\SOFTWARE" or @"HKEY_LOCAL_MACHINE\SYSTEM")
-            return Registry.LocalMachine.OpenSubKey(keyPath[machinePrefix.Length..], writable) ?? throw new IOException("System hive is unavailable.");
+            return Registry.LocalMachine.OpenSubKey(keyPath[machinePrefix.Length..]) ?? throw new IOException("System hive is unavailable.");
         const string usersPrefix = @"HKEY_USERS\";
         if (keyPath.StartsWith(usersPrefix, StringComparison.Ordinal))
         {
             var name = keyPath[usersPrefix.Length..];
             const string mounted = "WinOptimizer_Cleaner_";
             if (CleanerOptions.IsAccountSid(name) || name.StartsWith(mounted, StringComparison.Ordinal) && Guid.TryParseExact(name[mounted.Length..], "N", out _))
-                return Registry.Users.OpenSubKey(name, writable) ?? throw new IOException("The selected account hive is unavailable.");
+                return Registry.Users.OpenSubKey(name) ?? throw new IOException("The selected account hive is unavailable.");
         }
         throw new IOException("Unsupported registry hive.");
     }
 
     [DllImport("advapi32.dll", EntryPoint = "RegSaveKeyExW", CharSet = CharSet.Unicode)]
     private static extern int RegSaveKeyEx(SafeRegistryHandle key, string file, IntPtr security, uint flags);
-    // Native declaration: https://github.com/winsiderss/phnt/blob/master/ntregapi.h
-    [DllImport("ntdll.dll")] private static extern int NtCompressKey(SafeRegistryHandle key);
-    [DllImport("ntdll.dll")] private static extern uint RtlNtStatusToDosError(int status);
-
 }
 

@@ -2,7 +2,7 @@
 .SYNOPSIS
 Refreshes bundled x64 WinGet CLI and desktop VC++ runtime binaries.
 .DESCRIPTION
-Build prerequisites and packaging commands: README.md#development.
+See docs/DEVELOPMENT.md for build requirements and packaging commands.
 .PARAMETER Version
 WinGet release tag; defaults to latest.
 .PARAMETER Force

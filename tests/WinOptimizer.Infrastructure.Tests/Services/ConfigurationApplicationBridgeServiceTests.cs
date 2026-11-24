@@ -3,7 +3,9 @@ using Moq;
 using WinOptimizer.Core.Features.Common.Enums;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Models;
+using WinOptimizer.Core.Features.Customize.Interfaces;
 using WinOptimizer.Infrastructure.Features.Common.Services;
+using WinOptimizer.Infrastructure.Features.Customize.Services;
 using Xunit;
 
 namespace WinOptimizer.Infrastructure.Tests.Services;
@@ -18,11 +20,30 @@ public class ConfigurationApplicationBridgeServiceTests
 
     public ConfigurationApplicationBridgeServiceTests()
     {
+        _mockSettingApp.Setup(x => x.ApplySettingAsync(It.IsAny<ApplySettingRequest>())).ReturnsAsync(OperationResult.Succeeded());
         _service = new ConfigurationApplicationBridgeService(
             _mockSettingApp.Object,
             _mockRegistry.Object,
             _mockLog.Object,
-            _importState);
+            _importState,
+            new ThemeWallpaperApplier(Mock.Of<IWallpaperService>(), Mock.Of<IWindowsVersionService>(),
+                Mock.Of<IWindowsRegistryService>(), _mockLog.Object, Mock.Of<IFileSystemService>()));
+    }
+
+    [Theory]
+    [InlineData(InputType.Toggle)]
+    [InlineData(InputType.Action)]
+    public async Task ApplyConfigurationSectionAsync_ReturnedFailureIsReportedAndOtherSettingsStillApply(InputType input)
+    {
+        SetupRegistryWithSettings(CreateSetting("failed", input), CreateSetting("works"));
+        _mockSettingApp.Setup(x => x.ApplySettingAsync(It.Is<ApplySettingRequest>(r => r.SettingId == "failed")))
+            .ReturnsAsync(OperationResult.Failed("Windows rejected the write"));
+
+        var result = await _service.ApplyConfigurationSectionAsync(
+            new ConfigSection { Items = [CreateItem("failed"), CreateItem("works")] }, "TestSection");
+
+        result.Should().BeFalse();
+        _mockSettingApp.Verify(x => x.ApplySettingAsync(It.Is<ApplySettingRequest>(r => r.SettingId == "works")), Times.Once);
     }
 
     private static SettingDefinition CreateSetting(string id, InputType inputType = InputType.Toggle, bool requiresConfirmation = false) => new()

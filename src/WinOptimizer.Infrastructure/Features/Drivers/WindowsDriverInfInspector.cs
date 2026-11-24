@@ -1,54 +1,118 @@
 using System.ComponentModel;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using Microsoft.Win32.SafeHandles;
 using WinOptimizer.Core.Features.Drivers.Models;
 
 namespace WinOptimizer.Infrastructure.Features.Drivers;
 
-public sealed record DriverInfInspection(string Version, DriverCertification Certification);
-
 /// <summary>Inspects a package INF only when its model sections match the offered hardware identifier.</summary>
 public interface IDriverInfInspector
 {
-    DriverInfInspection? Inspect(string infPath, string hardwareId);
+    Task<DriverComponent[]> InspectAsync(string root, string[] paths, CancellationToken ct);
 }
 
 /// <summary>Uses SetupAPI's INF parser and signer scores; an ordinary or unclassified signature is not WHQL.</summary>
-public sealed class WindowsDriverInfInspector : IDriverInfInspector
+public sealed class WindowsDriverInfInspector(DriverPowerShell shell) : IDriverInfInspector
 {
-    public DriverInfInspection? Inspect(string infPath, string hardwareId)
+    private sealed record Signature(string Path, string Catalog, string Publisher, uint Score, bool Valid);
+    private sealed record Signatures(Signature[] Items);
+
+    /// <summary>Verifies the package's catalogs in one worker that releases native file handles on exit.</summary>
+    public async Task<DriverComponent[]> InspectAsync(string root, string[] paths, CancellationToken ct)
     {
-        if (string.IsNullOrWhiteSpace(hardwareId)) return null;
+        if (paths.Length == 0) return [];
+        foreach (var path in paths) DriverScanWorkspace.ValidateChild(root, path);
+        var request = DriverScanWorkspace.ValidateChild(root, Path.Combine(root, $"inf-signatures-{Guid.NewGuid():N}.json"));
+        var encodedPath = Convert.ToBase64String(Encoding.UTF8.GetBytes(request));
+        try
+        {
+            await OfficialDriverHttp.WriteAtomicAsync(request, (output, token) =>
+                JsonSerializer.SerializeAsync(output, paths, cancellationToken: token), ct).ConfigureAwait(false);
+            var prelude = $"$request=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('{encodedPath}'));";
+            var result = await shell.RunAsync<Signatures>("DriverSignatures", prelude, ct).ConfigureAwait(false);
+            if (result.Items is null || result.Items.Length != paths.Length || result.Items.Where((item, index) =>
+                    item is null || !string.Equals(item.Path, paths[index], StringComparison.OrdinalIgnoreCase)).Any())
+                throw new DriverScanException("Windows returned incomplete driver catalog signature evidence.");
+            return await Task.Run(() =>
+            {
+                var components = new DriverComponent[paths.Length];
+                for (var index = 0; index < paths.Length; index++)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    components[index] = ReadComponent(paths[index], root, result.Items[index]);
+                }
+                return components;
+            }, ct).ConfigureAwait(false);
+        }
+        finally { File.Delete(request); }
+    }
+
+    /// <summary>Reads the models Windows selects for the running OS and the catalog bound to this INF.</summary>
+    private static DriverComponent ReadComponent(string infPath, string root, Signature signer)
+    {
         using var inf = SetupOpenInfFile(infPath, null, 2, out _); // INF_STYLE_WIN4
         if (inf.IsInvalid) throw new IOException($"Cannot read driver INF: {infPath}", new Win32Exception(Marshal.GetLastWin32Error()));
-        var architecture = RuntimeInformation.OSArchitecture switch
-        {
-            Architecture.X64 => "NTamd64", Architecture.Arm64 => "NTarm64", Architecture.X86 => "NTx86",
-            _ => throw new IOException("Unsupported driver platform.")
-        };
         var sections = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var manufacturer in ReadLines(inf, "Manufacturer"))
+        if (SetupFindFirstLine(inf, "Manufacturer", null, out var manufacturer))
         {
-            if (manufacturer.Length < 1) continue;
-            if (manufacturer.Length == 1) sections.Add(manufacturer[0]);
-            foreach (var decoration in manufacturer.Skip(1))
-                if (decoration.Equals("NT", StringComparison.OrdinalIgnoreCase) || decoration.StartsWith("NT.", StringComparison.OrdinalIgnoreCase) ||
-                    decoration.Equals(architecture, StringComparison.OrdinalIgnoreCase) || decoration.StartsWith(architecture + ".", StringComparison.OrdinalIgnoreCase))
-                    sections.Add(manufacturer[0] + "." + decoration);
+            do
+            {
+                var name = new StringBuilder(256);
+                if (SetupDiGetActualModelsSection(ref manufacturer, IntPtr.Zero, name, (uint)name.Capacity, out _, IntPtr.Zero))
+                    sections.Add(name.ToString());
+            } while (SetupFindNextLine(ref manufacturer, out manufacturer));
         }
-        if (!sections.SelectMany(section => ReadLines(inf, section)).Any(fields => fields.Skip(1).Contains(hardwareId, StringComparer.OrdinalIgnoreCase))) return null;
+        var identifiers = sections.SelectMany(section => ReadLines(inf, section))
+            .SelectMany(fields => fields.Skip(1).Select((id, index) =>
+                new DriverIdentifier(id, index == 0 ? DriverIdentifierKind.Hardware : DriverIdentifierKind.Compatible, index)))
+            .Where(id => !string.IsNullOrWhiteSpace(id.Value)).Distinct().ToArray();
         var version = "";
-        if (SetupFindFirstLine(inf, "Version", "DriverVer", out var versionLine)) version = ReadField(ref versionLine, 2);
-        var signer = new InfSignerInfo { Size = (uint)Marshal.SizeOf<InfSignerInfo>() };
-        var verified = SetupVerifyInfFile(infPath, IntPtr.Zero, ref signer);
+        var date = "";
+        if (SetupFindFirstLine(inf, "Version", "DriverVer", out var versionLine))
+        {
+            var rawDate = ReadField(ref versionLine, 1);
+            if (DateOnly.TryParse(rawDate, System.Globalization.CultureInfo.InvariantCulture, out var parsed))
+                date = parsed.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+            if (SetupGetFieldCount(ref versionLine) >= 2) version = ReadField(ref versionLine, 2);
+        }
+        var verified = signer.Valid;
+        var architecture = RuntimeInformation.OSArchitecture switch
+        { Architecture.X64 => ".NTamd64", Architecture.Arm64 => ".NTarm64", Architecture.X86 => ".NTx86", _ => "" };
+        var catalogName = VersionField(inf, "CatalogFile" + architecture);
+        if (catalogName.Length == 0) catalogName = VersionField(inf, "CatalogFile.NT");
+        if (catalogName.Length == 0) catalogName = VersionField(inf, "CatalogFile");
+        var catalogHash = "";
+        if (catalogName.Length > 0 && Path.GetFileName(catalogName) == catalogName &&
+            Path.GetExtension(catalogName).Equals(".cat", StringComparison.OrdinalIgnoreCase))
+        {
+            var catalogPath = DriverScanWorkspace.ValidateChild(root, Path.Combine(Path.GetDirectoryName(infPath)!, catalogName));
+            if (File.Exists(catalogPath)) catalogHash = HashFile(catalogPath);
+            verified = verified && string.Equals(Path.GetFileName(signer.Catalog), catalogName, StringComparison.OrdinalIgnoreCase) &&
+                (!Path.IsPathFullyQualified(signer.Catalog ?? "") || string.Equals(Path.GetFullPath(signer.Catalog!), catalogPath, StringComparison.OrdinalIgnoreCase));
+        }
         // SIGNERSCORE_LOGO_PREMIUM, SIGNERSCORE_LOGO_STANDARD and SIGNERSCORE_WHQL.
         // INBOX (3) and UNCLASSIFIED (4) do not establish that a package passed WHQL testing.
-        var certification = verified && IsWhqlScore(signer.Score) ? DriverCertification.Whql : DriverCertification.Unverified;
-        return new(version, certification);
+        verified = verified && catalogHash.Length > 0;
+        var certification = verified && IsWhqlScore(signer.Score)
+            ? DriverCertification.Whql : DriverCertification.Unverified;
+        return new(Path.GetRelativePath(root, infPath), VersionField(inf, "Class"), VersionField(inf, "Provider"), version,
+            date, identifiers, sections.ToArray(), HashFile(infPath), catalogHash, signer.Publisher, verified, certification)
+        { Catalog = catalogName, ExtensionId = VersionField(inf, "ExtensionId") };
     }
 
     internal static bool IsWhqlScore(uint score) => score is 0x0D000001 or 0x0D000002 or 0x0D000005;
+
+    private static string HashFile(string path)
+    {
+        using var file = File.OpenRead(path);
+        return Convert.ToHexString(SHA256.HashData(file));
+    }
+
+    private static string VersionField(InfHandle inf, string key) =>
+        SetupFindFirstLine(inf, "Version", key, out var line) ? ReadField(ref line, 1) : "";
 
     /// <summary>Reads parsed INF fields through SetupAPI, including INF string substitutions.</summary>
     private static IEnumerable<string[]> ReadLines(InfHandle inf, string section)
@@ -76,16 +140,6 @@ public sealed class WindowsDriverInfInspector : IDriverInfInspector
     [StructLayout(LayoutKind.Sequential)]
     private struct InfContext { public IntPtr Inf; public IntPtr CurrentInf; public uint Section; public uint Line; }
 
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-    private struct InfSignerInfo
-    {
-        public uint Size;
-        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)] public string? Catalog;
-        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)] public string? Signer;
-        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 260)] public string? SignerVersion;
-        public uint Score;
-    }
-
     private sealed class InfHandle : SafeHandleZeroOrMinusOneIsInvalid
     {
         public InfHandle() : base(true) { }
@@ -96,6 +150,9 @@ public sealed class WindowsDriverInfInspector : IDriverInfInspector
     private static extern InfHandle SetupOpenInfFile(string path, string? infClass, uint style, out uint errorLine);
     [DllImport("setupapi.dll")]
     private static extern void SetupCloseInfFile(IntPtr inf);
+    [DllImport("setupapi.dll", EntryPoint = "SetupDiGetActualModelsSectionW", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)] private static extern bool SetupDiGetActualModelsSection(ref InfContext manufacturer,
+        IntPtr platform, StringBuilder section, uint sectionSize, out uint required, IntPtr reserved);
     [DllImport("setupapi.dll", EntryPoint = "SetupFindFirstLineW", CharSet = CharSet.Unicode, SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)] private static extern bool SetupFindFirstLine(InfHandle inf, string section, string? key, out InfContext context);
     [DllImport("setupapi.dll", SetLastError = true)]
@@ -104,6 +161,4 @@ public sealed class WindowsDriverInfInspector : IDriverInfInspector
     private static extern uint SetupGetFieldCount(ref InfContext context);
     [DllImport("setupapi.dll", EntryPoint = "SetupGetStringFieldW", CharSet = CharSet.Unicode, SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)] private static extern bool SetupGetStringField(ref InfContext context, uint field, StringBuilder? buffer, uint size, out uint required);
-    [DllImport("setupapi.dll", EntryPoint = "SetupVerifyInfFileW", CharSet = CharSet.Unicode, SetLastError = true)]
-    [return: MarshalAs(UnmanagedType.Bool)] private static extern bool SetupVerifyInfFile(string path, IntPtr platform, ref InfSignerInfo signer);
 }

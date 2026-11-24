@@ -1,5 +1,7 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
+using WinOptimizer.Core.Features.Common.Models;
+using WinOptimizer.Core.Features.SoftwareApps.Models;
 
 namespace WinOptimizer.Core.Features.Common.Interfaces;
 
@@ -34,7 +36,7 @@ public interface IReviewModeViewModelCoordinator
     void ReapplyReviewDiffsToExistingSettings();
 
     /// <summary>
-    /// Removes apps via the Windows Apps ViewModel (runs on UI thread).
+    /// Removes apps on the UI thread and returns the verified outcomes to the configuration workflow.
     /// </summary>
-    Task RemoveWindowsAppsAsync(bool skipConfirmation, bool saveRemovalScripts);
+    Task<OperationResult<AppUninstallResult>> RemoveWindowsAppsAsync(bool skipConfirmation, bool saveRemovalScripts);
 }

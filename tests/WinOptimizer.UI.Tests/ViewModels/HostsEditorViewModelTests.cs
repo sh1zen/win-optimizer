@@ -17,10 +17,19 @@ public sealed class HostsEditorViewModelTests
     private readonly Mock<IApplicationModeService> _mode = new();
     private readonly HostsDocument _document = new("# header\r\n192.168.1.1 router.test alias.test # First floor\r\n# ::1 localhost\n", "original", "test/hosts");
 
-    private HostsEditorViewModel Create()
+    internal HostsEditorViewModel Create()
     {
         var localization = new Mock<ILocalizationService>();
-        localization.Setup(s => s.GetString(It.IsAny<string>())).Returns((string key) => key);
+        localization.Setup(s => s.GetString(It.IsAny<string>())).Returns((string key) => key switch
+        {
+            "Utilities_HostsEntryCount" => "{0} entries",
+            "Utilities_HostsNewEntry" => "New entry",
+            "Utilities_Save" => "Save changes",
+            "Utilities_Refresh" => "Reload",
+            "Utilities_UndoHosts" => "Undo last save",
+            "Utilities_HostsRawText" => "Edit as text",
+            _ => key
+        });
         _service.Setup(s => s.ReadAsync()).ReturnsAsync(_document);
         return new(_service.Object, _dialogs.Object, localization.Object, _mode.Object,
             new ExtensionTestDispatcher(), new Mock<ITaskProgressService>().Object);

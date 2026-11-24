@@ -18,6 +18,30 @@ public sealed partial class NetworkOptimizePage : Page
         ViewModel = viewModel;
         InitializeComponent();
         Loaded += async (_, _) => await ViewModel.RefreshAsync();
+        Unloaded += (_, _) => ViewModel.RunSpeedTestCommand.Cancel();
+    }
+
+    /// <summary>Places the cards side by side when their actual content area is wide enough.</summary>
+    private void InternetSummary_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        var wide = e.NewSize.Width >= 940;
+        Grid.SetColumn(NetworkSummaryCard, wide ? 1 : 0);
+        Grid.SetRow(NetworkSummaryCard, wide ? 0 : 1);
+        NetworkColumn.Width = wide ? new GridLength(0.6, GridUnitType.Star) : new GridLength(0);
+        InternetSummary.ColumnSpacing = wide ? 16 : 0;
+        InternetSummary.RowSpacing = wide ? 0 : 12;
+    }
+
+    /// <summary>Brings the existing DNS settings into view within the page.</summary>
+    private void DnsShortcut_Click(object sender, RoutedEventArgs e)
+    {
+        if (!ViewModel.ShowDnsSettings)
+        {
+            ViewModel.SettingsSearchText = "";
+            DnsCard.UpdateLayout();
+        }
+        DnsCard.StartBringIntoView(new BringIntoViewOptions { VerticalAlignmentRatio = 0, AnimationDesired = false });
+        DnsSelector.Focus(FocusState.Programmatic);
     }
 
     private async void Setting_Toggled(object sender, RoutedEventArgs e)

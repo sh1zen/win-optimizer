@@ -134,7 +134,7 @@ public sealed class BatterySupportSetupTests
         public FirmwareChargeState State { get; init; } = new("OEM", [], null);
         public bool Matches(string manufacturer) => true;
         public FirmwareChargeState Read() => ReadError == null ? State : throw ReadError;
-        public void SetLimit(int percentage) => throw new InvalidOperationException("Unexpected firmware write.");
+        public void SetLimit(int percentage, int? resumeThreshold = null) => throw new InvalidOperationException("Unexpected firmware write.");
     }
 
     /// <summary>Only implements local computer and battery inventory; unexpected hardware calls fail.</summary>

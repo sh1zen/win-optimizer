@@ -47,7 +47,6 @@ public static partial class ExternalAppDefinitions
                         ChocoPackageId = "windowsfirewallcontrol",
                         // Upstream winget manifest passes `-run -close -install -update`, which causes the
                         // installer to dump files into a `-update` subfolder of CWD when no prior install exists.
-                        WinGetInstallerOverride = "-run -close -install",
                         WebsiteUrl = "https://www.binisoft.org/wfc",
                     },
                     new ItemDefinition
@@ -67,13 +66,6 @@ public static partial class ExternalAppDefinitions
                         Description = "Network monitoring tool to analyze your internet traffic",
                         GroupName = "Privacy & Security",
                         WebsiteUrl = "https://sniffnet.net/",
-                        ExternalApp = new ExternalAppMetadata
-                        {
-                            DownloadUrlArm64 = "https://github.com/GyulyVGC/sniffnet/releases/latest/download/Sniffnet_Windows_arm64.msi",
-                            DownloadUrlX64 = "https://github.com/GyulyVGC/sniffnet/releases/latest/download/Sniffnet_Windows_x64.msi",
-                            DownloadUrlX86 = "https://github.com/GyulyVGC/sniffnet/releases/latest/download/Sniffnet_Windows_x86.msi",
-                            RequiresDirectDownload = true,
-                        },
                     },
                     new ItemDefinition
                     {
@@ -82,11 +74,6 @@ public static partial class ExternalAppDefinitions
                         Description = "Secure messaging app with end-to-end encryption",
                         GroupName = "Privacy & Security",
                         WebsiteUrl = "https://teleguard.com/en",
-                        ExternalApp = new ExternalAppMetadata
-                        {
-                            DownloadUrl = "https://pub.teleguard.com/teleguard-desktop-latest.exe",
-                            RequiresDirectDownload = true,
-                        },
                     },
                     new ItemDefinition
                     {

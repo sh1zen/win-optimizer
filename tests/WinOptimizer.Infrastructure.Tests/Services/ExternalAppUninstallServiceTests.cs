@@ -121,8 +121,11 @@ public class ExternalAppUninstallServiceTests
         _review.VerifyNoOtherCalls();
     }
 
-    [Fact]
-    public async Task NativeUninstallerMustExitBeforeCompletionEvenWhenCancellationIsRequested()
+    [Theory]
+    [InlineData(0, true, false)]
+    [InlineData(3010, true, true)]
+    [InlineData(1603, false, false)]
+    public async Task NativeUninstallerKeepsItsActualExitOutcomeEvenWhenCancellationIsRequested(int exitCode, bool success, bool deferred)
     {
         var item = new ItemDefinition { Id = "app", Name = "App", Description = "Test", WinGetPackageId = ["Publisher.App"] };
         using var cancellation = new CancellationTokenSource();
@@ -136,11 +139,13 @@ public class ExternalAppUninstallServiceTests
         cancellation.Cancel();
         Assert.False(pending.IsCompleted);
         Assert.True(_windowBlocked);
-        exited.SetResult(0);
+        exited.SetResult(exitCode);
 
         var result = await pending;
-        Assert.False(result.Success);
-        Assert.Contains("cancelled", result.ErrorMessage);
+        Assert.Equal(success, result.Success);
+        Assert.Equal(deferred, result.InfoMessage is not null);
+        Assert.False(result.IsCancelled);
+        if (!success) Assert.Contains("1603", result.ErrorMessage);
         Assert.False(_windowBlocked);
         _suspension.Verify(scope => scope.DisposeAsync(), Times.Once);
         _review.Verify(review => review.SuspendForUninstallAsync(It.IsAny<CancellationToken>()), Times.Once);

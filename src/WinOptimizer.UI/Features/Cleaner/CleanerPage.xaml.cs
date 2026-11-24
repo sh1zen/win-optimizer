@@ -11,9 +11,13 @@ namespace WinOptimizer.UI.Features.Cleaner;
 /// <summary>Hosts Cleaner and explicitly initializes its saved choices when displayed.</summary>
 public sealed partial class CleanerPage : Page
 {
-    public CleanerViewModel ViewModel { get; } = App.Services.GetRequiredService<CleanerViewModel>();
-    public CleanerPage()
+    public CleanerViewModel ViewModel { get; }
+
+    public CleanerPage() : this(App.Services.GetRequiredService<CleanerViewModel>()) { }
+
+    internal CleanerPage(CleanerViewModel viewModel)
     {
+        ViewModel = viewModel;
         InitializeComponent();
         Loaded += async (_, _) => await ViewModel.InitializeAsync();
     }

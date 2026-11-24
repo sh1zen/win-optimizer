@@ -10,10 +10,17 @@ public interface IDriverInventorySource
     Task<DriverInventory> ReadForRemovalAsync(IReadOnlySet<string> packageNames, CancellationToken ct) => ReadAsync(ct);
 }
 
-/// <summary>Returns applicable driver offers from Microsoft's public Windows Update service.</summary>
+/// <summary>Collects records for one official source against the shared scan snapshot.</summary>
 public interface IDriverUpdateSource
 {
-    Task<DriverUpdateSearchResult> SearchAsync(IProgress<DriverScanProgress>? progress, CancellationToken ct);
+    DriverSources Source { get; }
+    Task<DriverUpdateSearchResult> SearchAsync(DriverDiscoveryContext context, IProgress<DriverScanProgress>? progress, CancellationToken ct);
+}
+
+public interface IDriverPackageService
+{
+    Task<DriverPackageResult> AcquireAsync(DriverUpdate update, DriverInventory inventory, bool download,
+        IProgress<DriverScanProgress>? progress, CancellationToken ct, bool licenseAccepted = false);
 }
 
 public interface IDriverScanService

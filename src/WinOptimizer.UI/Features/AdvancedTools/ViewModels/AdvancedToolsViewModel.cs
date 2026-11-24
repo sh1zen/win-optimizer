@@ -62,6 +62,9 @@ public partial class AdvancedToolsViewModel : ObservableObject, IDisposable
     /// <summary>Gets the localized description of the machine inventory.</summary>
     public string SystemInformationDescription => _localizationService.GetString("SystemInfo_Description");
 
+    public string ExperimentalDisplayName => _localizationService.GetString("Experimental_Title");
+    public string ExperimentalDescription => _localizationService.GetString("Experimental_Description");
+
     /// <summary>
     /// Section definitions for navigation.
     /// </summary>
@@ -96,6 +99,8 @@ public partial class AdvancedToolsViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(RestoreDescription));
         OnPropertyChanged(nameof(SystemInformationDisplayName));
         OnPropertyChanged(nameof(SystemInformationDescription));
+        OnPropertyChanged(nameof(ExperimentalDisplayName));
+        OnPropertyChanged(nameof(ExperimentalDescription));
     }
 
     partial void OnCurrentSectionKeyChanged(string value)

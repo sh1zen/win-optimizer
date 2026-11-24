@@ -9,7 +9,20 @@ function Get-PnpDevice { param([switch]$PresentOnly, $ErrorAction) $device }
 function Get-PnpDeviceProperty {
     param($InputObject, $ErrorAction)
     [pscustomobject]@{ KeyName = 'DEVPKEY_Device_DriverInfPath'; Data = 'oem2.inf' }
+    [pscustomobject]@{ KeyName = 'DEVPKEY_Device_HardwareIds'; Data = @('PCI\VEN_1234&DEV_5678&SUBSYS_00011111', 'PCI\VEN_1234&DEV_5678') }
+    [pscustomobject]@{ KeyName = 'DEVPKEY_Device_CompatibleIds'; Data = @('PCI\CC_0200') }
 }
+function Get-CimInstance {
+    param($ClassName, $ErrorAction)
+    switch ($ClassName) {
+        'Win32_ComputerSystem' { [pscustomobject]@{ Manufacturer = 'Test OEM'; Model = 'Test Model'; SystemSKUNumber = '0123' } }
+        'Win32_BaseBoard' { [pscustomobject]@{ Manufacturer = 'Test Board OEM'; Product = 'Test Board'; Version = '1.1' } }
+        'Win32_OperatingSystem' { [pscustomobject]@{ Version = '10.0.26100'; ProductType = 1; SuiteMask = 272 } }
+        'Win32_Processor' { [pscustomobject]@{ Name = 'Test Processor' } }
+        default { throw "Unexpected CIM class $ClassName" }
+    }
+}
+function Get-ItemPropertyValue { param($Path, $Name, $ErrorAction) '24H2' }
 function Get-WindowsDriver {
     param([switch]$Online, $ErrorAction)
     foreach ($index in 1, 2) {
@@ -32,6 +45,11 @@ function Get-ChildItem {
 $full = (& $ScriptPath) | ConvertFrom-Json
 if (($visited -join ',') -ne 'package1,package2' -or $full.Packages[1].SizeBytes -ne 2048) {
     throw 'A full scan must measure both packages.'
+}
+if ($full.System.Build -ne 26100 -or $full.System.BoardVersion -ne '1.1' -or $full.System.Model -ne 'Test Model' -or
+    $full.System.ProcessorNames[0] -ne 'Test Processor' -or
+    $full.Devices[0].HardwareIds.Count -ne 2 -or $full.Devices[0].CompatibleIds[0] -ne 'PCI\CC_0200') {
+    throw 'Scan evidence must retain the Windows/OEM context and separate ordered PnP identifiers.'
 }
 $visited.Clear()
 $measureSelectedOnly = $true

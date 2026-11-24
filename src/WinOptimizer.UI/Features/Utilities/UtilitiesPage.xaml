@@ -14,16 +14,35 @@
                         <TextBlock x:Name="WidgetRuntimeState" Text="{x:Bind Extensions.WidgetStateText, Mode=OneWay}" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}" FontSize="12" FontWeight="SemiBold" AutomationProperties.LiveSetting="Polite"/>
                     </common:NavigationCard.TitleAccessory>
                     <common:NavigationCard.Actions>
-                        <StackPanel Orientation="Horizontal" Spacing="16">
-                            <Button x:Name="ShowWidgetButton" VerticalAlignment="Center" Content="{x:Bind Extensions.ShowWidgetLabel, Mode=OneWay}" Command="{x:Bind Extensions.ShowWidgetCommand}"/>
-                            <ToggleSwitch x:Name="SysMonitorToggle" VerticalAlignment="Center" IsOn="{x:Bind Extensions.IsEnabled, Mode=TwoWay}" IsEnabled="{x:Bind Extensions.CanEdit, Mode=OneWay}" AutomationProperties.Name="{x:Bind Extensions.EnableLabel, Mode=OneWay}"/>
-                        </StackPanel>
+                        <ToggleSwitch x:Name="SysMonitorToggle" VerticalAlignment="Center" IsOn="{x:Bind Extensions.IsEnabled, Mode=TwoWay}" IsEnabled="{x:Bind Extensions.CanEdit, Mode=OneWay}" AutomationProperties.Name="{x:Bind Extensions.EnableLabel, Mode=OneWay}"/>
                     </common:NavigationCard.Actions>
                 </common:NavigationCard>
-                <StackPanel Spacing="8">
-                    <TextBlock Text="{x:Bind Extensions.RuntimeError, Mode=OneWay}" TextWrapping="Wrap" Visibility="{x:Bind Extensions.HasRuntimeError, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}" Foreground="{ThemeResource SystemFillColorCriticalBrush}" AutomationProperties.LiveSetting="Polite"/>
-                    <TextBlock Text="{x:Bind Extensions.Status, Mode=OneWay}" TextWrapping="Wrap" Visibility="{x:Bind Extensions.HasStatus, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}" Foreground="{ThemeResource SystemFillColorCriticalBrush}" AutomationProperties.LiveSetting="Polite"/>
-                </StackPanel>
+                <common:NavigationCard Title="{x:Bind ViewModel.PreviewTitle, Mode=OneWay}" Description="{x:Bind ViewModel.PreviewDescription, Mode=OneWay}" Click="OpenPreview_Click">
+                    <common:NavigationCard.Icon><fluent:FluentIcon Icon="Eye" IconVariant="Regular" FontSize="28"/></common:NavigationCard.Icon>
+                    <common:NavigationCard.Actions>
+                        <ToggleSwitch x:Name="PreviewToggle" VerticalAlignment="Center" IsOn="{x:Bind Preview.ShortcutEnabled, Mode=OneWay}" IsEnabled="{x:Bind Preview.CanEdit, Mode=OneWay}" AutomationProperties.Name="{x:Bind ViewModel.PreviewShortcutLabel, Mode=OneWay}" Toggled="OnPreviewToggled"/>
+                    </common:NavigationCard.Actions>
+                </common:NavigationCard>
+                <InfoBar x:Name="PreviewError" IsOpen="{x:Bind Preview.HasError, Mode=OneWay}"
+                         Visibility="{x:Bind Preview.HasError, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"
+                         Message="{x:Bind Preview.Error, Mode=OneWay}" IsClosable="False" Severity="Error">
+                    <InfoBar.ActionButton>
+                        <Button Content="{x:Bind ViewModel.RefreshLabel, Mode=OneWay}" Click="ReloadPreview_Click"/>
+                    </InfoBar.ActionButton>
+                </InfoBar>
+                <common:NavigationCard x:Name="NotchCard" Title="Notch" Description="{x:Bind Notch.Description, Mode=OneWay}" Click="OpenNotch_Click">
+                    <common:NavigationCard.Icon><fluent:FluentIcon Icon="Window" IconVariant="Regular" FontSize="28"/></common:NavigationCard.Icon>
+                    <common:NavigationCard.TitleAccessory>
+                        <TextBlock Text="{x:Bind Notch.ModuleCountText, Mode=OneWay}" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
+                                   FontSize="12" FontWeight="SemiBold" AutomationProperties.LiveSetting="Polite"/>
+                    </common:NavigationCard.TitleAccessory>
+                    <common:NavigationCard.Actions>
+                        <ToggleSwitch x:Name="NotchToggle" VerticalAlignment="Center" IsOn="{x:Bind Notch.IsEnabled, Mode=OneWay}" IsEnabled="{x:Bind Notch.CanEdit, Mode=OneWay}" AutomationProperties.Name="{x:Bind Notch.EnableLabel, Mode=OneWay}" Toggled="OnNotchToggled"/>
+                    </common:NavigationCard.Actions>
+                </common:NavigationCard>
+                <InfoBar IsOpen="{x:Bind Notch.HasError, Mode=OneWay}" Visibility="{x:Bind Notch.HasError, Mode=OneWay}" Message="{x:Bind Notch.Error, Mode=OneWay}" Severity="Error" IsClosable="False"/>
+                <TextBlock Text="{x:Bind Extensions.RuntimeError, Mode=OneWay}" TextWrapping="Wrap" Visibility="{x:Bind Extensions.HasRuntimeError, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}" Foreground="{ThemeResource SystemFillColorCriticalBrush}" AutomationProperties.LiveSetting="Polite"/>
+                <TextBlock Text="{x:Bind Extensions.Status, Mode=OneWay}" TextWrapping="Wrap" Visibility="{x:Bind Extensions.HasStatus, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}" Foreground="{ThemeResource SystemFillColorCriticalBrush}" AutomationProperties.LiveSetting="Polite"/>
             </StackPanel>
         </ScrollView>
     </Grid>

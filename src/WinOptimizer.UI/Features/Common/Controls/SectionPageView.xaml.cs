@@ -209,7 +209,7 @@ public sealed partial class SectionPageView : UserControl
     private void OnSizeChanged(object sender, SizeChangedEventArgs e)
     {
         bool wide = e.NewSize.Width >= 800;
-        HeaderLayout.RowSpacing = wide ? 0 : 16;
+        HeaderLayout.RowSpacing = wide ? 0 : (double)Microsoft.UI.Xaml.Application.Current.Resources["PageCardSpacing"];
         Grid.SetRow(SearchBox, wide ? 0 : 1);
         Grid.SetColumn(SearchBox, wide ? 1 : 0);
         Grid.SetColumnSpan(SearchBox, wide ? 1 : 2);

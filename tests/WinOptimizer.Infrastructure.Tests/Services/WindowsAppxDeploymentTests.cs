@@ -15,43 +15,6 @@ public sealed class WindowsAppxDeploymentTests
     private WindowsAppxDeployment CreateSource() => new(_user.Object, _processes.Object, Mock.Of<ILogService>());
 
     [Theory]
-    [InlineData(0)]
-    [InlineData(5)]
-    public async Task AlternateAccountInstallationUsesItsTokenAndChecksTheExit(int exitCode)
-    {
-        _user.SetupGet(user => user.IsOtsElevation).Returns(true);
-        _user.SetupGet(user => user.InteractiveUserSid).Returns("S-1-5-21-1-2-3-1001");
-        _user.SetupGet(user => user.HasInteractiveUserToken).Returns(true);
-        string? script = null;
-        _user.Setup(user => user.RunProcessAsInteractiveUserAsync(It.IsAny<string>(), It.IsAny<string>(),
-            null, null, CancellationToken.None, Timeout.Infinite, null))
-            .Callback<string, string, Action<string>?, Action<string>?, CancellationToken, int, Action<string>?>((executable, arguments, _, _, _, _, _) =>
-            {
-                Assert.Equal(Path.Combine(Environment.SystemDirectory, @"WindowsPowerShell\v1.0\powershell.exe"), executable);
-                script = Encoding.Unicode.GetString(Convert.FromBase64String(arguments.Split(' ')[^1]));
-            }).ReturnsAsync(new InteractiveProcessResult(exitCode, "", "fixture error"));
-        var install = () => CreateSource().InstallPackageAsync(@"C:\Fixture's packages\App.msix", [@"C:\Fixture's packages\Framework.appx"], CancellationToken.None);
-
-        if (exitCode == 0) await install();
-        else Assert.Contains("fixture error", (await Assert.ThrowsAsync<IOException>(install)).Message);
-
-        Assert.Equal("Add-AppxPackage -Path 'C:\\Fixture''s packages\\App.msix' -ErrorAction Stop -DependencyPath @('C:\\Fixture''s packages\\Framework.appx')", script);
-        _processes.VerifyNoOtherCalls();
-    }
-
-    [Fact]
-    public async Task AlternateAccountInstallationWithoutATokenFailsBeforeAnyDeployment()
-    {
-        _user.SetupGet(user => user.IsOtsElevation).Returns(true);
-        _user.SetupGet(user => user.InteractiveUserSid).Returns("S-1-5-21-1-2-3-1001");
-        _user.SetupGet(user => user.HasInteractiveUserToken).Returns(false);
-
-        await Assert.ThrowsAsync<IOException>(() => CreateSource().InstallPackageAsync(@"C:\Fixture\App.msix", [], CancellationToken.None));
-
-        _processes.VerifyNoOtherCalls();
-    }
-
-    [Theory]
     [InlineData(false, null, "")]
     [InlineData(true, "S-1-5-21-1-2-3-1001", "S-1-5-21-1-2-3-1001")]
     public void InteractiveAccountUsesTheDetectedIdentity(bool alternate, string? sid, string expected)

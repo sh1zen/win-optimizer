@@ -51,6 +51,7 @@ public partial class EnvironmentEditorViewModel : UtilityViewModel
         ? VariableValue != original.Value || Expandable != original.Expandable
         : VariableName.Length != 0 || VariableValue.Length != 0;
     public bool ShowPathEmpty => PathEntries.Count == 0;
+    public string EntryCountLabel => string.Format(Text("Utilities_PathCount"), Variables.Count);
     public string PathCountLabel => string.Format(Text("Utilities_PathCount"), PathEntries.Count);
     public string PathLabel => Text("Utilities_PathEntries");
     public string PathHint => Text("Utilities_PathHint");
@@ -241,6 +242,7 @@ public partial class EnvironmentEditorViewModel : UtilityViewModel
         Variables.Clear();
         foreach (var variable in _all.Where(v => string.IsNullOrWhiteSpace(Query) || v.Name.Contains(Query, StringComparison.OrdinalIgnoreCase)))
             Variables.Add(variable);
+        OnPropertyChanged(nameof(EntryCountLabel));
         OnPropertyChanged(nameof(SelectedVariable));
     }
 

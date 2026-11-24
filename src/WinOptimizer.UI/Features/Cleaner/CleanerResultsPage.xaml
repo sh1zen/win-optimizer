@@ -6,18 +6,101 @@
       xmlns:toolkit="using:CommunityToolkit.WinUI.Controls"
       xmlns:vm="using:WinOptimizer.UI.Features.Cleaner.ViewModels"
       x:Class="WinOptimizer.UI.Features.Cleaner.CleanerResultsPage">
+    <Page.Resources>
+        <Style x:Key="ReportCardButtonStyle" TargetType="Button">
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+            <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+            <Setter Property="Padding" Value="14,12"/>
+            <Setter Property="CornerRadius" Value="{StaticResource PageSurfaceCornerRadius}"/>
+            <Setter Property="Background" Value="{ThemeResource AppSurfaceBrush}"/>
+            <Setter Property="BorderBrush" Value="{ThemeResource AppSurfaceStrokeBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+        </Style>
+        <Style x:Key="ReportMetricCardStyle" TargetType="Border" BasedOn="{StaticResource PageCardStyle}">
+            <Setter Property="Padding" Value="12"/>
+            <Setter Property="CornerRadius" Value="{StaticResource ControlCornerRadius}"/>
+        </Style>
+        <Style x:Key="ReportMetricLabelStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="Foreground" Value="{ThemeResource TextFillColorSecondaryBrush}"/>
+        </Style>
+        <Style x:Key="ReportMetricValueStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="22"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+        </Style>
+        <DataTemplate x:Key="CategoryDetailsTemplate" x:DataType="vm:CleanerCategoryReport">
+            <ScrollViewer x:Name="CategoryDetailsScroll" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"
+                          HorizontalContentAlignment="Stretch">
+                <StackPanel Spacing="12" Padding="0,0,8,0">
+                    <Border CornerRadius="{StaticResource OverlayCornerRadius}" Padding="14"
+                            Background="{ThemeResource AccentFillColorDefaultBrush}">
+                        <Grid ColumnSpacing="12">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                            <fluent:FluentIcon Icon="{x:Bind Icon}" FontSize="24" VerticalAlignment="Center"
+                                               Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"/>
+                            <TextBlock x:Name="CategoryDetailsOverview" Grid.Column="1" Text="{x:Bind Overview, Mode=OneWay}"
+                                       FontSize="17" FontWeight="SemiBold" TextWrapping="Wrap" VerticalAlignment="Center"
+                                       Foreground="{ThemeResource TextOnAccentFillColorPrimaryBrush}"/>
+                        </Grid>
+                    </Border>
+                    <common:UniformWrapPanel ItemWidth="126" MaxColumns="3" StretchItems="True" ColumnSpacing="8" RowSpacing="8">
+                        <Border Style="{StaticResource ReportMetricCardStyle}"><StackPanel Spacing="3">
+                            <TextBlock Text="{x:Bind FoundCount}" Style="{StaticResource ReportMetricValueStyle}"/>
+                            <TextBlock Text="{x:Bind FoundLabel, Mode=OneWay}" Style="{StaticResource ReportMetricLabelStyle}"/>
+                        </StackPanel></Border>
+                        <Border Style="{StaticResource ReportMetricCardStyle}"><StackPanel Spacing="3">
+                            <TextBlock Text="{x:Bind SelectedCount, Mode=OneWay}" Style="{StaticResource ReportMetricValueStyle}"/>
+                            <TextBlock Text="{x:Bind SelectedLabel, Mode=OneWay}" Style="{StaticResource ReportMetricLabelStyle}"/>
+                        </StackPanel></Border>
+                        <Border Style="{StaticResource ReportMetricCardStyle}"><StackPanel Spacing="3">
+                            <TextBlock Text="{x:Bind CompletedCount, Mode=OneWay}" Style="{StaticResource ReportMetricValueStyle}"/>
+                            <TextBlock Text="{x:Bind CompletedLabel, Mode=OneWay}" Style="{StaticResource ReportMetricLabelStyle}"/>
+                        </StackPanel></Border>
+                        <Border Style="{StaticResource ReportMetricCardStyle}"><StackPanel Spacing="3">
+                            <TextBlock Text="{x:Bind RemovedCount, Mode=OneWay}" Style="{StaticResource ReportMetricValueStyle}"/>
+                            <TextBlock Text="{x:Bind RemovedLabel, Mode=OneWay}" Style="{StaticResource ReportMetricLabelStyle}"/>
+                        </StackPanel></Border>
+                        <Border Style="{StaticResource ReportMetricCardStyle}"><StackPanel Spacing="3">
+                            <TextBlock Text="{x:Bind FailedCount, Mode=OneWay}" Style="{StaticResource ReportMetricValueStyle}"/>
+                            <TextBlock Text="{x:Bind FailedLabel, Mode=OneWay}" Style="{StaticResource ReportMetricLabelStyle}"/>
+                        </StackPanel></Border>
+                        <Border Style="{StaticResource ReportMetricCardStyle}"><StackPanel Spacing="3">
+                            <TextBlock Text="{x:Bind UnprocessedCount, Mode=OneWay}" Style="{StaticResource ReportMetricValueStyle}"/>
+                            <TextBlock Text="{x:Bind UnprocessedLabel, Mode=OneWay}" Style="{StaticResource ReportMetricLabelStyle}"/>
+                        </StackPanel></Border>
+                    </common:UniformWrapPanel>
+                    <Border x:Name="CategoryFileSpace" Style="{StaticResource ReportMetricCardStyle}"
+                            Visibility="{x:Bind HasFileSelection, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <StackPanel Spacing="3">
+                            <TextBlock Text="{x:Bind FreedSize, Mode=OneWay}" Style="{StaticResource ReportMetricValueStyle}"
+                                       Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
+                            <TextBlock Text="{x:Bind FreedLabel, Mode=OneWay}" Style="{StaticResource ReportMetricLabelStyle}"/>
+                        </StackPanel>
+                    </Border>
+                    <Border x:Name="CategoryRegistryData" Style="{StaticResource ReportMetricCardStyle}"
+                            Visibility="{x:Bind HasRegistrySelection, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <StackPanel Spacing="3">
+                            <TextBlock Text="{x:Bind RegistrySize, Mode=OneWay}" Style="{StaticResource ReportMetricValueStyle}"
+                                       Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
+                            <TextBlock Text="{x:Bind RegistryLabel, Mode=OneWay}" Style="{StaticResource ReportMetricLabelStyle}"/>
+                        </StackPanel>
+                    </Border>
+                </StackPanel>
+            </ScrollViewer>
+        </DataTemplate>
+    </Page.Resources>
     <Grid x:Name="LayoutRoot" SizeChanged="LayoutRoot_SizeChanged" Style="{StaticResource PageGridStyle}">
         <VisualStateManager.VisualStateGroups>
             <VisualStateGroup>
                 <VisualState x:Name="WideLayout">
                     <VisualState.StateTriggers><StateTrigger x:Name="WideLayoutTrigger"/></VisualState.StateTriggers>
                     <VisualState.Setters>
-                        <Setter Target="SummaryColumn3.Width" Value="*"/>
-                        <Setter Target="SummaryColumn4.Width" Value="*"/>
-                        <Setter Target="IssueMetric.(Grid.Row)" Value="0"/>
-                        <Setter Target="IssueMetric.(Grid.Column)" Value="2"/>
-                        <Setter Target="SpaceMetric.(Grid.Row)" Value="0"/>
-                        <Setter Target="SpaceMetric.(Grid.Column)" Value="3"/>
+                        <Setter Target="SummaryColumn2.Width" Value="*"/>
+                        <Setter Target="OutcomeMetrics.(Grid.Row)" Value="0"/>
+                        <Setter Target="OutcomeMetrics.(Grid.Column)" Value="1"/>
+                        <Setter Target="SummaryPanel.ColumnSpacing" Value="{StaticResource PageCardSpacing}"/>
                         <Setter Target="SummaryPanel.RowSpacing" Value="0"/>
                         <Setter Target="SelectionActions.(Grid.ColumnSpan)" Value="1"/>
                         <Setter Target="ApplyAction.(Grid.Row)" Value="0"/>
@@ -35,66 +118,95 @@
         </VisualStateManager.VisualStateGroups>
         <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
         <StackPanel Spacing="12">
-            <common:PageHeader Title="{x:Bind ViewModel.ReportTitle, Mode=OneWay}" Description="{x:Bind ViewModel.ReportDescription, Mode=OneWay}" Icon="Broom"/>
             <Grid ColumnSpacing="16">
                 <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>
-                <StackPanel Spacing="6" VerticalAlignment="Center">
-                    <TextBlock x:Name="ReportStatus" Text="{x:Bind ViewModel.ReportState, Mode=OneWay}" FontWeight="SemiBold" TextWrapping="Wrap" AutomationProperties.LiveSetting="Polite"/>
-                    <TextBlock x:Name="StatusText" Text="{x:Bind ViewModel.Status, Mode=OneWay}" TextWrapping="Wrap" IsTextSelectionEnabled="True" Visibility="{x:Bind ViewModel.HasScanStatus, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
-                </StackPanel>
-                <Button x:Name="RescanAction" Grid.Column="1" Command="{x:Bind ViewModel.ScanCommand}" Content="{x:Bind ViewModel.ScanLabel, Mode=OneWay}" VerticalAlignment="Top"/>
+                <common:PageHeader x:Name="ResultsHeader" Title="{x:Bind ViewModel.ReportTitle, Mode=OneWay}"
+                                   Description="{x:Bind ViewModel.ReportDescription, Mode=OneWay}" Icon="Broom"/>
+                <Button x:Name="RescanAction" Grid.Column="1" Command="{x:Bind ViewModel.ScanCommand}" Content="{x:Bind ViewModel.ScanLabel, Mode=OneWay}" VerticalAlignment="Center"/>
             </Grid>
-                <Grid x:Name="SummaryPanel" ColumnSpacing="12" RowSpacing="12" Visibility="{x:Bind ViewModel.HasSummary, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
-                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/><ColumnDefinition x:Name="SummaryColumn3" Width="0"/><ColumnDefinition x:Name="SummaryColumn4" Width="0"/></Grid.ColumnDefinitions>
-                    <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
-                    <Border Padding="16" Style="{StaticResource PageCardStyle}"><StackPanel Spacing="8">
-                        <TextBlock Text="{x:Bind ViewModel.FoundLabel, Mode=OneWay}" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                        <TextBlock Text="{x:Bind ViewModel.ResultCount, Mode=OneWay}" FontSize="28" FontWeight="SemiBold"/>
+            <TextBlock x:Name="StatusText" Text="{x:Bind ViewModel.Status, Mode=OneWay}" TextWrapping="Wrap" IsTextSelectionEnabled="True"
+                       Visibility="{x:Bind ViewModel.HasScanStatus, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+            <Grid x:Name="SummaryPanel" RowSpacing="{StaticResource PageCardSpacing}"
+                  Visibility="{x:Bind ViewModel.HasSummary, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition x:Name="SummaryColumn2" Width="0"/></Grid.ColumnDefinitions>
+                <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="Auto"/></Grid.RowDefinitions>
+                <Grid ColumnSpacing="{StaticResource PageCardSpacing}">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                    <Border Padding="16" Style="{StaticResource PageCardStyle}"><StackPanel Spacing="4">
+                        <TextBlock Text="{x:Bind ViewModel.ResultCount, Mode=OneWay}" Style="{StaticResource ReportMetricValueStyle}" FontSize="28"/>
+                        <TextBlock Text="{x:Bind ViewModel.FoundLabel, Mode=OneWay}" Style="{StaticResource ReportMetricLabelStyle}"/>
                     </StackPanel></Border>
-                    <Border Grid.Column="1" Padding="16" Style="{StaticResource PageCardStyle}"><StackPanel Spacing="8">
-                        <TextBlock Text="{x:Bind ViewModel.OutcomeLabel, Mode=OneWay}" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                        <TextBlock x:Name="OutcomeCount" Text="{x:Bind ViewModel.OutcomeCount, Mode=OneWay}" FontSize="28" FontWeight="SemiBold"/>
-                    </StackPanel></Border>
-                    <Border x:Name="IssueMetric" Grid.Row="1" Padding="16" Style="{StaticResource PageCardStyle}"><StackPanel Spacing="8">
-                        <TextBlock Text="{x:Bind ViewModel.IssueLabel, Mode=OneWay}" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                        <TextBlock x:Name="IssueCount" Text="{x:Bind ViewModel.IssueCount, Mode=OneWay}" FontSize="28" FontWeight="SemiBold"/>
-                    </StackPanel></Border>
-                    <Border x:Name="SpaceMetric" Grid.Row="1" Grid.Column="1" Padding="16" Style="{StaticResource PageCardStyle}"><StackPanel Spacing="8">
-                        <TextBlock Text="{x:Bind ViewModel.SpaceLabel, Mode=OneWay}" FontSize="12" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                        <TextBlock x:Name="ReportedSpace" Text="{x:Bind ViewModel.ReportSpace, Mode=OneWay}" FontSize="28" FontWeight="SemiBold" TextWrapping="Wrap" Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
+                    <Border Grid.Column="1" Padding="16" Style="{StaticResource PageCardStyle}"><StackPanel Spacing="4">
+                        <TextBlock x:Name="OutcomeCount" Text="{x:Bind ViewModel.OutcomeCount, Mode=OneWay}" Style="{StaticResource ReportMetricValueStyle}" FontSize="28"/>
+                        <TextBlock Text="{x:Bind ViewModel.OutcomeLabel, Mode=OneWay}" Style="{StaticResource ReportMetricLabelStyle}"/>
                     </StackPanel></Border>
                 </Grid>
+                <Grid x:Name="OutcomeMetrics" Grid.Row="1" ColumnSpacing="{StaticResource PageCardSpacing}">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
+                    <Border Padding="16" Style="{StaticResource PageCardStyle}"><StackPanel Spacing="4">
+                        <TextBlock x:Name="IssueCount" Text="{x:Bind ViewModel.IssueCount, Mode=OneWay}" Style="{StaticResource ReportMetricValueStyle}" FontSize="28"/>
+                        <TextBlock Text="{x:Bind ViewModel.IssueLabel, Mode=OneWay}" Style="{StaticResource ReportMetricLabelStyle}"/>
+                    </StackPanel></Border>
+                    <Border Grid.Column="1" Padding="16" Style="{StaticResource PageCardStyle}"><StackPanel Spacing="4">
+                        <TextBlock x:Name="ReportedSpace" Text="{x:Bind ViewModel.ReportSpace, Mode=OneWay}" Style="{StaticResource ReportMetricValueStyle}" FontSize="28"
+                                   Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"/>
+                        <TextBlock Text="{x:Bind ViewModel.SpaceLabel, Mode=OneWay}" Style="{StaticResource ReportMetricLabelStyle}"/>
+                    </StackPanel></Border>
+                </Grid>
+            </Grid>
         </StackPanel>
-        <ScrollViewer x:Name="HeaderViewport" Grid.Row="1" Style="{StaticResource PageScrollViewerStyle}" Visibility="{x:Bind ViewModel.HasCleanupReport, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
-                <ItemsControl x:Name="CategoryReportList" ItemsSource="{x:Bind ViewModel.CategoryReports}" Visibility="{x:Bind ViewModel.HasCleanupReport, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
-                    <ItemsControl.ItemTemplate><DataTemplate x:DataType="vm:CleanerCategoryReport">
-                        <Border Style="{StaticResource PageCardStyle}" Margin="0,0,0,12"><StackPanel Spacing="16">
-                            <StackPanel Orientation="Horizontal" Spacing="10">
-                                <fluent:FluentIcon Icon="{x:Bind Icon}" FontSize="20" VerticalAlignment="Center"/>
-                                <TextBlock Text="{x:Bind Title, Mode=OneWay}" FontSize="18" FontWeight="SemiBold" TextWrapping="Wrap"/>
-                            </StackPanel>
-                            <toolkit:WrapPanel HorizontalSpacing="24" VerticalSpacing="16">
-                                <StackPanel Spacing="4" MinWidth="100"><TextBlock Text="{x:Bind FoundLabel, Mode=OneWay}" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><TextBlock Text="{x:Bind FoundCount}" FontSize="20" FontWeight="SemiBold"/></StackPanel>
-                                <StackPanel Spacing="4" MinWidth="100"><TextBlock Text="{x:Bind SelectedLabel, Mode=OneWay}" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><TextBlock Text="{x:Bind SelectedCount, Mode=OneWay}" FontSize="20" FontWeight="SemiBold"/></StackPanel>
-                                <StackPanel Spacing="4" MinWidth="100"><TextBlock Text="{x:Bind CompletedLabel, Mode=OneWay}" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><TextBlock Text="{x:Bind CompletedCount, Mode=OneWay}" FontSize="20" FontWeight="SemiBold"/></StackPanel>
-                                <StackPanel Spacing="4" MinWidth="100"><TextBlock Text="{x:Bind FailedLabel, Mode=OneWay}" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><TextBlock Text="{x:Bind FailedCount, Mode=OneWay}" FontSize="20" FontWeight="SemiBold"/></StackPanel>
-                                <StackPanel Spacing="4" MinWidth="100"><TextBlock Text="{x:Bind RemovedLabel, Mode=OneWay}" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><TextBlock Text="{x:Bind RemovedCount, Mode=OneWay}" FontSize="20" FontWeight="SemiBold"/></StackPanel>
-                                <StackPanel Spacing="4" MinWidth="100"><TextBlock Text="{x:Bind UnprocessedLabel, Mode=OneWay}" FontSize="11" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><TextBlock Text="{x:Bind UnprocessedCount, Mode=OneWay}" FontSize="20" FontWeight="SemiBold"/></StackPanel>
-                                <StackPanel Spacing="4" MinWidth="150" MaxWidth="220"><TextBlock Text="{x:Bind FreedLabel, Mode=OneWay}" FontSize="11" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><TextBlock Text="{x:Bind FreedSize, Mode=OneWay}" FontSize="20" FontWeight="SemiBold"/></StackPanel>
-                                <StackPanel Spacing="4" MinWidth="150" MaxWidth="220"><TextBlock Text="{x:Bind RegistryLabel, Mode=OneWay}" FontSize="11" TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/><TextBlock Text="{x:Bind RegistrySize, Mode=OneWay}" FontSize="20" FontWeight="SemiBold"/></StackPanel>
-                            </toolkit:WrapPanel>
-                        </StackPanel></Border>
-                    </DataTemplate></ItemsControl.ItemTemplate>
-                </ItemsControl>
+        <ScrollViewer x:Name="CategoryReportViewport" Grid.Row="1" Style="{StaticResource PageScrollViewerStyle}" Padding="0"
+                      VerticalContentAlignment="Top"
+                      Visibility="{x:Bind ViewModel.HasCleanupReport, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <ItemsControl x:Name="CategoryReportList" ItemsSource="{x:Bind ViewModel.CategoryReports}" VerticalAlignment="Top"
+                          IsEnabled="{x:Bind ViewModel.IsIdle, Mode=OneWay}">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <common:UniformWrapPanel ItemWidth="320" MaxColumns="2" StretchItems="True"
+                                                 ColumnSpacing="{StaticResource PageCardSpacing}" RowSpacing="{StaticResource PageCardSpacing}"/>
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:CleanerCategoryReport">
+                        <Button Style="{StaticResource ReportCardButtonStyle}" Click="ShowCategoryDetails_Click"
+                                CommandParameter="{x:Bind}" AutomationProperties.Name="{x:Bind Title, Mode=OneWay}"
+                                AutomationProperties.HelpText="{x:Bind Overview, Mode=OneWay}">
+                            <Grid ColumnSpacing="12">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/>
+                                </Grid.ColumnDefinitions>
+                                <Border Width="40" Height="40" CornerRadius="{StaticResource ControlCornerRadius}"
+                                        Background="{ThemeResource PageIconBackgroundBrush}">
+                                    <fluent:FluentIcon Icon="{x:Bind Icon}" FontSize="20" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                                       Foreground="{ThemeResource PageIconForegroundBrush}"/>
+                                </Border>
+                                <StackPanel Grid.Column="1" VerticalAlignment="Center" Spacing="3">
+                                    <TextBlock Text="{x:Bind Title, Mode=OneWay}" FontSize="16" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                    <TextBlock Text="{x:Bind Overview, Mode=OneWay}" Style="{StaticResource ReportMetricLabelStyle}"/>
+                                </StackPanel>
+                                <fluent:FluentIcon Grid.Column="2" Icon="ChevronRight" FontSize="14" VerticalAlignment="Center"
+                                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" AutomationProperties.AccessibilityView="Raw"/>
+                            </Grid>
+                        </Button>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
         </ScrollViewer>
-        <Grid x:Name="ResultsRegion" Grid.Row="1" ColumnSpacing="16" Visibility="{x:Bind ViewModel.ShowCategoryReview, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
+        <Grid x:Name="ResultsRegion" Grid.Row="1" ColumnSpacing="{StaticResource PageCardSpacing}" Visibility="{x:Bind ViewModel.ShowCategoryReview, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
             <Grid.ColumnDefinitions><ColumnDefinition x:Name="CategoryColumn" Width="190"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
             <Border Style="{StaticResource PageCardStyle}" Padding="8">
                 <Grid RowSpacing="8">
                     <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
                     <TextBlock Text="{x:Bind ViewModel.CategoriesLabel, Mode=OneWay}" FontWeight="SemiBold" Margin="8"/>
                     <ListView x:Name="CategorySelector" Grid.Row="1" ItemsSource="{x:Bind ViewModel.CategoryReports}" SelectedItem="{x:Bind ViewModel.SelectedCategory, Mode=TwoWay}" SelectionMode="Single" IsEnabled="{x:Bind ViewModel.IsIdle, Mode=OneWay}" HorizontalContentAlignment="Stretch" Background="Transparent" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
-                        <ListView.ItemContainerStyle><Style TargetType="ListViewItem"><Setter Property="HorizontalContentAlignment" Value="Stretch"/><Setter Property="Padding" Value="8,12"/><Setter Property="Margin" Value="0,0,0,8"/></Style></ListView.ItemContainerStyle>
+                        <ListView.ItemContainerStyle>
+                            <Style TargetType="ListViewItem" BasedOn="{StaticResource ListViewItemExpanded}">
+                                <Setter Property="HorizontalContentAlignment" Value="Stretch"/>
+                                <Setter Property="Padding" Value="8,12"/>
+                                <Setter Property="Margin" Value="0,0,0,8"/>
+                                <Setter Property="CornerRadius" Value="{StaticResource ControlCornerRadius}"/>
+                            </Style>
+                        </ListView.ItemContainerStyle>
                         <ListView.ItemTemplate><DataTemplate x:DataType="vm:CleanerCategoryReport">
                             <StackPanel Spacing="10">
                                 <Grid ColumnSpacing="8"><Grid.ColumnDefinitions><ColumnDefinition Width="Auto"/><ColumnDefinition Width="*"/></Grid.ColumnDefinitions>
@@ -110,7 +222,7 @@
                     </ListView>
                 </Grid>
             </Border>
-            <Grid Grid.Column="1" RowSpacing="12">
+            <Grid Grid.Column="1" RowSpacing="{StaticResource PageCardSpacing}">
                 <Grid.RowDefinitions><RowDefinition Height="Auto"/><RowDefinition Height="*"/></Grid.RowDefinitions>
                 <Border Style="{StaticResource PageCardStyle}" Padding="16">
                     <StackPanel Spacing="10">
@@ -129,9 +241,13 @@
                 </Border>
             </Grid>
         </Grid>
-                <Expander x:Name="NoticeDetails" Grid.Row="2" Header="{x:Bind ViewModel.DetailsLabel, Mode=OneWay}" HorizontalAlignment="Stretch" IsExpanded="{x:Bind ViewModel.AreDetailsExpanded, Mode=TwoWay}" Visibility="{x:Bind ViewModel.HasReportDetails, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
-                    <ScrollViewer MaxHeight="220" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"><TextBlock x:Name="NoticesText" Text="{x:Bind ViewModel.ReportDetails, Mode=OneWay}" TextWrapping="Wrap" IsTextSelectionEnabled="True"/></ScrollViewer>
-                </Expander>
+        <Expander x:Name="NoticeDetails" Grid.Row="2" Header="{x:Bind ViewModel.ScanDetailsLabel, Mode=OneWay}" HorizontalAlignment="Stretch"
+                  IsExpanded="{x:Bind ViewModel.AreDetailsExpanded, Mode=TwoWay}"
+                  Visibility="{x:Bind ViewModel.ShowScanNotices, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
+            <ScrollViewer MaxHeight="220" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <TextBlock x:Name="NoticesText" Text="{x:Bind ViewModel.Notices, Mode=OneWay}" TextWrapping="Wrap" IsTextSelectionEnabled="True"/>
+            </ScrollViewer>
+        </Expander>
         <Border x:Name="ActionBar" Grid.Row="3" Padding="16,12" Style="{StaticResource PageCardStyle}" Visibility="{x:Bind ViewModel.ShowReviewItems, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}">
             <Grid x:Name="ActionLayout" ColumnSpacing="16" RowSpacing="12">
                 <Grid.ColumnDefinitions><ColumnDefinition Width="*"/><ColumnDefinition Width="Auto"/></Grid.ColumnDefinitions>

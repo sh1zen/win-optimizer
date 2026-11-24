@@ -1,5 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using WinOptimizer.Application.AdvancedTools.Experimental;
+using WinOptimizer.Core.Features.AdvancedTools.Experimental;
 using WinOptimizer.Application.Configuration;
 using WinOptimizer.Application.Updates;
 using WinOptimizer.Core.Features.Common.Interfaces;
@@ -12,6 +14,7 @@ public static class ApplicationServicesExtensions
     public static IServiceCollection AddApplicationServices(this IServiceCollection services)
     {
         services.AddSingleton<IConfigExportService, ConfigExportService>();
+        services.AddSingleton<IExperimentalFeatures, ExperimentalFeaturesService>();
         services.AddSingleton<IConfigLoadService, ConfigLoadService>();
         services.AddSingleton<IConfigApplicationExecutionService, ConfigApplicationExecutionService>();
         services.AddSingleton<IConfigReviewOrchestrationService, ConfigReviewOrchestrationService>();

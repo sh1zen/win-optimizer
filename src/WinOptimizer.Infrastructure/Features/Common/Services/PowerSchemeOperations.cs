@@ -6,10 +6,32 @@ using WinOptimizer.Core.Features.Common.Native;
 namespace WinOptimizer.Infrastructure.Features.Common.Services;
 
 /// <summary>
-/// Wraps PowrProf.dll plan-level P/Invoke calls behind an injectable interface.
+/// Wraps PowrProf.dll scheme calls behind an injectable interface.
 /// </summary>
 public class PowerSchemeOperations : IPowerSchemeOperations
 {
+    public uint GetActiveScheme(out Guid schemeGuid)
+    {
+        const uint errorInvalidData = 13;
+        var result = PowerProf.PowerGetActiveScheme(IntPtr.Zero, out var pointer);
+        try
+        {
+            if (result == PowerProf.ERROR_SUCCESS && pointer == IntPtr.Zero)
+                result = errorInvalidData;
+            schemeGuid = result == PowerProf.ERROR_SUCCESS ? Marshal.PtrToStructure<Guid>(pointer) : Guid.Empty;
+            return result;
+        }
+        finally
+        {
+            if (pointer != IntPtr.Zero) PowerProf.LocalFree(pointer);
+        }
+    }
+
+    public uint WriteValue(Guid schemeGuid, Guid subgroup, Guid setting, bool onAc, uint value) =>
+        onAc
+            ? PowerProf.PowerWriteACValueIndex(IntPtr.Zero, ref schemeGuid, ref subgroup, ref setting, value)
+            : PowerProf.PowerWriteDCValueIndex(IntPtr.Zero, ref schemeGuid, ref subgroup, ref setting, value);
+
     public uint DeleteScheme(Guid schemeGuid)
     {
         return PowerProf.PowerDeleteScheme(IntPtr.Zero, ref schemeGuid);

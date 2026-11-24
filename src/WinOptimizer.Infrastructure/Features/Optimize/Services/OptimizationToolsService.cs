@@ -1,17 +1,18 @@
-using System.Security.Principal;
 using System.Text.Json;
 using WinOptimizer.Core.Features.Common.Enums;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.Core.Features.Optimize.Interfaces;
+using WinOptimizer.Core.Features.Optimize.Models;
+using WinOptimizer.Infrastructure.Features.SoftwareApps.Services;
 
 namespace WinOptimizer.Infrastructure.Features.Optimize.Services;
 
 /// <summary>Coordinates explicit Optimize actions through existing setting owners and supported Windows commands.</summary>
 public sealed partial class OptimizationToolsService(IPowerShellRunner scripts, ISettingApplicationService settings,
     ICompatibleSettingsRegistry catalog, IWindowsRegistryService registry, IApplicationModeService mode,
-    IInteractiveUserService user, IWindowsVersionService windows,
-    ISystemSettingsDiscoveryService discovery) : IOptimizationToolsService
+    IAppxDeployment deployment, IWindowsVersionService windows,
+    ISystemSettingsDiscoveryService discovery, NetworkTuningOriginalStore originals) : IOptimizationToolsService
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
 
@@ -25,12 +26,12 @@ public sealed partial class OptimizationToolsService(IPowerShellRunner scripts, 
         } | ConvertTo-Json -Compress
         """;
 
-    internal const string EnhanceNetworkScript = """
+    internal const string EnhanceNetworkScript = $$"""
         $ErrorActionPreference = 'Stop'
         $netsh = Join-Path $env:SystemRoot 'System32\netsh.exe'
-        & $netsh interface tcp set global autotuninglevel=normal | Out-Null
+        & $netsh interface tcp set global autotuninglevel={{NetworkTuningCatalog.NormalAutoTuning}} | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "TCP auto-tuning failed (netsh exit $LASTEXITCODE)." }
-        Set-NetOffloadGlobalSetting -ReceiveSideScaling Enabled -ErrorAction Stop
+        Set-NetOffloadGlobalSetting -ReceiveSideScaling {{NetworkTuningCatalog.Enabled}} -ErrorAction Stop
         """;
 
     public async Task<NetworkPerformanceState> ReadNetworkAsync()
@@ -47,9 +48,10 @@ public sealed partial class OptimizationToolsService(IPowerShellRunner scripts, 
         try
         {
             using var reservation = ReserveWrite();
+            await CaptureEnhancementOriginalsAsync().ConfigureAwait(false);
             await scripts.RunScriptInMemoryAsync(EnhanceNetworkScript).ConfigureAwait(false);
             var state = await ReadNetworkCoreAsync().ConfigureAwait(false);
-            if (!state.AutoTuningLevel.Equals("Normal", StringComparison.OrdinalIgnoreCase) || !state.ReceiveSideScaling)
+            if (!state.AutoTuningLevel.Equals(NetworkTuningCatalog.NormalAutoTuning, StringComparison.OrdinalIgnoreCase) || !state.ReceiveSideScaling)
                 throw new InvalidOperationException("Windows did not confirm normal TCP auto-tuning and enabled receive-side scaling. Refresh to inspect the current state.");
             return state;
         }
@@ -117,14 +119,7 @@ public sealed partial class OptimizationToolsService(IPowerShellRunner scripts, 
                     ? target.Definition.ComboBox!.Options.Select((option, index) => (option, index)).Single(item => item.option.IsDefault).index
                     : null
             }).ToArray();
-            string? copilotScript = null;
-            if (isOn && feature == WindowsFeatureOptimization.Copilot)
-            {
-                using var identity = user.IsOtsElevation ? null : WindowsIdentity.GetCurrent();
-                var sid = user.IsOtsElevation ? user.InteractiveUserSid : identity?.User?.Value;
-                if (string.IsNullOrWhiteSpace(sid)) throw new InvalidOperationException("The interactive user identity is unavailable.");
-                copilotScript = CopilotRemovalScript(sid);
-            }
+            var account = isOn && feature == WindowsFeatureOptimization.Copilot ? deployment.InteractiveAccountSid : null;
             var completed = 0;
             for (var index = 0; index < targets.Length; index++)
             {
@@ -134,10 +129,10 @@ public sealed partial class OptimizationToolsService(IPowerShellRunner scripts, 
                     throw new InvalidOperationException($"Could not apply '{target.Definition.Name}': {result.ErrorMessage}. {completed} earlier settings completed; review their individual controls before retrying.", result.Exception);
                 completed++;
             }
-            if (copilotScript != null)
+            if (account is not null)
             {
-                try { await scripts.RunScriptInMemoryAsync(copilotScript).ConfigureAwait(false); }
-                catch (InvalidOperationException ex)
+                try { await RemoveCopilotRegistrationAsync(account).ConfigureAwait(false); }
+                catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException or System.Runtime.InteropServices.COMException)
                 { throw new InvalidOperationException("Copilot app removal failed after the Windows and Edge policies were applied. Review their individual controls before retrying. " + ex.Message, ex); }
             }
         }
@@ -179,20 +174,16 @@ public sealed partial class OptimizationToolsService(IPowerShellRunner scripts, 
     private static ApplySettingRequest DisableService(string id) => new() { SettingId = id, Enable = false, Value = 0 };
 
     /// <summary>Removes only Microsoft's standalone Copilot registration for the explicitly identified interactive account.</summary>
-    internal static string CopilotRemovalScript(string sid)
+    private async Task RemoveCopilotRegistrationAsync(string account)
     {
-        var normalizedSid = new SecurityIdentifier(sid).Value;
-        return $$"""
-            $ErrorActionPreference = 'Stop'
-            $targetSid = '{{normalizedSid}}'
-            $packages = @(Get-AppxPackage -User $targetSid -Name 'Microsoft.Copilot' -ErrorAction Stop |
-                Where-Object { $_.Name -eq 'Microsoft.Copilot' -and $_.PublisherId -eq '8wekyb3d8bbwe' })
-            foreach ($package in $packages) {
-                Remove-AppxPackage -User $targetSid -Package $package.PackageFullName -ErrorAction Stop
-            }
-            $remaining = @(Get-AppxPackage -User $targetSid -Name 'Microsoft.Copilot' -ErrorAction Stop |
-                Where-Object { $_.Name -eq 'Microsoft.Copilot' -and $_.PublisherId -eq '8wekyb3d8bbwe' })
-            if ($remaining.Count -ne 0) { throw 'The standalone Copilot app is still registered. Windows and Edge policies may already have changed; review them before retrying.' }
-            """;
+        var installed = await deployment.GetPackagesAsync(account, CancellationToken.None).ConfigureAwait(false);
+        foreach (var package in installed.Where(IsMicrosoftCopilot))
+            await deployment.RemovePackageAsync(package.FullName, account, _ => { }, CancellationToken.None).ConfigureAwait(false);
+        if ((await deployment.GetPackagesAsync(account, CancellationToken.None).ConfigureAwait(false)).Any(IsMicrosoftCopilot))
+            throw new IOException("The standalone Copilot app is still registered.");
+
+        static bool IsMicrosoftCopilot(AppxPackageIdentity package) =>
+            package.Name.Equals("Microsoft.Copilot", StringComparison.OrdinalIgnoreCase) &&
+            package.FullName.EndsWith("_8wekyb3d8bbwe", StringComparison.OrdinalIgnoreCase);
     }
 }

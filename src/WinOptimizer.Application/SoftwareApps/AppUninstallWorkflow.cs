@@ -32,7 +32,7 @@ public sealed class AppUninstallWorkflow(IUninstallResidueService residues, IUni
             {
                 ct.ThrowIfCancellationRequested();
                 using var cancellation = ct.Register(tasks.CancelCurrentTask);
-                // The Windows service owns its coordinated multi-script task and cancellation.
+                // The Windows service owns the removal task and its cancellation.
                 var result = await windows.UninstallAppsWithOutcomesAsync(applications.ToList(), saveRemovalScripts).ConfigureAwait(false);
                 if (result.Success && result.Result != null) outcomes.AddRange(result.Result);
                 else outcomes.AddRange(applications.Select(app => new UninstallNativeOutcome(app.Id,
@@ -46,7 +46,7 @@ public sealed class AppUninstallWorkflow(IUninstallResidueService residues, IUni
                     var progress = tasks.CreateDetailedProgress();
                     for (var index = 0; index < applications.Count; index++)
                     {
-                        token.ThrowIfCancellationRequested();
+                        if (token.IsCancellationRequested) break;
                         var app = applications[index];
                         if (tasks.ConsumeSkipNextRequest())
                         {
@@ -61,16 +61,24 @@ public sealed class AppUninstallWorkflow(IUninstallResidueService residues, IUni
                             QueueNextItemName = index + 1 < applications.Count ? applications[index + 1].Name : null,
                             IsIndeterminate = true
                         });
-                        var result = await external.UninstallAppAsync(app, progress).ConfigureAwait(false);
-                        outcomes.Add(new(app.Id, result.Success && result.Result, result.InfoMessage != null,
-                            result.InfoMessage ?? result.ErrorMessage));
+                        try
+                        {
+                            var result = await external.UninstallAppAsync(app, progress).ConfigureAwait(false);
+                            outcomes.Add(new(app.Id, result.Success && result.Result, result.InfoMessage != null,
+                                result.InfoMessage ?? result.ErrorMessage) { Cancelled = result.IsCancelled && token.IsCancellationRequested });
+                        }
+                        catch (OperationCanceledException) when (token.IsCancellationRequested) { break; }
                     }
+                    for (var index = outcomes.Count; index < applications.Count; index++)
+                        outcomes.Add(new(applications[index].Id, false, false, localization.GetString("Restore_Cancelled")) { Cancelled = true });
                     return true;
                 }, ct).ConfigureAwait(false);
             }
 
             var verifiedResult = await RunStageAsync("UninstallResidue_Verifying", token =>
                 session.VerifyAsync(outcomes, CreateProgress(), token), ct).ConfigureAwait(false);
+            if (outcomes.Any(outcome => outcome.Cancelled))
+                verifiedResult = verifiedResult with { Notices = [localization.GetString("Restore_Cancelled"), .. verifiedResult.Notices] };
             // Reuse the verification evidence for the list before opening a long-lived review.
             if (refreshInventory != null) await refreshInventory(verifiedResult).ConfigureAwait(false);
             deferred = await review.ShowAsync(session, verifiedResult, ct).ConfigureAwait(false) == UninstallReviewDisposition.Deferred;

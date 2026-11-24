@@ -5,11 +5,12 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:WinOptimizer.UI"
     xmlns:controls="using:WinOptimizer.UI.Features.Common.Controls"
+    xmlns:helpers="using:WinOptimizer.UI.Features.Common.Helpers"
     xmlns:fluentIcons="using:FluentIcons.WinUI"
     Title="win-optimizer">
 
     <Grid x:Name="RootGrid" Loaded="RootGrid_Loaded"
-          Background="{ThemeResource AppCanvasBrush}" KeyboardAcceleratorPlacementMode="Hidden">
+          Background="Transparent" KeyboardAcceleratorPlacementMode="Hidden">
         <Grid.KeyboardAccelerators>
             <!-- Ctrl+1-5: Navigate to sections -->
             <KeyboardAccelerator Key="Number1" Modifiers="Control" Invoked="NavigateAccelerator_Invoked"/>
@@ -34,29 +35,48 @@
             <RowDefinition Height="Auto"/>  <!-- Update InfoBar -->
             <RowDefinition Height="*"/>     <!-- Main Content -->
         </Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition x:Name="SidebarColumn" Width="0"/>
+            <ColumnDefinition Width="*"/>
+        </Grid.ColumnDefinitions>
+
+        <Border x:Name="SolidCanvas" Grid.RowSpan="4" Grid.ColumnSpan="2"
+                Background="{ThemeResource AppCanvasBrush}" IsHitTestVisible="False"/>
+        <Grid x:Name="SidebarSurface" Grid.RowSpan="4"
+              Background="{ThemeResource AppSurfaceBrush}" IsHitTestVisible="False">
+            <Rectangle x:Name="SidebarSeparator" Width="1" HorizontalAlignment="Right"
+                       Fill="{ThemeResource AppSurfaceStrokeBrush}"/>
+        </Grid>
 
         <!-- Title Bar Area -->
-        <Grid x:Name="AppTitleBar" Height="48" Grid.Row="0">
+        <Grid x:Name="AppTitleBar" Height="48" Grid.ColumnSpan="2">
             <Grid.ColumnDefinitions>
                 <ColumnDefinition x:Name="LeftPaddingColumn" Width="0"/>
-                <ColumnDefinition x:Name="NavigationColumn" Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
                 <ColumnDefinition x:Name="DragColumn" Width="*"/>
                 <ColumnDefinition x:Name="ButtonsColumn" Width="Auto"/>
                 <ColumnDefinition x:Name="RightPaddingColumn" Width="0"/>
             </Grid.ColumnDefinitions>
 
-            <!-- Include all navigation controls in the native title bar's clickable region. -->
-            <Border x:Name="TitleBarNavigation" Grid.Column="1" Style="{StaticResource SegmentedSurfaceStyle}"
-                    VerticalAlignment="Center" Margin="12,0,0,0">
-            <StackPanel Orientation="Horizontal" Spacing="2">
-                <Button x:Name="NavigateBackButton" Click="NavigateBack_Click"
+            <StackPanel x:Name="TitleBarLeadingContent" Grid.Column="1" Orientation="Horizontal" Spacing="10"
+                        VerticalAlignment="Center" Padding="24,0,12,0">
+                <Image x:Name="TitleBarIcon" Width="20" Height="20" VerticalAlignment="Center"
+                       AutomationProperties.AccessibilityView="Raw"/>
+                <TextBlock x:Name="TitleBarAppName" VerticalAlignment="Center" Text="WinOptimizer"
+                           FontWeight="SemiBold" Foreground="{ThemeResource TextFillColorPrimaryBrush}"
+                           Visibility="{Binding IsPaneOpen, ElementName=NavSidebar, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+            </StackPanel>
+
+            <StackPanel x:Name="TitleBarNavigation" Grid.Column="2" Orientation="Horizontal" Spacing="6"
+                        HorizontalAlignment="Left" VerticalAlignment="Center" Margin="20,0,0,0">
+                <Button x:Name="NavigateBackButton" Click="NavigateBack_Click" Width="32" Height="32"
                         IsEnabled="{x:Bind CanNavigateBack, Mode=OneWay}"
                         Style="{StaticResource TitleBarButtonStyle}"
                         ToolTipService.ToolTip="{x:Bind ViewModel.NavigationBackTooltip, Mode=OneWay}"
                         AutomationProperties.Name="{x:Bind ViewModel.NavigationBackTooltip, Mode=OneWay}">
                     <fluentIcons:FluentIcon Icon="ArrowLeft" IconVariant="Regular" FontSize="16"/>
                 </Button>
-                <Button x:Name="NavigateForwardButton" Click="NavigateForward_Click"
+                <Button x:Name="NavigateForwardButton" Click="NavigateForward_Click" Width="32" Height="32"
                         IsEnabled="{x:Bind CanNavigateForward, Mode=OneWay}"
                         Style="{StaticResource TitleBarButtonStyle}"
                         ToolTipService.ToolTip="{x:Bind ViewModel.NavigationForwardTooltip, Mode=OneWay}"
@@ -64,11 +84,6 @@
                     <fluentIcons:FluentIcon Icon="ArrowRight" IconVariant="Regular" FontSize="16"/>
                 </Button>
             </StackPanel>
-            </Border>
-
-            <TextBlock Grid.Column="2" Margin="12,0" VerticalAlignment="Center"
-                       Text="win-optimizer" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"
-                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
 
             <!-- Title Bar Action Buttons -->
             <StackPanel x:Name="TitleBarButtons"
@@ -114,12 +129,43 @@
                         AutomationProperties.Name="{x:Bind ViewModel.DocsTooltip, Mode=OneWay}">
                     <fluentIcons:FluentIcon Icon="BookQuestionMark" IconVariant="Regular" FontSize="20"/>
                 </Button>
+
+                <Button x:Name="UpdatesButton"
+                        Style="{StaticResource TitleBarButtonStyle}"
+                        ToolTipService.ToolTip="{x:Bind ViewModel.UpdateCheck.CheckForUpdatesLabel, Mode=OneWay}"
+                        AutomationProperties.Name="{x:Bind ViewModel.UpdateCheck.CheckForUpdatesLabel, Mode=OneWay}">
+                    <helpers:PopupHandler.Content>
+                        <StackPanel Spacing="8" MaxWidth="280">
+                            <TextBlock x:Name="UpdateCurrentVersion" FontWeight="SemiBold" TextWrapping="Wrap"
+                                       Text="{x:Bind ViewModel.UpdateCheck.CurrentVersionText, Mode=OneWay}"/>
+                            <TextBlock x:Name="UpdateLatestVersion" TextWrapping="Wrap"
+                                       Text="{x:Bind ViewModel.UpdateCheck.LatestVersionText, Mode=OneWay}"/>
+                            <TextBlock x:Name="UpdateCheckStatus" TextWrapping="Wrap"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                       AutomationProperties.LiveSetting="Polite"
+                                       Text="{x:Bind ViewModel.UpdateCheck.UpdateStatusText, Mode=OneWay}"/>
+                            <Button x:Name="CheckForUpdatesAction" Margin="0,4,0,0" HorizontalAlignment="Stretch"
+                                    helpers:PopupHandler.DismissOnClick="True"
+                                    Command="{x:Bind ViewModel.UpdateCheck.CheckForUpdatesCommand, Mode=OneWay}">
+                                <TextBlock TextWrapping="Wrap"
+                                           Text="{x:Bind ViewModel.UpdateCheck.CheckForUpdatesLabel, Mode=OneWay}"/>
+                            </Button>
+                        </StackPanel>
+                    </helpers:PopupHandler.Content>
+                    <Grid DataContext="{x:Bind ViewModel.UpdateCheck, Mode=OneWay}">
+                        <fluentIcons:FluentIcon Icon="ArrowSync" IconVariant="Regular" FontSize="20"
+                                               Visibility="{Binding IsUpdateCheckInProgress, Converter={StaticResource InverseBooleanToVisibilityConverter}}"/>
+                        <ProgressRing Width="18" Height="18"
+                                      IsActive="{Binding IsUpdateCheckInProgress}"
+                                      Visibility="{Binding IsUpdateCheckInProgress, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                    </Grid>
+                </Button>
             </StackPanel>
         </Grid>
 
         <!-- OTS Elevation InfoBar -->
         <InfoBar x:Name="OtsElevationInfoBar"
-                 Grid.Row="1"
+                 Grid.Row="1" Grid.Column="1"
                  Severity="Warning"
                  IsOpen="{x:Bind ViewModel.IsOtsInfoBarOpen, Mode=OneWay}"
                  Title="{x:Bind ViewModel.OtsInfoBarTitle, Mode=OneWay}"
@@ -129,7 +175,7 @@
 
         <!-- Update InfoBar -->
         <InfoBar x:Name="UpdateInfoBar"
-                 Grid.Row="2"
+                 Grid.Row="2" Grid.Column="1"
                  IsOpen="{x:Bind ViewModel.UpdateCheck.IsUpdateInfoBarOpen, Mode=OneWay}"
                  Title="{x:Bind ViewModel.UpdateCheck.UpdateInfoBarTitle, Mode=OneWay}"
                  Message="{x:Bind ViewModel.UpdateCheck.UpdateInfoBarMessage, Mode=OneWay}"
@@ -138,7 +184,7 @@
                  Closed="UpdateInfoBar_Closed"/>
 
         <!-- Main Content Area -->
-        <Grid Grid.Row="3" x:Name="ZoomViewport">
+        <Grid Grid.Row="3" Grid.ColumnSpan="2" x:Name="ZoomViewport">
             <!-- ZoomHost is inverse-sized + ScaleTransform'd by UiZoomManager for app-local zoom -->
             <Grid x:Name="ZoomHost">
                 <Grid.ColumnDefinitions>
@@ -170,7 +216,6 @@
                         </TransitionCollection>
                     </Frame.ContentTransitions>
                 </Frame>
-                <Border x:Name="PageTransitionOverlay" Margin="{StaticResource PageHorizontalMargin}" IsHitTestVisible="False"/>
                 <Border x:Name="TrialToolsOverlay" Grid.Row="0" Visibility="Collapsed"
                         Background="{ThemeResource AppCanvasBrush}" Padding="32">
                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12" MaxWidth="480">
@@ -179,14 +224,10 @@
                     </StackPanel>
                 </Border>
 
-                <!-- Task Progress Bars (up to 3 for parallel script removal) -->
+                <!-- Task progress footer -->
                 <Grid Grid.Row="1" Margin="{StaticResource PageHorizontalMargin}">
-                    <Grid x:Name="TaskFooterLayout" Style="{StaticResource PageGridStyle}" Padding="0" Margin="0,2,0,8">
-                        <StackPanel Spacing="4">
-                            <controls:TaskProgressControl x:Name="TaskProgressControl"/>
-                            <controls:TaskProgressControl x:Name="TaskProgressControl2"/>
-                            <controls:TaskProgressControl x:Name="TaskProgressControl3"/>
-                        </StackPanel>
+                    <Grid Style="{StaticResource PageGridStyle}" Padding="0" Margin="0,2,0,8">
+                        <controls:TaskProgressControl x:Name="TaskProgressControl"/>
                     </Grid>
                 </Grid>
             </Grid>
@@ -194,6 +235,6 @@
         </Grid>
 
         <!-- The same loader is retained while the full shell initializes. -->
-        <Grid x:Name="LoadingOverlay" Grid.RowSpan="4" Visibility="Visible"/>
+        <Grid x:Name="LoadingOverlay" Grid.RowSpan="4" Grid.ColumnSpan="2" Visibility="Visible"/>
     </Grid>
 </Window>

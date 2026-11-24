@@ -4,6 +4,7 @@ using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
+using WinOptimizer.Core.Features.AdvancedTools;
 using WinOptimizer.Core.Features.AdvancedTools.Interfaces;
 using WinOptimizer.Core.Features.Common.Exceptions;
 using WinOptimizer.Core.Features.Common.Interfaces;
@@ -13,7 +14,7 @@ namespace WinOptimizer.Infrastructure.Features.AdvancedTools.Services;
 
 public class IsoService : IIsoService
 {
-    private static readonly Regex DriveLetterRegex = new(@"\b[A-Z]\b", RegexOptions.Compiled);
+    private static readonly Regex DriveLetterRegex = new(@"\A[A-Z]\z", RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
     private readonly IFileSystemService _fileSystemService;
     private readonly ILogService _logService;
     private readonly ILocalizationService _localization;
@@ -158,20 +159,20 @@ public class IsoService : IIsoService
 
             var mountResult = await _processExecutor.ExecuteAsync(
                 "powershell.exe",
-                $"-NoProfile -Command \"(Mount-DiskImage -ImagePath '{isoLiteral}' -PassThru | Get-Volume).DriveLetter\"",
-                cancellationToken).ConfigureAwait(false);
-            var rawOutput = mountResult.StandardOutput;
-
-            var driveLetterMatch = DriveLetterRegex.Match(rawOutput);
-            var driveLetter = driveLetterMatch.Success ? driveLetterMatch.Value : string.Empty;
-
-            if (string.IsNullOrEmpty(driveLetter) || !mountResult.Succeeded)
-            {
-                _logService.LogError("Failed to mount ISO or get drive letter");
-                return false;
-            }
-
+                $"-NoProfile -Command \"Mount-DiskImage -ImagePath '{isoLiteral}' -ErrorAction Stop\"").ConfigureAwait(false);
+            if (!mountResult.Succeeded)
+                throw new IOException($"Could not mount the ISO: {mountResult.StandardError}");
+            // Record a successful native mount before observing cancellation and releasing it in finally.
             isoMounted = true;
+            cancellationToken.ThrowIfCancellationRequested();
+
+            var volumeResult = await _processExecutor.ExecuteAsync(
+                "powershell.exe",
+                $"-NoProfile -Command \"$ErrorActionPreference = 'Stop'; (Get-DiskImage -ImagePath '{isoLiteral}' | Get-Volume).DriveLetter\"",
+                cancellationToken).ConfigureAwait(false);
+            var driveLetter = volumeResult.StandardOutput.Trim();
+            if (!volumeResult.Succeeded || !DriveLetterRegex.IsMatch(driveLetter))
+                throw new IOException($"Windows could not identify the drive for the mounted ISO. {volumeResult.StandardError}".Trim());
             var mountedPath = $"{driveLetter}:\\";
             _logService.LogInformation($"ISO mounted to: {mountedPath}");
 
@@ -189,27 +190,12 @@ public class IsoService : IIsoService
                 TerminalOutput = "Cleaning up..."
             });
 
-            _logService.LogInformation("Dismounting ISO");
-
-            await _processExecutor.ExecuteAsync(
-                "powershell.exe",
-                $"-NoProfile -Command \"Dismount-DiskImage -ImagePath '{isoLiteral}'\"",
-                cancellationToken).ConfigureAwait(false);
+            await DismountIsoAsync(isoLiteral).ConfigureAwait(false);
             isoMounted = false;
 
-            var extractedDirs = _fileSystemService.GetDirectories(workingDirectory);
-            var dirNames = extractedDirs.Select(_fileSystemService.GetFileName).ToArray();
-            _logService.LogInformation($"Found {extractedDirs.Length} directories: {string.Join(", ", dirNames)}");
-
-            var hasSourcesDir = dirNames.Contains("sources", StringComparer.OrdinalIgnoreCase);
-            var hasBootDir = dirNames.Contains("boot", StringComparer.OrdinalIgnoreCase);
-
-            if (!hasSourcesDir || !hasBootDir)
-            {
-                var foundDirs = string.Join(", ", dirNames);
-                _logService.LogError($"ISO extraction verification failed. Expected 'sources' and 'boot' folders. Found: {foundDirs}");
-                return false;
-            }
+            cancellationToken.ThrowIfCancellationRequested();
+            if (!WindowsSetupMedia.HasRequiredFiles(_fileSystemService, workingDirectory))
+                throw new IOException("The extracted media is missing Windows Setup or its boot and installation images.");
 
             progress?.Report(new TaskProgressDetail
             {
@@ -223,23 +209,6 @@ public class IsoService : IIsoService
         catch (OperationCanceledException)
         {
             _logService.LogInformation("ISO extraction was cancelled");
-
-            if (isoMounted)
-            {
-                try
-                {
-                    _logService.LogInformation("Dismounting ISO due to cancellation");
-                    await _processExecutor.ExecuteAsync(
-                        "powershell.exe",
-                        $"-NoProfile -Command \"Dismount-DiskImage -ImagePath '{isoLiteral}'\"").ConfigureAwait(false);
-                    _logService.LogInformation("ISO dismounted successfully");
-                }
-                catch (Exception dismountEx)
-                {
-                    _logService.LogWarning($"Failed to dismount ISO on cancellation: {dismountEx.Message}");
-                }
-            }
-
             throw;
         }
         catch (InsufficientDiskSpaceException)
@@ -249,22 +218,6 @@ public class IsoService : IIsoService
         catch (Exception ex)
         {
             _logService.LogError($"Error extracting ISO: {ex.Message}", ex);
-
-            if (isoMounted)
-            {
-                try
-                {
-                    _logService.LogInformation("Dismounting ISO due to error");
-                    await _processExecutor.ExecuteAsync(
-                        "powershell.exe",
-                        $"-NoProfile -Command \"Dismount-DiskImage -ImagePath '{isoLiteral}'\"").ConfigureAwait(false);
-                }
-                catch (Exception dismountEx)
-                {
-                    _logService.LogWarning($"Failed to dismount ISO on error: {dismountEx.Message}");
-                }
-            }
-
             progress?.Report(new TaskProgressDetail
             {
                 StatusText = _localization.GetString("Progress_IsoExtractionFailed"),
@@ -272,6 +225,22 @@ public class IsoService : IIsoService
             });
             return false;
         }
+        finally
+        {
+            if (isoMounted)
+            {
+                try { await DismountIsoAsync(isoLiteral).ConfigureAwait(false); }
+                catch (Exception ex) { _logService.LogWarning($"Could not release the mounted ISO: {ex.Message}"); }
+            }
+        }
+    }
+
+    private async Task DismountIsoAsync(string isoLiteral)
+    {
+        var result = await _processExecutor.ExecuteAsync("powershell.exe",
+            $"-NoProfile -Command \"Dismount-DiskImage -ImagePath '{isoLiteral}' -ErrorAction Stop\"").ConfigureAwait(false);
+        if (!result.Succeeded)
+            throw new IOException($"Windows could not dismount the ISO: {result.StandardError}");
     }
 
     /// <summary>Owns the temporary ISO and publishes it only after successful creation and validation.</summary>

@@ -75,6 +75,14 @@ public sealed partial class SettingsCardItem : UserControl
                     $"Applying {vm.Name}",
                     "SettingApplying");
             }
+            else if (vm.LastApplyFailed)
+            {
+                peer?.RaiseNotificationEvent(
+                    AutomationNotificationKind.ActionAborted,
+                    AutomationNotificationProcessing.ImportantMostRecent,
+                    $"Could not apply {vm.Name}",
+                    "SettingApplyFailed");
+            }
             else
             {
                 var stateText = GetSettingStateText(vm);

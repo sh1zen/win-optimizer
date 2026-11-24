@@ -6,6 +6,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Automation.Provider;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Moq;
@@ -130,20 +131,40 @@ public sealed partial class JournalTestApplication(string outputDirectory) : Win
                 var point = element.TransformToVisual(shell).TransformPoint(default);
                 Assert.True(element.ActualWidth > 0 && point.X >= -1 && point.X + element.ActualWidth <= shell.ActualWidth + 1, $"{child} exceeds width {width}.");
             }
+            Assert.True(((ListView)control.FindName("TopicGroups")).ActualHeight >= 180, "The filters must leave room for the activity list.");
             await CaptureAsync(shell, $"journal-{language}-{theme}-{width}.png");
             if (width != 1000) continue;
             var settings = vm.Groups.Single(group => group.Topic == LogTopic.Settings);
             settings.IsExpanded = true;
-            ((ListView)control.FindName("TopicGroups")).ScrollIntoView(settings);
+            var topicGroups = (ListView)control.FindName("TopicGroups");
+            topicGroups.ScrollIntoView(settings);
             await Task.Delay(200); await CaptureAsync(shell, $"journal-changes-{language}-{theme}.png");
+            var topicGroup = (ListViewItem)topicGroups.ContainerFromItem(settings);
+            var detailsButton = Assert.IsType<ToggleButton>(FindVisual(topicGroup, "ShowDetails"));
+            var details = Assert.IsType<Border>(FindVisual(topicGroup, "TechnicalDetails"));
+            Assert.Equal(Visibility.Collapsed, details.Visibility);
+            var toggle = (IToggleProvider)new ToggleButtonAutomationPeer(detailsButton).GetPattern(PatternInterface.Toggle);
+            toggle.Toggle();
+            Assert.Equal(Visibility.Visible, details.Visibility);
+            toggle.Toggle();
+            Assert.Equal(Visibility.Collapsed, details.Visibility);
             settings.IsExpanded = false;
             vm.SearchText = "disk"; await vm.PendingRead;
             Assert.Single(vm.Entries); Assert.Equal(LogTopic.Updates, vm.Entries[0].Record.Topic);
             vm.SearchText = ""; await vm.PendingRead;
-            ((ComboBox)control.FindName("KindFilter")).SelectedIndex = (int)JournalFilter.Problems; await vm.PendingRead;
+            var topicFilter = (ComboBox)control.FindName("TopicFilter");
+            topicFilter.SelectedIndex = Array.IndexOf(Enum.GetValues<LogTopic>(), LogTopic.Settings) + 1;
+            await vm.PendingRead;
+            Assert.NotEmpty(vm.Entries);
+            Assert.All(vm.Entries, entry => Assert.Equal(LogTopic.Settings, entry.Record.Topic));
+            topicFilter.SelectedIndex = 0;
+            await vm.PendingRead;
+            var kindFilter = (ComboBox)control.FindName("KindFilter");
+            kindFilter.SelectedIndex = (int)JournalFilter.Problems; await vm.PendingRead;
             Assert.Single(vm.Entries); Assert.True(vm.Entries[0].Record.IsProblem);
+            Assert.Equal((int)JournalFilter.Problems, kindFilter.SelectedIndex);
             await Task.Delay(200); await CaptureAsync(shell, $"journal-problems-{language}-{theme}.png");
-            ((ComboBox)control.FindName("KindFilter")).SelectedIndex = (int)JournalFilter.All; await vm.PendingRead;
+            kindFilter.SelectedIndex = (int)JournalFilter.All; await vm.PendingRead;
             var button = (Button)control.FindName("ClearLogsButton");
             ((IInvokeProvider)new ButtonAutomationPeer(button).GetPattern(PatternInterface.Invoke)).Invoke();
             await Task.Delay(200);
@@ -152,6 +173,14 @@ public sealed partial class JournalTestApplication(string outputDirectory) : Win
             logs.Verify(service => service.ClearAsync(It.IsAny<CancellationToken>()), Times.Once);
         }
         Console.WriteLine("PASS: real grouped control, search, problem filters, native clear action, EN/IT, both themes and three widths. Synthetic storage only.");
+    }
+
+    private static FrameworkElement? FindVisual(DependencyObject root, string name)
+    {
+        if (root is FrameworkElement element && element.Name == name) return element;
+        for (var index = 0; index < VisualTreeHelper.GetChildrenCount(root); index++)
+            if (FindVisual(VisualTreeHelper.GetChild(root, index), name) is { } child) return child;
+        return null;
     }
 
     private async Task CaptureAsync(UIElement root, string name)

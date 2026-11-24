@@ -1,7 +1,10 @@
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
+using WinOptimizer.Application.Extensions.DI;
+using WinOptimizer.Core.Features.AdvancedTools.Experimental;
 using WinOptimizer.Core.Features.Common.Events;
 using WinOptimizer.Core.Features.Common.Interfaces;
+using WinOptimizer.Core.Features.Optimize.Interfaces;
 using WinOptimizer.Infrastructure.Extensions.DI;
 using Xunit;
 
@@ -10,6 +13,19 @@ namespace WinOptimizer.IntegrationTests.DI;
 [Trait("Category", "Integration")]
 public class InfrastructureContainerSmokeTests
 {
+    [Fact]
+    public void ExperimentalFeaturesResolveThroughApplicationAndInfrastructure()
+    {
+        var services = new ServiceCollection();
+        services.AddInfrastructureServices().AddApplicationServices();
+        services.AddSingleton(Moq.Mock.Of<IInteractiveUserService>());
+        using var provider = services.BuildServiceProvider();
+
+        Assert.Same(provider.GetRequiredService<IExperimentalFeatures>(), provider.GetRequiredService<IExperimentalFeatures>());
+        Assert.NotNull(provider.GetRequiredService<IExperimentalFeatureBackend>());
+        Assert.NotNull(provider.GetRequiredService<IExperimentalRecoveryStore>());
+    }
+
     [Fact]
     public void AppDiscoveryAndRemovalResolveThroughTheAccountBoundaries()
     {
@@ -39,65 +55,50 @@ public class InfrastructureContainerSmokeTests
         return services.BuildServiceProvider();
     }
 
-    [Theory]
-    [InlineData(typeof(ILogService))]
-    [InlineData(typeof(IWindowsRegistryService))]
-    [InlineData(typeof(IFileSystemService))]
-    [InlineData(typeof(IWindowsVersionService))]
-    [InlineData(typeof(IEventBus))]
-    [InlineData(typeof(ILocalizationService))]
-    [InlineData(typeof(IInteractiveUserService))]
-    [InlineData(typeof(IProcessExecutor))]
-    [InlineData(typeof(WinOptimizer.Core.Features.Cleaner.Interfaces.ICleanerService))]
-    [InlineData(typeof(IUserPreferencesService))]
-    [InlineData(typeof(ICompatibleSettingsRegistry))]
-    [InlineData(typeof(IWindowsCompatibilityFilter))]
-    [InlineData(typeof(IHardwareCompatibilityFilter))]
-    [InlineData(typeof(IHardwareDetectionService))]
-    [InlineData(typeof(IPowerSettingsQueryService))]
-    [InlineData(typeof(IPowerSettingsValidationService))]
-    [InlineData(typeof(IComboBoxResolver))]
-    [InlineData(typeof(IComboBoxSetupService))]
-    [InlineData(typeof(ISystemSettingsDiscoveryService))]
-    [InlineData(typeof(ISettingApplicationService))]
-    [InlineData(typeof(IConfigImportState))]
-    [InlineData(typeof(IDependencyManager))]
-    [InlineData(typeof(IInitializationService))]
-    [InlineData(typeof(IGlobalSettingsRegistry))]
-    [InlineData(typeof(IGlobalSettingsPreloader))]
-    [InlineData(typeof(IScheduledTaskService))]
-    [InlineData(typeof(IVersionService))]
-    [InlineData(typeof(ITooltipDataService))]
-    [InlineData(typeof(IConfigurationApplicationBridgeService))]
-    [InlineData(typeof(IPolicyCleanupService))]
-    [InlineData(typeof(IChangeHistoryService))]
-    public void Resolve_CoreInfrastructureServices_AllNonNull(Type serviceType)
-    {
-        // Arrange
-        using var provider = BuildProvider();
-
-        // Act
-        var service = provider.GetService(serviceType);
-
-        // Assert
-        service.Should().NotBeNull($"service {serviceType.Name} should be resolvable from the DI container");
-    }
-
     [Fact]
-    public void Resolve_TaskProgressService_SharedInstance()
+    public void CoreInfrastructureServicesResolveFromTheSameContainer()
     {
-        // Arrange
         using var provider = BuildProvider();
+        Type[] serviceTypes =
+        [
+            typeof(IFileSystemService),
+            typeof(IWindowsVersionService),
+            typeof(IEventBus),
+            typeof(ILocalizationService),
+            typeof(IInteractiveUserService),
+            typeof(IProcessExecutor),
+            typeof(IInternetSpeedTest),
+            typeof(WinOptimizer.Core.Features.Cleaner.Interfaces.ICleanerService),
+            typeof(IUserPreferencesService),
+            typeof(ICompatibleSettingsRegistry),
+            typeof(IWindowsCompatibilityFilter),
+            typeof(IHardwareCompatibilityFilter),
+            typeof(IHardwareDetectionService),
+            typeof(IPowerSettingsQueryService),
+            typeof(IPowerSettingsValidationService),
+            typeof(IComboBoxResolver),
+            typeof(IComboBoxSetupService),
+            typeof(ISystemSettingsDiscoveryService),
+            typeof(ISettingApplicationService),
+            typeof(IConfigImportState),
+            typeof(IDependencyManager),
+            typeof(IInitializationService),
+            typeof(IGlobalSettingsRegistry),
+            typeof(IGlobalSettingsPreloader),
+            typeof(IScheduledTaskService),
+            typeof(IVersionService),
+            typeof(ITooltipDataService),
+            typeof(IConfigurationApplicationBridgeService),
+            typeof(IPolicyCleanupService),
+            typeof(IChangeHistoryService),
+        ];
 
-        // Act
-        var taskProgress = provider.GetService<ITaskProgressService>();
-        var multiScript = provider.GetService<IMultiScriptProgressService>();
+        foreach (var serviceType in serviceTypes)
+            provider.GetRequiredService(serviceType);
 
-        // Assert
-        taskProgress.Should().NotBeNull();
-        multiScript.Should().NotBeNull();
-        taskProgress.Should().BeSameAs(multiScript,
-            "ITaskProgressService and IMultiScriptProgressService should resolve to the same TaskProgressService instance");
+        provider.GetRequiredService<ILogService>().Should().BeSameAs(provider.GetRequiredService<ILogService>());
+        provider.GetRequiredService<IWindowsRegistryService>().Should().BeSameAs(provider.GetRequiredService<IWindowsRegistryService>());
+        provider.GetRequiredService<ITaskProgressService>().Should().BeSameAs(provider.GetRequiredService<ITaskProgressService>());
     }
 
     [Fact]
@@ -117,23 +118,6 @@ public class InfrastructureContainerSmokeTests
         using var provider = BuildProvider();
         provider.GetRequiredService<WinOptimizer.Infrastructure.Features.Cleaner.ICleanerRegistrySessions>()
             .Should().BeSameAs(provider.GetRequiredService<WinOptimizer.Infrastructure.Features.Cleaner.WindowsCleanerRegistrySessions>());
-    }
-
-    [Fact]
-    public void Resolve_AllSingletons_ReturnSameInstance()
-    {
-        // Arrange
-        using var provider = BuildProvider();
-
-        // Act
-        var log1 = provider.GetService<ILogService>();
-        var log2 = provider.GetService<ILogService>();
-        var registry1 = provider.GetService<IWindowsRegistryService>();
-        var registry2 = provider.GetService<IWindowsRegistryService>();
-
-        // Assert
-        log1.Should().BeSameAs(log2, "singleton ILogService should return same instance");
-        registry1.Should().BeSameAs(registry2, "singleton IWindowsRegistryService should return same instance");
     }
 
 }

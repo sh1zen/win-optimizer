@@ -2,21 +2,27 @@
 [CmdletBinding()]
 param(
     [string]$InstallerPath,
-    [string]$PublishDirectory
+    [string]$PublishDirectory,
+    [switch]$GitHubHostedRunner
 )
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..'))
 if (-not $InstallerPath) { $InstallerPath = Join-Path $repoRoot 'build/installers/win-optimizer.Installer.exe' }
 if (-not $PublishDirectory) { $PublishDirectory = Join-Path $repoRoot 'build/publish' }
+. (Join-Path $PSScriptRoot 'InstallerSandbox.ps1')
+if (-not (Test-InstallerTestEnvironment $PSScriptRoot -GitHubHostedRunner:$GitHubHostedRunner)) {
+    Invoke-InstallerSandboxTest -RepoRoot $repoRoot -InstallerPath $InstallerPath -PublishDirectory $PublishDirectory
+    return
+}
 $InstallerPath = (Resolve-Path -LiteralPath $InstallerPath).Path
 $PublishDirectory = (Resolve-Path -LiteralPath $PublishDirectory).Path.TrimEnd('\')
 
-# Validate startup prerequisites independently of equality with the publish directory.
+# Validate required distribution files before comparing the installed payload byte for byte.
 foreach ($required in @('win-optimizer.exe', 'win-optimizer.dll', 'win-optimizer.pri',
-        'coreclr.dll', 'Microsoft.UI.Xaml.dll')) {
+        'coreclr.dll', 'Microsoft.UI.Xaml.dll', 'LICENSE.txt', 'THIRD-PARTY-NOTICES.txt')) {
     if (-not (Test-Path -LiteralPath (Join-Path $PublishDirectory $required) -PathType Leaf)) {
-        throw "Required application/runtime file is missing: $required"
+        throw "Required published file is missing: $required"
     }
 }
 

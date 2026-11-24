@@ -9,6 +9,26 @@ namespace WinOptimizer.Infrastructure.Tests.Services;
 /// <summary>Exercises startup reconciliation without connecting to Windows Task Scheduler.</summary>
 public sealed class ScheduledTaskStartupTests
 {
+    [Fact]
+    public async Task StartupStateDistinguishesMissingDisabledAndInaccessibleTasks()
+    {
+        var missing = new COMException("Missing task", unchecked((int)0x80070002));
+        var denied = new COMException("Access denied", unchecked((int)0x80070005));
+        var folder = new StartupFolder();
+        var service = new ScheduledTaskService(Mock.Of<ILogService>(), Mock.Of<IFileSystemService>(), () => new StartupSession(folder));
+
+        folder.TaskLookupError = missing;
+        Assert.False(await service.IsUserLogonApplicationEnabledAsync("WinOptimizer-test"));
+        folder.TaskLookupError = null;
+        folder.Task = new(1);
+        Assert.False(await service.IsUserLogonApplicationEnabledAsync("WinOptimizer-test"));
+        folder.Task = new(3);
+        Assert.True(await service.IsUserLogonApplicationEnabledAsync("WinOptimizer-test"));
+        folder.TaskLookupError = denied;
+        var error = await Assert.ThrowsAsync<InvalidOperationException>(() => service.IsUserLogonApplicationEnabledAsync("WinOptimizer-test"));
+        Assert.Same(denied, error.InnerException);
+    }
+
     [Theory]
     [InlineData(true, false, unchecked((int)0x80070002))]
     [InlineData(true, false, unchecked((int)0x80070003))]
@@ -99,7 +119,15 @@ public sealed class ScheduledTaskStartupTests
     public sealed class StartupFolder
     {
         public Exception? DeleteError { get; init; }
+        public Exception? TaskLookupError { get; set; }
+        public StartupTask Task { get; set; } = new(3);
         public string? DeletedTask { get; private set; }
+        public StartupTask GetTask(string taskName)
+        {
+            Assert.Equal("WinOptimizer-test", taskName);
+            return TaskLookupError is { } error ? throw error : Task;
+        }
+
 
         public void DeleteTask(string taskName, int flags)
         {
@@ -108,4 +136,6 @@ public sealed class ScheduledTaskStartupTests
             if (DeleteError is not null) throw DeleteError;
         }
     }
+
+    public sealed record StartupTask(int State);
 }

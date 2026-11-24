@@ -32,7 +32,7 @@ public sealed class CleanerFilePerformanceTests(ITestOutputHelper output) : IDis
         var registry = new CleanerRegistryScanner(sessions, vault);
         var backups = new CleanerBackupService(vault, scanner, registry);
         var backend = new WindowsCleanerBackend(scanner, registry,
-            new RegistryHiveCompactor(sessions, vault, Mock.Of<IRegistryHiveOperations>()), Mock.Of<IProcessExecutor>());
+            new RegistryHiveCompactor(sessions, vault, Mock.Of<IRegistryHiveOperations>(), Mock.Of<IRegistryDefragBoot>()), Mock.Of<IProcessExecutor>());
         var service = new CleanerService(backend, backups);
         var relative = area == CleanerArea.Privacy ? @"Google\Chrome\User Data\Default\Cache" : "Temp";
         var paths = Enumerable.Range(0, count).Select(index => Path.Combine(_root, relative, (index % 16).ToString(), index + ".tmp")).ToArray();

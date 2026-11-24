@@ -1,7 +1,6 @@
 using FluentAssertions;
 using Moq;
 using WinOptimizer.Core.Features.Common.Interfaces;
-using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.Infrastructure.Features.Common.Services;
 using Xunit;
 
@@ -34,6 +33,7 @@ public class SystemBackupServiceTests
     {
         var result = await _sut.CreateRestorePointAsync();
         Assert.False(result.Success);
+        Assert.False(result.RestorePointCreated);
         result.ErrorMessage.Should().NotBeNullOrEmpty();
     }
 
@@ -49,8 +49,6 @@ public class SystemBackupServiceTests
                 It.IsAny<Exception?>()),
             Times.Once);
     }
-
-    // ── BackupResult model coverage ──
 
     [Theory]
     [InlineData("before")]
@@ -88,6 +86,7 @@ public class SystemBackupServiceTests
         clock.Advance();
         var result = await operation.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.True(result.Success);
+        Assert.Null(result.ErrorMessage);
         Assert.True(result.RestorePointCreated);
         Assert.Equal(date, result.RestorePointDate);
         Assert.Equal("Example backup", backend.Description);
@@ -163,29 +162,5 @@ public class SystemBackupServiceTests
             public void Dispose() => _active = false;
             public ValueTask DisposeAsync() { Dispose(); return ValueTask.CompletedTask; }
         }
-    }
-
-    [Fact]
-    public void BackupResult_CreateSuccess_SetsCorrectProperties()
-    {
-        var date = new DateTime(2025, 1, 15);
-        var result = BackupResult.CreateSuccess(
-            restorePointDate: date,
-            restorePointCreated: true);
-
-        result.Success.Should().BeTrue();
-        result.RestorePointDate.Should().Be(date);
-        result.RestorePointCreated.Should().BeTrue();
-        result.ErrorMessage.Should().BeNull();
-    }
-
-    [Fact]
-    public void BackupResult_CreateFailure_SetsCorrectProperties()
-    {
-        var result = BackupResult.CreateFailure("Something went wrong");
-
-        result.Success.Should().BeFalse();
-        result.ErrorMessage.Should().Be("Something went wrong");
-        result.RestorePointCreated.Should().BeFalse();
     }
 }

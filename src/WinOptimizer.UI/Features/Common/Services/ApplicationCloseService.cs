@@ -13,10 +13,11 @@ public class ApplicationCloseService : IApplicationCloseService
     private readonly IDialogService _dialogService;
 
     public Func<Task>? BeforeShutdown { get; set; }
+    public Func<Task>? BeforeRestart { get; set; }
 
     // Terminates the process. Replaced in tests so the test host survives.
     public Action ShutdownAction { get; set; } = DefaultShutdown;
-    /// <summary>Exits for installation even when normal closing retains a desktop widget.</summary>
+    /// <summary>Terminates the process after launching the installer.</summary>
     public Action RestartShutdownAction { get; set; } = DefaultShutdown;
     private Task<OperationResult>? _pendingClose;
 
@@ -96,7 +97,11 @@ public class ApplicationCloseService : IApplicationCloseService
             if (operation is not null) await WaitForOperationAsync(operation);
             if (_taskProgressService.IsTaskRunning && !ReferenceEquals(operation, _taskProgressService.CurrentTaskCancellationSource))
                 return OperationResult.Failed("Another operation started. Try closing again.");
-            launchInstaller?.Invoke();
+            if (launchInstaller is not null)
+            {
+                if (BeforeRestart is not null) await BeforeRestart.Invoke();
+                launchInstaller.Invoke();
+            }
             CloseApplication(launchInstaller is null ? ShutdownAction : RestartShutdownAction);
             return OperationResult.Succeeded();
         }

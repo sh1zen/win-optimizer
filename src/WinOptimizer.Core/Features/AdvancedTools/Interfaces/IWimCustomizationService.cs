@@ -13,6 +13,7 @@ public interface IWimCustomizationService
         IProgress<TaskProgressDetail>? progress = null,
         CancellationToken cancellationToken = default);
 
+    /// <exception cref="InvalidDataException">The file is not a well-formed Windows answer file.</exception>
     Task<bool> AddXmlToImageAsync(
         string xmlPath,
         string workingDirectory);

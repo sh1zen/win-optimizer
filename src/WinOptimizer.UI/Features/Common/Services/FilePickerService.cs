@@ -59,6 +59,17 @@ public class FilePickerService : IFilePickerService, IConfigurationFilePicker
         return Win32FileDialogHelper.ShowFolderPicker(window, title ?? "Select Folder");
     }
 
+    /// <summary>Opens the native multiple-file picker from a non-elevated desktop window.</summary>
+    public async Task<IReadOnlyList<string>> PickFilesAsync(IEnumerable<string> extensions)
+    {
+        var window = _mainWindowProvider.MainWindow ?? throw new InvalidOperationException("No main window.");
+        var picker = new Windows.Storage.Pickers.FileOpenPicker();
+        WinRT.Interop.InitializeWithWindow.Initialize(picker, WinRT.Interop.WindowNative.GetWindowHandle(window));
+        foreach (var extension in extensions) picker.FileTypeFilter.Add(extension);
+        var files = await picker.PickMultipleFilesAsync();
+        return files.Select(file => file.Path).ToArray();
+    }
+
     /// <inheritdoc />
     public string? PickSaveFile(string[] filters, string? suggestedFileName = null, string? defaultExtension = null)
     {

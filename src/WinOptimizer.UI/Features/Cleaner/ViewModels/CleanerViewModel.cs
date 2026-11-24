@@ -78,16 +78,17 @@ public partial class CleanerViewModel : ObservableObject, IDisposable
     private bool _areaSelectionEdited;
     private const string AreaSelectionPreference = "Cleaner.SelectedAreas";
     private CancellationTokenSource? _operationCts;
+    private IReadOnlyList<CleanerArea> _scanSelection = [];
     private CleanerOptions? _scannedOptions;
     private int _selectedCount;
     private long _selectedBytes;
     private readonly Dictionary<CleanerArea, CleanerCategoryReport> _reportsByArea = [];
-    private string? _applyFailure;
     private bool _reportCancelled;
     private int _reportErrorCount;
     private enum RunResult { Completed, Cancelled, Failed }
     public CleanerSettingsViewModel Settings { get; }
     public ObservableCollection<CleanerChoice<CleanerArea>> Areas { get; } = [];
+    public IReadOnlyList<CleanerScanAreaCard> ScanAreaCards { get; }
     public ObservableCollection<CleanerResultItem> Results { get; } = [];
     public ObservableCollection<SelectableResultGroup> ResultGroups { get; } = [];
     public ObservableCollection<CleanerCategoryReport> CategoryReports { get; } = [];
@@ -100,9 +101,21 @@ public partial class CleanerViewModel : ObservableObject, IDisposable
     public bool ShowCategoryReview => HasScanned && !HasCleanupReport;
     public string CategoriesLabel => Text("SystemInfo_Categories");
     public string NoSelectableItemsLabel => Text("Cleaner_NoSelectableResults");
-    [ObservableProperty] [NotifyPropertyChangedFor(nameof(IsIdle), nameof(CanChooseAreas), nameof(CanSelectResults), nameof(HasStatus), nameof(HasScanStatus), nameof(ReportState))]
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(IsIdle), nameof(CanChooseAreas), nameof(CanSelectResults), nameof(HasStatus), nameof(HasScanStatus), nameof(ReportDescription))]
     [NotifyCanExecuteChangedFor(nameof(ScanCommand), nameof(ApplyCommand))]
     public partial bool IsBusy { get; set; }
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(CategorySummary), nameof(AreasLabel))]
+    [NotifyCanExecuteChangedFor(nameof(CancelScanCommand), nameof(ShowScanDetailsCommand))]
+    public partial bool IsScanning { get; private set; }
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ScanProgressDescription))]
+    [NotifyCanExecuteChangedFor(nameof(CancelScanCommand))]
+    public partial bool IsScanCancelling { get; private set; }
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ScanProgressTitle), nameof(ScanProgressDescription), nameof(ScanIcon),
+        nameof(IsScanIndeterminate), nameof(ScanPercentage))]
+    public partial CleanerProgress? ScanProgress { get; private set; }
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(CanChooseAreas))]
     [NotifyCanExecuteChangedFor(nameof(ScanCommand))]
     public partial bool IsLoadingSelection { get; private set; }
@@ -111,14 +124,15 @@ public partial class CleanerViewModel : ObservableObject, IDisposable
     public bool HasAreaSelectionError => !string.IsNullOrEmpty(AreaSelectionError);
     public bool CanChooseAreas => IsIdle && !IsLoadingSelection;
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(HasStatus), nameof(HasScanStatus))] public partial string Status { get; set; } = "";
-    [ObservableProperty] [NotifyPropertyChangedFor(nameof(HasNotices), nameof(ReportDetails), nameof(HasReportDetails))] public partial string Notices { get; set; } = "";
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(HasNotices), nameof(ShowScanNotices))] public partial string Notices { get; set; } = "";
     [ObservableProperty] public partial bool AreDetailsExpanded { get; set; }
-    [ObservableProperty] public partial bool HasCleanupReport { get; private set; }
+    [ObservableProperty] [NotifyPropertyChangedFor(nameof(ShowScanNotices))] public partial bool HasCleanupReport { get; private set; }
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(HasScanStatus), nameof(HasEmptyResults), nameof(RequiresRescan), nameof(CanSelectResults))] public partial bool HasScanned { get; private set; }
     public bool IsIdle => !IsBusy;
     public bool HasStatus => IsIdle && !string.IsNullOrWhiteSpace(Status);
     public bool HasScanStatus => HasStatus && !HasScanned && !HasCleanupReport;
     public bool HasNotices => !string.IsNullOrWhiteSpace(Notices);
+    public bool ShowScanNotices => !HasCleanupReport && HasNotices;
     public bool HasResults => Results.Count > 0;
     public bool HasEmptyResults => HasScanned && !HasResults;
     public bool RequiresRescan => HasScanned && !ReferenceEquals(_scannedOptions, Settings.Options);
@@ -132,7 +146,7 @@ public partial class CleanerViewModel : ObservableObject, IDisposable
     public int RemovedCount => CategoryReports.Sum(report => report.RemovedCount);
     public int ReportErrorCount => _reportErrorCount;
     public string ReportTitle => HasCleanupReport ? Text("Cleaner_ReportTitle") : ResultsLabel;
-    public string ReportDescription => HasCleanupReport ? Text("Cleaner_ReportNote") : ReviewDescription;
+    public string ReportDescription => HasCleanupReport ? ReportState : ReviewDescription;
     public string OutcomeLabel => HasCleanupReport ? Text("Cleaner_ReportRemoved") : SelectedLabel;
     public int OutcomeCount => HasCleanupReport ? RemovedCount : SelectedCount;
     public string IssueLabel => Text(HasCleanupReport ? "Cleaner_ReportErrors" : "Cleaner_ReportProtected");
@@ -141,15 +155,14 @@ public partial class CleanerViewModel : ObservableObject, IDisposable
         ? CategoryReports.Any(report => report.HasFileSelection)
             ? CleanerVisuals.FormatSize(CategoryReports.Sum(report => report.EstimatedFreedFileBytes)) : "—"
         : SelectedSize;
-    public string ReportState => !HasCleanupReport || IsBusy ? "" : _reportCancelled ? Text("Cleaner_ReportCancelled")
-        : _reportErrorCount > 0 ? $"{_reportErrorCount:N0} {Text("Cleaner_ReportErrors")}" : Text("Logs_Level_Success");
-    public string ReportDetails => string.Join(Environment.NewLine, new[] { Notices, _applyFailure }.Where(text => !string.IsNullOrWhiteSpace(text)));
-    public bool HasReportDetails => HasNotices || !string.IsNullOrWhiteSpace(_applyFailure);
-    public string CategorySummary => string.Format(Text("Cleaner_CategorySummary"), Areas.Count(x => x.IsSelected), Areas.Count);
+    private string ReportState => IsBusy ? "" : _reportCancelled ? Text("Cleaner_ReportCancelled")
+        : _reportErrorCount > 0 ? Text("Logs_Level_Warning") : Text("Logs_Level_Success");
+    public string CategorySummary => string.Format(Text("Cleaner_CategorySummary"),
+        IsScanning ? _scanSelection.Count : Areas.Count(area => area.IsSelected), Areas.Count);
     public string ReviewDescription => Text("Cleaner_ReviewDescription");
-    public string DetailsLabel => Text("Logs_Details");
+    public string CloseLabel => Text("Button_Close");
     public string ReviewLabel => Text("Cleaner_ReviewResults");
-    public string AreasLabel => Text("Cleaner_Areas");
+    public string AreasLabel => Text(IsScanning ? "Cleaner_ScanAreas" : "Cleaner_Areas");
     public string FoundLabel => Text("Cleaner_Found");
     public string SelectedLabel => Text("Cleaner_Selected");
     public string SpaceLabel => Text(HasCleanupReport ? "Cleaner_ReportFreed" : "Cleaner_SelectedSpace");
@@ -161,6 +174,28 @@ public partial class CleanerViewModel : ObservableObject, IDisposable
     public string EventsCleanupDisplayName => Text("EventsCleanup_Title");
     public string EventsCleanupDescription => Text("EventsCleanup_TitleDescription");
     public string ScanLabel => Text("Cleaner_Scan");
+    public string ScanInProgressLabel => Text("Cleaner_ScanInProgress");
+    public string CancelScanLabel => Text("Cleaner_CancelScan");
+    public string ScanDetailsLabel => Text("Cleaner_ViewScanDetails");
+    public string ScanResultsHint => Text("Cleaner_ScanResultsHint");
+    public string ReviewStepLabel => Text("Cleaner_ReviewStepLabel");
+    public string CleanStepLabel => Text("Cleaner_CleanStepLabel");
+    private CleanerArea? ActiveScanArea => ScanProgress?.ScanStage?.ActiveArea;
+    public FluentIcons.Common.Icon ScanIcon => ActiveScanArea is { } area ? CleanerVisuals.IconFor(area) : FluentIcons.Common.Icon.Broom;
+    public bool IsScanIndeterminate => ScanProgress?.IsIndeterminate ?? true;
+    public double ScanPercentage => ScanProgress?.Percentage ?? 0;
+    public string ScanProgressTitle => Text(ActiveScanArea is { } area ? "Cleaner_Scanning_" + area :
+        ScanProgress?.ScanStage is { } stage && stage.CompletedAreas == stage.Areas.Count ? "Cleaner_PreparingReview" : "Cleaner_ScanActive");
+    public string ScanProgressDescription
+    {
+        get
+        {
+            if (IsScanCancelling) return Text("Progress_Cancelling");
+            if (ScanProgress is { ScanStage.ActiveArea: null }) return "";
+            return ScanProgress is { IsIndeterminate: false } value ? FormatProgress(value, ProgressMessage(value)) :
+                Text(ActiveScanArea == CleanerArea.Shortcuts ? "Cleaner_ShortcutInventory" : "Cleaner_Discovering");
+        }
+    }
     public string ApplyLabel => Text("Cleaner_Apply");
     public string SelectAllLabel => Text("Cleaner_SelectAll");
     public string ClearLabel => Text("Cleaner_ClearSelection");
@@ -183,6 +218,7 @@ public partial class CleanerViewModel : ObservableObject, IDisposable
             choice.PropertyChanged += OnSelectionChanged;
             Areas.Add(choice);
         }
+        ScanAreaCards = Areas.Select(choice => new CleanerScanAreaCard(choice, localization)).ToArray();
         Settings.PropertyChanged += OnSettingsChanged;
         _localization.LanguageChanged += OnLanguageChanged;
     }
@@ -276,6 +312,14 @@ public partial class CleanerViewModel : ObservableObject, IDisposable
         var selectedAreas = Areas.Where(area => area.IsSelected).Select(area => area.Value).ToArray();
         var completed = await RunAsync(async ct =>
         {
+            _scanSelection = selectedAreas;
+            IsScanning = true;
+            var owner = _operationCts;
+            IProgress<bool> cancellation = new Progress<bool>(_ =>
+            {
+                if (IsScanning && ReferenceEquals(owner, _operationCts)) IsScanCancelling = true;
+            });
+            using var registration = ct.Register(() => cancellation.Report(true));
             ClearResults();
             HasScanned = false;
             Notices = "";
@@ -326,6 +370,44 @@ public partial class CleanerViewModel : ObservableObject, IDisposable
         RefreshReport();
     }
 
+    private bool CanCancelScan() => IsScanning && !IsScanCancelling;
+
+    /// <summary>Requests cancellation on the same task observed by the shell.</summary>
+    [RelayCommand(CanExecute = nameof(CanCancelScan))]
+    private void CancelScan()
+    {
+        if (!CanCancelScan()) return;
+        IsScanCancelling = true;
+        _operationCts?.Cancel();
+    }
+
+    /// <summary>Shows the active task output and its subsequent updates.</summary>
+    [RelayCommand(CanExecute = nameof(IsScanning))]
+    private Task ShowScanDetailsAsync() => _dialogs.ShowTaskOutputDialogAsync(
+        Text("Dialog_TerminalOutput_Title"), _tasks.GetTerminalOutputLines());
+
+    partial void OnIsScanningChanged(bool value) => RefreshScanAreas();
+
+    partial void OnScanProgressChanged(CleanerProgress? oldValue, CleanerProgress? newValue)
+    {
+        if (!ReferenceEquals(oldValue?.ScanStage, newValue?.ScanStage)) RefreshScanAreas();
+    }
+
+    /// <summary>Derives each card's status from the frozen selection and ordered scan progress.</summary>
+    private void RefreshScanAreas()
+    {
+        var stage = ScanProgress?.ScanStage;
+        var completed = stage?.Areas.Take(stage.CompletedAreas) ?? [];
+        foreach (var card in ScanAreaCards)
+        {
+            var area = card.Choice.Value;
+            card.SetState(!IsScanning ? CleanerAreaScanState.Ready :
+                !_scanSelection.Contains(area) ? CleanerAreaScanState.NotSelected :
+                stage?.ActiveArea == area ? CleanerAreaScanState.Scanning :
+                completed.Contains(area) ? CleanerAreaScanState.Scanned : CleanerAreaScanState.Queued);
+        }
+    }
+
     [RelayCommand(CanExecute = nameof(CanApply))]
     private async Task ApplyAsync()
     {
@@ -333,16 +415,21 @@ public partial class CleanerViewModel : ObservableObject, IDisposable
         if (_tasks.IsTaskRunning) { Status = Text("Cleaner_Wait"); return; }
         if (!await Settings.FlushAsync()) { Status = Settings.Status; return; }
         if (!ReferenceEquals(_scannedOptions, Settings.Options)) { Status = Text("Cleaner_Rescan"); return; }
-        var ids = Results.Where(x => x.IsSelected).Select(x => x.Finding.Id).ToArray();
+        var selected = Results.Where(x => x.IsSelected).Select(x => x.Finding).ToArray();
+        var ids = selected.Select(finding => finding.Id).ToArray();
         // Lock both commands while the confirmation dialog is open.
         IsBusy = true;
         try
         {
             var answer = await _dialogs.ShowConfirmationAsync(new ConfirmationRequest
             {
-                Title = Title, Message = string.Format(Text("Cleaner_Confirm"), ids.Length) + Environment.NewLine +
-                    Text(Settings.Options.BackupBeforeCleaning ? "Cleaner_BackupOn" : "Cleaner_BackupOff") + Environment.NewLine +
-                    Text(Settings.Options.BackupBeforeRegistryDefrag ? "Cleaner_HiveBackupOn" : "Cleaner_HiveBackupOff"),
+                Title = Title, Message = string.Join(Environment.NewLine, new[]
+                {
+                    string.Format(Text("Cleaner_Confirm"), ids.Length),
+                    selected.Any(finding => finding.Target is CleanerFileTarget or CleanerRegistryTarget)
+                        ? Text(Settings.Options.BackupBeforeCleaning ? "Cleaner_BackupOn" : "Cleaner_BackupOff") : null,
+                    selected.Any(finding => finding.Target is CleanerHiveTarget) ? Text("Cleaner_RegistryDefragConfirmation") : null
+                }.Where(message => !string.IsNullOrWhiteSpace(message))),
                 ConfirmButtonText = ApplyLabel, CancelButtonText = CancelLabel
             });
             if (!answer.Confirmed) return;
@@ -361,6 +448,7 @@ public partial class CleanerViewModel : ObservableObject, IDisposable
         HasCleanupReport = true;
         AreDetailsExpanded = false;
         RefreshReport();
+        var scheduled = false;
         var run = await RunAsync(async ct =>
         {
             var result = await _cleaner.ApplyAsync(ids, CreateProgress(), ct);
@@ -369,6 +457,8 @@ public partial class CleanerViewModel : ObservableObject, IDisposable
             _reportErrorCount = result.Errors.Count;
             _reportCancelled = result.IsCancelled;
             Status = result.IsCancelled ? Text("Cleaner_Cancelled") : string.Format(Text("Cleaner_ApplyComplete"), result.Completed, result.Errors.Count);
+            scheduled = result.Scheduled > 0;
+            if (scheduled) Status += $"{Environment.NewLine}{Text("Cleaner_RegistryDefragScheduled")}";
             Notices = string.Join(Environment.NewLine, new[] { Notices }.Concat(result.Errors).Where(text => !string.IsNullOrWhiteSpace(text)));
             // Keep the final outcome in task details even when coalesced progress never reaches the footer.
             var output = result.Errors.Count > 0 ? $"{Status}{Environment.NewLine}{Notices}" : Status;
@@ -380,8 +470,12 @@ public partial class CleanerViewModel : ObservableObject, IDisposable
                 LogLevel = result.Errors.Count > 0 ? WinOptimizer.Core.Features.Common.Enums.LogLevel.Error : WinOptimizer.Core.Features.Common.Enums.LogLevel.Info
             });
         });
-        if (run == RunResult.Cancelled) _reportCancelled = true;
-        if (run == RunResult.Failed) { _applyFailure = Status; _reportErrorCount++; }
+        if (run == RunResult.Cancelled)
+        {
+            _reportCancelled = true;
+            if (scheduled) Status += $"{Environment.NewLine}{Text("Cleaner_RegistryDefragScheduled")}";
+        }
+        if (run == RunResult.Failed) _reportErrorCount++;
         _scannedOptions = null;
         RefreshReviewState();
         RefreshReport();
@@ -419,6 +513,13 @@ public partial class CleanerViewModel : ObservableObject, IDisposable
         }
         finally
         {
+            if (IsScanning)
+            {
+                IsScanning = false;
+                ScanProgress = null;
+                IsScanCancelling = false;
+                _scanSelection = [];
+            }
             _operationCts = null;
             if (cts is not null) _tasks.CompleteTask();
             IsBusy = false;
@@ -432,10 +533,11 @@ public partial class CleanerViewModel : ObservableObject, IDisposable
         {
             // Ignore callbacks queued by an operation that has already stopped or been cancelled.
             if (!IsBusy || !ReferenceEquals(owner, _operationCts) || owner?.IsCancellationRequested != false) return;
-            var message = value.Message.StartsWith("Cleaner_", StringComparison.Ordinal) ? Text(value.Message) : value.Message;
+            if (IsScanning && value.ScanStage is not null) ScanProgress = value;
+            var message = ProgressMessage(value);
             var status = value.IsIndeterminate
                 ? $"{message} — {Text("Cleaner_Discovering")}: {value.Completed:N0}"
-                : string.Format(Text("Cleaner_MeasuredProgress"), message, value.Stage, value.Stages, value.Completed, value.Total, value.Percentage);
+                : FormatProgress(value, message);
             _tasks.UpdateDetailedProgress(new TaskProgressDetail
             {
                 Progress = value.Percentage, IsIndeterminate = value.IsIndeterminate,
@@ -443,6 +545,12 @@ public partial class CleanerViewModel : ObservableObject, IDisposable
             });
         });
     }
+
+    private string ProgressMessage(CleanerProgress value) =>
+        value.Message.StartsWith("Cleaner_", StringComparison.Ordinal) ? Text(value.Message) : value.Message;
+
+    private string FormatProgress(CleanerProgress value, string message) =>
+        string.Format(Text("Cleaner_MeasuredProgress"), message, value.Stage, value.Stages, value.Completed, value.Total, value.Percentage);
 
     [RelayCommand] private void SelectAll() { if (CanSelectResults) foreach (var result in Results) result.IsSelected = true; }
     [RelayCommand] private void ClearSelection() { if (CanSelectResults) foreach (var result in Results) result.IsSelected = false; }
@@ -457,7 +565,6 @@ public partial class CleanerViewModel : ObservableObject, IDisposable
         _reportsByArea.Clear();
         HasCleanupReport = false;
         AreDetailsExpanded = false;
-        _applyFailure = null;
         _reportCancelled = false;
         _reportErrorCount = 0;
         _selectedCount = 0;
@@ -515,6 +622,7 @@ public partial class CleanerViewModel : ObservableObject, IDisposable
     {
         OnPropertyChanged(string.Empty);
         foreach (var area in Areas) area.RefreshText();
+        foreach (var card in ScanAreaCards) card.RefreshText();
         foreach (var result in Results) result.RefreshText();
         foreach (var group in ResultGroups) group.RefreshText();
         foreach (var report in CategoryReports) report.RefreshText();
@@ -525,8 +633,8 @@ public partial class CleanerViewModel : ObservableObject, IDisposable
     {
         foreach (var property in new[] { nameof(HasCleanupReport), nameof(HasSummary), nameof(ShowReviewItems), nameof(ShowCategoryReview),
             nameof(RemovedCount), nameof(ReportErrorCount), nameof(ReportTitle), nameof(ReportDescription), nameof(OutcomeLabel),
-            nameof(OutcomeCount), nameof(IssueLabel), nameof(IssueCount), nameof(ReportSpace), nameof(SpaceLabel), nameof(ReportState),
-            nameof(ReportDetails), nameof(HasReportDetails), nameof(HasScanStatus) }) OnPropertyChanged(property);
+            nameof(OutcomeCount), nameof(IssueLabel), nameof(IssueCount), nameof(ReportSpace), nameof(SpaceLabel),
+            nameof(HasScanStatus) }) OnPropertyChanged(property);
     }
     public void Dispose()
     {

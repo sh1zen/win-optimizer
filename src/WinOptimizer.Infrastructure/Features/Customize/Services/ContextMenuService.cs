@@ -1,6 +1,8 @@
 using WinOptimizer.Core.Features.Common.Enums;
 using WinOptimizer.Core.Features.Common.Interfaces;
+using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.Core.Features.Customize.Interfaces;
+using WinOptimizer.Infrastructure.Features.Common.Services;
 
 namespace WinOptimizer.Infrastructure.Features.Customize.Services;
 
@@ -12,7 +14,7 @@ public interface IContextMenuStore
 }
 
 /// <summary>Serializes inventory and edits, requiring a known, unchanged registration and normal mode.</summary>
-public sealed class ContextMenuService(IContextMenuStore store, IApplicationModeService mode) : IContextMenuService
+public sealed class ContextMenuService(IContextMenuStore store, IApplicationModeService mode, TimeMachineStore? timeMachine = null) : IContextMenuService
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
     private IReadOnlyList<ContextMenuEntry> _entries = [];
@@ -36,6 +38,9 @@ public sealed class ContextMenuService(IContextMenuStore store, IApplicationMode
                 throw new InvalidOperationException("This registration is no longer in the loaded inventory. Refresh before changing it.");
             var result = await Task.Run(() => store.SetEnabled(entry, enabled)).ConfigureAwait(false);
             _entries = _entries.Select(item => item.Id == result.Id ? result : item).ToArray();
+            if (entry.IsEnabled != result.IsEnabled)
+                timeMachine?.Record(LogTopic.Settings, $"{result.ProgramName} · {result.Name}",
+                    result.IsEnabled ? "Context menu entry enabled" : "Context menu entry disabled");
             return result;
         }
         finally { _gate.Release(); }

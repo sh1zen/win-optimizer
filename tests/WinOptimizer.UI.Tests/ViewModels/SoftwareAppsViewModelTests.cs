@@ -101,7 +101,7 @@ public class SoftwareAppsViewModelTests
             _configReviewModeService.Object,
             _configReviewBadgeService.Object,
             _applicationModeService.Object,
-            Mock.Of<WinOptimizer.Core.Features.SoftwareApps.Interfaces.IUninstallResidueReview>(), CreateLeftoverVm());
+            Mock.Of<IUninstallResidueReview>(), CreateLeftoverVm());
     }
 
     private LeftoverAppsViewModel CreateLeftoverVm() => new(Mock.Of<ILeftoverService>(), _parentLocalizationService.Object,
@@ -228,6 +228,7 @@ public class SoftwareAppsViewModelTests
     [InlineData("Card", SoftwareAppsViewMode.Card)]
     [InlineData("Table", SoftwareAppsViewMode.Table)]
     [InlineData("Compact", SoftwareAppsViewMode.Compact)]
+    [InlineData("Garbage", SoftwareAppsViewMode.Card)]
     public void InitializePresentationRestoresLayoutWithoutLoadingInventory(string saved, SoftwareAppsViewMode expected)
     {
         _userPreferencesService.Setup(service => service.GetPreference("SoftwareAppsViewMode", "Card")).Returns(saved);
@@ -251,28 +252,6 @@ public class SoftwareAppsViewModelTests
     }
 
     [Fact]
-    public async Task InitializeAsync_SubscribesOnlyOnce()
-    {
-        _userPreferencesService.Setup(u => u.GetPreference("SoftwareAppsViewMode", "Card"))
-            .Returns("Table");
-        _windowsAppsService.Setup(s => s.GetAppsAsync())
-            .ReturnsAsync(Enumerable.Empty<ItemDefinition>());
-        _externalAppsService.Setup(s => s.ReadInventoryAsync())
-            .ReturnsAsync(new ExternalAppInventory([], _externalAppsService.Object.CheckBatchInstalledAsync));
-        _windowsAppsService.Setup(s => s.CheckBatchInstalledAsync(It.IsAny<IEnumerable<ItemDefinition>>()))
-            .ReturnsAsync(new Dictionary<string, bool>());
-        _externalAppsService.Setup(s => s.CheckBatchInstalledAsync(It.IsAny<IEnumerable<ItemDefinition>>()))
-            .ReturnsAsync(new Dictionary<string, bool>());
-
-        var sut = CreateSut();
-
-        await sut.InitializeAsync();
-        await sut.InitializeAsync(); // second call should not re-subscribe
-
-        _userPreferencesService.Verify(u => u.GetPreference("SoftwareAppsViewMode", "Card"), Times.Once);
-    }
-
-    [Fact]
     public void ActionChoice_SyncsSoftwareAppsReviewedState()
     {
         _configReviewBadgeService.Setup(s => s.IsFeatureInConfig(It.IsAny<string>())).Returns(false);
@@ -283,26 +262,6 @@ public class SoftwareAppsViewModelTests
 
         _configReviewBadgeService.VerifySet(s => s.IsSoftwareAppsReviewed = It.IsAny<bool>(), Times.AtLeastOnce);
         _configReviewBadgeService.Verify(s => s.NotifyBadgeStateChanged(), Times.AtLeastOnce);
-    }
-
-    [Fact]
-    public async Task ViewMode_FallsBackToCard_WhenPreferenceIsUnknown()
-    {
-        _userPreferencesService.Setup(u => u.GetPreference("SoftwareAppsViewMode", "Card"))
-            .Returns("Garbage");
-        _windowsAppsService.Setup(s => s.GetAppsAsync())
-            .ReturnsAsync(Enumerable.Empty<ItemDefinition>());
-        _externalAppsService.Setup(s => s.ReadInventoryAsync())
-            .ReturnsAsync(new ExternalAppInventory([], _externalAppsService.Object.CheckBatchInstalledAsync));
-        _windowsAppsService.Setup(s => s.CheckBatchInstalledAsync(It.IsAny<IEnumerable<ItemDefinition>>()))
-            .ReturnsAsync(new Dictionary<string, bool>());
-        _externalAppsService.Setup(s => s.CheckBatchInstalledAsync(It.IsAny<IEnumerable<ItemDefinition>>()))
-            .ReturnsAsync(new Dictionary<string, bool>());
-
-        var sut = CreateSut();
-        await sut.InitializeAsync();
-
-        sut.ViewMode.Should().Be(SoftwareAppsViewMode.Card);
     }
 
     [Fact]

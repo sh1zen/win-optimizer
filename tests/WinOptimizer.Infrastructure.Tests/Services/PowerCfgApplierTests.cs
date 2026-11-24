@@ -14,15 +14,20 @@ public class PowerCfgApplierTests
     private readonly Mock<IHardwareDetectionService> _mockHardware = new();
     private readonly Mock<IComboBoxResolver> _mockComboBox = new();
     private readonly Mock<ILogService> _mockLog = new();
+    private readonly Mock<IPowerSchemeOperations> _writer = new();
+    private readonly Guid _scheme = Guid.NewGuid();
     private readonly PowerCfgApplier _applier;
 
     public PowerCfgApplierTests()
     {
+        var scheme = _scheme;
+        _writer.Setup(x => x.GetActiveScheme(out scheme)).Returns(0);
         _applier = new PowerCfgApplier(
             _mockPowerQuery.Object,
             _mockHardware.Object,
             _mockComboBox.Object,
-            _mockLog.Object);
+            _mockLog.Object,
+            _writer.Object);
     }
 
     private static SettingDefinition CreatePowerSetting(
@@ -104,15 +109,36 @@ public class PowerCfgApplierTests
             .Setup(q => q.GetPowerSettingACDCValuesAsync(It.IsAny<PowerCfgSetting>()))
             .ReturnsAsync((0, 0));
 
-        // Act: P/Invoke will likely fail in test env, but we verify the pre-flight interactions
         var result = await _applier.ApplyPowerCfgSettingsAsync(setting, true, null);
 
-        // Assert: Returns success (the method always returns Succeeded)
         result.Success.Should().BeTrue();
         _mockHardware.Verify(h => h.HasBatteryAsync(), Times.Once);
         _mockPowerQuery.Verify(q => q.GetPowerSettingACDCValuesAsync(
             It.Is<PowerCfgSetting>(p => p.PowerModeSupport == PowerModeSupport.Both)),
             Times.Once);
+    }
+
+    [Theory]
+    [InlineData(5, 0, 0, "active power scheme")]
+    [InlineData(0, 5, 0, "DC")]
+    [InlineData(0, 0, 5, "activate")]
+    public async Task ApplyPowerCfgSettingsAsync_ReportsNativeFailure(uint lookup, uint dcWrite, uint activation, string error)
+    {
+        var setting = CreatePowerSetting("fixture");
+        var scheme = _scheme;
+        _writer.Setup(x => x.GetActiveScheme(out scheme)).Returns(lookup);
+        _writer.Setup(x => x.WriteValue(_scheme, It.IsAny<Guid>(), It.IsAny<Guid>(), false, 1)).Returns(dcWrite);
+        _writer.Setup(x => x.SetActiveScheme(_scheme)).Returns(activation);
+        _mockHardware.Setup(x => x.HasBatteryAsync()).ReturnsAsync(true);
+        _mockPowerQuery.Setup(x => x.GetPowerSettingACDCValuesAsync(setting.PowerCfgSettings![0])).ReturnsAsync((0, 0));
+
+        var result = await _applier.ApplyPowerCfgSettingsAsync(setting, true, null);
+
+        result.Success.Should().BeFalse();
+        result.ErrorMessage.Should().Contain(error).And.Contain("Windows error 5");
+        _writer.Verify(x => x.WriteValue(_scheme, It.IsAny<Guid>(), It.IsAny<Guid>(), true, 1), lookup == 0 ? Times.Once() : Times.Never());
+        _writer.Verify(x => x.WriteValue(_scheme, It.IsAny<Guid>(), It.IsAny<Guid>(), false, 1), lookup == 0 ? Times.Once() : Times.Never());
+        _writer.Verify(x => x.SetActiveScheme(_scheme), lookup == 0 ? Times.Once() : Times.Never());
     }
 
     // ---------------------------------------------------------------
@@ -214,7 +240,7 @@ public class PowerCfgApplierTests
     // ---------------------------------------------------------------
 
     [Fact]
-    public async Task ApplyPowerCfgSettingsAsync_SelectionInput_CallsComboBoxResolver()
+    public async Task ApplyPowerCfgSettingsAsync_SelectionInput_ResolvesIndexAndLogsValue()
     {
         // Arrange: Selection with int index
         var setting = CreatePowerSetting("selection-power", InputType.Selection, PowerModeSupport.Both);
@@ -233,6 +259,10 @@ public class PowerCfgApplierTests
         result.Success.Should().BeTrue();
         _mockComboBox.Verify(c => c.GetValueFromIndex(
             It.Is<SettingDefinition>(s => s.Id == "selection-power"), 2), Times.Once);
+        _mockLog.Verify(l => l.Log(
+            LogLevel.Info,
+            It.Is<string>(msg => msg.Contains("selection-power") && msg.Contains("value: 42")),
+            null), Times.Once);
     }
 
     [Fact]
@@ -419,30 +449,6 @@ public class PowerCfgApplierTests
         _mockLog.Verify(l => l.Log(
             LogLevel.Info,
             It.Is<string>(msg => msg.Contains("numeric-separate") && msg.Contains("separate AC/DC NumericRange")),
-            null), Times.Once);
-    }
-
-    [Fact]
-    public async Task ApplyPowerCfgSettingsAsync_SelectionInput_LogsCorrectValue()
-    {
-        // Arrange: Verify that the resolved value is logged
-        var setting = CreatePowerSetting("sel-log", InputType.Selection, PowerModeSupport.Both);
-        _mockHardware.Setup(h => h.HasBatteryAsync()).ReturnsAsync(true);
-        _mockComboBox
-            .Setup(c => c.GetValueFromIndex(It.IsAny<SettingDefinition>(), 0))
-            .Returns(99);
-        _mockPowerQuery
-            .Setup(q => q.GetPowerSettingACDCValuesAsync(It.IsAny<PowerCfgSetting>()))
-            .ReturnsAsync((0, 0));
-
-        // Act
-        var result = await _applier.ApplyPowerCfgSettingsAsync(setting, true, 0);
-
-        // Assert: The log message should contain the resolved value 99
-        result.Success.Should().BeTrue();
-        _mockLog.Verify(l => l.Log(
-            LogLevel.Info,
-            It.Is<string>(msg => msg.Contains("sel-log") && msg.Contains("value: 99")),
             null), Times.Once);
     }
 }

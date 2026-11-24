@@ -20,6 +20,9 @@ public interface IChangeHistoryService
     /// <summary>Records application installation or removal.</summary>
     void LogAppChange(string appDisplayName, AppChangeKind kind);
 
+    /// <summary>Records completed maintenance with an optional account-bound recovery reference.</summary>
+    void LogMaintenance(LogTopic topic, string name, string action, Guid? recoveryId = null, string? accountSid = null);
+
     /// <summary>
     /// Starts a batch (config import, bulk action). Receipts retain its label and identifier.
     /// Empty batches write nothing. Dispose to end the batch; nested batches join the outermost one.

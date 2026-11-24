@@ -318,19 +318,24 @@ public class RecommendedSettingsApplierTests
     // Error resilience: individual setting failure continues the loop
     // ──────────────────────────────────────────────────────────────────
 
-    [Fact]
-    public async Task ApplyRecommendedToSettingsAsync_IndividualFailure_ContinuesWithRemaining()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ApplyRecommendedForFeatureAsync_IndividualFailure_ContinuesWithRemaining(bool throws)
     {
-        var failSetting    = CreateToggleSetting("fail-setting",    recommendedValue: 1, enabledValue: [1]);
+        const string triggerId = "trigger-setting";
+        var failSetting = CreateToggleSetting("fail-setting", recommendedValue: 1, enabledValue: [1]);
         var succeedSetting = CreateToggleSetting("succeed-setting", recommendedValue: 1, enabledValue: [1]);
+        SetupFeatureLookup(triggerId, [failSetting, succeedSetting]);
 
-        _mockAppService
-            .Setup(s => s.ApplySettingAsync(It.Is<ApplySettingRequest>(r => r.SettingId == "fail-setting")))
-            .ThrowsAsync(new InvalidOperationException("Apply failed"));
+        var failedWrite = _mockAppService
+            .Setup(s => s.ApplySettingAsync(It.Is<ApplySettingRequest>(r => r.SettingId == failSetting.Id)));
+        if (throws)
+            failedWrite.ThrowsAsync(new InvalidOperationException("Apply failed"));
+        else
+            failedWrite.ReturnsAsync(OperationResult.Failed("Apply failed"));
 
-        // Act: should not throw despite partial failure
-        var result = await _applier.ApplyRecommendedToSettingsAsync(
-            new List<SettingDefinition> { failSetting, succeedSetting }, _mockAppService.Object);
+        var result = await _applier.ApplyRecommendedForFeatureAsync(triggerId, _mockAppService.Object);
 
         // Succeeded setting is in the result; failed one is not
         result.Should().HaveCount(1);

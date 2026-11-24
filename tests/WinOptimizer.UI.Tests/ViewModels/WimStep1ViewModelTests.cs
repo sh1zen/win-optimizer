@@ -107,38 +107,40 @@ public class WimStep1ViewModelTests : IDisposable
         _sut.WorkingDirectory.Should().Be("D:\\WorkDir\\WinOptimizerWIM");
     }
 
-    [Fact]
-    public async Task SelectWorkingDirectoryCommand_WhenExtractedAlready_ValidatesDirectoryStructure()
+    [Theory]
+    [InlineData("")]
+    [InlineData("install.wim")]
+    [InlineData("install.esd")]
+    public async Task SelectWorkingDirectoryCommand_RequiresUsableExtractedMedia(string installImage)
     {
-        _sut.HasExtractedIsoAlready = true;
-        _mockFilePickerService
-            .Setup(f => f.PickFolder(It.IsAny<string?>()))
-            .Returns("D:\\ExtractedIso");
+        var hasImage = installImage.Length > 0;
+        var directory = Directory.CreateTempSubdirectory("WinOptimizerSetupMedia");
+        try
+        {
+            var sources = directory.CreateSubdirectory("sources").FullName;
+            directory.CreateSubdirectory("boot");
+            if (hasImage)
+            {
+                File.WriteAllBytes(Path.Combine(directory.FullName, "setup.exe"), [1]);
+                File.WriteAllBytes(Path.Combine(sources, "boot.wim"), [1]);
+                File.WriteAllBytes(Path.Combine(sources, installImage), [1]);
+            }
+            _sut.HasExtractedIsoAlready = true;
+            _mockFilePickerService.Setup(f => f.PickFolder(It.IsAny<string?>())).Returns(directory.FullName);
+            _mockFileSystemService.Setup(f => f.GetPathRoot(directory.FullName)).Returns(directory.Root.FullName);
+            _mockFileSystemService.Setup(f => f.WriteAllTextAsync(It.IsAny<string>(), It.IsAny<string>())).Returns(Task.CompletedTask);
+            _mockFileSystemService.Setup(f => f.DirectoryExists(It.IsAny<string>())).Returns((string path) => Directory.Exists(path));
+            _mockFileSystemService.Setup(f => f.FileExists(It.IsAny<string>())).Returns((string path) => File.Exists(path));
+            _mockFileSystemService.Setup(f => f.GetFileSize(It.IsAny<string>())).Returns((string path) => new FileInfo(path).Length);
 
-        _mockFileSystemService
-            .Setup(f => f.GetPathRoot("D:\\ExtractedIso"))
-            .Returns("D:\\");
+            await _sut.SelectWorkingDirectoryCommand.ExecuteAsync(null);
 
-        _mockFileSystemService
-            .Setup(f => f.WriteAllTextAsync(It.IsAny<string>(), It.IsAny<string>()))
-            .Returns(Task.CompletedTask);
-
-        _mockFileSystemService
-            .Setup(f => f.GetDirectories("D:\\ExtractedIso"))
-            .Returns(new[] { "D:\\ExtractedIso\\sources", "D:\\ExtractedIso\\boot" });
-
-        _mockFileSystemService
-            .Setup(f => f.GetFileName("D:\\ExtractedIso\\sources"))
-            .Returns("sources");
-
-        _mockFileSystemService
-            .Setup(f => f.GetFileName("D:\\ExtractedIso\\boot"))
-            .Returns("boot");
-
-        await _sut.SelectWorkingDirectoryCommand.ExecuteAsync(null);
-
-        _sut.WorkingDirectory.Should().Be("D:\\ExtractedIso");
-        _sut.IsExtractionComplete.Should().BeTrue();
+            Assert.Equal(hasImage ? directory.FullName : string.Empty, _sut.WorkingDirectory);
+            Assert.Equal(hasImage, _sut.IsExtractionComplete);
+            _mockDialogService.Verify(d => d.ShowErrorAsync("WIMUtil_Msg_InvalidDirectory", It.IsAny<string>()),
+                hasImage ? Times.Never() : Times.Once());
+        }
+        finally { directory.Delete(recursive: true); }
     }
 
     [Fact]

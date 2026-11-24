@@ -18,7 +18,12 @@ internal sealed class BatteryChargeService(IBatteryWmi wmi, IEnumerable<IBattery
         finally { _gate.Release(); }
     }
 
-    public async Task<BatteryChargeState> SetLimitAsync(int percentage)
+    public Task<BatteryChargeState> SetLimitAsync(int percentage) => ApplyLimitAsync(percentage, null);
+
+    public Task<BatteryChargeState> SetLimitAsync(int percentage, int resumeThreshold) => ApplyLimitAsync(percentage, resumeThreshold);
+
+    /// <summary>Validates the requested thresholds and checks fresh firmware readback before reporting success.</summary>
+    private async Task<BatteryChargeState> ApplyLimitAsync(int percentage, int? resumeThreshold)
     {
         if (percentage is < 1 or > 100) throw new ArgumentOutOfRangeException(nameof(percentage));
         await _gate.WaitAsync().ConfigureAwait(false);
@@ -31,13 +36,17 @@ internal sealed class BatteryChargeService(IBatteryWmi wmi, IEnumerable<IBattery
                 var state = await ReadStateAsync().ConfigureAwait(false);
                 if (!state.CanApply || !state.SupportedLimits.Contains(percentage))
                     throw new UtilityOperationException("The requested percentage is not supported by this device's firmware.");
+                var thresholds = state.ResumeThresholds.GetValueOrDefault(percentage);
+                if (resumeThreshold is { } requested && thresholds?.Contains(requested) != true)
+                    throw new UtilityOperationException("The requested charging restart threshold is unavailable. Reopen Battery charge limit before retrying.");
                 var provider = providers.Single(p => p.Matches(state.Manufacturer));
-                try { provider.SetLimit(percentage); }
+                try { provider.SetLimit(percentage, resumeThreshold); }
                 catch (Exception ex) when (ex is UtilityOperationException or Win32Exception or UnauthorizedAccessException)
-                { throw new UtilityOperationException($"The limit was not confirmed; some firmware changes may already be applied. Refresh before retrying. {ex.Message}", ex); }
+                { throw new UtilityOperationException($"The limit could not be confirmed and some firmware changes may already be applied. Reopen Battery charge limit before retrying. {ex.Message}", ex); }
                 var actual = await ReadStateAsync().ConfigureAwait(false);
-                if (actual.ActiveLimit != percentage)
-                    throw new UtilityOperationException("The firmware has not confirmed the requested limit. Refresh and check the OEM charging utility or BIOS; a restart may be required.");
+                var checkRestart = resumeThreshold.HasValue || thresholds?.SupportsStandardCharging == true;
+                if (actual.ActiveLimit != percentage || (checkRestart && actual.ActiveResumeThreshold != resumeThreshold))
+                    throw new UtilityOperationException("The firmware has not confirmed the requested charging settings. Check the OEM charging utility or BIOS. A restart may be required. Reopen Battery charge limit before retrying.");
                 return actual;
             }).ConfigureAwait(false);
         }
@@ -74,8 +83,16 @@ internal sealed class BatteryChargeService(IBatteryWmi wmi, IEnumerable<IBattery
             }
         }
         var setup = BatterySupportCatalog.Find(manufacturer, model);
+        var telemetry = batteries.Count > 0 ? await BatteryTelemetryReader.ReadAsync(wmi).ConfigureAwait(false) : null;
+        // The inventory percentage and sensor flags can be compared only when they describe one battery.
+        var chargingAboveLimit = batteries.Count == 1 && charge is { } level && firmware.ActiveLimit is { } limit &&
+            level > limit && telemetry?.Batteries is [{ PowerOnline: true, Charging: true, Discharging: not true, ChargePowerWatts: not <= 0 }];
         return new(manufacturer, model, batteries.Count > 0, charge, firmware.Provider,
             firmware.Limits, firmware.ActiveLimit, diagnostic, setup?.HelpUri ?? new("https://support.microsoft.com/windows"))
-        { Issue = issue, Setup = setup, Telemetry = batteries.Count > 0 ? await BatteryTelemetryReader.ReadAsync(wmi).ConfigureAwait(false) : null };
+        {
+            Issue = issue, Setup = setup, ActiveResumeThreshold = firmware.ActiveResumeThreshold,
+            ResumeThresholds = firmware.ResumeThresholds,
+            Telemetry = telemetry, IsChargingAboveLimit = chargingAboveLimit
+        };
     }
 }

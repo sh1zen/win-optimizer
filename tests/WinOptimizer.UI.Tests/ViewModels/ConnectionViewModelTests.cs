@@ -1,7 +1,5 @@
 using Moq;
-using WinOptimizer.Core.Features.Common.Enums;
 using WinOptimizer.Core.Features.Common.Interfaces;
-using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.Core.Features.Utilities;
 using WinOptimizer.UI.Features.Utilities.ViewModels;
 using WinOptimizer.UI.Tests.Helpers;
@@ -11,10 +9,7 @@ namespace WinOptimizer.UI.Tests.ViewModels;
 
 public sealed class ConnectionViewModelTests
 {
-    private readonly Mock<IConnectionService> _service = new();
     private readonly Mock<IConnectionTrafficService> _traffic = new();
-    private readonly Mock<ICompatibleSettingsRegistry> _settings = new();
-    private readonly Mock<ISettingApplicationService> _application = new();
     private readonly Mock<ILocalizationService> _localization = new();
     private readonly Mock<IApplicationModeService> _mode = new();
 
@@ -22,20 +17,12 @@ public sealed class ConnectionViewModelTests
     {
         _localization.Setup(value => value.GetString(It.IsAny<string>())).Returns((string key) => key);
         _localization.SetupGet(value => value.CurrentLanguage).Returns("en");
-        _settings.SetupGet(value => value.IsInitialized).Returns(true);
-        _settings.Setup(value => value.GetById("gaming-dns-server")).Returns(new SettingDefinition
-        {
-            Id = "gaming-dns-server", Name = "DNS", Description = "DNS", ComboBox = new()
-            { Options = [new() { DisplayName = "Automatic", Script = ScriptOption.Disabled }, new() { DisplayName = "Cloudflare", Script = ScriptOption.Enabled }] }
-        });
-        _service.Setup(value => value.ReadAsync()).ReturnsAsync(new ConnectionSnapshot(DateTimeOffset.Now,
-            [new("a", "Ethernet", "", "Ethernet", "Up", ["192.0.2.1"], new(100, 200, 1, 4), "")], [], ""));
         _traffic.Setup(value => value.ReadHistoryAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new ConnectionUsageHistory(
             DateTimeOffset.UtcNow, Enumerable.Range(0, 30).Select(index =>
                 new ConnectionDailyUsage(new DateOnly(2026, 10, 20).AddDays(index - 29), 1024, 2048, 1, 1)).ToArray(), ""));
     }
 
-    private ConnectionViewModel Create() => new(_service.Object, _traffic.Object, _settings.Object, _application.Object,
+    private ConnectionViewModel Create() => new(_traffic.Object,
         _localization.Object, _mode.Object, new ExtensionTestDispatcher(), Mock.Of<ITaskProgressService>());
 
     [Fact]
@@ -50,53 +37,55 @@ public sealed class ConnectionViewModelTests
         _localization.Raise(value => value.LanguageChanged += null, EventArgs.Empty);
         Assert.Equal("Gestione", vm.SectionTitle);
         Assert.Contains(string.Empty, notifications);
-        _service.VerifyNoOtherCalls();
         _traffic.VerifyNoOtherCalls();
     }
 
     [Fact]
-    public async Task LoadReadsUsageOnceAndLeavesDnsSelectionUncommitted()
+    public async Task LoadReusesHistoryAfterTheFirstRead()
     {
         using var vm = Create();
         await vm.LoadAsync(); await vm.LoadAsync();
-        Assert.Equal(-1, vm.SelectedDnsIndex); Assert.False(vm.ApplyDnsCommand.CanExecute(null));
         Assert.Equal(30, vm.HistoryDays.Count); Assert.Equal("90.00 KiB", vm.HistoryTotal);
         Assert.Equal(3072m, vm.HistoryMaximumBytes); Assert.Equal("3.00 KiB", vm.HistoryScale);
         _traffic.Verify(value => value.ReadHistoryAsync(It.IsAny<CancellationToken>()), Times.Once);
-        _service.Verify(value => value.ReadAsync(), Times.Once); _application.VerifyNoOtherCalls();
-    }
-
-    [Theory]
-    [InlineData(0)]
-    [InlineData(1)]
-    public async Task DnsApplyUsesTheExistingSettingIndexAndRefreshesSnapshot(int index)
-    {
-        _application.Setup(value => value.ApplySettingAsync(It.IsAny<ApplySettingRequest>())).ReturnsAsync(OperationResult.Succeeded());
-        using var vm = Create(); await vm.LoadAsync(); vm.SelectedDnsIndex = index;
-        await vm.ApplyDnsCommand.ExecuteAsync(null);
-        _application.Verify(value => value.ApplySettingAsync(It.Is<ApplySettingRequest>(request =>
-            request.SettingId == "gaming-dns-server" && request.Enable && Equals(request.Value, index))), Times.Once);
-        _service.Verify(value => value.ReadAsync(), Times.Exactly(2)); Assert.False(vm.IsError);
     }
 
     [Fact]
-    public async Task DnsFailureIsVisibleAndDoesNotPublishSuccess()
+    public async Task LoadingHistoryDoesNotBlockLiveSamplesAndSharesThePendingRead()
     {
-        _application.Setup(value => value.ApplySettingAsync(It.IsAny<ApplySettingRequest>())).ReturnsAsync(OperationResult.Failed("denied"));
-        using var vm = Create(); await vm.LoadAsync(); vm.SelectedDnsIndex = 0;
-        await vm.ApplyDnsCommand.ExecuteAsync(null);
-        Assert.True(vm.IsError); Assert.Equal("denied", vm.Status);
+        var history = new TaskCompletionSource<ConnectionUsageHistory>();
+        var at = DateTimeOffset.UtcNow;
+        _traffic.Setup(value => value.ReadHistoryAsync(It.IsAny<CancellationToken>())).Returns(history.Task);
+        _traffic.Setup(value => value.SampleAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new ConnectionLiveTraffic(at, []));
+        using var vm = Create();
+
+        var load = vm.LoadAsync();
+        Assert.Same(load, vm.LoadAsync());
+        Assert.True(vm.IsHistoryLoading);
+        await vm.SampleTrafficAsync(CancellationToken.None);
+        Assert.Equal(at, vm.LiveCapturedAt);
+        Assert.Empty(vm.HistoryDays);
+
+        history.SetResult(new(at, [new(new(2026, 10, 20), 100, 200, 1, 1)], ""));
+        await load.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.False(vm.IsHistoryLoading);
+        Assert.Equal("300 B", vm.HistoryTotal);
+        _traffic.Verify(value => value.ReadHistoryAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
-    [Theory]
-    [InlineData(WinOptimizerMode.Builder)]
-    [InlineData(WinOptimizerMode.ConfigReview)]
-    public async Task ModeGuardsAllowReadsAndPreventDnsAndVpnChanges(WinOptimizerMode mode)
+    [Fact]
+    public async Task HistoryReadErrorsAreVisibleAndCanBeRetriedOnEntry()
     {
-        _mode.SetupGet(value => value.CurrentMode).Returns(mode);
-        using var vm = Create(); await vm.LoadAsync(); vm.SelectedDnsIndex = 0;
-        Assert.True(vm.HasSnapshot); Assert.False(vm.ApplyDnsCommand.CanExecute(null));
-        Assert.False(vm.ManageVpnCommand.CanExecute(null)); Assert.True(vm.RefreshCommand.CanExecute(null));
+        _traffic.SetupSequence(value => value.ReadHistoryAsync(It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new UtilityOperationException("History denied"))
+            .ReturnsAsync(new ConnectionUsageHistory(DateTimeOffset.UtcNow, [], ""));
+        using var vm = Create();
+        await vm.LoadAsync();
+        Assert.Equal("History denied", vm.HistoryDiagnostic);
+        Assert.False(vm.IsHistoryLoading);
+        await vm.LoadAsync();
+        Assert.False(vm.HasHistoryDiagnostic);
+        _traffic.Verify(value => value.ReadHistoryAsync(It.IsAny<CancellationToken>()), Times.Exactly(2));
     }
 
     [Fact]
@@ -107,6 +96,7 @@ public sealed class ConnectionViewModelTests
         _traffic.Setup(value => value.SampleAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new ConnectionLiveTraffic(at,
             [new(at.AddSeconds(-2), at, new(200, 400, 1, 2), 1, 2)]));
         using var vm = Create(); await vm.SampleTrafficAsync(CancellationToken.None);
+        Assert.Equal(200m, vm.LiveMaximumRate); Assert.Equal("200 B/s", vm.LiveScale);
         Assert.Equal("200 B/s", vm.LiveStats[0].Value); Assert.Equal("100 B/s", vm.LiveStats[1].Value);
         Assert.Equal("400 B", vm.LiveStats[2].Value); Assert.Equal("200 B", vm.LiveStats[3].Value);
         Assert.Equal("1/2", vm.LiveCoverage); Assert.False(vm.IsBusy);
@@ -115,7 +105,6 @@ public sealed class ConnectionViewModelTests
         await vm.SampleTrafficAsync(CancellationToken.None);
         Assert.Equal("Connection_Waiting", vm.LiveStats[0].Value);
         Assert.Equal("Utilities_Unknown", vm.LiveStats[2].Value);
-        _service.VerifyNoOtherCalls(); _application.VerifyNoOtherCalls();
     }
 
     [Fact]

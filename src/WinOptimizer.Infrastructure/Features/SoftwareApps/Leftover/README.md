@@ -1,11 +1,10 @@
 # Leftover scan
 
-Software & Apps → **Leftover** reviews stale desktop-app registrations and
-unreferenced installer caches and installation-folder remnants. Selecting the tab starts its first scan;
-**Refresh** scans again. Results include path, type, size and an eligibility reason.
-Every listed result is eligible for selection. Notices identify incomplete coverage.
-The selection summary includes selected items hidden by search. Its size totals
-cover files and folders; registry entries contribute to the count.
+See the [Leftover procedure](../../../../../docs/SOFTWARE-APPS.md#find-leftovers-from-earlier-installations)
+to scan and select items in **Software & Apps**. Results show the path, type,
+size, and eligibility reason. Notices identify incomplete coverage. The
+selection summary counts registry entries, files, and folders. Its size
+totals include only files and folders.
 
 ## Scope and evidence
 

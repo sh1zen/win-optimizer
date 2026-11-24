@@ -63,24 +63,12 @@ public class EventBusTests
     }
 
     [Fact]
-    public void Unsubscribe_ViaToken_StopsReceivingEvents()
+    public void DisposingSubscriptionStopsDeliveryAndToleratesRepeatedDisposal()
     {
         var count = 0;
         var token = _eventBus.Subscribe<SettingAppliedEvent>(_ => count++);
-
-        _eventBus.Publish(new SettingAppliedEvent("id", true));
-        count.Should().Be(1);
-
-        _eventBus.Unsubscribe(token);
-        _eventBus.Publish(new SettingAppliedEvent("id", true));
-        count.Should().Be(1);
-    }
-
-    [Fact]
-    public void Unsubscribe_ViaTokenDispose_StopsReceivingEvents()
-    {
-        var count = 0;
-        var token = _eventBus.Subscribe<SettingAppliedEvent>(_ => count++);
+        token.EventType.Should().Be(typeof(SettingAppliedEvent));
+        token.SubscriptionId.Should().NotBeEmpty();
 
         _eventBus.Publish(new SettingAppliedEvent("id", true));
         count.Should().Be(1);
@@ -88,28 +76,10 @@ public class EventBusTests
         token.Dispose();
         _eventBus.Publish(new SettingAppliedEvent("id", true));
         count.Should().Be(1);
-    }
 
-    [Fact]
-    public void Token_DisposeMultipleTimes_DoesNotThrow()
-    {
-        var token = _eventBus.Subscribe<SettingAppliedEvent>(_ => { });
-
-        var action = () =>
-        {
-            token.Dispose();
-            token.Dispose();
-        };
-        action.Should().NotThrow();
-    }
-
-    [Fact]
-    public void Subscribe_ReturnsTokenWithCorrectEventType()
-    {
-        var token = _eventBus.Subscribe<SettingAppliedEvent>(_ => { });
-
-        token.EventType.Should().Be(typeof(SettingAppliedEvent));
-        token.SubscriptionId.Should().NotBeEmpty();
+        token.Dispose();
+        _eventBus.Publish(new SettingAppliedEvent("id", true));
+        count.Should().Be(1);
     }
 
     [Fact]

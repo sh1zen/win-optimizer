@@ -6,7 +6,7 @@ using WinOptimizer.Core.Features.Extensions;
 namespace WinOptimizer.UI.Features.Extensions.ViewModels;
 
 /// <summary>Owns the current readings, bounded sensor histories and shared axis for one hardware chart.</summary>
-public partial class MonitorMetricSection(SystemMonitorMetricKind kind, ILocalizationService localization) : ObservableObject
+public partial class MonitorMetricSection(SystemMonitorMetricKind kind, ILocalizationService localization) : ObservableObject, IMonitorChartData
 {
     private readonly Dictionary<(string Name, int Occurrence), MonitorMetricSeries> _series = [];
     private int _samples;
@@ -16,6 +16,7 @@ public partial class MonitorMetricSection(SystemMonitorMetricKind kind, ILocaliz
     public string UnavailableLabel => localization.GetString("SysMonitor_Unavailable");
     public string HistoryLabel => localization.GetString("SysMonitor_History");
     public ObservableCollection<MonitorMetricSeries> Readings { get; } = [];
+    IReadOnlyList<MonitorMetricSeries> IMonitorChartData.Readings => Readings;
     public bool IsEmpty => Readings.Count == 0;
     public double Minimum { get; private set; }
     public double Maximum { get; private set; } = 100;
@@ -25,7 +26,9 @@ public partial class MonitorMetricSection(SystemMonitorMetricKind kind, ILocaliz
     [ObservableProperty] public partial bool IsVisible { get; set; }
 
     /// <summary>Aligns each sensor to the same sample timeline; missing readings break its line instead of becoming zero.</summary>
-    public void Publish(IEnumerable<SystemMonitorMetric> metrics)
+    public void Publish(IEnumerable<SystemMonitorMetric> metrics) => Publish(metrics, notify: true);
+
+    internal void Publish(IEnumerable<SystemMonitorMetric> metrics, bool notify)
     {
         var current = new Dictionary<(string Name, int Occurrence), double>();
         var occurrences = new Dictionary<string, int>();
@@ -69,8 +72,11 @@ public partial class MonitorMetricSection(SystemMonitorMetricKind kind, ILocaliz
                 }
             }
         }
-        OnPropertyChanged(nameof(IsEmpty));
-        ReadingsUpdated?.Invoke(this, EventArgs.Empty);
+        if (notify)
+        {
+            OnPropertyChanged(nameof(IsEmpty));
+            ReadingsUpdated?.Invoke(this, EventArgs.Empty);
+        }
     }
 
     /// <summary>Removes hardware identity and redundant GPU category prefixes from legends, retaining the full source name separately.</summary>

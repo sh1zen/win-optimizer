@@ -1,99 +1,46 @@
-using System;
-using System.Collections.Generic;
-using System.Linq;
+using System.IO;
 using WinOptimizer.Core.Features.Common.Enums;
 using WinOptimizer.Core.Features.Common.Interfaces;
-using WinOptimizer.Core.Features.Common.Models;
 
 namespace WinOptimizer.Infrastructure.Features.Common.Services;
 
-public class PolicyCleanupService : IPolicyCleanupService
+/// <summary>Clears only policy values owned by the settings catalogue.</summary>
+public class PolicyCleanupService(
+    ICompatibleSettingsRegistry compatibleSettingsRegistry,
+    IWindowsRegistryService registryService,
+    ILogService logService) : IPolicyCleanupService
 {
-    private readonly ICompatibleSettingsRegistry _compatibleSettingsRegistry;
-    private readonly IWindowsRegistryService _registryService;
-    private readonly ILogService _logService;
-
-    public PolicyCleanupService(
-        ICompatibleSettingsRegistry compatibleSettingsRegistry,
-        IWindowsRegistryService registryService,
-        ILogService logService)
+    public int CleanupPolicyValues()
     {
-        _compatibleSettingsRegistry = compatibleSettingsRegistry;
-        _registryService = registryService;
-        _logService = logService;
-    }
-
-    public int CleanupPolicyKeys()
-    {
-        var policyKeyPaths = CollectPolicyKeyPaths();
-
-        _logService.Log(LogLevel.Info, $"[PolicyCleanup] Found {policyKeyPaths.Count} unique policy key paths to clean up");
-
-        int deletedCount = 0;
-        foreach (var keyPath in policyKeyPaths)
+        var seen = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
+        var failures = new List<string>();
+        var cleared = 0;
+        foreach (var setting in compatibleSettingsRegistry.GetAllBypassedSettings().Values.SelectMany(group => group))
         {
-            try
+            foreach (var value in setting.RegistrySettings)
             {
-                if (_registryService.KeyExists(keyPath))
-                {
-                    if (_registryService.DeleteKey(keyPath))
-                    {
-                        deletedCount++;
-                        _logService.Log(LogLevel.Info, $"[PolicyCleanup] Deleted policy key: {keyPath}");
-                    }
-                    else
-                    {
-                        _logService.Log(LogLevel.Warning, $"[PolicyCleanup] Failed to delete policy key: {keyPath}");
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                _logService.Log(LogLevel.Warning, $"[PolicyCleanup] Error deleting policy key '{keyPath}': {ex.Message}");
-            }
-        }
-
-        _logService.Log(LogLevel.Info, $"[PolicyCleanup] Cleanup complete: {deletedCount} policy keys deleted");
-        return deletedCount;
-    }
-
-    internal HashSet<string> CollectPolicyKeyPaths()
-    {
-        var policyPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-        var allSettings = _compatibleSettingsRegistry.GetAllBypassedSettings();
-
-        foreach (var featureSettings in allSettings.Values)
-        {
-            foreach (var setting in featureSettings)
-            {
-                if (setting.RegistrySettings == null)
+                if (!value.IsGroupPolicy || string.IsNullOrWhiteSpace(value.KeyPath) || value.ValueName is not { } name)
                     continue;
+                if (!seen.TryGetValue(value.KeyPath, out var names))
+                    seen[value.KeyPath] = names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                if (!names.Add(name)) continue;
 
-                foreach (var regSetting in setting.RegistrySettings)
+                if (registryService.DeleteValue(value.KeyPath, name))
                 {
-                    if (!regSetting.IsGroupPolicy || string.IsNullOrEmpty(regSetting.KeyPath))
-                        continue;
-
-                    policyPaths.Add(regSetting.KeyPath);
+                    cleared++;
+                    continue;
                 }
+
+                var target = $@"{value.KeyPath}\{name}";
+                failures.Add(target);
+                logService.Log(LogLevel.Warning, $"[PolicyCleanup] Could not clear managed policy '{target}'");
             }
         }
 
-        // Deduplicate: if we have both a parent and child path, keep only the parent
-        // e.g. keep "...\WindowsUpdate" and remove "...\WindowsUpdate\AU"
-        var deduplicatedPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var path in policyPaths.OrderBy(p => p.Length))
-        {
-            bool isChildOfExisting = deduplicatedPaths.Any(existing =>
-                path.StartsWith(existing + @"\", StringComparison.OrdinalIgnoreCase));
+        if (failures.Count > 0)
+            throw new IOException($"Could not clear the following managed policies: {string.Join(", ", failures)}.");
 
-            if (!isChildOfExisting)
-            {
-                deduplicatedPaths.Add(path);
-            }
-        }
-
-        return deduplicatedPaths;
+        logService.Log(LogLevel.Info, $"[PolicyCleanup] Verified cleanup of {cleared} managed policy values.");
+        return cleared;
     }
 }

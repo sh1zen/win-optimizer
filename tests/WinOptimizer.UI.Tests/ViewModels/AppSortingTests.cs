@@ -26,19 +26,30 @@ public class AppSortingTests
         _text.Setup(text => text.GetString(It.IsAny<string>())).Returns((string key) => key);
         _dispatcher.Setup(dispatcher => dispatcher.RunOnUIThread(It.IsAny<Action>())).Callback<Action>(action => action());
         _dispatcher.Setup(dispatcher => dispatcher.RunOnUIThreadAsync(It.IsAny<Func<Task>>())).Returns<Func<Task>>(action => action());
+        _dispatcher.Setup(dispatcher => dispatcher.RunOnUIThreadWithContextAsync(It.IsAny<Func<Task>>()))
+            .Returns<Func<Task>>(action => action());
         _preferences.Setup(p => p.GetPreference(It.IsAny<string>(), It.IsAny<string>())).Returns((string key, string fallback) => fallback);
         _preferences.Setup(p => p.SetPreferenceAsync(It.IsAny<string>(), It.IsAny<string>())).ReturnsAsync(OperationResult.Succeeded());
     }
 
-    private SoftwareAppsViewModel Create()
+    internal SoftwareAppsViewModel Create(ILocalizationService? localization = null, IReadOnlyList<ItemDefinition>? apps = null)
     {
+        localization ??= _text.Object;
+        if (apps is not null)
+        {
+            _windows.Setup(service => service.GetAppsAsync()).ReturnsAsync(apps);
+            _windows.Setup(service => service.CheckBatchInstalledAsync(It.IsAny<IEnumerable<ItemDefinition>>()))
+                .ReturnsAsync(apps.ToDictionary(app => app.Id, app => app.IsInstalled));
+            _windows.Setup(service => service.GetDevicePackageNamesAsync())
+                .ReturnsAsync(new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+        }
         var windows = new WindowsAppsViewModel(_windows.Object, Mock.Of<IAppUninstallWorkflow>(), Mock.Of<ILogService>(),
-            Mock.Of<IDialogService>(), _text.Object, _dispatcher.Object, Mock.Of<IThemeService>(), Mock.Of<IAppIconResolver>());
+            Mock.Of<IDialogService>(), localization, _dispatcher.Object, Mock.Of<IThemeService>(), Mock.Of<IAppIconResolver>());
         var external = new ExternalAppsViewModel(_external.Object, Mock.Of<IAppUninstallWorkflow>(), Mock.Of<ILogService>(),
-            Mock.Of<IDialogService>(), _text.Object, _dispatcher.Object, Mock.Of<IThemeService>(), Mock.Of<IAppIconResolver>());
-        return new SoftwareAppsViewModel(windows, external, _text.Object, Mock.Of<ILogService>(), _preferences.Object,
+            Mock.Of<IDialogService>(), localization, _dispatcher.Object, Mock.Of<IThemeService>(), Mock.Of<IAppIconResolver>());
+        return new SoftwareAppsViewModel(windows, external, localization, Mock.Of<ILogService>(), _preferences.Object,
             Mock.Of<IConfigReviewModeService>(), Mock.Of<IConfigReviewBadgeService>(), Mock.Of<IApplicationModeService>(),
-            Mock.Of<IUninstallResidueReview>(), new LeftoverAppsViewModel(Mock.Of<ILeftoverService>(), _text.Object,
+            Mock.Of<IUninstallResidueReview>(), new LeftoverAppsViewModel(Mock.Of<ILeftoverService>(), localization,
                 Mock.Of<IDialogService>(), Mock.Of<IApplicationModeService>(), Mock.Of<ITaskProgressService>(), _dispatcher.Object, Mock.Of<ILogService>()));
     }
 

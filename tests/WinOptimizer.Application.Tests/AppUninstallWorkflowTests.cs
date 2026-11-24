@@ -89,6 +89,44 @@ public sealed class AppUninstallWorkflowTests
             It.IsAny<IProgress<UninstallResidueProgress>>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
+    [Theory]
+    [InlineData(AppUninstallKind.Windows)]
+    [InlineData(AppUninstallKind.External)]
+    public async Task FooterCancellationStillVerifiesAndShowsCompletedRemovals(AppUninstallKind kind)
+    {
+        using var footer = new CancellationTokenSource();
+        using var capture = new CancellationTokenSource();
+        using var verify = new CancellationTokenSource();
+        if (kind == AppUninstallKind.Windows)
+        {
+            UninstallNativeOutcome[] outcomes = [new("one", true, false, null),
+                new("two", false, false, "Restore_Cancelled") { Cancelled = true }];
+            _windows.Setup(service => service.UninstallAppsWithOutcomesAsync(It.IsAny<List<ItemDefinition>>(), true))
+                .ReturnsAsync(OperationResult<IReadOnlyList<UninstallNativeOutcome>>.Succeeded(outcomes));
+        }
+        else
+        {
+            _tasks.SetupSequence(tasks => tasks.StartTask(It.IsAny<string>(), true))
+                .Returns(capture).Returns(footer).Returns(verify);
+            _external.Setup(service => service.UninstallAppAsync(_apps[0], It.IsAny<IProgress<TaskProgressDetail>>()))
+                .ReturnsAsync(() =>
+                {
+                    footer.Cancel();
+                    return OperationResult<bool>.Succeeded(true);
+                });
+        }
+
+        var result = await _sut.UninstallAsync(_apps, kind);
+
+        _session.Verify(session => session.VerifyAsync(It.Is<IReadOnlyList<UninstallNativeOutcome>>(outcomes =>
+            outcomes.Count == 2 && outcomes[0].Success && !outcomes[0].Cancelled && !outcomes[1].Success && outcomes[1].Cancelled),
+            It.IsAny<IProgress<UninstallResidueProgress>>(), It.Is<CancellationToken>(token => !token.IsCancellationRequested)), Times.Once);
+        Assert.Equal(UninstallVerificationState.Removed, Assert.Single(result.Applications).State);
+        Assert.Contains("Restore_Cancelled", result.Notices);
+        _review.Verify(review => review.ShowAsync(_session.Object, result, It.IsAny<CancellationToken>()), Times.Once);
+        _external.Verify(service => service.UninstallAppAsync(_apps[1], It.IsAny<IProgress<TaskProgressDetail>>()), Times.Never);
+    }
+
     [Fact]
     public async Task SkipDoesNotLaunchThatApp_AndNeverClaimsItWasRemoved()
     {

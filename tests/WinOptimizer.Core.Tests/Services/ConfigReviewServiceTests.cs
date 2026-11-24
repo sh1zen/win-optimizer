@@ -93,6 +93,22 @@ public class ConfigReviewServiceTests : IDisposable
     [Theory]
     [InlineData(false)]
     [InlineData(true)]
+    public async Task NormalModeReservationAndConfigurationReviewCannotOverlap(bool nested)
+    {
+        var service = CreateService();
+        using (service.BeginNormalModeSystemOperation())
+        {
+            if (nested) service.BeginNormalModeSystemOperation().Dispose();
+            await Assert.ThrowsAsync<InvalidOperationException>(() => service.EnterReviewModeAsync(new UnifiedConfigurationFile()));
+            Assert.Equal(WinOptimizerMode.Normal, service.CurrentMode);
+        }
+        await service.EnterReviewModeAsync(new UnifiedConfigurationFile());
+        Assert.Throws<InvalidOperationException>(() => service.BeginNormalModeSystemOperation());
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
     public async Task TrialExit_RestoresPresentationBeforeClearingDraftOrEnteringReview(bool review)
     {
         var service = CreateService();
@@ -137,7 +153,7 @@ public class ConfigReviewServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task EnterReviewModeAsync_RaisesModeChanged()
+    public async Task EnteringAndExitingReviewModeRaiseModeChanged()
     {
         var service = CreateService();
         var raised = false;
@@ -146,16 +162,8 @@ public class ConfigReviewServiceTests : IDisposable
         await service.EnterReviewModeAsync(new UnifiedConfigurationFile());
 
         raised.Should().BeTrue();
-    }
 
-    [Fact]
-    public async Task ExitReviewMode_RaisesModeChanged()
-    {
-        var service = CreateService();
-        await service.EnterReviewModeAsync(new UnifiedConfigurationFile());
-        var raised = false;
-        service.ModeChanged += (_, _) => raised = true;
-
+        raised = false;
         service.ExitReviewMode();
 
         raised.Should().BeTrue();
@@ -197,18 +205,6 @@ public class ConfigReviewServiceTests : IDisposable
 
         service.CurrentMode.Should().Be(WinOptimizerMode.Normal);
         service.CurrentBuilderTarget.Should().Be(BuilderTarget.Config);
-    }
-
-    [Fact]
-    public async Task EnterReviewModeAsync_FiresBadgeStateChangedEvent()
-    {
-        bool eventFired = false;
-        var service = CreateService();
-        service.BadgeStateChanged += (_, _) => eventFired = true;
-
-        await service.EnterReviewModeAsync(new UnifiedConfigurationFile());
-
-        eventFired.Should().BeTrue();
     }
 
     [Fact]
@@ -456,32 +452,24 @@ public class ConfigReviewServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task ExitReviewMode_ClearsAllState()
+    public async Task ReviewModeLifecycle_RefreshesBadgesAndClearsStateOnExit()
     {
         var service = CreateService();
-        await service.EnterReviewModeAsync(new UnifiedConfigurationFile());
+        var badgeChanged = false;
+        service.BadgeStateChanged += (_, _) => badgeChanged = true;
 
+        await service.EnterReviewModeAsync(new UnifiedConfigurationFile());
+        badgeChanged.Should().BeTrue();
+
+        badgeChanged = false;
         service.ExitReviewMode();
 
+        badgeChanged.Should().BeTrue();
         service.CurrentMode.Should().Be(WinOptimizerMode.Normal);
         service.IsInReviewMode.Should().BeFalse();
         service.ActiveConfig.Should().BeNull();
         service.TotalChanges.Should().Be(0);
         service.TotalConfigItems.Should().Be(0);
-    }
-
-    [Fact]
-    public async Task ExitReviewMode_FiresBadgeStateChangedEvent()
-    {
-        var service = CreateService();
-        await service.EnterReviewModeAsync(new UnifiedConfigurationFile());
-
-        bool eventFired = false;
-        service.BadgeStateChanged += (_, _) => eventFired = true;
-
-        service.ExitReviewMode();
-
-        eventFired.Should().BeTrue();
     }
 
     [Fact]
@@ -634,7 +622,7 @@ public class ConfigReviewServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task IsFeatureFullyReviewed_WithUnreviewedDiffs_ReturnsFalse()
+    public async Task ApprovingTheLastDiffCompletesTheFeatureAndRefreshesItsBadge()
     {
         var settingDef = new SettingDefinition
         {
@@ -683,65 +671,7 @@ public class ConfigReviewServiceTests : IDisposable
         var service = CreateService();
         await service.EnterReviewModeAsync(config);
 
-        // Has unreviewed diff - not fully reviewed even without visiting
         service.IsFeatureFullyReviewed("Privacy").Should().BeFalse();
-
-        // Review the diff
-        service.SetSettingApproval("s1", true);
-
-        // Fully reviewed once all diffs are reviewed, regardless of visited state
-        service.IsFeatureFullyReviewed("Privacy").Should().BeTrue();
-    }
-
-    [Fact]
-    public async Task IsFeatureFullyReviewed_FiresBadgeStateChanged_WhenLastDiffReviewed()
-    {
-        var settingDef = new SettingDefinition
-        {
-            Id = "s1",
-            Name = "S1",
-            Description = "Test",
-            InputType = InputType.Toggle
-        };
-
-        _mockCompatibleSettingsRegistry
-            .Setup(r => r.GetFilteredSettings("Privacy"))
-            .Returns(new[] { settingDef });
-
-        _mockDiscoveryService
-            .Setup(d => d.GetSettingStatesAsync(It.IsAny<IReadOnlyList<SettingDefinition>>()))
-            .ReturnsAsync(new Dictionary<string, SettingStateResult>
-            {
-                ["s1"] = new SettingStateResult { IsEnabled = false }
-            });
-
-        var config = new UnifiedConfigurationFile
-        {
-            Optimize = new FeatureGroupSection
-            {
-                IsIncluded = true,
-                Features = new Dictionary<string, ConfigSection>
-                {
-                    ["Privacy"] = new ConfigSection
-                    {
-                        IsIncluded = true,
-                        Items = new List<ConfigurationItem>
-                        {
-                            new ConfigurationItem
-                            {
-                                Id = "s1",
-                                Name = "S1",
-                                IsSelected = true,
-                                InputType = InputType.Toggle
-                            }
-                        }
-                    }
-                }
-            }
-        };
-
-        var service = CreateService();
-        await service.EnterReviewModeAsync(config);
 
         int badgeChangedCount = 0;
         service.BadgeStateChanged += (_, _) => badgeChangedCount++;

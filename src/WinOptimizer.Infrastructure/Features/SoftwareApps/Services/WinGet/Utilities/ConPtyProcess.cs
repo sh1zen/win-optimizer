@@ -4,6 +4,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using WinOptimizer.Core.Features.Common.Helpers;
 using WinOptimizer.Core.Features.Common.Native;
 using static WinOptimizer.Core.Features.Common.Native.ConPtyApi;
 
@@ -281,7 +282,7 @@ internal sealed class ConPtyProcess : IDisposable
         int barEnd = -1;
         for (int i = 0; i < line.Length; i++)
         {
-            if (line[i] >= '\u2588' && line[i] <= '\u258F')
+            if (TerminalProgressBar.IsFilledBlock(line[i]))
             {
                 if (barStart < 0) barStart = i;
                 barEnd = i;
@@ -314,7 +315,7 @@ internal sealed class ConPtyProcess : IDisposable
         // Rebuild: [prefix before bar][filled blocks][░ unfilled track][  text]
         var sb = new StringBuilder(line.Length + unfilledCount);
         sb.Append(line, 0, barEnd + 1);          // Everything up to and including last block
-        sb.Append('\u2591', unfilledCount);        // ░ unfilled track
+        sb.Append(TerminalProgressBar.Track, unfilledCount);
         if (afterBar < line.Length)
         {
             sb.Append("  ");                       // Separator

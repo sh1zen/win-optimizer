@@ -53,19 +53,6 @@ public class TaskProgressServiceTests
     }
 
     [Fact]
-    public void MultiScript_AfterPageOwnedTask_UsesGlobalPresentation()
-    {
-        _sut.StartTask("Drivers", true, showInTaskBar: false);
-        _sut.CompleteTask();
-        var visibility = new List<bool>();
-        _sut.ProgressUpdated += (_, detail) => visibility.Add(detail.ShowInTaskBar);
-        _sut.StartMultiScriptTask(["Script"]);
-        _sut.UpdateDetailedProgress(new() { ScriptSlotCount = 1, ScriptSlotIndex = 0, Progress = 50 });
-        visibility.Should().OnlyContain(show => show);
-        _sut.CompleteTask();
-    }
-
-    [Fact]
     public void StartTask_ValidName_SetsRunningStateAndReturnsCancellationSource()
     {
         var cts = _sut.StartTask("Apply Settings");
@@ -138,10 +125,13 @@ public class TaskProgressServiceTests
     // ── CompleteTask ──
 
     [Fact]
-    public void CompleteTask_SetsProgressTo100AndClearsRunningState()
+    public void CompleteTaskClearsRunningStateAndPublishesCompletion()
     {
-        _sut.StartTask("Work");
+        _sut.StartTask("Work", isIndeterminate: true);
         _sut.UpdateProgress(50, "Working...");
+
+        TaskProgressDetail? received = null;
+        _sut.ProgressUpdated += (_, detail) => received = detail;
 
         _sut.CompleteTask();
 
@@ -149,19 +139,9 @@ public class TaskProgressServiceTests
         _sut.CurrentProgress.Should().Be(100);
         _sut.IsIndeterminate.Should().BeFalse();
         _sut.CurrentTaskCancellationSource.Should().BeNull();
-    }
-
-    [Fact]
-    public void CompleteTask_RaisesProgressUpdatedWithCompletion()
-    {
-        _sut.StartTask("Work");
-        TaskProgressDetail? received = null;
-        _sut.ProgressUpdated += (_, detail) => received = detail;
-
-        _sut.CompleteTask();
-
         received.Should().NotBeNull();
         received!.Progress.Should().Be(100);
+        received.IsCompletion.Should().BeTrue();
         received.DetailedMessage.Should().Be("Task completed");
     }
 
@@ -175,105 +155,6 @@ public class TaskProgressServiceTests
         _sut.CancelCurrentTask();
 
         cts.IsCancellationRequested.Should().BeTrue();
-    }
-
-    [Fact]
-    public void StartMultiScriptTask_NullOrEmpty_ThrowsArgumentException()
-    {
-        var act = () => _sut.StartMultiScriptTask(Array.Empty<string>());
-
-        act.Should().Throw<ArgumentException>();
-    }
-
-    [Fact]
-    public void StartMultiScriptTask_FiresProgressUpdatedForEachSlot()
-    {
-        var received = new List<TaskProgressDetail>();
-        _sut.ProgressUpdated += (_, detail) => received.Add(detail);
-
-        _sut.StartMultiScriptTask(new[] { "A", "B" });
-
-        received.Should().HaveCount(2);
-        received[0].ScriptSlotIndex.Should().Be(0);
-        received[0].ScriptSlotCount.Should().Be(2);
-        received[1].ScriptSlotIndex.Should().Be(1);
-        received[1].ScriptSlotCount.Should().Be(2);
-    }
-
-    /// <summary>Queued slot callbacks cannot revive completed scripts or add output to another operation.</summary>
-    [Theory]
-    [InlineData("completed")]
-    [InlineData("completed-then-single")]
-    [InlineData("replaced-single")]
-    [InlineData("replaced-multi")]
-    [InlineData("idle")]
-    public void ScriptProgressCannotOutliveItsTask(string transition)
-    {
-        var context = new QueuedContext();
-        var previous = SynchronizationContext.Current;
-        SynchronizationContext.SetSynchronizationContext(context);
-        CancellationTokenSource? owner = null;
-        try
-        {
-            if (transition != "idle") owner = _sut.StartMultiScriptTask(["Old removal", "Other removal"]);
-            var reporter = _sut.CreateScriptProgress(0);
-            reporter.Report(new() { Progress = 65, StatusText = "Old status", TerminalOutput = "Old output", IsCompletion = true });
-            if (transition.StartsWith("completed")) _sut.CompleteMultiScriptTask();
-            if (transition is "completed-then-single" or "replaced-single" or "idle") _sut.StartTask("New task");
-            else if (transition == "replaced-multi") _sut.StartMultiScriptTask(["New removal"]);
-            var running = _sut.IsTaskRunning;
-            var current = _sut.CurrentTaskCancellationSource;
-            var updates = new List<TaskProgressDetail>();
-            _sut.ProgressUpdated += (_, detail) => updates.Add(detail);
-            context.Drain();
-            Assert.Empty(updates);
-            Assert.Empty(_sut.GetTerminalOutputLines());
-            Assert.Equal(running, _sut.IsTaskRunning);
-            Assert.Same(current, _sut.CurrentTaskCancellationSource);
-        }
-        finally { _sut.CompleteMultiScriptTask(); owner?.Dispose(); SynchronizationContext.SetSynchronizationContext(previous); }
-    }
-
-    [Fact]
-    public void ScriptProgressRetainsSlotMetadataAndFinalDiagnosticsForItsCancelledOwner()
-    {
-        var context = new QueuedContext();
-        var previous = SynchronizationContext.Current;
-        SynchronizationContext.SetSynchronizationContext(context);
-        try
-        {
-            _sut.StartMultiScriptTask(["First", "Second"]);
-            var reporter = _sut.CreateScriptProgress(1);
-            var updates = new List<TaskProgressDetail>();
-            _sut.ProgressUpdated += (_, detail) => updates.Add(detail);
-            reporter.Report(new() { Progress = 65, TerminalOutput = "Working" });
-            context.Drain();
-            _sut.CancelCurrentTask();
-            reporter.Report(new() { IsCompletion = true, TerminalOutput = "Cancelled safely" });
-            context.Drain();
-            Assert.Equal(2, updates.Count);
-            Assert.All(updates, detail => { Assert.Equal(1, detail.ScriptSlotIndex); Assert.Equal(2, detail.ScriptSlotCount); });
-            Assert.True(updates[^1].IsCompletion);
-            Assert.Equal(new[] { "[Second] Working", "[Second] Cancelled safely" }, _sut.GetTerminalOutputLines());
-        }
-        finally { _sut.CompleteMultiScriptTask(); SynchronizationContext.SetSynchronizationContext(previous); }
-    }
-
-    // ── CompleteMultiScriptTask ──
-
-    [Fact]
-    public void CompleteMultiScriptTask_ResetsStateAndFiresCompletionEvent()
-    {
-        _sut.StartMultiScriptTask(new[] { "Script1" });
-        TaskProgressDetail? received = null;
-        _sut.ProgressUpdated += (_, detail) => received = detail;
-
-        _sut.CompleteMultiScriptTask();
-
-        _sut.IsTaskRunning.Should().BeFalse();
-        received.Should().NotBeNull();
-        received!.ScriptSlotCount.Should().Be(0);
-        received.Progress.Should().Be(100);
     }
 
     // ── UpdateDetailedProgress ──

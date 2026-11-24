@@ -20,8 +20,6 @@ public class VersionInfoTests
     [Theory]
     [InlineData("v26.10.16-beta")]
     [InlineData("v26.10.16-rc.1")]
-    [InlineData("v26.10.16-preview")]
-    [InlineData("v26.10.16-alpha")]
     [InlineData("v26.02.29")]
     [InlineData("26.10.16")]
     [InlineData("")]

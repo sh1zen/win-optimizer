@@ -17,11 +17,9 @@ public sealed class AppDataStorage(IInteractiveUserService user)
     {
         EnsureProtectedDirectory(AppDataPaths.Root);
         foreach (var path in new[] { AppDataPaths.Backups, AppDataPaths.Temp,
-            AppDataPaths.State, AppDataPaths.Downloads, AppDataPaths.History })
+            AppDataPaths.State, AppDataPaths.Downloads, AppDataPaths.History, AppDataPaths.TimeMachine })
             EnsureProtectedDirectory(path);
-        foreach (var path in new[] { Path.Combine(AppDataPaths.Root, "OpenWebSearch"),
-            Path.Combine(AppDataPaths.Root, "Unattend") })
-            EnsureProtectedDirectory(path, readable: true);
+        EnsureProtectedDirectory(Path.Combine(AppDataPaths.Root, "Unattend"), readable: true);
 
         var sid = AppDataPaths.InteractiveUserSid(user);
         var userRoot = AppDataPaths.User(sid);

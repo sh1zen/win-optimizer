@@ -59,6 +59,58 @@ public class WindowsAppsViewModelTests
     };
 
     [Fact]
+    public async Task SelectAllTogglesOnlyVisibleAppPackages()
+    {
+        var first = CreateTestItem("first", "Photo editor", isInstalled: true);
+        var second = CreateTestItem("second", "Photo viewer", isInstalled: true);
+        var other = CreateTestItem("other", "Camera", isInstalled: true);
+        var absent = CreateTestItem("absent", "Photo backup");
+        var capability = new ItemDefinition
+        {
+            Id = "capability",
+            Name = "Photo capability",
+            Description = "Additional photo tools",
+            CapabilityName = "Photo.Tools",
+            IsInstalled = true
+        };
+        ItemDefinition[] apps = [first, second, other, absent, capability];
+        _windowsAppsService.Setup(service => service.GetAppsAsync()).ReturnsAsync(apps);
+        _windowsAppsService.Setup(service => service.CheckBatchInstalledAsync(It.IsAny<IEnumerable<ItemDefinition>>()))
+            .ReturnsAsync(apps.ToDictionary(app => app.Id, app => app.IsInstalled));
+        using var sut = CreateSut();
+        await sut.LoadAppsAndCheckInstallationStatusAsync();
+        var items = sut.Items.ToDictionary(item => item.Id);
+        items[other.Id].IsSelected = true;
+        sut.SearchText = "Photo";
+
+        var command = sut.ToggleSelectAllVisibleAppsCommand;
+        Assert.True(command.CanExecute(null));
+        Assert.False(sut.AreAllVisibleAppsSelected);
+
+        command.Execute(null);
+
+        Assert.True(sut.AreAllVisibleAppsSelected);
+        Assert.True(items[first.Id].IsSelected);
+        Assert.True(items[second.Id].IsSelected);
+        Assert.True(items[other.Id].IsSelected);
+        Assert.False(items[absent.Id].IsSelected);
+        Assert.False(items[capability.Id].IsSelected);
+
+        items[first.Id].IsSelected = false;
+        Assert.False(sut.AreAllVisibleAppsSelected);
+        command.Execute(null);
+        Assert.True(sut.AreAllVisibleAppsSelected);
+        command.Execute(null);
+        Assert.False(sut.AreAllVisibleAppsSelected);
+        Assert.False(items[first.Id].IsSelected);
+        Assert.False(items[second.Id].IsSelected);
+        Assert.True(items[other.Id].IsSelected);
+
+        sut.SearchText = "Photo capability";
+        Assert.False(command.CanExecute(null));
+    }
+
+    [Fact]
     public async Task RemovalReconcilesBeforeReviewAndAwaitsRefreshAfterWorkflowCompletion()
     {
         var app = CreateTestItem("chosen", isInstalled: true);
@@ -141,8 +193,10 @@ public class WindowsAppsViewModelTests
                 return result;
             });
 
-        await sut.RemoveApps(skipConfirmation: true);
+        var operation = await sut.RemoveApps(skipConfirmation: true);
 
+        Assert.True(operation.Success);
+        Assert.Equal(state, Assert.Single(operation.Result!.Applications).State);
         Assert.Same(original, sut.Items[0]);
         Assert.True(original.IsInstalled);
         Assert.False(original.IsRetainedOnDevice);
@@ -196,8 +250,10 @@ public class WindowsAppsViewModelTests
         await sut.LoadAppsAndCheckInstallationStatusAsync();
         sut.Items[0].IsSelected = true;
 
-        await sut.RemoveApps(skipConfirmation: true);
+        var operation = await sut.RemoveApps(skipConfirmation: true);
 
+        Assert.False(operation.Success);
+        Assert.Equal(cancelled, operation.IsCancelled);
         Assert.False(sut.Items[0].IsInstalled);
         Assert.False(sut.Items[0].IsSelected);
         Assert.False(sut.IsTaskRunning);
@@ -288,11 +344,12 @@ public class WindowsAppsViewModelTests
         hidden.IsInstalledOnDevice.Should().BeTrue();
         hidden.InstalledStatusText.Should().Be("WindowsApps_Status_Inactive");
         hidden.InstalledStatusTooltip.Should().Be("WindowsApps_Status_Inactive_Tooltip");
-        sut.ToggleSelectAllCommand.Execute(null);
-        sut.Items.Where(item => item.IsSelected).Select(item => item.Id).Should().BeEquivalentTo("active", "hidden");
+        hidden.IsSelected = true;
+        sut.HasSelectedItems.Should().BeTrue();
 
         sut.ShowHiddenInstalledApps = false;
         hidden.IsSelected.Should().BeFalse();
+        sut.HasSelectedItems.Should().BeFalse();
         sut.WindowsAppsFiltered.Select(item => item.Id).Should().Equal("active");
         sut.ItemsView.Cast<AppItemViewModel>().Select(item => item.Id).Should().Equal("active");
         sut.ShowHiddenInstalledApps = true;
@@ -331,18 +388,22 @@ public class WindowsAppsViewModelTests
         var statusCompletion = new TaskCompletionSource<Dictionary<string, bool>>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var iconCompletion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        _windowsAppsService.Setup(s => s.GetAppsAsync()).ReturnsAsync(new[] { definition });
+        using var sut = CreateSut();
+        var wasLoadingDuringGet = false;
+        _windowsAppsService.Setup(s => s.GetAppsAsync())
+            .Callback(() => wasLoadingDuringGet = sut.IsLoading)
+            .ReturnsAsync(new[] { definition });
         _windowsAppsService.Setup(s => s.CheckBatchInstalledAsync(It.IsAny<IEnumerable<ItemDefinition>>()))
             .Returns(statusCompletion.Task);
         _iconResolver.Setup(r => r.ResolveBatchAsync(
                 It.IsAny<IEnumerable<ItemDefinition>>(), true, It.IsAny<CancellationToken>()))
             .Returns(iconCompletion.Task);
 
-        using var sut = CreateSut();
         var load = sut.LoadAppsAndCheckInstallationStatusAsync();
         try
         {
             sut.LoadAppsAndCheckInstallationStatusAsync().Should().BeSameAs(load);
+            wasLoadingDuringGet.Should().BeTrue();
             _windowsAppsService.Verify(s => s.CheckBatchInstalledAsync(
                 It.Is<IEnumerable<ItemDefinition>>(items => items.Single() == definition)), Times.Once);
             _iconResolver.Verify(r => r.ResolveBatchAsync(
@@ -368,6 +429,7 @@ public class WindowsAppsViewModelTests
         sut.IsInitialized.Should().BeTrue();
         sut.IsLoading.Should().BeFalse();
         sut.Items.Single().IsInstalled.Should().BeTrue();
+        await sut.LoadAppsAndCheckInstallationStatusAsync();
         _windowsAppsService.Verify(s => s.GetAppsAsync(), Times.Once);
     }
 
@@ -413,22 +475,6 @@ public class WindowsAppsViewModelTests
     }
 
     [Fact]
-    public async Task LoadAppsAndCheckInstallationStatusAsync_WhenAlreadyInitialized_SkipsLoading()
-    {
-        _windowsAppsService.Setup(s => s.GetAppsAsync())
-            .ReturnsAsync(Enumerable.Empty<ItemDefinition>());
-        _windowsAppsService.Setup(s => s.CheckBatchInstalledAsync(It.IsAny<IEnumerable<ItemDefinition>>()))
-            .ReturnsAsync(new Dictionary<string, bool>());
-
-        var sut = CreateSut();
-
-        await sut.LoadAppsAndCheckInstallationStatusAsync();
-        await sut.LoadAppsAndCheckInstallationStatusAsync();
-
-        _windowsAppsService.Verify(s => s.GetAppsAsync(), Times.Once);
-    }
-
-    [Fact]
     public async Task LoadAppsAndCheckInstallationStatusAsync_OnError_LogsErrorAndCompletes()
     {
         _windowsAppsService.Setup(s => s.GetAppsAsync())
@@ -445,25 +491,6 @@ public class WindowsAppsViewModelTests
     }
 
     [Fact]
-    public async Task LoadAppsAndCheckInstallationStatusAsync_SetsIsLoadingDuringOperation()
-    {
-        var sut = CreateSut();
-        bool wasLoadingDuringGet = false;
-
-        _windowsAppsService.Setup(s => s.GetAppsAsync())
-            .Callback(() => wasLoadingDuringGet = sut.IsLoading)
-            .ReturnsAsync(Enumerable.Empty<ItemDefinition>());
-        _windowsAppsService.Setup(s => s.CheckBatchInstalledAsync(It.IsAny<IEnumerable<ItemDefinition>>()))
-            .ReturnsAsync(new Dictionary<string, bool>());
-
-        await sut.LoadAppsAndCheckInstallationStatusAsync();
-
-        wasLoadingDuringGet.Should().BeTrue();
-        // After completion, IsLoading should be false
-        sut.IsLoading.Should().BeFalse();
-    }
-
-    [Fact]
     public async Task RefreshInstallationStatusAsync_WhenNotInitialized_SetsWaitMessage()
     {
         var sut = CreateSut();
@@ -471,23 +498,6 @@ public class WindowsAppsViewModelTests
         await sut.RefreshInstallationStatusAsync();
 
         sut.StatusText.Should().Be("Progress_WaitForInitialLoad");
-    }
-
-    [Fact]
-    public async Task RefreshInstallationStatusAsync_WhenInitialized_InvalidatesCacheAndRefreshes()
-    {
-        _windowsAppsService.Setup(s => s.GetAppsAsync())
-            .ReturnsAsync(Enumerable.Empty<ItemDefinition>());
-        _windowsAppsService.Setup(s => s.CheckBatchInstalledAsync(It.IsAny<IEnumerable<ItemDefinition>>()))
-            .ReturnsAsync(new Dictionary<string, bool>());
-
-        var sut = CreateSut();
-        await sut.LoadAppsAndCheckInstallationStatusAsync();
-
-        await sut.RefreshInstallationStatusAsync();
-
-        _windowsAppsService.Verify(s => s.InvalidateStatusCache(), Times.Once);
-        sut.IsLoading.Should().BeFalse();
     }
 
     [Fact]
@@ -506,47 +516,6 @@ public class WindowsAppsViewModelTests
         _dialogService.Verify(d => d.ShowWarningAsync(
             It.Is<string>(s => s.Contains("select at least one")),
             It.IsAny<string>()), Times.Once);
-    }
-
-    [Fact]
-    public async Task ToggleSelectAllNotInstalled_SelectsOnlyNotInstalledItems()
-    {
-        _windowsAppsService.Setup(s => s.GetAppsAsync())
-            .ReturnsAsync(new[]
-            {
-                CreateTestItem("app1", isInstalled: true),
-                CreateTestItem("app2", isInstalled: false)
-            });
-        _windowsAppsService.Setup(s => s.CheckBatchInstalledAsync(It.IsAny<IEnumerable<ItemDefinition>>()))
-            .ReturnsAsync(new Dictionary<string, bool> { ["app1"] = true, ["app2"] = false });
-
-        var sut = CreateSut();
-        await sut.LoadAppsAndCheckInstallationStatusAsync();
-
-        sut.ToggleSelectAllNotInstalledCommand.Execute(null);
-
-        var installedItem = sut.Items.First(i => i.IsInstalled);
-        var notInstalledItem = sut.Items.First(i => !i.IsInstalled);
-
-        installedItem.IsSelected.Should().BeFalse();
-        notInstalledItem.IsSelected.Should().BeTrue();
-    }
-
-    [Fact]
-    public async Task Dispose_CleansUpEventSubscriptions()
-    {
-        _windowsAppsService.Setup(s => s.GetAppsAsync())
-            .ReturnsAsync(new[] { CreateTestItem("app1") });
-        _windowsAppsService.Setup(s => s.CheckBatchInstalledAsync(It.IsAny<IEnumerable<ItemDefinition>>()))
-            .ReturnsAsync(new Dictionary<string, bool> { ["app1"] = false });
-
-        var sut = CreateSut();
-        await sut.LoadAppsAndCheckInstallationStatusAsync();
-
-        sut.Dispose();
-
-        // After dispose, items should still be accessible but the ViewModel should be disposed
-        sut.Items.Should().NotBeNull();
     }
 
     [Fact]
@@ -569,10 +538,12 @@ public class WindowsAppsViewModelTests
         sut.ItemsView.Cast<AppItemViewModel>().Select(a => a.Id).Should().Equal("app2");
         sut.HasSelectedItems.Should().BeFalse();
         sut.WindowsAppsFiltered.Select(a => a.Id).Should().Equal("app2");
+        _windowsAppsService.Verify(s => s.InvalidateStatusCache(), Times.Once);
+        sut.IsLoading.Should().BeFalse();
     }
 
     [Fact]
-    public async Task SelectAll_WithSearch_SelectsOnlyMatchingInstalledApps()
+    public async Task Search_ShowsOnlyMatchingInstalledAppsForIndividualSelection()
     {
         _windowsAppsService.Setup(s => s.GetAppsAsync())
             .ReturnsAsync(new[]
@@ -590,14 +561,14 @@ public class WindowsAppsViewModelTests
         await sut.LoadAppsAndCheckInstallationStatusAsync();
         sut.SearchText = "Matching";
 
-        sut.ToggleSelectAllCommand.Execute(null);
-
+        var matchingApp = sut.ItemsView.Cast<AppItemViewModel>().Should().ContainSingle().Which;
+        matchingApp.Id.Should().Be("app1");
+        matchingApp.IsSelected = true;
         sut.Items.Where(a => a.IsSelected).Select(a => a.Id).Should().Equal("app1");
-        sut.IsAllSelected.Should().BeTrue();
-        sut.ToggleSelectAllCommand.Execute(null);
-        sut.Items.Should().OnlyContain(a => !a.IsSelected);
+        sut.HasSelectedItems.Should().BeTrue();
+        matchingApp.IsSelected = false;
+        sut.HasSelectedItems.Should().BeFalse();
         sut.SearchText = "Available";
         sut.ItemsView.Should().BeEmpty();
-        sut.IsAllSelected.Should().BeFalse();
     }
 }

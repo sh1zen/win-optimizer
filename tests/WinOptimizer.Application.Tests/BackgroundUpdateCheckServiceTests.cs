@@ -47,7 +47,7 @@ public sealed class BackgroundUpdateCheckServiceTests : IAsyncLifetime
     }
 
     [Fact]
-    public async Task ExplicitStart_DefersAllWork_AndRepeatedStartsShareOneLoop()
+    public async Task ExplicitStartSchedulesOneDeferredUpdateLoop()
     {
         var service = CreateService();
         _preferences.VerifyNoOtherCalls(); _versions.VerifyNoOtherCalls(); _scripts.VerifyNoOtherCalls();
@@ -56,6 +56,7 @@ public sealed class BackgroundUpdateCheckServiceTests : IAsyncLifetime
         var initial = await _clock.NextDelayAsync();
         Assert.Equal(TimeSpan.FromSeconds(30), initial.Due);
         _preferences.VerifyNoOtherCalls(); _versions.VerifyNoOtherCalls(); _scripts.VerifyNoOtherCalls();
+        _mode.VerifyNoOtherCalls();
         initial.Fire();
         Assert.Equal(TimeSpan.FromDays(1), (await _clock.NextDelayAsync()).Due);
         _scripts.Verify(service => service.CheckAndUpdateScriptsAsync(), Times.Once);
@@ -99,10 +100,12 @@ public sealed class BackgroundUpdateCheckServiceTests : IAsyncLifetime
         Assert.Equal(_clock.GetUtcNow(), _lastAttempt);
     }
 
-    [Fact]
-    public async Task AttemptIsPersistedBeforeChecks_AndAvailableVersionIsPassedDirectly()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task AttemptIsPersistedBeforeChecks_AndVerifiedVersionIsPassedDirectly(bool updateAvailable)
     {
-        var update = new VersionInfo { Version = "v26.10.20", IsUpdateAvailable = true };
+        var update = new VersionInfo { Version = "v26.10.20", IsUpdateAvailable = updateAvailable };
         _scripts.Setup(service => service.CheckAndUpdateScriptsAsync()).Callback(() => Assert.Equal(_clock.GetUtcNow(), _lastAttempt)).Returns(Task.CompletedTask);
         _versions.Setup(service => service.CheckForUpdateAsync(It.IsAny<CancellationToken>())).ReturnsAsync(update);
         _ = Start(CreateService());

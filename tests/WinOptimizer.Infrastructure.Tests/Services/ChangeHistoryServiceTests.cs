@@ -111,6 +111,42 @@ public sealed class ChangeHistoryServiceTests
     }
 
     [Fact]
+    public async Task OverlappingOperationsKeepTheirOwnHistoryBatches()
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var first = RecordBatchAsync("First configuration", "First setting", release.Task, entered);
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            _service.LogSettingAction("Independent action", null);
+            await RecordBatchAsync("Second configuration", "Second setting", Task.CompletedTask);
+        }
+        finally
+        {
+            release.SetResult();
+            await first;
+        }
+
+        var entries = Entries.ToDictionary(entry => entry.Name);
+        Assert.Null(entries["Independent action"].Batch);
+        Assert.Null(entries["Independent action"].BatchId);
+        Assert.Equal("First configuration", entries["First setting"].Batch);
+        Assert.Equal("Second configuration", entries["Second setting"].Batch);
+        Assert.NotNull(entries["First setting"].BatchId);
+        Assert.NotNull(entries["Second setting"].BatchId);
+        Assert.NotEqual(entries["First setting"].BatchId, entries["Second setting"].BatchId);
+
+        async Task RecordBatchAsync(string batch, string setting, Task ready, TaskCompletionSource? started = null)
+        {
+            using var scope = _service.BeginBatch(batch);
+            started?.SetResult();
+            await ready;
+            _service.LogSettingAction(setting, null);
+        }
+    }
+
+    [Fact]
     public void BatchScopeCanBeDisposedTwiceWithoutEndingAnotherBatch()
     {
         var first = _service.BeginBatch("First");

@@ -10,8 +10,9 @@
     <ProjectReference Include="..\..\src\WinOptimizer.UI\WinOptimizer.UI.csproj"/>
     <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260416003"/><PackageReference Include="Microsoft.Windows.CsWinRT" Version="2.2.0"/>
     <PackageReference Include="Moq" Version="4.20.72"/><PackageReference Include="xunit" Version="2.9.3"/>
-    <Page Include="..\..\src\WinOptimizer.UI\Features\Common\Resources\PageStyles.xaml" Link="Features\Common\Resources\PageStyles.xaml"/>
     <Compile Include="..\WinOptimizer.UI.Tests\Helpers\ExtensionTestDispatcher.cs" Link="ExtensionTestDispatcher.cs"/>
+    <Compile Include="..\WinOptimizer.UI.Tests\Helpers\NativeTestCases.cs" Link="NativeTestCases.cs"/>
+    <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\ConnectionViewModelTests.cs" Link="ConnectionViewModelTests.cs"/>
     <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\OptimizationToolsViewModelTests.cs" Link="OptimizationToolsViewModelTests.cs"/>
     <EmbeddedResource Include="..\..\src\WinOptimizer.UI\Features\Optimize\Pages\FeaturesOptimizePage.xaml" LogicalName="FeaturesOptimizePage.xaml"/>
     <EmbeddedResource Include="..\..\src\WinOptimizer.UI\Features\Optimize\Pages\NetworkOptimizePage.xaml" LogicalName="NetworkOptimizePage.xaml"/>

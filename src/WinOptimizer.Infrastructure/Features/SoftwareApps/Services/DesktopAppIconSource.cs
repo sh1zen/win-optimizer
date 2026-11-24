@@ -1,9 +1,8 @@
-using System.ComponentModel;
 using System.Globalization;
-using System.Runtime.InteropServices;
 using Windows.Graphics.Imaging;
 using Windows.Storage.Streams;
 using WinOptimizer.Core.Features.Common.Interfaces;
+using WinOptimizer.Infrastructure.Features.Common.Utilities;
 
 namespace WinOptimizer.Infrastructure.Features.SoftwareApps.Services;
 
@@ -65,7 +64,7 @@ public sealed class DesktopAppIconSource(IInteractiveUserService user) : IDeskto
 
     public async Task<Stream?> GetIconStreamAsync(DesktopIconReference icon, CancellationToken ct)
     {
-        var pixels = await Task.Run(() => ReadPixels(icon, ct), ct).ConfigureAwait(false);
+        var pixels = await Task.Run(() => WindowsIconPixels.ReadResource(icon.Path, icon.Index, IconSize, ct), ct).ConfigureAwait(false);
         if (pixels == null) return null;
         using var stream = new InMemoryRandomAccessStream();
         var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, stream).AsTask(ct).ConfigureAwait(false);
@@ -81,67 +80,4 @@ public sealed class DesktopAppIconSource(IInteractiveUserService user) : IDeskto
         }
         catch { result.Dispose(); throw; }
     }
-
-    /// <summary>Renders on black and white to recover alpha for both modern and legacy masked icon resources.</summary>
-    private static byte[]? ReadPixels(DesktopIconReference icon, CancellationToken ct)
-    {
-        ct.ThrowIfCancellationRequested();
-        int status = SHDefExtractIcon(icon.Path, icon.Index, 0, out var handle, IntPtr.Zero, IconSize);
-        try
-        {
-            Marshal.ThrowExceptionForHR(status);
-            if (handle == IntPtr.Zero) return null;
-            var dc = CreateCompatibleDC(IntPtr.Zero);
-            if (dc == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
-            IntPtr bitmap = IntPtr.Zero, previous = IntPtr.Zero;
-            try
-            {
-                var header = new BitmapHeader { Size = (uint)Marshal.SizeOf<BitmapHeader>(), Width = IconSize, Height = -IconSize, Planes = 1, Bits = 32 };
-                bitmap = CreateDIBSection(dc, ref header, 0, out var bits, IntPtr.Zero, 0);
-                if (bitmap == IntPtr.Zero) throw new Win32Exception(Marshal.GetLastWin32Error());
-                previous = SelectObject(dc, bitmap);
-                if (previous == IntPtr.Zero || previous == new IntPtr(-1)) throw new Win32Exception(Marshal.GetLastWin32Error());
-                var black = new byte[IconSize * IconSize * 4];
-                var white = new byte[black.Length]; Array.Fill(white, (byte)255);
-                Render(black); Render(white);
-                for (int pixel = 0; pixel < black.Length; pixel += 4)
-                    black[pixel + 3] = (byte)Math.Clamp(255 - white[pixel] + black[pixel], 0, 255);
-                return black;
-
-                void Render(byte[] background)
-                {
-                    ct.ThrowIfCancellationRequested();
-                    Marshal.Copy(background, 0, bits, background.Length);
-                    if (!DrawIconEx(dc, 0, 0, handle, IconSize, IconSize, 0, IntPtr.Zero, 3)) throw new Win32Exception(Marshal.GetLastWin32Error());
-                    if (!GdiFlush()) throw new Win32Exception(Marshal.GetLastWin32Error());
-                    Marshal.Copy(bits, background, 0, background.Length);
-                }
-            }
-            finally
-            {
-                if (previous != IntPtr.Zero && previous != new IntPtr(-1)) SelectObject(dc, previous);
-                if (bitmap != IntPtr.Zero) DeleteObject(bitmap);
-                DeleteDC(dc);
-            }
-        }
-        finally { if (handle != IntPtr.Zero) DestroyIcon(handle); }
-    }
-
-    [StructLayout(LayoutKind.Sequential)]
-    private struct BitmapHeader
-    {
-        public uint Size; public int Width, Height; public ushort Planes, Bits;
-        public uint Compression, ImageSize; public int XPixels, YPixels; public uint Colors, ImportantColors;
-    }
-    [DllImport("shell32.dll", EntryPoint = "SHDefExtractIconW", CharSet = CharSet.Unicode, ExactSpelling = true)]
-    private static extern int SHDefExtractIcon(string file, int index, uint flags, out IntPtr large, IntPtr small, uint size);
-    [DllImport("gdi32.dll", SetLastError = true)] private static extern IntPtr CreateCompatibleDC(IntPtr dc);
-    [DllImport("gdi32.dll", SetLastError = true)] private static extern IntPtr CreateDIBSection(IntPtr dc, ref BitmapHeader info, uint usage, out IntPtr bits, IntPtr section, uint offset);
-    [DllImport("gdi32.dll", SetLastError = true)] private static extern IntPtr SelectObject(IntPtr dc, IntPtr value);
-    [DllImport("gdi32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool DeleteObject(IntPtr value);
-    [DllImport("gdi32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool DeleteDC(IntPtr dc);
-    [DllImport("gdi32.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool GdiFlush();
-    [DllImport("user32.dll")] [return: MarshalAs(UnmanagedType.Bool)] private static extern bool DestroyIcon(IntPtr icon);
-    [DllImport("user32.dll", SetLastError = true)] [return: MarshalAs(UnmanagedType.Bool)]
-    private static extern bool DrawIconEx(IntPtr dc, int x, int y, IntPtr icon, int width, int height, uint step, IntPtr brush, uint flags);
 }

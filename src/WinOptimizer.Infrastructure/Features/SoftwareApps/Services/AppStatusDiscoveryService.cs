@@ -64,7 +64,7 @@ public class AppStatusDiscoveryService(
                 : Task.FromResult(new WindowsComponentStatus(
                     new Dictionary<string, bool>(), new Dictionary<string, bool>()));
             var packageRead = apps.Count > 0 ? GetOrFetchAppxInventory() : default;
-            var packagesTask = packageRead?.Names ?? Task.FromResult(new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+            var packagesTask = ReadAvailableAppxNamesAsync(packageRead);
             // Ordinary AppX identities do not depend on servicing results. Start
             // their conditional WinGet fallback as soon as package enumeration
             // finishes, while DISM is still running. Shared component identities
@@ -76,10 +76,11 @@ public class AppStatusDiscoveryService(
             await Task.WhenAll(componentsTask, packagesTask,
                 winGetTask is null ? Task.CompletedTask : winGetTask).ConfigureAwait(false);
             var components = await componentsTask.ConfigureAwait(false);
+            var installedPackageNames = await packagesTask.ConfigureAwait(false);
 
             int capCount = 0, featCount = 0, appxCount = 0, wingetCount = 0;
 
-            if (capabilities.Count != 0)
+            if (components.CapabilitiesRead)
             {
                 var capabilityResults = components.Capabilities;
                 foreach (var capability in capabilities)
@@ -96,7 +97,7 @@ public class AppStatusDiscoveryService(
                 }
             }
 
-            if (features.Count != 0)
+            if (components.FeaturesRead)
             {
                 var featureResults = components.Features;
                 foreach (var feature in features)
@@ -115,10 +116,9 @@ public class AppStatusDiscoveryService(
 
             if (apps.Count != 0)
             {
-                var installedPackageNames = await packagesTask.ConfigureAwait(false);
                 foreach (var app in apps)
                 {
-                    if (app.AppxPackageName!.Any(name => installedPackageNames.Contains(name)))
+                    if (installedPackageNames is not null && app.AppxPackageName!.Any(installedPackageNames.Contains))
                     {
                         result[app.Id] = true;
                         appxCount++;
@@ -129,12 +129,13 @@ public class AppStatusDiscoveryService(
                 // WinGet fallback for apps not found by PackageManager
                 var undetectedApps = apps
                     .Where(a => !result.GetValueOrDefault(a.Id))
-                    .Where(a => (a.WinGetPackageId != null && a.WinGetPackageId.Length > 0) || !string.IsNullOrEmpty(a.MsStoreId))
+                    .Where(HasWinGetIdentity)
                     .ToList();
 
+                HashSet<string>? winGetIds = null;
                 if (undetectedApps.Count != 0)
                 {
-                    var winGetIds = winGetTask is null
+                    winGetIds = winGetTask is null
                         ? await GetOrFetchWinGetPackageIdsAsync().ConfigureAwait(false)
                         : await winGetTask.ConfigureAwait(false);
                     if (winGetIds != null)
@@ -156,10 +157,13 @@ public class AppStatusDiscoveryService(
                     }
                 }
 
-                // Mark remaining unfound apps as not installed
-                foreach (var app in apps)
+                // All relevant inventories must be available before absence can be confirmed.
+                foreach (var app in apps.Where(app => !result.GetValueOrDefault(app.Id)))
                 {
-                    result.TryAdd(app.Id, false);
+                    if (installedPackageNames is null || (winGetIds is null && HasWinGetIdentity(app)))
+                        result.Remove(app.Id);
+                    else if (!componentIds.Contains(app.Id))
+                        result.TryAdd(app.Id, false);
                 }
             }
 
@@ -167,27 +171,27 @@ public class AppStatusDiscoveryService(
             logService.LogInformation(
                 $"Detection complete: {capCount} via Capability, {featCount} via Feature, {appxCount} via AppX, {wingetCount} via WinGet, {notFoundCount} not found");
 
-            await RefreshMetadataAsync(definitionList, result, packageRead?.Fresh).ConfigureAwait(false);
+            await RefreshMetadataAsync(definitionList, result,
+                installedPackageNames is not null ? packageRead?.Fresh : null).ConfigureAwait(false);
             return result;
         }
         catch (Exception ex)
         {
             logService.LogError("Error checking batch installation status", ex);
-            return definitionList.ToDictionary(d => d.Id, d => false, StringComparer.OrdinalIgnoreCase);
+            return result;
         }
     }
-
     /// <summary>Overlaps required fallback detection with independent Windows component queries.</summary>
     private async Task<HashSet<string>?> GetAppWinGetFallbackAsync(IReadOnlyList<ItemDefinition> apps,
-        Task<HashSet<string>> packagesTask)
+        Task<HashSet<string>?> packagesTask)
     {
         var packages = await packagesTask.ConfigureAwait(false);
-        var installedIds = apps.Where(app => app.AppxPackageName!.Any(packages.Contains))
-            .Select(app => app.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
-        return apps.Any(app => !installedIds.Contains(app.Id) &&
-            (app.WinGetPackageId?.Length > 0 || !string.IsNullOrEmpty(app.MsStoreId)))
+        return apps.Any(app => HasWinGetIdentity(app) && (packages is null || !app.AppxPackageName!.Any(packages.Contains)))
             ? await GetOrFetchWinGetPackageIdsAsync().ConfigureAwait(false) : null;
     }
+
+    private static bool HasWinGetIdentity(ItemDefinition app) =>
+        app.WinGetPackageId is { Length: > 0 } || !string.IsNullOrEmpty(app.MsStoreId);
 
     /// <summary>Shares pending discovery across inventories; invalidation starts a fresh generation.</summary>
     private Task<HashSet<string>?> GetOrFetchWinGetPackageIdsAsync()
@@ -220,6 +224,18 @@ public class AppStatusDiscoveryService(
 
     private static async Task<HashSet<string>> ReadPackageNamesAsync(Task<AppxInventorySnapshot> inventory) =>
         (await inventory.ConfigureAwait(false)).Names;
+
+    /// <summary>Lets other providers continue after an unavailable AppX inventory.</summary>
+    private async Task<HashSet<string>?> ReadAvailableAppxNamesAsync(AppxRead? inventory)
+    {
+        if (inventory is null) return null;
+        try { return await inventory.Names.ConfigureAwait(false); }
+        catch (Exception ex)
+        {
+            logService.LogWarning($"AppX detection failed: {ex.Message}");
+            return null;
+        }
+    }
 
     /// <summary>Fetches one inventory without publishing into a potentially invalidated cache.</summary>
     private async Task<HashSet<string>?> FetchWinGetPackageIdsAsync()
@@ -301,10 +317,9 @@ public class AppStatusDiscoveryService(
             var sharedRegInfo = registry;
 
             // Phase 1: WinGet detection for apps with WinGetPackageId or MsStoreId
-            var appsWithWinGetId = definitionList
-                .Where(d => (d.WinGetPackageId != null && d.WinGetPackageId.Length > 0) || !string.IsNullOrEmpty(d.MsStoreId))
-                .ToList();
+            var appsWithWinGetId = definitionList.Where(HasWinGetIdentity).ToList();
             Task<AppRegistrySnapshot>? registryTask = null;
+            var unknown = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
             if (appsWithWinGetId.Count != 0)
             {
@@ -352,10 +367,9 @@ public class AppStatusDiscoveryService(
                             }
                         }
 
-                        result[def.Id] = isInstalled;
-
                         if (isInstalled)
                         {
+                            result[def.Id] = true;
                             def.DetectedVia = DetectionSource.WinGet;
                             wingetCount++;
                             var matchedPackageId = matchedByStoreId
@@ -370,6 +384,7 @@ public class AppStatusDiscoveryService(
                 else
                 {
                     logService.LogWarning("WinGet unavailable - cannot check installation status for apps with WinGetPackageId");
+                    unknown.UnionWith(appsWithWinGetId.Select(app => app.Id));
                 }
             }
 
@@ -426,10 +441,15 @@ public class AppStatusDiscoveryService(
             if (appsWithAppxName.Count != 0)
             {
                 packageRead ??= GetOrFetchAppxInventory();
-                var installedPackageNames = await packageRead.Names.ConfigureAwait(false);
-                foreach (var def in appsWithAppxName)
+                var installedPackageNames = await ReadAvailableAppxNamesAsync(packageRead).ConfigureAwait(false);
+                if (installedPackageNames is null)
                 {
-                    if (def.AppxPackageName!.Any(name => installedPackageNames.Contains(name)))
+                    unknown.UnionWith(appsWithAppxName.Select(app => app.Id));
+                    packageRead = null;
+                }
+                else
+                {
+                    foreach (var def in appsWithAppxName.Where(def => def.AppxPackageName!.Any(installedPackageNames.Contains)))
                     {
                         result[def.Id] = true;
                         def.DetectedVia = DetectionSource.AppX;
@@ -451,9 +471,10 @@ public class AppStatusDiscoveryService(
                 // Discovered entries require their exact registration, even when another installation has the same name.
                 foreach (var def in appsForRegistryCheck.Where(d => d.RegistryUninstallKeyPath != null))
                 {
-                    result[def.Id] = regInfo.KeyPaths.Contains(def.RegistryUninstallKeyPath!);
-                    if (result[def.Id])
+                    unknown.Remove(def.Id);
+                    if (regInfo.KeyPaths.Contains(def.RegistryUninstallKeyPath!))
                     {
+                        result[def.Id] = true;
                         def.DetectedVia = DetectionSource.Registry;
                         registryCount++;
                     }
@@ -514,11 +535,6 @@ public class AppStatusDiscoveryService(
                     }
                 }
 
-                // Mark remaining undetected items as false
-                foreach (var def in appsForRegistryCheck)
-                {
-                    result.TryAdd(def.Id, false);
-                }
             }
 
             // Phase 5: File system path detection for portable apps
@@ -531,11 +547,12 @@ public class AppStatusDiscoveryService(
             {
                 foreach (var def in appsWithDetectionPaths)
                 {
-                    foreach (var rawPath in def.DetectionPaths!)
+                    try
                     {
-                        var expandedPath = AppPaths.ResolveDetectionPath(rawPath, user);
-                        if (Directory.Exists(expandedPath) || File.Exists(expandedPath))
+                        foreach (var rawPath in def.DetectionPaths!)
                         {
+                            var expandedPath = AppPaths.ResolveDetectionPath(rawPath, user);
+                            if (!Directory.Exists(expandedPath) && !File.Exists(expandedPath)) continue;
                             result[def.Id] = true;
                             def.DetectedVia = DetectionSource.FileSystem;
                             fileSystemCount++;
@@ -543,10 +560,16 @@ public class AppStatusDiscoveryService(
                             break;
                         }
                     }
+                    catch (IOException ex)
+                    {
+                        logService.LogWarning($"Could not check portable app paths for {def.Name}: {ex.Message}");
+                    }
                 }
             }
 
-            var totalFound = result.Count(kvp => kvp.Value);
+            var totalFound = result.Count;
+            foreach (var def in definitionList)
+                if (!unknown.Contains(def.Id)) result.TryAdd(def.Id, false);
             logService.LogInformation(
                 $"Status check complete: {totalFound}/{definitionList.Count} apps installed ({wingetCount} via WinGet, {chocoCount} via Chocolatey, {appxCount} via AppX, {registryCount} via Registry, {fileSystemCount} via FileSystem)");
 
@@ -556,7 +579,7 @@ public class AppStatusDiscoveryService(
         catch (Exception ex)
         {
             logService.LogError($"Error checking installation status: {ex.Message}", ex);
-            return definitionList.ToDictionary(d => d.Id, d => false, StringComparer.OrdinalIgnoreCase);
+            return result;
         }
     }
 

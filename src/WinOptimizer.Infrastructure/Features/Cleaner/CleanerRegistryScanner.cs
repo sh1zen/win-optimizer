@@ -1,5 +1,6 @@
 using Microsoft.Win32;
 using System.Text.Json;
+using WinOptimizer.Core.Features.Common.Models;
 using System.Text.RegularExpressions;
 using WinOptimizer.Core.Features.Cleaner.Models;
 
@@ -13,7 +14,8 @@ public interface ICleanerRegistryRecovery
 }
 
 /// <summary>Inventories selected registrations, resolves typed references and revalidates exact-value corrections.</summary>
-public sealed partial class CleanerRegistryScanner(ICleanerRegistrySessions sessions, ICleanerBackupVault vault) : ICleanerRegistryRecovery
+public sealed partial class CleanerRegistryScanner(ICleanerRegistrySessions sessions, ICleanerBackupVault vault,
+    WinOptimizer.Infrastructure.Features.Common.Services.TimeMachineStore? timeMachine = null) : ICleanerRegistryRecovery
 {
     private sealed record Rule(RegistryArea Area, string Path, int Depth = 1, bool NamesArePaths = false, bool DeepOnly = false);
     private static readonly Rule[] Rules =
@@ -422,7 +424,10 @@ public sealed partial class CleanerRegistryScanner(ICleanerRegistrySessions sess
         if (!MatchesEvidence(target, value, account))
             throw new IOException("Registry reference changed after the scan. Scan again.");
         ct.ThrowIfCancellationRequested();
+        var timeMachineUndo = timeMachine?.PrepareUndo(new(new(TimeMachineArea.CleanedRegistry, target.KeyPath, target.ValueName),
+            target.ValueName, TimeMachineValue.From(target)), TimeMachineValue.Missing);
         key.DeleteValue(target.ValueName);
+        timeMachine?.Record(LogTopic.Cleaner, target.ValueName, "Registry value deleted", timeMachineUndo);
     }, ct);
 
     /// <summary>Rechecks raw evidence and its resolved profile path, including redirects changed after scanning.</summary>
@@ -467,6 +472,13 @@ public sealed partial class CleanerRegistryScanner(ICleanerRegistrySessions sess
             !IsPrivacyValue(privacy, new(target.ValueName, original, (RegistryValueKind)target.Kind))))
             throw new IOException("Invalid privacy registry backup value.");
         key.SetValue(new(target.ValueName, original, (RegistryValueKind)target.Kind));
+    }
+
+    internal bool IsMissing(CleanerRegistryTarget target)
+    {
+        using var account = OpenTargetSession(target);
+        using var key = OpenTarget(target, writable: false, account);
+        return key.ReadValue(target.ValueName) is null;
     }
 
     private ICleanerRegistrySession OpenTargetSession(CleanerRegistryTarget target)

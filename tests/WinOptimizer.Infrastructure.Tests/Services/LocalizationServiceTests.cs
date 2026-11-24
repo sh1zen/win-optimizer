@@ -1,3 +1,4 @@
+using System.Globalization;
 using FluentAssertions;
 using Moq;
 using WinOptimizer.Core.Features.Common.Interfaces;
@@ -67,7 +68,7 @@ public class LocalizationServiceTests
     // ── GetString(key, args) ──
 
     [Fact]
-    public void GetString_WithFormatArgs_FormatsString()
+    public void GetString_FormatsArgumentsAndPreservesTheTemplateWhenItCannotFormat()
     {
         var mockFs = new Mock<IFileSystemService>();
         mockFs.Setup(f => f.CombinePath(It.IsAny<string[]>()))
@@ -85,87 +86,32 @@ public class LocalizationServiceTests
 
         var sut = new LocalizationService(mockFs.Object);
 
-        var result = sut.GetString("Welcome", "World");
-
-        result.Should().Be("Hello, World!");
-    }
-
-    [Fact]
-    public void GetString_WithBadFormat_ReturnsFormatStringUnformatted()
-    {
-        var mockFs = new Mock<IFileSystemService>();
-        mockFs.Setup(f => f.CombinePath(It.IsAny<string[]>()))
-            .Returns((string[] parts) => string.Join("\\", parts));
-        mockFs.Setup(f => f.DirectoryExists(It.IsAny<string>()))
-            .Returns(true);
-        mockFs.Setup(f => f.GetFiles(It.IsAny<string>(), "*.json"))
-            .Returns(new[] { "en.json" });
-        mockFs.Setup(f => f.GetFileNameWithoutExtension(It.Is<string>(s => s.Contains("en"))))
-            .Returns("en");
-        mockFs.Setup(f => f.FileExists(It.Is<string>(s => s.Contains("en.json"))))
-            .Returns(true);
-        // Format string expects 2 args but we'll provide 0
-        mockFs.Setup(f => f.ReadAllText(It.Is<string>(s => s.Contains("en.json"))))
-            .Returns("{\"BadFormat\": \"Value is {0} and {1}\"}");
-
-        var sut = new LocalizationService(mockFs.Object);
-
-        // No args provided, so string.Format will throw, and GetString catches it
-        var result = sut.GetString("BadFormat");
-
-        result.Should().Be("Value is {0} and {1}");
-    }
-
-    // ── CurrentLanguage ──
-
-    [Fact]
-    public void CurrentLanguage_DefaultsToResolvedLanguageCode()
-    {
-        // When no language files exist, it falls back to "en"
-        _sut.CurrentLanguage.Should().NotBeNullOrEmpty();
+        sut.GetString("Welcome", "World").Should().Be("Hello, World!");
+        sut.GetString("Welcome").Should().Be("Hello, {0}!");
+        sut.GetString("Welcome", Array.Empty<object>()).Should().Be("Hello, {0}!");
     }
 
     // ── SetLanguage ──
 
     [Fact]
-    public void SetLanguage_ValidLanguageCode_ReturnsTrue()
+    public void SetLanguage_ValidLanguageCode_UpdatesStateAndNotifies()
     {
-        var result = _sut.SetLanguage("en");
-
-        result.Should().BeTrue();
-        _sut.CurrentLanguage.Should().Be("en");
-    }
-
-    [Fact]
-    public void SetLanguage_EmptyLanguageCode_ReturnsFalseOrHandlesGracefully()
-    {
-        // Empty string may throw CultureNotFoundException depending on .NET version
-        // The method should either return false (catch) or succeed with invariant culture
-        var action = () => _sut.SetLanguage("");
-
-        // Either way, it should not throw to the caller
-        action.Should().NotThrow();
-    }
-
-    [Fact]
-    public void SetLanguage_RaisesLanguageChangedEvent()
-    {
-        bool eventRaised = false;
+        var previousUiCulture = CultureInfo.CurrentUICulture;
+        var previousDefaultCulture = CultureInfo.DefaultThreadCurrentCulture;
+        var eventRaised = false;
         _sut.LanguageChanged += (_, _) => eventRaised = true;
 
-        _sut.SetLanguage("en");
-
-        eventRaised.Should().BeTrue();
+        try
+        {
+            _sut.SetLanguage("it").Should().BeTrue();
+            _sut.CurrentLanguage.Should().Be("it");
+            _sut.IsRightToLeft.Should().BeFalse();
+            eventRaised.Should().BeTrue();
+        }
+        finally
+        {
+            CultureInfo.CurrentUICulture = previousUiCulture;
+            CultureInfo.DefaultThreadCurrentCulture = previousDefaultCulture;
+        }
     }
-
-    // ── IsRightToLeft ──
-
-    [Fact]
-    public void IsRightToLeft_ForEnglish_ReturnsFalse()
-    {
-        _sut.SetLanguage("en");
-
-        _sut.IsRightToLeft.Should().BeFalse();
-    }
-
 }

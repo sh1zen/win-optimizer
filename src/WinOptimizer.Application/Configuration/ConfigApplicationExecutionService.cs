@@ -4,6 +4,7 @@ using WinOptimizer.Core.Features.Common.Constants;
 using WinOptimizer.Core.Features.Common.Enums;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Models;
+using WinOptimizer.Core.Features.SoftwareApps.Models;
 
 namespace WinOptimizer.Application.Configuration;
 
@@ -141,6 +142,7 @@ public class ConfigApplicationExecutionService : IConfigApplicationExecutionServ
             var importOptions = new ImportOptions
             {
                 ProcessWindowsAppsRemoval = hasWindowsApps && selectedSections.Contains("WindowsApps") && dialogOptions.ProcessWindowsAppsRemoval,
+                SaveRemovalScripts = saveRemovalScripts,
                 ProcessExternalAppsRemoval = hasExternalApps && dialogOptions.ProcessExternalAppsRemoval,
                 ApplyThemeWallpaper = dialogOptions.ApplyThemeWallpaper,
                 ApplyCleanTaskbar = dialogOptions.ApplyCleanTaskbar,
@@ -151,7 +153,7 @@ public class ConfigApplicationExecutionService : IConfigApplicationExecutionServ
             // Add action-only subsections for Customize actions that the user enabled
             importOptions = ConfigActionSelection.IncludeSections(selectedSections, importOptions);
 
-            if (selectedSections.Count == 0)
+            if (selectedSections.Count == 0 && !importOptions.ApplyThemeWallpaper)
             {
                 _dialogService.ShowMessage(
                     _localizationService.GetString("Config_Import_Error_NoSelection") ?? "No changes to apply.",
@@ -170,15 +172,7 @@ public class ConfigApplicationExecutionService : IConfigApplicationExecutionServ
 
             try
             {
-                await ApplyConfigurationWithOptionsAsync(config, selectedSections, importOptions, saveRemovalScripts);
-
-                // When restoring Windows defaults, clean up all policy registry keys AFTER
-                // applying settings, because applying "disabled" values can re-create the keys
-                if (importOptions.IsWindowsDefaults)
-                {
-                    _logService.Log(LogLevel.Info, "Windows Defaults import: cleaning up policy registry keys");
-                    await Task.Run(() => _policyCleanupService.CleanupPolicyKeys());
-                }
+                await ApplyConfigurationWithOptionsAsync(config, selectedSections, importOptions);
             }
             finally
             {
@@ -210,15 +204,6 @@ public class ConfigApplicationExecutionService : IConfigApplicationExecutionServ
         List<string> selectedSections,
         ImportOptions options)
     {
-        await ApplyConfigurationWithOptionsAsync(config, selectedSections, options, saveRemovalScripts: true);
-    }
-
-    private async Task ApplyConfigurationWithOptionsAsync(
-        UnifiedConfigurationFile config,
-        List<string> selectedSections,
-        ImportOptions options,
-        bool saveRemovalScripts)
-    {
         _logService.Log(LogLevel.Info, $"Applying configuration to: {string.Join(", ", selectedSections)}");
 
         bool shouldRemoveApps = selectedSections.Contains("WindowsApps") && options.ProcessWindowsAppsRemoval;
@@ -226,13 +211,15 @@ public class ConfigApplicationExecutionService : IConfigApplicationExecutionServ
         bool hasCustomize = selectedSections.Any(s => s == "Customize" || s.StartsWith("Customize_"));
 
         var parallelTasks = new List<Task>();
-        Task<bool>? settingsTask = null;
+        Task<OperationResult<AppUninstallResult>>? removalTask = null;
+        Task<(bool Success, bool HasWork)>? settingsTask = null;
 
         // Branch 1: Bloat removal (no Task.Run - ViewModel needs UI thread for property change notifications)
         if (shouldRemoveApps)
         {
             _logService.Log(LogLevel.Info, "Processing Windows Apps removal (parallel branch)");
-            parallelTasks.Add(_vmCoordinator.RemoveWindowsAppsAsync(skipConfirmation: true, saveRemovalScripts: saveRemovalScripts));
+            removalTask = _vmCoordinator.RemoveWindowsAppsAsync(skipConfirmation: true, saveRemovalScripts: options.SaveRemovalScripts);
+            parallelTasks.Add(removalTask);
         }
 
         // Branch 2: All settings (Optimize + Customize in parallel within)
@@ -243,10 +230,37 @@ public class ConfigApplicationExecutionService : IConfigApplicationExecutionServ
         }
 
         await Task.WhenAll(parallelTasks);
-        if (settingsTask != null && !await settingsTask)
-            throw new InvalidOperationException("One or more configuration settings failed. Review the log and refresh the affected settings before retrying.");
+        var settings = settingsTask == null ? (Success: true, HasWork: false) : await settingsTask;
+        var removedAnyApps = false;
+        List<string> errors = [];
+        if (!settings.Success)
+            errors.Add("One or more configuration settings failed. Review the log and refresh the affected settings before retrying.");
+        if (removalTask != null)
+        {
+            var removal = await removalTask;
+            if (!removal.Success || removal.Result == null)
+                errors.Add(removal.ErrorMessage ?? "Windows app removal did not complete.");
+            else
+            {
+                removedAnyApps = removal.Result.Applications.Any(app => app.State == UninstallVerificationState.Removed);
+                errors.AddRange(removal.Result.Applications
+                    .Where(app => app.State != UninstallVerificationState.Removed)
+                    .Select(app => $"{app.AppName}: {app.Detail}"));
+            }
+        }
+        if (errors.Count != 0)
+            throw new InvalidOperationException(string.Join(Environment.NewLine, errors));
 
-        // Always restart explorer at the end to apply all changes
+        // Defaults can write disabled policy values during import. Clear them before refreshing the shell.
+        if (options.IsWindowsDefaults)
+            await Task.Run(() => _policyCleanupService.CleanupPolicyValues());
+
+        // A wallpaper-only request reads the active theme after the selected settings finish.
+        if (options.ApplyThemeWallpaper && !IncludesThemeSelection(config, selectedSections))
+            await _bridgeService.ApplyDefaultWallpaperForCurrentThemeAsync();
+        if (!settings.HasWork && !removedAnyApps) return;
+
+        // Refresh the shell after applying settings or removing apps.
         _overlayService.UpdateStatus(
             _localizationService.GetString("Config_Import_Status_Applying")
                 ?? "Sit back, relax and watch while win-optimizer enhances Windows with your desired settings...",
@@ -257,22 +271,16 @@ public class ConfigApplicationExecutionService : IConfigApplicationExecutionServ
             // Broadcast regional setting change so apps pick up intl changes from import
             _windowsUIManagementService.BroadcastRegionalSettingChange();
 
-            if (_windowsUIManagementService.IsProcessRunning("explorer"))
-            {
-                _logService.Log(LogLevel.Info, "Killing explorer to apply changes");
-                _windowsUIManagementService.KillProcess("explorer");
-                await Task.Delay(1000).ConfigureAwait(false);
-            }
-            else
-            {
-                _logService.Log(LogLevel.Info, "Explorer not running, will start it");
-            }
-
-            await RestartExplorerSilentlyAsync();
+            await RestartExplorerAsync();
         });
     }
 
-    private async Task<bool> ApplyAllSettingsGroupsAsync(
+    private static bool IncludesThemeSelection(UnifiedConfigurationFile config, List<string> selectedSections) =>
+        selectedSections.Contains($"Customize_{FeatureIds.WindowsTheme}") &&
+        config.Customize.Features.TryGetValue(FeatureIds.WindowsTheme, out var section) &&
+        section.Items.Any(item => item.Id == SettingIds.ThemeModeWindows);
+
+    private async Task<(bool Success, bool HasWork)> ApplyAllSettingsGroupsAsync(
         UnifiedConfigurationFile config,
         List<string> selectedSections,
         ImportOptions options,
@@ -317,25 +325,25 @@ public class ConfigApplicationExecutionService : IConfigApplicationExecutionServ
 
         var statusText = _localizationService.GetString("Config_Import_Status_Applying")
             ?? "Sit back, relax and watch while win-optimizer enhances Windows with your desired settings...";
-        _overlayService.UpdateStatus(statusText, $"0/{totalFeatures} features applied");
+        _overlayService.UpdateStatus(statusText, $"0/{totalFeatures} features processed");
 
         Action<string> onFeatureCompleted = featureName =>
         {
             var completed = Interlocked.Increment(ref completedFeatures);
-            _overlayService.UpdateStatus(statusText, $"{completed}/{totalFeatures} features applied");
+            _overlayService.UpdateStatus(statusText, $"{completed}/{totalFeatures} features processed");
             _logService.Log(LogLevel.Info, $"Feature completed: {featureName} ({completed}/{totalFeatures})");
         };
 
-        var groupTasks = new List<Task<bool>>();
+        var groupTasks = new List<Task<(bool Success, bool HasWork)>>();
 
         if (hasOptimize)
         {
             groupTasks.Add(Task.Run(async () =>
             {
-                var success = await ApplyFeatureGroupWithOptionsAsync(
+                var result = await ApplyFeatureGroupWithOptionsAsync(
                     config.Optimize!, "Optimize", options, selectedSections, onFeatureCompleted);
-                _logService.Log(LogLevel.Info, $"  Optimize group: {(success ? "Success" : "Failed")}");
-                return success;
+                _logService.Log(LogLevel.Info, $"  Optimize group: {(result.Success ? "Success" : "Failed")}");
+                return result;
             }));
         }
 
@@ -343,219 +351,96 @@ public class ConfigApplicationExecutionService : IConfigApplicationExecutionServ
         {
             groupTasks.Add(Task.Run(async () =>
             {
-                var success = await ApplyFeatureGroupWithOptionsAsync(
+                var result = await ApplyFeatureGroupWithOptionsAsync(
                     config.Customize!, "Customize", options, selectedSections, onFeatureCompleted);
-                _logService.Log(LogLevel.Info, $"  Customize group: {(success ? "Success" : "Failed")}");
-                return success;
+                _logService.Log(LogLevel.Info, $"  Customize group: {(result.Success ? "Success" : "Failed")}");
+                return result;
             }));
         }
 
-        return (await Task.WhenAll(groupTasks)).All(success => success);
+        var results = await Task.WhenAll(groupTasks);
+        return (results.All(result => result.Success), results.Any(result => result.HasWork));
     }
 
-    private async Task<bool> ApplyFeatureGroupWithOptionsAsync(
-        FeatureGroupSection featureGroup,
+    /// <summary>Applies the selected sections while keeping cleanup consent independent of imported records.</summary>
+    private async Task<(bool Success, bool HasWork)> ApplyFeatureGroupWithOptionsAsync(
+        FeatureGroupSection? featureGroup,
         string groupName,
         ImportOptions options,
         List<string> selectedSections,
-        Action<string>? onFeatureCompleted = null)
+        Action<string> onFeatureCompleted)
     {
-        bool hasActionOnlySubsections = selectedSections.Any(s =>
-            s.StartsWith($"{groupName}_") &&
-            options.ActionOnlySubsections.Contains(s));
-
-        if ((featureGroup?.Features == null || featureGroup.Features.Count == 0) && !hasActionOnlySubsections)
-        {
-            _logService.Log(LogLevel.Warning, $"{groupName} has no features to apply");
-            return false;
-        }
-
-        // Build confirmation handler ONCE - identical for all features during import
-        Func<string, object?, SettingDefinition, Task<(bool confirmed, bool checkboxResult)>> confirmationHandler =
-            (settingId, value, setting) =>
-            {
-                if (settingId == SettingIds.PowerPlanSelection || settingId == SettingIds.UpdatesPolicyMode)
-                    return Task.FromResult((true, true));
-
-                if (settingId == SettingIds.ThemeModeWindows)
-                    return Task.FromResult((true, options?.ApplyThemeWallpaper ?? false));
-
-                if (settingId == "taskbar-clean")
-                    return Task.FromResult((true, options?.ApplyCleanTaskbar ?? false));
-
-                if (settingId == "start-menu-clean-10" || settingId == "start-menu-clean-11")
-                    return Task.FromResult((true, options?.ApplyCleanStartMenu ?? false));
-
-                return Task.FromResult((true, true));
-            };
-
-        var processedFeatureKeys = new HashSet<string>();
+        var prefix = groupName + "_";
         var featureTasks = new List<Task<bool>>();
+        var hasWork = false;
 
-        // Phase 1: Features from the config file
-        if (featureGroup?.Features != null)
+        foreach (var featureKey in selectedSections.Where(section => section.StartsWith(prefix, StringComparison.Ordinal)).Distinct())
         {
-            foreach (var feature in featureGroup.Features)
-            {
-                var featureName = feature.Key;
-                var section = feature.Value;
-                var featureKey = $"{groupName}_{featureName}";
-                processedFeatureKeys.Add(featureKey);
+            var featureName = featureKey[prefix.Length..];
+            var actionOnly = options.ActionOnlySubsections.Contains(featureKey);
+            var configSection = featureGroup?.Features.GetValueOrDefault(featureName);
+            if (configSection == null && !actionOnly) continue;
 
-                if (!selectedSections.Contains(featureKey))
-                {
-                    _logService.Log(LogLevel.Info, $"Skipping {featureName} - not selected by user");
-                    continue;
-                }
-
-                bool isActionOnly = options.ActionOnlySubsections.Contains(featureKey);
-                var actionItems = BuildActionItems(options, featureName);
-
-                // Capture for closure
-                var capturedFeatureName = featureName;
-                var capturedSection = section;
-
-                featureTasks.Add(Task.Run(async () =>
-                {
-                    bool featureSuccess = true;
-
-                    // Execute action commands first if any
-                    if (actionItems.Count != 0)
-                    {
-                        var actionSection = new ConfigSection
-                        {
-                            IsIncluded = true,
-                            Items = actionItems
-                        };
-
-                        _logService.Log(LogLevel.Info, $"Executing {actionItems.Count} action command(s) for {capturedFeatureName}");
-
-                        var success = await _bridgeService.ApplyConfigurationSectionAsync(
-                            actionSection,
-                            $"{groupName}.{capturedFeatureName}",
-                            confirmationHandler);
-
-                        if (!success)
-                        {
-                            featureSuccess = false;
-                            _logService.Log(LogLevel.Warning, $"Failed to apply action commands for {capturedFeatureName}");
-                        }
-                    }
-
-                    // Apply regular settings if not action-only
-                    if (!isActionOnly)
-                    {
-                        _logService.Log(LogLevel.Info, $"Applying {capturedSection.Items.Count} settings from {groupName} > {capturedFeatureName}");
-
-                        var success = await _bridgeService.ApplyConfigurationSectionAsync(
-                            capturedSection,
-                            $"{groupName}.{capturedFeatureName}",
-                            confirmationHandler);
-
-                        if (!success)
-                        {
-                            featureSuccess = false;
-                            _logService.Log(LogLevel.Warning, $"Failed to apply some settings from {groupName} > {capturedFeatureName}");
-                        }
-                    }
-
-                    onFeatureCompleted?.Invoke(capturedFeatureName);
-                    return featureSuccess;
-                }));
-            }
-        }
-
-        // Phase 2: Action-only subsections not already in the config features
-        var unprocessedActionOnly = selectedSections
-            .Where(s => s.StartsWith($"{groupName}_") &&
-                       options.ActionOnlySubsections.Contains(s) &&
-                       !processedFeatureKeys.Contains(s))
-            .ToList();
-
-        foreach (var featureKey in unprocessedActionOnly)
-        {
-            var featureName = featureKey.Substring(groupName.Length + 1);
-            var actionItems = BuildActionItems(options!, featureName);
-
-            // Handle WindowsTheme action-only case
-            if (options?.ApplyThemeWallpaper == true && featureName == FeatureIds.WindowsTheme)
-            {
-                actionItems.Add(new ConfigurationItem
-                {
-                    Id = SettingIds.ThemeModeWindows,
-                    Name = "Windows Theme",
-                    IsSelected = true,
-                    InputType = InputType.Selection,
-                    SelectedIndex = 0
-                });
-            }
-
-            var capturedFeatureName = featureName;
-            var capturedActionItems = actionItems;
+            var actions = BuildActionItems(options, featureName);
+            var settings = actionOnly || configSection == null ? [] : configSection.Items
+                .Where(item => item.Id is not (SettingIds.TaskbarClean or SettingIds.StartMenuCleanWin10 or SettingIds.StartMenuCleanWin11))
+                .ToArray();
+            hasWork |= actions.Count != 0 || settings.Length != 0;
 
             featureTasks.Add(Task.Run(async () =>
             {
-                if (capturedActionItems.Count != 0)
-                {
-                    var actionSection = new ConfigSection
-                    {
-                        IsIncluded = true,
-                        Items = capturedActionItems
-                    };
+                var success = true;
+                var sectionName = $"{groupName}.{featureName}";
+                if (actions.Count != 0)
+                    success = await ApplyItemsAsync(actions, included: true);
+                if (settings.Length != 0)
+                    success = await ApplyItemsAsync(settings, configSection!.IsIncluded) && success;
 
-                    _logService.Log(LogLevel.Info, $"Executing {capturedActionItems.Count} action command(s) for {capturedFeatureName} (not in config file)");
+                onFeatureCompleted(featureName);
+                return success;
 
-                    var success = await _bridgeService.ApplyConfigurationSectionAsync(
-                        actionSection,
-                        $"{groupName}.{capturedFeatureName}",
-                        confirmationHandler);
-
-                    if (!success)
-                    {
-                        _logService.Log(LogLevel.Warning, $"Failed to apply action commands for {capturedFeatureName}");
-                        onFeatureCompleted?.Invoke(capturedFeatureName);
-                        return false;
-                    }
-                }
-                else
-                {
-                    _logService.Log(LogLevel.Info, $"No action commands to execute for {capturedFeatureName}");
-                }
-
-                onFeatureCompleted?.Invoke(capturedFeatureName);
-                return true;
+                Task<bool> ApplyItemsAsync(IReadOnlyList<ConfigurationItem> items, bool included) =>
+                    _bridgeService.ApplyConfigurationSectionAsync(
+                        new ConfigSection { IsIncluded = included, Items = items }, sectionName,
+                        (settingId, _, _) => Task.FromResult((true,
+                            settingId != SettingIds.ThemeModeWindows || options.ApplyThemeWallpaper)));
             }));
         }
 
-        // Run all features in the group in parallel
+        if (featureTasks.Count == 0)
+        {
+            _logService.Log(LogLevel.Warning, $"{groupName} has no features to apply");
+            return (false, false);
+        }
+
         var results = await Task.WhenAll(featureTasks);
-        return results.All(r => r);
+        return (results.All(result => result), hasWork);
     }
 
     private List<ConfigurationItem> BuildActionItems(ImportOptions options, string featureName)
     {
         var items = new List<ConfigurationItem>();
 
-        if (options?.ApplyCleanTaskbar == true && featureName == FeatureIds.Taskbar)
+        if (options.ApplyCleanTaskbar && featureName == FeatureIds.Taskbar)
         {
             items.Add(new ConfigurationItem
             {
-                Id = "taskbar-clean",
+                Id = SettingIds.TaskbarClean,
                 Name = "Clean Taskbar",
                 IsSelected = true,
-                InputType = InputType.Toggle
+                InputType = InputType.Action
             });
         }
 
-        if (options?.ApplyCleanStartMenu == true && featureName == FeatureIds.StartMenu)
+        if (options.ApplyCleanStartMenu && featureName == FeatureIds.StartMenu)
         {
-            var settingId = _windowsVersionService.IsWindows11() ? "start-menu-clean-11" : "start-menu-clean-10";
+            var settingId = _windowsVersionService.IsWindows11() ? SettingIds.StartMenuCleanWin11 : SettingIds.StartMenuCleanWin10;
             items.Add(new ConfigurationItem
             {
                 Id = settingId,
                 Name = "Clean Start Menu",
                 IsSelected = true,
-                InputType = InputType.Toggle
+                InputType = InputType.Action
             });
         }
 
@@ -576,48 +461,35 @@ public class ConfigApplicationExecutionService : IConfigApplicationExecutionServ
             _localizationService.GetString("Config_Import_Success_Title") ?? "Import Successful");
     }
 
-    private async Task RestartExplorerSilentlyAsync()
+    private async Task RestartExplorerAsync()
     {
+        const string restartError = "The changes were applied, but Windows Explorer could not be restarted.";
         try
         {
-            _logService.Log(LogLevel.Info, "Waiting for explorer restart");
-
-            int retryCount = 0;
-            const int maxRetries = 20;
-
-            while (retryCount < maxRetries)
+            if (_windowsUIManagementService.IsProcessRunning("explorer"))
             {
-                bool isRunning = _windowsUIManagementService.IsProcessRunning("explorer");
+                _logService.Log(LogLevel.Info, "Stopping Explorer to apply changes");
+                _windowsUIManagementService.KillProcess("explorer", waitForExit: true);
 
-                if (isRunning)
+                for (int attempt = 0; attempt < 20; attempt++)
                 {
-                    _logService.Log(LogLevel.Info, "Explorer.exe has auto-restarted");
-                    await Task.Delay(1000).ConfigureAwait(false);
-                    return;
+                    if (_windowsUIManagementService.IsProcessRunning("explorer")) return;
+                    await Task.Delay(250).ConfigureAwait(false);
                 }
-
-                retryCount++;
-                await Task.Delay(250).ConfigureAwait(false);
             }
 
-            _logService.Log(LogLevel.Warning, "Explorer did not auto-restart, starting manually");
-
-            await _processExecutor.ShellExecuteAsync("explorer.exe").ConfigureAwait(false);
-
-            if (await VerifyManualExplorerStartAsync(() => _windowsUIManagementService.IsProcessRunning("explorer"),
-                    TimeProvider.System).ConfigureAwait(false))
-            {
-                _logService.Log(LogLevel.Info, "Explorer.exe started successfully");
-                await Task.Delay(1000).ConfigureAwait(false);
+            _logService.Log(LogLevel.Info, "Starting Explorer");
+            var launch = await _processExecutor.ShellExecuteAsync("explorer.exe").ConfigureAwait(false);
+            if (launch == 0 && await VerifyManualExplorerStartAsync(
+                    () => _windowsUIManagementService.IsProcessRunning("explorer"), TimeProvider.System).ConfigureAwait(false))
                 return;
-            }
-
-            _logService.Log(LogLevel.Error, "Failed to verify explorer restart");
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException or TimeoutException or System.ComponentModel.Win32Exception)
         {
-            _logService.Log(LogLevel.Error, $"Error restarting explorer: {ex.Message}");
+            throw new InvalidOperationException($"{restartError} {ex.Message}", ex);
         }
+
+        throw new InvalidOperationException(restartError);
     }
 
     /// <summary>Checks a completed launch immediately and retains the full verification window for slow starts.</summary>

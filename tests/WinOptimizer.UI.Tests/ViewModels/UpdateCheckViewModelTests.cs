@@ -1,3 +1,4 @@
+using System.Xml.Linq;
 using FluentAssertions;
 using Microsoft.UI.Xaml.Controls;
 using Moq;
@@ -42,6 +43,33 @@ public class UpdateCheckViewModelTests : IDisposable
     }
 
     [Fact]
+    public void TitleBarMenuUsesTheSharedUpdateCommandAndLabel()
+    {
+        using var source = typeof(UpdateCheckViewModelTests).Assembly.GetManifestResourceStream("MainWindow.xaml");
+        var document = XDocument.Load(source!);
+        XNamespace controls = "http://schemas.microsoft.com/winfx/2006/xaml/presentation";
+        XNamespace names = "http://schemas.microsoft.com/winfx/2006/xaml";
+        var button = Assert.Single(document.Descendants(controls + "Button"),
+            element => (string?)element.Attribute(names + "Name") == "UpdatesButton");
+        var item = Assert.Single(button.Descendants(controls + "Button"));
+        Assert.Equal("{x:Bind ViewModel.UpdateCheck.CheckForUpdatesCommand, Mode=OneWay}", (string?)item.Attribute("Command"));
+        var label = "{x:Bind ViewModel.UpdateCheck.CheckForUpdatesLabel, Mode=OneWay}";
+        Assert.Equal(label, (string?)Assert.Single(item.Elements(controls + "TextBlock")).Attribute("Text"));
+        Assert.Equal(label, (string?)button.Attribute("AutomationProperties.Name"));
+    }
+
+    [Fact]
+    public void MenuShowsTheInstalledVersionBeforeTheFirstCheck()
+    {
+        _mockVersionService.Setup(service => service.GetCurrentVersion()).Returns(new VersionInfo { Version = "v25.05.01" });
+
+        Assert.Equal("Current Version: v25.05.01", _sut.CurrentVersionText);
+        Assert.Equal("Latest Version: —", _sut.LatestVersionText);
+        Assert.Equal("Latest release has yet to be verified.", _sut.UpdateStatusText);
+        _mockVersionService.Verify(service => service.CheckForUpdateAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Fact]
     public async Task CheckForUpdatesCommand_UpdateAvailable_ShowsInfoBar()
     {
         _mockVersionService
@@ -59,6 +87,9 @@ public class UpdateCheckViewModelTests : IDisposable
         _sut.UpdateInfoBarTitle.Should().NotBeNullOrEmpty();
         _sut.UpdateInfoBarMessage.Should().Contain("v25.05.01");
         _sut.UpdateInfoBarMessage.Should().Contain("v25.06.01");
+        _sut.DismissUpdateInfoBar();
+        Assert.Equal("Latest Version: v25.06.01", _sut.LatestVersionText);
+        Assert.Equal("Update Available", _sut.UpdateStatusText);
     }
 
     [Fact]
@@ -77,6 +108,8 @@ public class UpdateCheckViewModelTests : IDisposable
         _sut.UpdateInfoBarSeverity.Should().Be(InfoBarSeverity.Success);
         _sut.IsUpdateActionButtonVisible.Should().BeFalse();
         _sut.UpdateInfoBarTitle.Should().Contain("No Updates");
+        Assert.Equal("Latest Version: v25.05.01", _sut.LatestVersionText);
+        Assert.Equal("No Updates Available", _sut.UpdateStatusText);
     }
 
     [Fact]
@@ -132,6 +165,7 @@ public class UpdateCheckViewModelTests : IDisposable
         _sut.UpdateInfoBarSeverity.Should().Be(InfoBarSeverity.Error);
         _sut.IsUpdateActionButtonVisible.Should().BeFalse();
         _sut.UpdateInfoBarMessage.Should().Contain("Network error");
+        Assert.Equal("Update Check Error", _sut.UpdateStatusText);
     }
 
     [Fact]
@@ -147,6 +181,7 @@ public class UpdateCheckViewModelTests : IDisposable
 
         var commandTask = _sut.CheckForUpdatesCommand.ExecuteAsync(null);
         _sut.IsUpdateCheckInProgress.Should().BeTrue();
+        Assert.Equal("Checking for updates…", _sut.UpdateStatusText);
 
         tcs.SetResult(new VersionInfo { Version = "v25.05.01", IsUpdateAvailable = false });
         await commandTask;
@@ -190,8 +225,10 @@ public class UpdateCheckViewModelTests : IDisposable
         _backgroundUpdates.VerifyNoOtherCalls();
     }
 
-    [Fact]
-    public async Task BackgroundUpdateAvailable_IsDispatchedBeforeShowingInfoBar()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task BackgroundVersionIsDispatchedToTheMenuAndOnlyUpdatesOpenTheInfoBar(bool updateAvailable)
     {
         Action<VersionInfo>? report = null;
         Action? publish = null;
@@ -203,13 +240,17 @@ public class UpdateCheckViewModelTests : IDisposable
             .Returns(new VersionInfo { Version = "v25.05.01" });
 
         await _sut.StartBackgroundUpdateChecksAsync();
-        report!(new VersionInfo { Version = "v25.06.01", IsUpdateAvailable = true });
+        var version = updateAvailable ? "v25.06.01" : "v25.05.01";
+        report!(new VersionInfo { Version = version, IsUpdateAvailable = updateAvailable });
         _sut.IsUpdateInfoBarOpen.Should().BeFalse();
+        Assert.Equal("Latest Version: —", _sut.LatestVersionText);
         publish.Should().NotBeNull();
         publish!();
 
-        _sut.IsUpdateInfoBarOpen.Should().BeTrue();
-        _sut.IsUpdateActionButtonVisible.Should().BeTrue();
+        Assert.Equal(updateAvailable, _sut.IsUpdateInfoBarOpen);
+        Assert.Equal(updateAvailable, _sut.IsUpdateActionButtonVisible);
+        Assert.Equal($"Latest Version: {version}", _sut.LatestVersionText);
+        Assert.Equal(updateAvailable ? "Update Available" : "No Updates Available", _sut.UpdateStatusText);
     }
 
     [Fact]
@@ -261,14 +302,17 @@ public class UpdateCheckViewModelTests : IDisposable
     [Fact]
     public async Task InstallUpdateCommand_Failure_ShowsErrorMessage()
     {
+        _sut.IsUpdateInfoBarOpen = true;
         _mockVersionService
             .Setup(v => v.DownloadAndInstallUpdateAsync(It.IsAny<CancellationToken>()))
-            .ThrowsAsync(new Exception("Download failed"));
+            .ThrowsAsync(new InvalidDataException("Download failed"));
 
         await _sut.InstallUpdateCommand.ExecuteAsync(null);
+        _mockLocalizationService.Setup(l => l.GetString("Dialog_Update_Status_Error")).Returns("Download error after language change: {0}");
+        _mockLocalizationService.Raise(l => l.LanguageChanged += null, this, EventArgs.Empty);
 
         _sut.UpdateInfoBarSeverity.Should().Be(InfoBarSeverity.Error);
-        _sut.UpdateInfoBarMessage.Should().Contain("Download failed");
+        _sut.UpdateInfoBarMessage.Should().Be("Download error after language change: Download failed");
         _sut.IsUpdateActionButtonVisible.Should().BeFalse();
         _sut.IsRelaunchButtonVisible.Should().BeFalse();
     }
@@ -309,13 +353,23 @@ public class UpdateCheckViewModelTests : IDisposable
     }
 
     [Fact]
-    public void LanguageChanged_NotifiesInstallNowButtonText()
+    public void LanguageChanged_NotifiesUpdateActionLabels()
     {
         var changedProperties = new List<string>();
         _sut.PropertyChanged += (_, e) => changedProperties.Add(e.PropertyName!);
+        _mockLocalizationService.Setup(l => l.GetString("Menu_CheckForUpdates")).Returns("Controlla aggiornamenti");
+        _mockLocalizationService.Setup(l => l.GetString("Dialog_Update_CurrentVersion")).Returns("Versione attuale:");
+        _mockLocalizationService.Setup(l => l.GetString("Dialog_Update_LatestVersion")).Returns("Ultima versione:");
+        _mockLocalizationService.Setup(l => l.GetString("Menu_Update_NotChecked")).Returns("Ultima versione ancora da verificare.");
 
         _mockLocalizationService.Raise(l => l.LanguageChanged += null, this, EventArgs.Empty);
 
+        changedProperties.Should().Contain(nameof(_sut.CheckForUpdatesLabel));
+        _sut.CheckForUpdatesLabel.Should().Be("Controlla aggiornamenti");
+        changedProperties.Should().Contain([nameof(_sut.CurrentVersionText), nameof(_sut.LatestVersionText), nameof(_sut.UpdateStatusText)]);
+        Assert.Equal("Versione attuale: —", _sut.CurrentVersionText);
+        Assert.Equal("Ultima versione: —", _sut.LatestVersionText);
+        Assert.Equal("Ultima versione ancora da verificare.", _sut.UpdateStatusText);
         changedProperties.Should().Contain(nameof(_sut.InstallNowButtonText));
         changedProperties.Should().Contain(nameof(_sut.RelaunchButtonText));
     }

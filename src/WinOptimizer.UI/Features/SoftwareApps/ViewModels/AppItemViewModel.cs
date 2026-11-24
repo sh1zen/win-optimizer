@@ -129,6 +129,12 @@ public partial class AppItemViewModel : ObservableObject, IDisposable
 
     public bool CanBeReinstalled => Definition.CanBeReinstalled;
 
+    /// <summary>Retains the last display state when inventory cannot confirm the current installation.</summary>
+    internal void ApplyInstallationStatus(bool? installed)
+    {
+        if (installed is { } current) IsInstalled = current;
+    }
+
     /// <summary>Device inventory evidence independent of the current account's installation state.</summary>
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsInstalledOnDevice))]

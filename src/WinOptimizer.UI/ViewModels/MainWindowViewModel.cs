@@ -208,6 +208,7 @@ public partial class MainWindowViewModel : ObservableObject, IDisposable
         // Nav bar text
         OnPropertyChanged(nameof(NavSoftwareAppsText));
         OnPropertyChanged(nameof(NavOptimizeText));
+        OnPropertyChanged(nameof(NavInternetText));
         OnPropertyChanged(nameof(NavCleanerText));
         OnPropertyChanged(nameof(NavDriversText));
         OnPropertyChanged(nameof(NavFunctionalitiesText));
@@ -298,6 +299,8 @@ public partial class MainWindowViewModel : ObservableObject, IDisposable
 
     public string NavOptimizeText =>
         _localizationService.GetString("Nav_Optimize") ?? "Optimize";
+
+    public string NavInternetText => _localizationService.GetString("Nav_Internet");
 
     public string NavCleanerText =>
         _localizationService.GetString("Nav_Cleaner") ?? "Cleaner";

@@ -144,7 +144,7 @@ public class AppStatusDiscoveryServiceTests
             .ThrowsAsync(new IOException("Unavailable"))
             .ReturnsAsync(new HashSet<string> { "Shared.App" });
         var app = CreateAppxDefinition("shared", "Shared.App");
-        Assert.False((await _service.GetInstallationStatusBatchAsync([app]))[app.Id]);
+        Assert.DoesNotContain(app.Id, await _service.GetInstallationStatusBatchAsync([app]));
         Assert.True((await _service.GetInstallationStatusBatchAsync([app]))[app.Id]);
     }
 
@@ -216,7 +216,7 @@ public class AppStatusDiscoveryServiceTests
         _mockWinGetDetection.Setup(service => service.GetInstalledPackageIdsAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(new HashSet<string> { "Retry.App" });
         var app = CreateExternalAppDefinition("retry", "Retry", winGetPackageIds: ["Retry.App"]);
-        Assert.False((await _service.GetExternalAppsInstallationStatusAsync([app]))[app.Id]);
+        Assert.DoesNotContain(app.Id, await _service.GetExternalAppsInstallationStatusAsync([app]));
         Assert.True((await _service.GetExternalAppsInstallationStatusAsync([app]))[app.Id]);
     }
 
@@ -376,46 +376,13 @@ public class AppStatusDiscoveryServiceTests
     // --- GetInstallationStatusBatchAsync ---
 
     [Fact]
-    public async Task GetInstallationStatusBatchAsync_EmptyDefinitions_ReturnsEmptyDictionary()
+    public async Task GetInstallationStatusBatchAsync_EmptyDefinitions_ReturnsEmptyCaseInsensitiveDictionary()
     {
         var result = await _service.GetInstallationStatusBatchAsync(Array.Empty<ItemDefinition>());
 
         result.Should().NotBeNull();
         result.Should().BeEmpty();
-    }
-
-    [Fact]
-    public async Task GetInstallationStatusBatchAsync_ReturnsCaseInsensitiveDictionary()
-    {
-        // With empty definitions to confirm the dictionary uses the right comparer
-        var result = await _service.GetInstallationStatusBatchAsync(Array.Empty<ItemDefinition>());
-
-        result.Should().NotBeNull();
-        // The dictionary should be created with OrdinalIgnoreCase comparer
         result.Comparer.Should().Be(StringComparer.OrdinalIgnoreCase);
-    }
-
-    [Fact]
-    public async Task GetInstallationStatusBatchAsync_WhenExceptionOccursInternallyAndCaughtAtTopLevel_ReturnsAllFalse()
-    {
-        // Create apps that will cause an exception path at the top-level try/catch.
-        // Since the service calls platform APIs internally, we test the catch-all behavior
-        // by providing definitions that go through the appx path (which uses PackageManager COM).
-        // In a test environment, the PackageManager will likely fail, triggering fallback paths.
-        var definitions = new List<ItemDefinition>
-        {
-            CreateAppxDefinition("app1", "Microsoft.TestApp1"),
-            CreateAppxDefinition("app2", "Microsoft.TestApp2"),
-        };
-
-        // This test verifies the method doesn't throw when internal operations fail.
-        // The PackageManager and fallback WMI/PowerShell paths will fail in a unit test environment.
-        var result = await _service.GetInstallationStatusBatchAsync(definitions);
-
-        result.Should().NotBeNull();
-        // In a test environment where PackageManager is unavailable, apps should be marked false
-        result.Should().ContainKey("app1");
-        result.Should().ContainKey("app2");
     }
 
     // --- InvalidateCache ---
@@ -462,7 +429,7 @@ public class AppStatusDiscoveryServiceTests
     }
 
     [Fact]
-    public async Task GetInstallationStatusBatchAsync_AppxFailure_StillDrainsComponentReadAndReturnsAllFalse()
+    public async Task AppxFailureLeavesItsAppsUnknownAndKeepsIndependentComponentResults()
     {
         var components = new TaskCompletionSource<WindowsComponentStatus>(TaskCreationOptions.RunContinuationsAsynchronously);
         _mockComponents.Setup(s => s.GetStatusAsync(It.IsAny<IReadOnlyList<string>>(), It.IsAny<IReadOnlyList<string>>()))
@@ -472,13 +439,62 @@ public class AppStatusDiscoveryServiceTests
 
         var pending = _service.GetInstallationStatusBatchAsync(new[]
         {
-            CreateCapabilityDefinition("cap", "Test.Capability"), CreateAppxDefinition("app", "Test.App")
+            CreateCapabilityDefinition("cap", "Test.Capability"), CreateAppxDefinition("app", "Test.App"),
+            CreateFeatureDefinition("feature", "ExampleFeature"),
+            CreateFeatureDefinition("shared", "SharedFeature") with { AppxPackageName = ["Shared.App"] }
         });
         pending.IsCompleted.Should().BeFalse();
-        components.SetResult(new WindowsComponentStatus(new Dictionary<string, bool>(), new Dictionary<string, bool>()));
+        components.SetResult(new WindowsComponentStatus(new Dictionary<string, bool>(),
+            new Dictionary<string, bool> { ["ExampleFeature"] = true, ["SharedFeature"] = false }));
         var result = await pending.WaitAsync(TimeSpan.FromSeconds(5));
-        result.Values.Should().OnlyContain(installed => !installed);
-        _mockLog.Verify(l => l.LogError("Error checking batch installation status", It.IsAny<Exception>()), Times.Once);
+        result.Should().BeEquivalentTo(new Dictionary<string, bool> { ["feature"] = true });
+        _mockLog.Verify(l => l.LogWarning(It.Is<string>(message => message.Contains("AppX unavailable"))), Times.Once);
+    }
+
+    [Fact]
+    public async Task UnavailableWinGetLeavesWindowsAppsUnknownUntilACompleteInventoryConfirmsAbsence()
+    {
+        var app = CreateAppxDefinition("app", "Test.App") with { WinGetPackageId = ["Test.App"] };
+        _mockWinGetBootstrapper.Setup(service => service.EnsureWinGetReadyAsync()).ReturnsAsync(true);
+        _mockWinGetDetection.SetupSequence(service => service.GetInstalledPackageIdsAsync(It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new IOException("WinGet unavailable"))
+            .ReturnsAsync(new HashSet<string>());
+
+        Assert.DoesNotContain(app.Id, await _service.GetInstallationStatusBatchAsync([app]));
+        Assert.False((await _service.GetInstallationStatusBatchAsync([app]))[app.Id]);
+    }
+
+    [Fact]
+    public async Task PositiveWinGetEvidenceCanConfirmInstallationWhenAppxFails()
+    {
+        var app = CreateAppxDefinition("app", "Test.App") with { WinGetPackageId = ["Test.App"] };
+        _mockAppxPackageSource.Setup(source => source.GetInstalledPackageNamesAsync(It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new IOException("AppX unavailable"));
+        _mockWinGetBootstrapper.Setup(service => service.EnsureWinGetReadyAsync()).ReturnsAsync(true);
+        _mockWinGetDetection.Setup(service => service.GetInstalledPackageIdsAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new HashSet<string> { "Test.App" });
+
+        Assert.True((await _service.GetInstallationStatusBatchAsync([app]))[app.Id]);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task UnreadableDismStatusIsOmittedWithoutLosingTheIndependentComponentResult(bool readCapabilities)
+    {
+        _mockComponents.Setup(s => s.GetStatusAsync(It.IsAny<IReadOnlyList<string>>(), It.IsAny<IReadOnlyList<string>>()))
+            .ReturnsAsync(new WindowsComponentStatus(new Dictionary<string, bool> { ["Test.Capability"] = false },
+                new Dictionary<string, bool> { ["TestFeature"] = false })
+            {
+                CapabilitiesRead = readCapabilities,
+                FeaturesRead = !readCapabilities
+            });
+        var feature = CreateFeatureDefinition("feature", "TestFeature") with { AppxPackageName = ["Test.App"] };
+        var result = await _service.GetInstallationStatusBatchAsync(
+            [CreateCapabilityDefinition("cap", "Test.Capability"), feature]);
+
+        var expected = readCapabilities ? "cap" : "feature";
+        Assert.Equal(new KeyValuePair<string, bool>(expected, false), Assert.Single(result));
     }
 
     [Fact]
@@ -712,23 +728,21 @@ public class AppStatusDiscoveryServiceTests
     }
 
     [Fact]
-    public async Task GetExternalAppsInstallationStatusAsync_TopLevelException_ReturnsAllFalse()
+    public async Task GetExternalAppsInstallationStatusAsync_WinGetFailureKeepsIndependentRegistryEvidence()
     {
-        // Force WinGet bootstrapper to throw to trigger the top-level catch
         _mockWinGetBootstrapper
             .Setup(w => w.EnsureWinGetReadyAsync())
             .ThrowsAsync(new InvalidOperationException("Critical failure"));
 
-        var definitions = new List<ItemDefinition>
-        {
-            CreateExternalAppDefinition("ext1", "App 1", winGetPackageIds: new[] { "Pkg" })
-        };
+        var program = new InstalledProgram(WindowsInstalledProgramSource.Roots[0] + @"\RegistryTool", "Registry Tool", null);
+        _installedPrograms.Setup(source => source.ReadAsync()).ReturnsAsync([program]);
+        var registered = program.ToDefinition();
+        var app = CreateExternalAppDefinition("ext1", "App 1", winGetPackageIds: ["Pkg"]);
 
-        var result = await _service.GetExternalAppsInstallationStatusAsync(definitions);
+        var result = await _service.GetExternalAppsInstallationStatusAsync([app, registered]);
 
-        result.Should().ContainKey("ext1");
-        result["ext1"].Should().BeFalse();
-        // The exception is caught at the WinGet readiness level (logged as LogWarning), not at the top level
+        Assert.DoesNotContain(app.Id, result);
+        Assert.True(result[registered.Id]);
         _mockLog.Verify(l => l.LogWarning(It.Is<string>(s => s.Contains("Critical failure"))), Times.Once);
     }
 

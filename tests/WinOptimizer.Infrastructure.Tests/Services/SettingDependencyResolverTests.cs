@@ -21,6 +21,7 @@ public class SettingDependencyResolverTests
 
     public SettingDependencyResolverTests()
     {
+        _mockSettingAppService.Setup(s => s.ApplySettingAsync(It.IsAny<ApplySettingRequest>())).ReturnsAsync(OperationResult.Succeeded());
         _mockProcessRestartManager.Setup(p => p.SuppressRestarts())
             .Returns(new NoOpDisposable());
 
@@ -31,6 +32,21 @@ public class SettingDependencyResolverTests
             _mockCompatibilityFilter.Object,
             _mockProcessRestartManager.Object,
             _mockLogService.Object);
+    }
+
+    [Fact]
+    public async Task HandleValuePrerequisitesAsync_StopsWhenTheRequiredChangeFails()
+    {
+        var parent = CreateSetting("parent");
+        var child = CreateSetting("child", [CreateDependency("child", "parent", SettingDependencyType.RequiresValueBeforeAnyChange, "true")]);
+        _mockDiscoveryService.Setup(s => s.GetSettingStatesAsync(It.IsAny<IEnumerable<SettingDefinition>>()))
+            .ReturnsAsync(new Dictionary<string, SettingStateResult> { ["parent"] = new() { Success = true, IsEnabled = false } });
+        _mockSettingAppService.Setup(s => s.ApplySettingAsync(It.Is<ApplySettingRequest>(r => r.SettingId == "parent")))
+            .ReturnsAsync(OperationResult.Failed("Windows rejected the prerequisite"));
+
+        var action = () => _resolver.HandleValuePrerequisitesAsync(child, "child", [parent, child], _mockSettingAppService.Object);
+
+        await action.Should().ThrowAsync<InvalidOperationException>().WithMessage("*parent*Windows rejected the prerequisite*");
     }
 
     private sealed class NoOpDisposable : IDisposable
@@ -134,7 +150,7 @@ public class SettingDependencyResolverTests
     #region HandleDependenciesAsync - Enable with AutoEnableSettingIds
 
     [Fact]
-    public async Task HandleDependenciesAsync_Enable_WithAutoEnableIds_EnablesAssociatedSettings()
+    public async Task HandleDependenciesAsync_AutoEnablesAssociatedSettingsWithRestartsSuppressed()
     {
         var autoEnableDef = CreateSetting("auto1");
         var setting = CreateSetting("setting1", autoEnableSettingIds: new[] { "auto1" });
@@ -150,6 +166,7 @@ public class SettingDependencyResolverTests
             s => s.ApplySettingAsync(It.Is<ApplySettingRequest>(r =>
                 r.SettingId == "auto1" && r.Enable == true && r.SkipValuePrerequisites == true)),
             Times.Once);
+        _mockProcessRestartManager.Verify(p => p.SuppressRestarts(), Times.Once);
     }
 
     [Fact]
@@ -209,24 +226,6 @@ public class SettingDependencyResolverTests
 
         _mockLogService.Verify(
             l => l.Log(LogLevel.Warning, It.Is<string>(m => m.Contains("auto1")), null),
-            Times.Once);
-    }
-
-    [Fact]
-    public async Task HandleDependenciesAsync_Enable_WithAutoEnableIds_SuppressesRestartsDuringAutoEnable()
-    {
-        var autoEnableDef = CreateSetting("auto1");
-        var setting = CreateSetting("setting1", autoEnableSettingIds: new[] { "auto1" });
-        var allSettings = new[] { setting, autoEnableDef };
-
-        _mockSettingAppService.Setup(s => s.ApplySettingAsync(It.IsAny<ApplySettingRequest>()))
-            .ReturnsAsync(OperationResult.Succeeded());
-
-        await _resolver.HandleDependenciesAsync(
-            "setting1", allSettings, enable: true, value: null, _mockSettingAppService.Object);
-
-        _mockProcessRestartManager.Verify(
-            p => p.SuppressRestarts(),
             Times.Once);
     }
 

@@ -3,8 +3,10 @@ using Moq;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.Core.Features.Extensions;
+using WinOptimizer.Core.Features.Utilities;
 using WinOptimizer.UI.Features.Common.Interfaces;
 using WinOptimizer.UI.Features.Extensions;
+using WinOptimizer.UI.Features.Extensions.Notch;
 using WinOptimizer.UI.Features.Extensions.ViewModels;
 using WinOptimizer.UI.Tests.Helpers;
 using Xunit;
@@ -93,7 +95,7 @@ public sealed class SystemMonitorWidgetHostTests
     }
 
     [Fact]
-    public async Task DisablingARealBackgroundHostWaitsForPersistenceAndEndsTheSession()
+    public async Task ClosingARealWidgetHostWaitsForPendingPreferenceWrites()
     {
         using var host = Create();
         var preferences = new Mock<IUserPreferencesService>();
@@ -104,19 +106,20 @@ public sealed class SystemMonitorWidgetHostTests
         using var vm = new ExtensionsViewModel(preferences.Object, Mock.Of<ILocalizationService>(), host, new ExtensionTestDispatcher(),
             Mock.Of<ISystemMonitorStartupService>(s => s.ApplyAsync(It.IsAny<SystemMonitorOptions>()) == Task.FromResult(OperationResult.Succeeded())));
         Assert.True(await vm.LoadAsync());
-        var hidden = false;
+        var failed = false;
         var shutdown = false;
-        using var lifetime = new ExtensionApplicationLifetime(host, vm, () => hidden = true, () => hidden = false,
+        using var notch = new NotchExtension(preferences.Object, Mock.Of<ILocalizationService>(), _log.Object, Mock.Of<INotchStartupService>(),
+            Mock.Of<IConnectionTrafficService>());
+        using var lifetime = new ExtensionApplicationLifetime(host, vm, notch, () => failed = true,
             () => shutdown = true, _log.Object);
-        await lifetime.CloseAsync();
-        Assert.True(hidden);
-        Assert.True(host.IsRunning);
         vm.IsEnabled = false;
+        var closing = lifetime.CloseAsync();
+        Assert.False(closing.IsCompleted);
         Assert.False(shutdown);
         Assert.True(host.IsRunning);
         write.SetResult(OperationResult.Succeeded());
-        await vm.FlushAsync();
-        await lifetime.CloseAsync();
+        await closing;
+        Assert.False(failed);
         Assert.True(shutdown);
         Assert.False(host.IsRunning);
         Assert.False(vm.Options.Enabled);

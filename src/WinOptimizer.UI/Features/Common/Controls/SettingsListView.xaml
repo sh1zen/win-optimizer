@@ -20,6 +20,18 @@
     FIX: Enable "Animation effects" in Windows Settings resolves this visual issue.
     -->
 
+    <UserControl.Resources>
+        <ItemsPanelTemplate x:Key="SettingsCardsLayout">
+            <local:SettingsCardStackPanel>
+                <local:SettingsCardStackPanel.Style>
+                    <Style TargetType="local:SettingsCardStackPanel">
+                        <Setter Property="Spacing" Value="{StaticResource PageCardSpacing}"/>
+                    </Style>
+                </local:SettingsCardStackPanel.Style>
+            </local:SettingsCardStackPanel>
+        </ItemsPanelTemplate>
+    </UserControl.Resources>
+
     <Grid>
         <!-- Loading State -->
         <ProgressRing
@@ -39,6 +51,7 @@
                     <ListView
                         x:Name="SettingsListViewControl"
                         ItemContainerStyle="{StaticResource SettingsListViewItemContainerStyle}"
+                        ItemsPanel="{StaticResource SettingsCardsLayout}"
                         SelectionMode="None"
                         IsItemClickEnabled="False"
                         IsTabStop="False"
@@ -60,14 +73,8 @@
                                                  Invoked="TechnicalDetailsAccelerator_Invoked"/>
                         </ListView.KeyboardAccelerators>
 
-                        <ListView.ItemsPanel>
-                            <ItemsPanelTemplate>
-                                <StackPanel Spacing="{StaticResource PageCardSpacing}"/>
-                            </ItemsPanelTemplate>
-                        </ListView.ItemsPanel>
-
                         <ListView.GroupStyle>
-                            <GroupStyle HeaderTemplate="{StaticResource SettingsGroupHeaderTemplate}"/>
+                            <GroupStyle HeaderTemplate="{StaticResource SettingsGroupHeaderTemplate}" Panel="{StaticResource SettingsCardsLayout}"/>
                         </ListView.GroupStyle>
                     </ListView>
 

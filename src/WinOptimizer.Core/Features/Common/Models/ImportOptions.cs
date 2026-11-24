@@ -5,6 +5,7 @@ namespace WinOptimizer.Core.Features.Common.Models;
 public sealed record ImportOptions
 {
     public bool ProcessWindowsAppsRemoval { get; init; }
+    public bool SaveRemovalScripts { get; init; } = true;
     public bool ProcessExternalAppsRemoval { get; init; }
     public bool ApplyThemeWallpaper { get; init; }
     public bool ApplyCleanTaskbar { get; init; }

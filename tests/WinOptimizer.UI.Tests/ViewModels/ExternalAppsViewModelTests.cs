@@ -94,15 +94,6 @@ public class ExternalAppsViewModelTests
     }
 
     [Fact]
-    public async Task UninstallApps_WhenNothingSelected_DoesNotRunWorkflow()
-    {
-        var sut = CreateSut();
-        await sut.UninstallAppsAsync();
-        _dialogService.Verify(dialog => dialog.ShowWarningAsync(It.IsAny<string>(), It.IsAny<string>()), Times.Once);
-        _uninstallWorkflow.VerifyNoOtherCalls();
-    }
-
-    [Fact]
     public async Task StatusBatchRebuildsCategoriesOnceAndClearsUnavailableSelections()
     {
         var apps = Enumerable.Range(0, 100).Select(index => CreateTestItem($"app{index}")).ToArray();
@@ -306,21 +297,6 @@ public class ExternalAppsViewModelTests
     };
 
     [Fact]
-    public async Task LoadAppsAndCheckInstallationStatusAsync_WhenAlreadyInitialized_SkipsLoading()
-    {
-        _externalAppsService.Setup(s => s.ReadInventoryAsync()).ReturnsAsync(Inventory());
-        _externalAppsService.Setup(s => s.CheckBatchInstalledAsync(It.IsAny<IEnumerable<ItemDefinition>>()))
-            .ReturnsAsync(new Dictionary<string, bool>());
-
-        var sut = CreateSut();
-
-        await sut.LoadAppsAndCheckInstallationStatusAsync();
-        await sut.LoadAppsAndCheckInstallationStatusAsync();
-
-        _externalAppsService.Verify(s => s.ReadInventoryAsync(), Times.Once);
-    }
-
-    [Fact]
     public async Task LoadAppsAndCheckInstallationStatusAsync_OnError_LogsErrorAndCompletes()
     {
         _externalAppsService.Setup(s => s.ReadInventoryAsync())
@@ -347,23 +323,7 @@ public class ExternalAppsViewModelTests
     }
 
     [Fact]
-    public async Task RefreshInstallationStatusAsync_WhenInitialized_InvalidatesCacheAndRefreshes()
-    {
-        _externalAppsService.Setup(s => s.ReadInventoryAsync()).ReturnsAsync(Inventory());
-        _externalAppsService.Setup(s => s.CheckBatchInstalledAsync(It.IsAny<IEnumerable<ItemDefinition>>()))
-            .ReturnsAsync(new Dictionary<string, bool>());
-
-        var sut = CreateSut();
-        await sut.LoadAppsAndCheckInstallationStatusAsync();
-
-        await sut.RefreshInstallationStatusAsync();
-
-        _externalAppsService.Verify(s => s.InvalidateStatusCache(), Times.Once);
-        sut.IsLoading.Should().BeFalse();
-    }
-
-    [Fact]
-    public async Task UninstallAppsAsync_WhenNoItemsSelected_ShowsWarning()
+    public async Task UninstallAppsAsync_WhenNoItemsSelected_WarnsWithoutRunningWorkflow()
     {
         _externalAppsService.Setup(s => s.ReadInventoryAsync()).ReturnsAsync(Inventory(CreateTestItem("app1")));
         _externalAppsService.Setup(s => s.CheckBatchInstalledAsync(It.IsAny<IEnumerable<ItemDefinition>>()))
@@ -377,6 +337,7 @@ public class ExternalAppsViewModelTests
         _dialogService.Verify(d => d.ShowWarningAsync(
             It.Is<string>(s => s.Contains("select at least one")),
             It.IsAny<string>()), Times.Once);
+        _uninstallWorkflow.VerifyNoOtherCalls();
     }
 
     [Fact]
@@ -421,6 +382,8 @@ public class ExternalAppsViewModelTests
         sut.ItemsView.Cast<AppItemViewModel>().Select(a => a.Id).Should().Equal("app2");
         sut.HasSelectedItems.Should().BeFalse();
         sut.Categories.SelectMany(c => c.Apps).Select(a => a.Id).Should().Equal("app2");
+        _externalAppsService.Verify(s => s.InvalidateStatusCache(), Times.Once);
+        sut.IsLoading.Should().BeFalse();
     }
 
     [Fact]
@@ -441,6 +404,8 @@ public class ExternalAppsViewModelTests
             .ReturnsAsync((IEnumerable<ItemDefinition> items) => items.ToDictionary(item => item.Id, _ => true));
         using var sut = CreateSut();
         await sut.LoadAppsAndCheckInstallationStatusAsync();
+        await sut.LoadAppsAndCheckInstallationStatusAsync();
+        _externalAppsService.Verify(service => service.ReadInventoryAsync(), Times.Once);
         var originalViewModel = Assert.Single(sut.Items);
         originalViewModel.IsSelected = true;
 

@@ -15,6 +15,16 @@ public class FileSystemService : IFileSystemService
     // File operations
     public bool FileExists(string path) => File.Exists(path);
     public Stream OpenReadShared(string path) => new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+    public async Task<Stream> OpenExclusiveFileAsync(string path)
+    {
+        var waiting = System.Diagnostics.Stopwatch.StartNew();
+        while (true)
+        {
+            try { return new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None); }
+            catch (IOException ex) when ((ex.HResult & 0xffff) is 32 or 33 && waiting.Elapsed < TimeSpan.FromSeconds(15))
+            { await Task.Delay(40).ConfigureAwait(false); }
+        }
+    }
     public string ReadAllText(string path) => File.ReadAllText(path);
     public Task<string> ReadAllTextAsync(string path, CancellationToken ct = default) => File.ReadAllTextAsync(path, ct);
     public void WriteAllText(string path, string contents) => File.WriteAllText(path, contents);

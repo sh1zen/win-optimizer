@@ -24,7 +24,6 @@ public class ConfigReviewOrchestrationServiceTests : IDisposable
     private readonly Mock<ICompatibleSettingsRegistry> _mockCompatibleSettingsRegistry = new();
     private readonly Mock<IEventBus> _mockEventBus = new();
     private readonly Mock<IReviewModeViewModelCoordinator> _mockVmCoordinator = new();
-    private readonly Mock<IPolicyCleanupService> _mockPolicyCleanupService = new();
     private readonly Mock<IChangeHistoryService> _mockChangeHistoryService = new();
 
     private ConfigReviewOrchestrationService? _service;
@@ -60,7 +59,6 @@ public class ConfigReviewOrchestrationServiceTests : IDisposable
             _mockCompatibleSettingsRegistry.Object,
             _mockEventBus.Object,
             _mockVmCoordinator.Object,
-            _mockPolicyCleanupService.Object,
             _mockChangeHistoryService.Object,
             Mock.Of<WinOptimizer.Core.Features.SoftwareApps.Interfaces.IUninstallResidueReview>());
         return _service;
@@ -102,9 +100,10 @@ public class ConfigReviewOrchestrationServiceTests : IDisposable
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public async Task ApplyReviewedConfigAsync_WithSelectedWindowsApps_RequiresRemovalChoice(bool remove)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public async Task ApplyReviewedConfigAsync_WithSelectedWindowsApps_UsesTheConfirmedRemovalOptions(bool remove, bool saveScripts)
     {
         var config = new UnifiedConfigurationFile
         {
@@ -122,7 +121,7 @@ public class ConfigReviewOrchestrationServiceTests : IDisposable
         _mockVmCoordinator.Setup(v => v.HasSelectedWindowsApps).Returns(true);
         _mockVmCoordinator.Setup(v => v.IsWindowsAppsRemoveAction).Returns(remove);
         _mockConfigAppSelectionService.Setup(s => s.ConfirmWindowsAppsRemovalAsync())
-            .ReturnsAsync((true, true));
+            .ReturnsAsync((true, saveScripts));
 
         await CreateService().ApplyReviewedConfigAsync();
 
@@ -130,10 +129,32 @@ public class ConfigReviewOrchestrationServiceTests : IDisposable
             It.IsAny<UnifiedConfigurationFile>(),
             It.Is<List<string>>(sections => sections.SequenceEqual(new[] { "WindowsApps" })),
             It.Is<ImportOptions>(options => options.ProcessWindowsAppsRemoval &&
-                !options.ProcessExternalAppsRemoval)),
+                !options.ProcessExternalAppsRemoval && options.SaveRemovalScripts == saveScripts)),
             remove ? Times.Once() : Times.Never());
         _mockConfigAppSelectionService.Verify(s => s.ConfirmWindowsAppsRemovalAsync(),
             remove ? Times.Once() : Times.Never());
+    }
+
+    [Fact]
+    public async Task DecliningTheOnlyReviewedActionLeavesTheReviewOpenWithoutStartingTheImport()
+    {
+        _mockConfigReviewModeService.SetupGet(service => service.IsInReviewMode).Returns(true);
+        _mockConfigReviewModeService.SetupGet(service => service.ActiveConfig).Returns(new UnifiedConfigurationFile
+        {
+            WindowsApps = new ConfigSection { Items = [new() { Id = "app", Name = "App" }] }
+        });
+        _mockConfigReviewDiffService.Setup(service => service.GetApprovedDiffs()).Returns([]);
+        _mockVmCoordinator.SetupGet(service => service.HasSelectedWindowsApps).Returns(true);
+        _mockVmCoordinator.SetupGet(service => service.IsWindowsAppsRemoveAction).Returns(true);
+        _mockConfigAppSelectionService.Setup(service => service.ConfirmWindowsAppsRemovalAsync()).ReturnsAsync((false, false));
+
+        await CreateService().ApplyReviewedConfigAsync();
+
+        _mockConfigAppSelectionService.Verify(service => service.ClearWindowsAppsSelectionAsync(), Times.Once);
+        _mockConfigExecutionService.VerifyNoOtherCalls();
+        _mockOverlayService.VerifyNoOtherCalls();
+        _mockConfigReviewModeService.Verify(service => service.ExitReviewMode(), Times.Never);
+        _mockDialogService.VerifyNoOtherCalls();
     }
 
     public void Dispose()
@@ -213,38 +234,6 @@ public class ConfigReviewOrchestrationServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task EnterReviewModeAsync_ForcesFilterEnabled()
-    {
-        var config = new UnifiedConfigurationFile();
-
-        _mockConfigLoadService
-            .Setup(s => s.DetectIncompatibleSettings(It.IsAny<UnifiedConfigurationFile>()))
-            .Returns(new List<string>());
-
-        var service = CreateService();
-        await service.EnterReviewModeAsync(config);
-
-        _mockCompatibleSettingsRegistry.Verify(r => r.SetFilterEnabled(true), Times.Once);
-    }
-
-    [Fact]
-    public async Task EnterReviewModeAsync_EntersReviewModeOnService()
-    {
-        var config = new UnifiedConfigurationFile();
-
-        _mockConfigLoadService
-            .Setup(s => s.DetectIncompatibleSettings(It.IsAny<UnifiedConfigurationFile>()))
-            .Returns(new List<string>());
-
-        var service = CreateService();
-        await service.EnterReviewModeAsync(config);
-
-        _mockConfigReviewModeService.Verify(
-            r => r.EnterReviewModeAsync(config),
-            Times.Once);
-    }
-
-    [Fact]
     public async Task EnterReviewModeAsync_WithWindowsApps_SelectsApps()
     {
         var config = new UnifiedConfigurationFile
@@ -297,7 +286,7 @@ public class ConfigReviewOrchestrationServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task EnterReviewModeAsync_WithNoApps_DoesNotSelectApps()
+    public async Task EnterReviewModeAsync_WithNoApps_EnablesFilteringAndLeavesAppSelectionAlone()
     {
         var config = new UnifiedConfigurationFile();
 
@@ -307,6 +296,9 @@ public class ConfigReviewOrchestrationServiceTests : IDisposable
 
         var service = CreateService();
         await service.EnterReviewModeAsync(config);
+
+        _mockCompatibleSettingsRegistry.Verify(r => r.SetFilterEnabled(true), Times.Once);
+        _mockConfigReviewModeService.Verify(r => r.EnterReviewModeAsync(config), Times.Once);
 
         _mockConfigAppSelectionService.Verify(
             s => s.SelectWindowsAppsFromConfigAsync(It.IsAny<ConfigSection>()),
@@ -390,7 +382,7 @@ public class ConfigReviewOrchestrationServiceTests : IDisposable
     }
 
     [Fact]
-    public async Task ApplyReviewedConfigAsync_WithApprovedDiffs_CallsExecutionService()
+    public async Task ApplyReviewedConfigAsync_WithApprovedDiffs_ExitsReviewAndCallsExecutor()
     {
         var config = new UnifiedConfigurationFile
         {
@@ -438,50 +430,6 @@ public class ConfigReviewOrchestrationServiceTests : IDisposable
                 It.IsAny<List<string>>(),
                 It.IsAny<ImportOptions>()),
             Times.Once);
-    }
-
-    [Fact]
-    public async Task ApplyReviewedConfigAsync_ExitsReviewModeAfterApplying()
-    {
-        var config = new UnifiedConfigurationFile
-        {
-            Optimize = new FeatureGroupSection
-            {
-                Features = new Dictionary<string, ConfigSection>
-                {
-                    ["Privacy"] = new ConfigSection
-                    {
-                        Items = new List<ConfigurationItem>
-                        {
-                            new ConfigurationItem { Id = "s1", Name = "S1" }
-                        }
-                    }
-                }
-            }
-        };
-
-        var approvedDiffs = new List<ConfigReviewDiff>
-        {
-            new ConfigReviewDiff
-            {
-                SettingId = "s1",
-                FeatureModuleId = "Privacy",
-                IsReviewed = true,
-                IsApproved = true,
-                InputType = InputType.Toggle
-            }
-        };
-
-        _mockConfigReviewModeService.Setup(r => r.IsInReviewMode).Returns(true);
-        _mockConfigReviewModeService.Setup(r => r.ActiveConfig).Returns(config);
-        _mockConfigReviewDiffService.Setup(d => d.GetApprovedDiffs()).Returns(approvedDiffs);
-
-        _mockVmCoordinator.Setup(v => v.HasSelectedWindowsApps).Returns(false);
-        _mockVmCoordinator.Setup(v => v.HasSelectedExternalApps).Returns(false);
-
-        var service = CreateService();
-        await service.ApplyReviewedConfigAsync();
-
         _mockConfigReviewModeService.Verify(r => r.ExitReviewMode(), Times.Once);
     }
 
@@ -521,6 +469,38 @@ public class ConfigReviewOrchestrationServiceTests : IDisposable
         _mockConfigReviewModeService.Verify(r => r.ExitReviewMode(), Times.Once);
     }
 
+    [Fact]
+    public async Task FailedReviewedImportReportsTheErrorAndDoesNotRemoveExternalApps()
+    {
+        var config = new UnifiedConfigurationFile
+        {
+            ExternalApps = new ConfigSection { Items = [new() { Id = "app", Name = "Selected app" }] },
+            Optimize = new FeatureGroupSection { Features = new Dictionary<string, ConfigSection>
+            {
+                ["Privacy"] = new() { Items = [new() { Id = "privacy", Name = "Privacy setting" }] }
+            } }
+        };
+        _mockConfigReviewModeService.SetupGet(service => service.IsInReviewMode).Returns(true);
+        _mockConfigReviewModeService.SetupGet(service => service.ActiveConfig).Returns(config);
+        _mockConfigReviewDiffService.Setup(service => service.GetApprovedDiffs())
+            .Returns([new() { SettingId = "privacy", FeatureModuleId = "Privacy", IsApproved = true }]);
+        _mockVmCoordinator.SetupGet(service => service.HasSelectedExternalApps).Returns(true);
+        _mockVmCoordinator.SetupGet(service => service.IsExternalAppsRemoveAction).Returns(true);
+        _mockVmCoordinator.Setup(service => service.GetSelectedExternalAppIds()).Returns(["app"]);
+        _mockConfigExecutionService.Setup(service => service.ApplyConfigurationWithOptionsAsync(
+                It.IsAny<UnifiedConfigurationFile>(), It.IsAny<List<string>>(), It.IsAny<ImportOptions>()))
+            .ThrowsAsync(new IOException("The configuration write failed."));
+
+        await CreateService().ApplyReviewedConfigAsync();
+
+        _mockDialogService.Verify(dialog => dialog.ShowMessage(
+            It.Is<string>(message => message.Contains("The configuration write failed.")), "Error"), Times.Once);
+        _mockDialogService.Verify(dialog => dialog.ShowInformationAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+        _mockConfigAppSelectionService.Verify(service => service.RemoveSelectedExternalAppsAsync(It.IsAny<List<string>>()), Times.Never);
+        _mockOverlayService.Verify(overlay => overlay.HideOverlay(), Times.Once);
+        _mockConfigReviewModeService.Verify(service => service.ExitReviewMode(), Times.Once);
+    }
+
     // -------------------------------------------------------
     // CancelReviewModeAsync
     // -------------------------------------------------------
@@ -556,8 +536,10 @@ public class ConfigReviewOrchestrationServiceTests : IDisposable
     // Policy Cleanup on Windows Defaults via Review Mode
     // -------------------------------------------------------
 
-    [Fact]
-    public async Task ApplyReviewedConfigAsync_WindowsDefaults_CallsPolicyCleanup()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task ApplyReviewedConfigAsync_PassesDefaultsSelectionToSharedExecutor(bool defaults)
     {
         var config = new UnifiedConfigurationFile
         {
@@ -589,7 +571,7 @@ public class ConfigReviewOrchestrationServiceTests : IDisposable
         };
 
         _mockConfigReviewModeService.Setup(r => r.IsInReviewMode).Returns(true);
-        _mockConfigReviewModeService.Setup(r => r.IsWindowsDefaults).Returns(true);
+        _mockConfigReviewModeService.Setup(r => r.IsWindowsDefaults).Returns(defaults);
         _mockConfigReviewModeService.Setup(r => r.ActiveConfig).Returns(config);
         _mockConfigReviewDiffService.Setup(d => d.GetApprovedDiffs()).Returns(approvedDiffs);
         _mockVmCoordinator.Setup(v => v.HasSelectedWindowsApps).Returns(false);
@@ -602,55 +584,8 @@ public class ConfigReviewOrchestrationServiceTests : IDisposable
         var service = CreateService();
         await service.ApplyReviewedConfigAsync();
 
-        _mockPolicyCleanupService.Verify(p => p.CleanupPolicyKeys(), Times.Once);
-    }
-
-    [Fact]
-    public async Task ApplyReviewedConfigAsync_NonWindowsDefaults_DoesNotCallPolicyCleanup()
-    {
-        var config = new UnifiedConfigurationFile
-        {
-            Optimize = new FeatureGroupSection
-            {
-                Features = new Dictionary<string, ConfigSection>
-                {
-                    ["Privacy"] = new ConfigSection
-                    {
-                        Items = new List<ConfigurationItem>
-                        {
-                            new ConfigurationItem { Id = "s1", Name = "S1" }
-                        }
-                    }
-                }
-            }
-        };
-
-        var approvedDiffs = new List<ConfigReviewDiff>
-        {
-            new ConfigReviewDiff
-            {
-                SettingId = "s1",
-                FeatureModuleId = "Privacy",
-                IsReviewed = true,
-                IsApproved = true,
-                InputType = InputType.Toggle
-            }
-        };
-
-        _mockConfigReviewModeService.Setup(r => r.IsInReviewMode).Returns(true);
-        _mockConfigReviewModeService.Setup(r => r.IsWindowsDefaults).Returns(false);
-        _mockConfigReviewModeService.Setup(r => r.ActiveConfig).Returns(config);
-        _mockConfigReviewDiffService.Setup(d => d.GetApprovedDiffs()).Returns(approvedDiffs);
-        _mockVmCoordinator.Setup(v => v.HasSelectedWindowsApps).Returns(false);
-        _mockVmCoordinator.Setup(v => v.HasSelectedExternalApps).Returns(false);
-
-        _mockDialogService
-            .Setup(d => d.ShowInformationAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
-            .Returns(Task.CompletedTask);
-
-        var service = CreateService();
-        await service.ApplyReviewedConfigAsync();
-
-        _mockPolicyCleanupService.Verify(p => p.CleanupPolicyKeys(), Times.Never);
+        _mockConfigExecutionService.Verify(executor => executor.ApplyConfigurationWithOptionsAsync(
+            It.IsAny<UnifiedConfigurationFile>(), It.IsAny<List<string>>(),
+            It.Is<ImportOptions>(options => options.IsWindowsDefaults == defaults)), Times.Once);
     }
 }

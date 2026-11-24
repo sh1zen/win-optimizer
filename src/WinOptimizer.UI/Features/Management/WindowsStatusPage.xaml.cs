@@ -16,11 +16,14 @@ public sealed partial class WindowsStatusPage : Page
         InitializeComponent();
     }
 
-    /// <summary>Places the main action beside the guidance when the page has sufficient width.</summary>
+    /// <summary>Places the scan action and servicing cards side by side when each has enough space.</summary>
     private void LayoutRoot_SizeChanged(object sender, SizeChangedEventArgs e)
     {
         var wide = e.NewSize.Width >= 760;
         WideLayoutTrigger.IsActive = wide;
         CompactLayoutTrigger.IsActive = !wide;
+        var cardsFitSideBySide = e.NewSize.Width >= 980;
+        SideBySideCardsTrigger.IsActive = cardsFitSideBySide;
+        StackedCardsTrigger.IsActive = !cardsFitSideBySide;
     }
 }

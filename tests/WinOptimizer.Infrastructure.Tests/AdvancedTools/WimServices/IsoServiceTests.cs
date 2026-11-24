@@ -85,10 +85,11 @@ public class IsoServiceTests
 
         Assert.False(await _service.ExtractIsoAsync(@"C:\User's [media]\setup.iso", @"C:\User's [media]\work"));
 
-        Assert.Equal(3, commands.Count);
+        Assert.Equal(4, commands.Count);
         Assert.Contains("-LiteralPath 'C:\\User''s [media]\\work'", commands[0]);
         Assert.Contains("-ImagePath 'C:\\User''s [media]\\setup.iso'", commands[1]);
         Assert.Contains("-ImagePath 'C:\\User''s [media]\\setup.iso'", commands[2]);
+        Assert.Contains("-ImagePath 'C:\\User''s [media]\\setup.iso'", commands[3]);
         var runner = new WinOptimizer.Infrastructure.Features.Common.Utilities.PowerShellRunner(Mock.Of<IFileSystemService>());
         foreach (var command in commands)
         {
@@ -111,23 +112,77 @@ public class IsoServiceTests
         _mockFileSystem.Setup(fs => fs.ReadDirectoryContents(@"X:\"))
             .Returns((new[] { @"X:\sources", @"X:\boot" }, new[] { @"X:\setup.exe", @"X:\autorun.inf" }));
         _mockFileSystem.Setup(fs => fs.ReadDirectoryContents(@"X:\sources"))
-            .Returns((Array.Empty<string>(), new[] { @"X:\sources\install.wim" }));
+            .Returns((Array.Empty<string>(), new[] { @"X:\sources\boot.wim", @"X:\sources\install.wim" }));
         _mockFileSystem.Setup(fs => fs.ReadDirectoryContents(@"X:\boot"))
             .Returns((Array.Empty<string>(), new[] { @"X:\boot\boot.sdi" }));
-        _mockFileSystem.Setup(fs => fs.GetDirectories(work, "*", SearchOption.TopDirectoryOnly))
-            .Returns([@"C:\Work\sources", @"C:\Work\boot"]);
         var copied = new List<(string Source, string Destination)>();
         _mockFileSystem.Setup(fs => fs.CopyFile(It.IsAny<string>(), It.IsAny<string>(), true))
             .Callback((string from, string to, bool _) => copied.Add((from, to)));
+        _mockFileSystem.Setup(fs => fs.DirectoryExists(@"C:\Work\boot")).Returns(true);
+        _mockFileSystem.Setup(fs => fs.FileExists(It.Is<string>(path => path.StartsWith(work))))
+            .Returns((string path) => copied.Any(file => file.Destination == path));
+        _mockFileSystem.Setup(fs => fs.GetFileSize(It.Is<string>(path => path.StartsWith(work)))).Returns(64);
         _mockProcessExecutor.Setup(process => process.ExecuteAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ProcessExecutionResult { StandardOutput = "X" });
 
         Assert.True(await _service.ExtractIsoAsync(source, work));
 
         Assert.Equal(new[] { (@"X:\setup.exe", @"C:\Work\setup.exe"), (@"X:\autorun.inf", @"C:\Work\autorun.inf"),
-            (@"X:\sources\install.wim", @"C:\Work\sources\install.wim"), (@"X:\boot\boot.sdi", @"C:\Work\boot\boot.sdi") }, copied);
+            (@"X:\sources\boot.wim", @"C:\Work\sources\boot.wim"), (@"X:\sources\install.wim", @"C:\Work\sources\install.wim"),
+            (@"X:\boot\boot.sdi", @"C:\Work\boot\boot.sdi") }, copied);
         foreach (var directory in new[] { @"X:\", @"X:\sources", @"X:\boot" })
             _mockFileSystem.Verify(fs => fs.ReadDirectoryContents(directory), Times.Once);
+    }
+
+    [Theory]
+    [InlineData("", 0, 0, 1)]
+    [InlineData("", 5, 0, 1)]
+    [InlineData("X", 0, 5, 2)]
+    public async Task ExtractionReleasesMountAfterVolumeOrDismountFailure(string drive, int volumeExit, int dismountExit, int attempts)
+    {
+        const string source = @"C:\Media\setup.iso";
+        const string work = @"C:\Work";
+        _mockFileSystem.Setup(fs => fs.FileExists(It.IsAny<string>())).Returns(true);
+        _mockFileSystem.Setup(fs => fs.GetExtension(source)).Returns(".iso");
+        _mockFileSystem.Setup(fs => fs.GetFileSize(It.IsAny<string>())).Returns(5_000_000);
+        _mockFileSystem.Setup(fs => fs.DirectoryExists(@"C:\Work\boot")).Returns(true);
+        _mockFileSystem.Setup(fs => fs.ReadDirectoryContents(@"X:\")).Returns((Array.Empty<string>(), Array.Empty<string>()));
+        _mockProcessExecutor.Setup(process => process.ExecuteAsync("powershell.exe", It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((string _, string arguments, CancellationToken _) =>
+                arguments.Contains("Get-Volume") ? new ProcessExecutionResult { ExitCode = volumeExit, StandardOutput = drive }
+                : new ProcessExecutionResult { ExitCode = arguments.Contains("Dismount-DiskImage") ? dismountExit : 0 });
+        var progress = new Mock<IProgress<TaskProgressDetail>>();
+
+        Assert.False(await _service.ExtractIsoAsync(source, work, progress.Object));
+
+        _mockProcessExecutor.Verify(process => process.ExecuteAsync("powershell.exe",
+            It.Is<string>(arguments => arguments.Contains("Dismount-DiskImage")), CancellationToken.None), Times.Exactly(attempts));
+        progress.Verify(status => status.Report(It.Is<TaskProgressDetail>(detail => detail.StatusText == "Progress_IsoExtractionFailed")), Times.Once);
+        progress.Verify(status => status.Report(It.Is<TaskProgressDetail>(detail => detail.StatusText == "Progress_IsoExtractionCompleted")), Times.Never);
+    }
+
+    [Fact]
+    public async Task CancellationDuringMountReleasesTheMountedImageBeforeReturning()
+    {
+        using var cancellation = new CancellationTokenSource();
+        const string source = @"C:\Media\setup.iso";
+        _mockFileSystem.Setup(fs => fs.FileExists(source)).Returns(true);
+        _mockFileSystem.Setup(fs => fs.GetExtension(source)).Returns(".iso");
+        _mockFileSystem.Setup(fs => fs.GetFileSize(source)).Returns(5_000_000);
+        _mockProcessExecutor.Setup(process => process.ExecuteAsync("powershell.exe",
+            It.Is<string>(arguments => arguments.Contains("Mount-DiskImage")), CancellationToken.None))
+            .Callback(cancellation.Cancel).ReturnsAsync(new ProcessExecutionResult());
+        _mockProcessExecutor.Setup(process => process.ExecuteAsync("powershell.exe",
+            It.Is<string>(arguments => arguments.Contains("Dismount-DiskImage")), CancellationToken.None))
+            .ReturnsAsync(new ProcessExecutionResult());
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() =>
+            _service.ExtractIsoAsync(source, @"C:\Work", cancellationToken: cancellation.Token));
+
+        _mockProcessExecutor.Verify(process => process.ExecuteAsync("powershell.exe",
+            It.Is<string>(arguments => arguments.Contains("Dismount-DiskImage")), CancellationToken.None), Times.Once);
+        _mockProcessExecutor.Verify(process => process.ExecuteAsync("powershell.exe",
+            It.Is<string>(arguments => arguments.Contains("Get-Volume")), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]

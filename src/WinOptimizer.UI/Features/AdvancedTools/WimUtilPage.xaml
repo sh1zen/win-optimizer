@@ -235,6 +235,7 @@
                                      Message="{x:Bind ViewModel.BothImagesDescription}"
                                      Severity="Warning"
                                      IsOpen="{x:Bind ViewModel.ImageFormat.BothFormatsExist, Mode=OneWay}"
+                                     Visibility="{x:Bind ViewModel.ImageFormat.BothFormatsExist, Mode=OneWay}"
                                      IsClosable="False"
                                      Margin="0,0,0,8">
                                 <InfoBar.Content>
