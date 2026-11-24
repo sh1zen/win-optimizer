@@ -164,7 +164,6 @@ project.
 
 ## License
 
-win-optimizer uses the [Apache License, Version 2.0 (Apache-2.0)](LICENSE.txt).
+win-optimizer uses the [Apache License, Version 2.0 (Apache-2.0)](LICENSE).
 Copyright © Andrea Frolli. The application folder contains the license and the
-[third-party notices](THIRD-PARTY-NOTICES.txt). The notices include the MIT license
-for the WinGet interop code.
+[third-party notices](THIRD-PARTY-NOTICES.txt).

@@ -20,7 +20,7 @@ $PublishDirectory = (Resolve-Path -LiteralPath $PublishDirectory).Path.TrimEnd('
 
 # Validate required distribution files before comparing the installed payload byte for byte.
 foreach ($required in @('win-optimizer.exe', 'win-optimizer.dll', 'win-optimizer.pri',
-        'coreclr.dll', 'Microsoft.UI.Xaml.dll', 'LICENSE.txt', 'THIRD-PARTY-NOTICES.txt')) {
+        'coreclr.dll', 'Microsoft.UI.Xaml.dll', 'LICENSE', 'THIRD-PARTY-NOTICES.txt')) {
     if (-not (Test-Path -LiteralPath (Join-Path $PublishDirectory $required) -PathType Leaf)) {
         throw "Required published file is missing: $required"
     }

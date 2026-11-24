@@ -108,7 +108,7 @@
 
   <ItemGroup>
     <!-- Keep the project license and component notices with the distributed application. -->
-    <None Include="..\..\LICENSE.txt;..\..\THIRD-PARTY-NOTICES.txt"
+    <None Include="..\..\LICENSE;..\..\THIRD-PARTY-NOTICES.txt"
           Link="%(Filename)%(Extension)" CopyToPublishDirectory="PreserveNewest" />
   </ItemGroup>
 

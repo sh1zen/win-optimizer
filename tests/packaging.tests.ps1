@@ -48,6 +48,7 @@ foreach ($scenario in @(
 # Run invalid combinations through the real entry point; it must reject them before side effects.
 foreach ($conflict in @(
     @{ SignApplication = $true },
+    @{ SignPackagePayload = $true; SignApplication = $true; CertificateThumbprint = ('1' * 40) },
     @{ CertificateSubject = 'Test certificate' },
     @{ CertificateThumbprint = 'TEST' }
 )) {
@@ -56,6 +57,16 @@ foreach ($conflict in @(
     catch { $failure = $_.Exception.Message }
     if ($failure -notmatch '\-SkipSigning cannot be combined') {
         throw 'Contradictory signing options were not rejected at the package boundary.'
+    }
+    $passed++
+}
+
+foreach ($options in @(@{ SignPackagePayload = $true }, @{ SignPackagePayload = $true; SignApplication = $true })) {
+    $failure = ''
+    try { & $packageScript @options }
+    catch { $failure = $_.Exception.Message }
+    if ($failure -notmatch 'requires -SignApplication and a 40-digit certificate thumbprint') {
+        throw 'Incomplete Store signing options were not rejected before packaging.'
     }
     $passed++
 }
@@ -126,18 +137,8 @@ $global:LASTEXITCODE = [int](Get-Content -LiteralPath (Join-Path $PSScriptRoot '
         foreach ($exitCode in @(0, 7)) {
             Set-Content -LiteralPath (Join-Path $fixture 'signing-exit.txt') -Value $exitCode
             $signedResult = & {
-                # Fake only Windows SDK discovery and its executable boundary.
-                function Test-Path {
-                    param([string]$Path)
-                    if ($Path -eq 'C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\signtool.exe') { return $false }
-                    Microsoft.PowerShell.Management\Test-Path -LiteralPath $Path
-                }
-                function Get-ChildItem {
-                    param($Path, $ErrorAction)
-                    return ,@(Microsoft.PowerShell.Management\Get-Item -LiteralPath $signer)
-                }
                 . $signingDefinition
-                Set-FileSignature -FilePath $fileToSign -Certificate $testCertificate
+                Set-FileSignature -FilePath $fileToSign -Certificate $testCertificate -SignToolPath $signer
             }
             $arguments = Get-Content -LiteralPath (Join-Path $fixture 'signing-arguments.json') -Raw | ConvertFrom-Json
             if ($signedResult -ne ($exitCode -eq 0) -or $arguments.Count -ne 10 -or
@@ -146,15 +147,61 @@ $global:LASTEXITCODE = [int](Get-Content -LiteralPath (Join-Path $PSScriptRoot '
             }
             $passed++
         }
+
+        # Run the production payload signer with a fake SignTool and PE headers in real files.
+        $payloadSigner = Join-Path $fixture 'payload-signer.ps1'
+        Set-Content -LiteralPath $payloadSigner -Value @'
+$command = $args[0]
+$fileName = [IO.Path]::GetFileName($args[-1])
+Add-Content -LiteralPath (Join-Path $PSScriptRoot 'payload-signing.log') -Value "$command $fileName"
+if ($command -eq 'sign' -and $fileName -ne 'unverifiable.exe') { Set-Content -LiteralPath "$($args[-1]).signed" -Value 'signed' }
+$global:LASTEXITCODE = if ($command -eq 'sign' -or (Test-Path -LiteralPath "$($args[-1]).signed")) { 0 } else { 1 }
+'@
+        $payload = Join-Path $fixture 'publish'
+        $nested = Join-Path $payload 'nested'
+        $null = New-Item -ItemType Directory -Path $nested -Force
+        $pe = [byte[]]::new(68)
+        $pe[0] = 0x4D; $pe[1] = 0x5A; $pe[60] = 64; $pe[64] = 0x50; $pe[65] = 0x45
+        foreach ($name in @('third-party.exe', 'DirectML.dll', 'nested\library.winmd')) {
+            [IO.File]::WriteAllBytes((Join-Path $payload $name), $pe)
+        }
+        Set-Content -LiteralPath (Join-Path $payload 'third-party.exe.signed') -Value 'signed'
+        Set-Content -LiteralPath (Join-Path $payload 'text.dll') -Value 'not an executable'
+        $innoTemplate = Get-Content -LiteralPath (Join-Path $repoRoot 'extras/win-optimizer.Installer.iss') -Raw
+        $payloadFunctions = $packageAst.EndBlock.Statements | Where-Object {
+            $_ -is [Management.Automation.Language.FunctionDefinitionAst] -and
+            $_.Name -in @('Test-EmbeddedSignature', 'Test-PortableExecutable', 'Set-PayloadSignatures')
+        }
+        & {
+            . $signingDefinition
+            foreach ($function in $payloadFunctions) { . ([scriptblock]::Create($function.Extent.Text)) }
+            Set-PayloadSignatures -PublishDirectory $payload -InnoContent $innoTemplate -Certificate $testCertificate -SignToolPath $payloadSigner
+            $calls = Get-Content -LiteralPath (Join-Path $fixture 'payload-signing.log')
+            if ($calls.Count -ne 4 -or $calls -notcontains 'verify third-party.exe' -or
+                $calls -notcontains 'sign library.winmd' -or @($calls -eq 'verify library.winmd').Count -ne 2) {
+                throw "The Store payload did not preserve and verify existing signatures or sign only included PE files: $calls"
+            }
+            [IO.File]::WriteAllBytes((Join-Path $payload 'unverifiable.exe'), $pe)
+            $failure = ''
+            try {
+                Set-PayloadSignatures -PublishDirectory $payload -InnoContent $innoTemplate -Certificate $testCertificate -SignToolPath $payloadSigner
+            } catch { $failure = $_.Exception.Message }
+            if ($failure -notmatch 'Could not sign and verify packaged executable: .*unverifiable.exe') {
+                throw 'Store packaging accepted an unverifiable payload signature.'
+            }
+        }
+        $passed += 2
     } finally {
         if ($testCertificate) { $testCertificate.Dispose() }
         $key.Dispose()
     }
-    foreach ($signed in @($false, $true)) {
+    foreach ($signingMode in @('Unsigned', 'Signed', 'Store')) {
+        $signed = $signingMode -ne 'Unsigned'
+        $storeSigning = $signingMode -eq 'Store'
         foreach ($outcome in @('Success', 'ExitFailure', 'Exception')) {
             $state = @{ Script = ''; Batch = ''; Invoked = $false }
             $failure = & {
-                param($flow, $state, $signed, $outcome)
+                param($flow, $state, $signed, $storeSigning, $outcome)
                 function Invoke-TestCompiler {
                     $state.Invoked = $true
                     $state.Script = [string]$args[-1]
@@ -162,7 +209,9 @@ $global:LASTEXITCODE = [int](Get-Content -LiteralPath (Join-Path $PSScriptRoot '
                     if ($signed) {
                         if ($args.Count -ne 2 -or $args[0] -notlike '/Smysigntool=* $f') { throw 'Missing Inno signing command.' }
                         $state.Batch = $args[0].Substring('/Smysigntool='.Length) -replace ' \$f$', ''
-                        if ((Get-Content -LiteralPath $state.Batch -Raw) -notlike '* /sha1 TEST %1*') { throw 'Missing signing batch input.' }
+                        $command = Get-Content -LiteralPath $state.Batch -Raw
+                        if ($command -notlike '* /sha1 TEST %1*') { throw 'Missing signing batch input.' }
+                        if (($command -like '* verify /pa %1*') -ne $storeSigning) { throw 'Unexpected Inno signature verification command.' }
                     } elseif ($args.Count -ne 1) { throw 'Unsigned compilation received signing arguments.' }
                     if ($outcome -eq 'Exception') { throw 'Fixture compiler exception' }
                     $global:LASTEXITCODE = $(if ($outcome -eq 'ExitFailure') { 42 } else { 0 })
@@ -171,9 +220,11 @@ $global:LASTEXITCODE = [int](Get-Content -LiteralPath (Join-Path $PSScriptRoot '
                 $innoCompiler = 'Invoke-TestCompiler'
                 $innoContent = 'fixture content'
                 $shouldSign = $signed
+                $SignPackagePayload = $storeSigning
+                $signToolPath = 'C:\Windows SDK\signtool.exe'
                 $certificate = $(if ($signed) { [pscustomobject]@{ Thumbprint = 'TEST' } } else { $null })
                 try { . $flow; return '' } catch { return $_.Exception.Message }
-            } $compilationBlock $state $signed $outcome
+            } $compilationBlock $state $signed $storeSigning $outcome
             $expected = switch ($outcome) {
                 'Success' { '' }
                 'ExitFailure' { 'Installer compilation failed with exit code 42.' }

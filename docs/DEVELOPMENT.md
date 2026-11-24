@@ -60,6 +60,11 @@ an unsigned installer without signing prompts. Use
 See [build configuration](../ARCHITECTURE.md#build-configuration) for build
 ownership, reuse of test and build outputs, and signing order.
 
+For distribution that requires embedded Authenticode signatures on every
+packaged PE file, use `-SignApplication -SignPackagePayload` with
+`-CertificateThumbprint <thumbprint>`. Packaging preserves valid signatures
+and signs and verifies the remaining executables before compiling the installer.
+
 Release builds use optimized IL and keep portable PDB files in compiler
 intermediates. Deployment and publish folders exclude these files. Debug
 builds keep debugger settings and put symbols beside the binaries.

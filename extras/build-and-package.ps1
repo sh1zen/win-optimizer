@@ -10,6 +10,7 @@ param (
     [string]$CertificateSubject = "",
     [string]$CertificateThumbprint = "",
     [switch]$SignApplication = $false,
+    [switch]$SignPackagePayload,
     [switch]$SkipSigning = $false,
     [switch]$SkipTests = $false
 )
@@ -20,6 +21,9 @@ $PSNativeCommandUseErrorActionPreference = $false
 # Reject contradictory signing choices before creating output.
 if ($SkipSigning -and ($SignApplication -or $CertificateSubject -or $CertificateThumbprint)) {
     throw '-SkipSigning cannot be combined with -SignApplication or certificate selection options.'
+}
+if ($SignPackagePayload -and (-not $SignApplication -or $CertificateThumbprint -notmatch '^[0-9a-fA-F]{40}$')) {
+    throw '-SignPackagePayload requires -SignApplication and a 40-digit certificate thumbprint.'
 }
 
 $scriptRoot = $PSScriptRoot
@@ -57,7 +61,8 @@ $Version = ($resolvedVersion -join '').Trim()
 function Get-SigningCertificate {
     param (
         [string]$Subject,
-        [string]$Thumbprint
+        [string]$Thumbprint,
+        [switch]$ExactThumbprint
     )
 
     # If thumbprint is provided, use it directly
@@ -68,6 +73,7 @@ function Get-SigningCertificate {
         }
         else {
             Write-Host "Certificate with thumbprint '$Thumbprint' not found." -ForegroundColor Red
+            if ($ExactThumbprint) { return $null }
         }
     }
 
@@ -125,11 +131,24 @@ function Get-SigningCertificate {
     }
 }
 
-# Function to sign a file using signtool
+# Locate the Windows SDK signing tool for both payload and Inno Setup signing.
+function Resolve-SignTool {
+    $signTool = 'C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\signtool.exe'
+    if (Test-Path -LiteralPath $signTool -PathType Leaf) { return $signTool }
+
+    $installedTool = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe' -ErrorAction SilentlyContinue |
+        Select-Object -First 1
+    if ($installedTool) { return $installedTool.FullName }
+
+    throw 'signtool.exe not found. Install the Windows SDK signing tools.'
+}
+
+# Timestamp the file's Authenticode signature.
 function Set-FileSignature {
     param (
         [string]$FilePath,
         [System.Security.Cryptography.X509Certificates.X509Certificate2]$Certificate,
+        [string]$SignToolPath,
         [string]$TimestampServer = "http://timestamp.digicert.com"
     )
 
@@ -143,24 +162,11 @@ function Set-FileSignature {
         return $false
     }
 
-    $signtoolPath = "C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\signtool.exe"
-    if (-not (Test-Path $signtoolPath)) {
-        # Try to find signtool in other Windows Kit directories
-        $possiblePaths = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" -ErrorAction SilentlyContinue
-        if ($possiblePaths.Count -gt 0) {
-            $signtoolPath = $possiblePaths[0].FullName
-        }
-        else {
-            Write-Host "signtool.exe not found. Please ensure Windows SDK is installed." -ForegroundColor Red
-            return $false
-        }
-    }
-
     Write-Host ("Signing {0}..." -f $FilePath) -ForegroundColor Cyan
     $thumbprint = $Certificate.Thumbprint
     
     try {
-        $result = & $signtoolPath sign /tr $TimestampServer /td sha256 /fd sha256 /sha1 $thumbprint $FilePath
+        $result = & $SignToolPath sign /tr $TimestampServer /td sha256 /fd sha256 /sha1 $thumbprint $FilePath
         if ($LASTEXITCODE -eq 0) {
             Write-Host ("Successfully signed {0}" -f $FilePath) -ForegroundColor Green
             return $true
@@ -175,6 +181,62 @@ function Set-FileSignature {
         Write-Host ("Error signing {0}: {1}" -f $FilePath, $_.Exception.Message) -ForegroundColor Red
         return $false
     }
+}
+
+# Verify the embedded signature so the installer is independent of local signature catalogs.
+function Test-EmbeddedSignature {
+    param([string]$FilePath, [string]$SignToolPath)
+
+    $ErrorActionPreference = 'Continue'
+    & $SignToolPath verify /pa $FilePath *> $null
+    return $? -and $LASTEXITCODE -eq 0
+}
+
+# Identify Windows executables by their PE header, including files with extensions such as .winmd.
+function Test-PortableExecutable {
+    param([string]$FilePath)
+
+    $reader = [IO.BinaryReader]::new([IO.File]::OpenRead($FilePath))
+    try {
+        if ($reader.BaseStream.Length -lt 64 -or $reader.ReadUInt16() -ne 0x5A4D) { return $false }
+        $reader.BaseStream.Position = 60
+        $headerOffset = $reader.ReadUInt32()
+        if ($headerOffset -lt 64 -or $headerOffset -gt ($reader.BaseStream.Length - 4)) { return $false }
+        $reader.BaseStream.Position = $headerOffset
+        return $reader.ReadUInt32() -eq 0x4550
+    } finally {
+        $reader.Dispose()
+    }
+}
+
+# Apply Store signing requirements to the same published files Inno Setup includes.
+function Set-PayloadSignatures {
+    param(
+        [string]$PublishDirectory,
+        [string]$InnoContent,
+        [System.Security.Cryptography.X509Certificates.X509Certificate2]$Certificate,
+        [string]$SignToolPath
+    )
+
+    $payloadSource = [regex]::Match($InnoContent, '(?m)^Source: "C:\\win-optimizer\\build\\publish\\\*"; Excludes: "([^"]*)";')
+    if (-not $payloadSource.Success) { throw 'Could not read the installer payload exclusions for signing.' }
+    $excludedPatterns = $payloadSource.Groups[1].Value -split ','
+    $verifiedFiles = 0
+    :payloadFile foreach ($file in Get-ChildItem -LiteralPath $PublishDirectory -File -Recurse -Force) {
+        foreach ($pattern in $excludedPatterns) {
+            if ($file.Name -like $pattern) { continue payloadFile }
+        }
+        if (-not (Test-PortableExecutable -FilePath $file.FullName)) { continue }
+        if (-not (Test-EmbeddedSignature -FilePath $file.FullName -SignToolPath $SignToolPath)) {
+            if (-not (Set-FileSignature -FilePath $file.FullName -Certificate $Certificate -SignToolPath $SignToolPath) -or
+                -not (Test-EmbeddedSignature -FilePath $file.FullName -SignToolPath $SignToolPath)) {
+                throw "Could not sign and verify packaged executable: $($file.FullName)"
+            }
+        }
+        $verifiedFiles++
+    }
+    if ($verifiedFiles -eq 0) { throw 'The installer payload contains no verifiable executables.' }
+    Write-Host "Verified embedded signatures on $verifiedFiles packaged executables." -ForegroundColor Green
 }
 
 # MSBuild owns the publish payload; test outputs and local tools stay outside it.
@@ -195,8 +257,12 @@ if (-not (Test-Path $OutputDir)) {
 # shouldSign state are reused by Step 4 (exe signing), Step 5/6 (Inno Setup
 # uninstaller signing), and Step 7 (installer signing) below.
 if (-not $SkipSigning -and ($SignApplication -or (Read-Host "Do you want to sign the application? (y/n)").ToLower() -eq 'y')) {
-    $certificate = Get-SigningCertificate -Subject $CertificateSubject -Thumbprint $CertificateThumbprint
+    $certificate = Get-SigningCertificate -Subject $CertificateSubject -Thumbprint $CertificateThumbprint -ExactThumbprint:$SignPackagePayload
     if ($certificate) {
+        if ($SignPackagePayload -and (-not $certificate.HasPrivateKey -or $certificate.Subject -eq $certificate.Issuer -or
+            $certificate.EnhancedKeyUsageList.ObjectId -notcontains '1.3.6.1.5.5.7.3.3')) {
+            throw 'Store packaging requires a CA-issued code-signing certificate with its private key.'
+        }
         Write-Host "Selected certificate: $($certificate.Subject)" -ForegroundColor Green
         Write-Host "Thumbprint: $($certificate.Thumbprint)" -ForegroundColor Green
         $shouldSign = $true
@@ -211,6 +277,8 @@ if (-not $SkipSigning -and ($SignApplication -or (Read-Host "Do you want to sign
 else {
     Write-Host "Skipping signing for this build..." -ForegroundColor Yellow
 }
+
+$signToolPath = if ($shouldSign) { Resolve-SignTool }
 
 Write-Host "Building win-optimizer v$Version..." -ForegroundColor Cyan
 
@@ -258,11 +326,16 @@ if ($LASTEXITCODE -ne 0) { throw "Application publishing failed with exit code $
 # Preserve the exact build's symbols outside the payload, before any signing.
 & (Join-Path $scriptRoot 'export-debug-symbols.ps1') -MSBuildPath $MSBuildPath -Version $Version
 
-# Step 4: Sign the application executable using the cert resolved at script start
+# Step 4: Sign the application or verify and sign the complete Store payload.
+$innoContent = Get-Content -LiteralPath $innoSetupScript -Raw
 $mainExecutable = "$publishOutputPath\win-optimizer.exe"
-if ($shouldSign -and $certificate) {
+if ($SignPackagePayload) {
+    if (-not (Test-Path -LiteralPath $mainExecutable -PathType Leaf)) { throw 'The published application executable is missing.' }
+    Set-PayloadSignatures -PublishDirectory $publishOutputPath -InnoContent $innoContent -Certificate $certificate -SignToolPath $signToolPath
+}
+elseif ($shouldSign -and $certificate) {
     Write-Host "Signing application executable..." -ForegroundColor Cyan
-    $signResult = Set-FileSignature -FilePath $mainExecutable -Certificate $certificate
+    $signResult = Set-FileSignature -FilePath $mainExecutable -Certificate $certificate -SignToolPath $signToolPath
     if ($signResult) {
         Write-Host "Application executable signed successfully." -ForegroundColor Green
     }
@@ -276,7 +349,6 @@ else {
 
 # Step 5: Update the InnoSetup script with correct paths
 Write-Host "Preparing InnoSetup script..." -ForegroundColor Green
-$innoContent = Get-Content -Path $innoSetupScript -Raw
 
 # Update version
 $innoContent = $innoContent -replace '#define MyAppVersion ".*"', "#define MyAppVersion `"$Version`""
@@ -286,10 +358,10 @@ $innoContent = $innoContent -replace 'AppVerName=win-optimizer', "AppVerName=win
 # Update paths
 $publishPath = $publishOutputPath.Replace("\", "\\")
 $outputPath = $OutputDir.Replace("\", "\\")
-$licensePath = "$solutionDir\LICENSE.txt".Replace("\", "\\")
+$licensePath = "$solutionDir\LICENSE".Replace("\", "\\")
 $iconPath = "$solutionDir\src\WinOptimizer.UI\Assets\AppIcons\win-optimizer.ico".Replace("\", "\\")
 
-$innoContent = $innoContent -replace 'LicenseFile=C:\\win-optimizer\\LICENSE.txt', "LicenseFile=$licensePath"
+$innoContent = $innoContent -replace 'LicenseFile=C:\\win-optimizer\\LICENSE', "LicenseFile=$licensePath"
 $innoContent = $innoContent -replace 'OutputDir=C:\\win-optimizer\\build\\installers', "OutputDir=$outputPath"
 $innoContent = $innoContent -replace 'SetupIconFile=C:\\win-optimizer\\src\\WinOptimizer\.UI\\Assets\\AppIcons\\win-optimizer\.ico', "SetupIconFile=$iconPath"
 $innoContent = $innoContent -replace 'Source: "C:\\win-optimizer\\build\\publish\\', "Source: `"$publishPath\\"
@@ -319,14 +391,11 @@ try {
     Write-Host "Creating installer..." -ForegroundColor Green
     if ($shouldSign -and $certificate) {
         # Inno invokes this command with its generated uninstaller path.
-        $signtoolExe = "C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64\signtool.exe"
-        if (-not (Test-Path $signtoolExe)) {
-            $possiblePaths = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin\*\x64\signtool.exe" -ErrorAction SilentlyContinue
-            if ($possiblePaths.Count -gt 0) {
-                $signtoolExe = $possiblePaths[0].FullName
-            }
+        $signCommand = "@`"$signToolPath`" sign /tr http://timestamp.digicert.com /td sha256 /fd sha256 /sha1 $($certificate.Thumbprint) %1"
+        if ($SignPackagePayload) {
+            $signCommand += " && `"$signToolPath`" verify /pa %1"
         }
-        Set-Content -LiteralPath $signBatPath -Value "@`"$signtoolExe`" sign /tr http://timestamp.digicert.com /td sha256 /fd sha256 /sha1 $($certificate.Thumbprint) %1"
+        Set-Content -LiteralPath $signBatPath -Value $signCommand
 
         Write-Host "Creating installer with signed uninstaller..." -ForegroundColor Green
         & $innoCompiler "/Smysigntool=$signBatPath `$f" $tempInnoScript
@@ -349,7 +418,10 @@ if (-not (Test-Path -LiteralPath $installerPath -PathType Leaf)) {
 }
 if ($shouldSign -and $certificate -and (Test-Path $installerPath)) {
     Write-Host "Signing the installer..." -ForegroundColor Cyan
-    $installerSignResult = Set-FileSignature -FilePath $installerPath -Certificate $certificate
+    $installerSignResult = Set-FileSignature -FilePath $installerPath -Certificate $certificate -SignToolPath $signToolPath
+    if ($SignPackagePayload -and $installerSignResult) {
+        $installerSignResult = Test-EmbeddedSignature -FilePath $installerPath -SignToolPath $signToolPath
+    }
 
     if ($installerSignResult) {
         Write-Host "Installer successfully signed." -ForegroundColor Green
