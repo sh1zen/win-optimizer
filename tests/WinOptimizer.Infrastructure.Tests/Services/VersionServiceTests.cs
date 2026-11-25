@@ -1,4 +1,6 @@
 using System.Net;
+using System.Security.Cryptography;
+using System.Text;
 using System.Text.Json;
 using FluentAssertions;
 using Moq;
@@ -12,6 +14,11 @@ namespace WinOptimizer.Infrastructure.Tests.Services;
 
 public class VersionServiceTests
 {
+    private const string InstallerName = "win-optimizer.Installer.exe";
+    private const string ReleaseTag = "v99.12.31";
+    private const string ReleaseApiUrl = "https://api.github.com/repos/sh1zen/win-optimizer/releases/latest";
+    private const string InstallerUrl = $"https://github.com/sh1zen/win-optimizer/releases/download/{ReleaseTag}/{InstallerName}";
+
     private readonly Mock<ILogService> _mockLogService = new();
     private readonly Mock<IProcessExecutor> _mockProcessExecutor = new();
     private readonly Mock<IFileSystemService> _mockFileSystemService = new();
@@ -152,21 +159,25 @@ public class VersionServiceTests
     {
         var directory = Path.Combine(Path.GetTempPath(), "WinOptimizerStorageTests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(directory);
-        var path = Path.Combine(directory, "win-optimizer.Installer.exe");
+        var path = Path.Combine(directory, InstallerName);
         _mockFileSystemService.Setup(files => files.CombinePath(It.IsAny<string[]>())).Returns(path);
         byte[] payload = await File.ReadAllBytesAsync(Environment.ProcessPath!);
-        _mockHttpHandler.Protected()
-            .Setup<Task<HttpResponseMessage>>("SendAsync", ItExpr.IsAny<HttpRequestMessage>(), ItExpr.IsAny<CancellationToken>())
-            .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(payload) });
+        SetupInstallerDownload(payload);
         try
         {
             await _service.DownloadAndInstallUpdateAsync(CancellationToken.None);
             (await File.ReadAllBytesAsync(path)).Should().Equal(payload);
+            _mockHttpHandler.Protected().Verify("SendAsync", Times.Once(),
+                ItExpr.Is<HttpRequestMessage>(request => request.RequestUri!.AbsoluteUri == ReleaseApiUrl),
+                ItExpr.IsAny<CancellationToken>());
+            _mockHttpHandler.Protected().Verify("SendAsync", Times.Once(),
+                ItExpr.Is<HttpRequestMessage>(request => request.RequestUri!.AbsoluteUri == InstallerUrl),
+                ItExpr.IsAny<CancellationToken>());
             _mockFileSystemService.Verify(files => files.CreateDirectory(
                 WinOptimizer.Core.Features.Common.Constants.AppDataPaths.Downloads), Times.Once);
             _mockFileSystemService.Verify(files => files.CombinePath(It.Is<string[]>(parts =>
                 parts.Length == 2 && parts[0] == WinOptimizer.Core.Features.Common.Constants.AppDataPaths.Downloads &&
-                parts[1] == "win-optimizer.Installer.exe")), Times.Once);
+                parts[1] == InstallerName)), Times.Once);
         }
         finally { Directory.Delete(directory, recursive: true); }
     }
@@ -179,21 +190,61 @@ public class VersionServiceTests
         var directory = Directory.CreateTempSubdirectory("WinOptimizerInstaller");
         try
         {
-            var path = Path.Combine(directory.FullName, "win-optimizer.Installer.exe");
+            var path = Path.Combine(directory.FullName, InstallerName);
             byte[] previous = [1, 2, 3];
             await File.WriteAllBytesAsync(path, previous);
             _mockFileSystemService.Setup(files => files.CombinePath(It.IsAny<string[]>())).Returns(path);
-            _mockHttpHandler.Protected()
-                .Setup<Task<HttpResponseMessage>>("SendAsync", ItExpr.IsAny<HttpRequestMessage>(), ItExpr.IsAny<CancellationToken>())
-                .ReturnsAsync(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(body) });
+            SetupInstallerDownload(Encoding.UTF8.GetBytes(body));
 
-            await Assert.ThrowsAsync<InvalidDataException>(() => _service.DownloadAndInstallUpdateAsync(CancellationToken.None));
+            var error = await Assert.ThrowsAsync<InvalidDataException>(() => _service.DownloadAndInstallUpdateAsync());
+            Assert.Contains("complete Windows installer", error.Message);
 
             Assert.Equal(previous, await File.ReadAllBytesAsync(path));
             Assert.Single(Directory.GetFiles(directory.FullName));
             Assert.Throws<InvalidOperationException>(_service.LaunchInstallerAndRestart);
         }
         finally { directory.Delete(recursive: true); }
+    }
+
+    [Fact]
+    public async Task InstallerWithWrongDigestLeavesExistingFileAndNoPendingUpdate()
+    {
+        var directory = Directory.CreateTempSubdirectory("WinOptimizerInstaller");
+        try
+        {
+            var path = Path.Combine(directory.FullName, InstallerName);
+            byte[] previous = [1, 2, 3];
+            await File.WriteAllBytesAsync(path, previous);
+            _mockFileSystemService.Setup(files => files.CombinePath(It.IsAny<string[]>())).Returns(path);
+            byte[] payload = await File.ReadAllBytesAsync(Environment.ProcessPath!);
+            SetupInstallerDownload(payload, InstallerDigest(previous));
+
+            var error = await Assert.ThrowsAsync<InvalidDataException>(() => _service.DownloadAndInstallUpdateAsync());
+
+            Assert.Contains("does not match the SHA-256 digest", error.Message);
+            Assert.Equal(previous, await File.ReadAllBytesAsync(path));
+            Assert.Single(Directory.GetFiles(directory.FullName));
+            Assert.Throws<InvalidOperationException>(_service.LaunchInstallerAndRestart);
+        }
+        finally { directory.Delete(recursive: true); }
+    }
+
+    [Theory]
+    [InlineData("[]", "installer asset")]
+    [InlineData("[{\"name\":\"win-optimizer.Installer.exe\"}]", "valid SHA-256 digest")]
+    [InlineData("[{\"name\":\"win-optimizer.Installer.exe\",\"digest\":\"sha256:abcd\"}]", "valid SHA-256 digest")]
+    public async Task MissingOrInvalidDigestPreventsAnInstallerDownload(string assets, string expectedMessage)
+    {
+        SetupHttpResponse(HttpStatusCode.OK, $$"""{"tag_name":"{{ReleaseTag}}","assets":{{assets}}}""");
+
+        var error = await Assert.ThrowsAsync<InvalidDataException>(() => _service.DownloadAndInstallUpdateAsync());
+
+        Assert.Contains(expectedMessage, error.Message);
+        _mockHttpHandler.Protected().Verify("SendAsync", Times.Never(),
+            ItExpr.Is<HttpRequestMessage>(request => request.RequestUri!.AbsoluteUri != ReleaseApiUrl),
+            ItExpr.IsAny<CancellationToken>());
+        _mockFileSystemService.Verify(files => files.CreateDirectory(It.IsAny<string>()), Times.Never);
+        Assert.Throws<InvalidOperationException>(_service.LaunchInstallerAndRestart);
     }
 
     #endregion
@@ -245,6 +296,23 @@ public class VersionServiceTests
     #endregion
 
     #region Helpers
+
+    // Use a real PE fixture with deterministic GitHub metadata and fake HTTP responses.
+    private void SetupInstallerDownload(byte[] payload, string? digest = null)
+    {
+        SetupHttpResponse(HttpStatusCode.OK, JsonSerializer.Serialize(new
+        {
+            tag_name = ReleaseTag,
+            assets = new[] { new { name = InstallerName, digest = digest ?? InstallerDigest(payload) } }
+        }));
+        _mockHttpHandler.Protected()
+            .Setup<Task<HttpResponseMessage>>("SendAsync",
+                ItExpr.Is<HttpRequestMessage>(request => request.RequestUri!.AbsoluteUri == InstallerUrl),
+                ItExpr.IsAny<CancellationToken>())
+            .ReturnsAsync(() => new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(payload) });
+    }
+
+    private static string InstallerDigest(byte[] payload) => $"sha256:{Convert.ToHexStringLower(SHA256.HashData(payload))}";
 
     private void SetupHttpResponse(HttpStatusCode statusCode, string content)
     {

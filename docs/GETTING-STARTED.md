@@ -78,7 +78,9 @@ The automatic app update and removal-script checks have separate switches under
 **Settings → General → Updates**.
 The app enables both by default. Automatic checks start after 30 seconds and
 run at most once per day across app restarts. App updates use the latest stable
-release. The removal-script check updates the shared sign-in script and keeps
+release. The app verifies the installer against the GitHub release's SHA-256
+digest before offering to restart. A missing or mismatched digest stops the
+update. The removal-script check updates the shared sign-in script and keeps
 its saved selections. You can check for app updates manually with either switch
 off.
 

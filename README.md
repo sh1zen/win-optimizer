@@ -32,7 +32,8 @@ installs the app in a folder you can move.
 
 Turn on **Start win-optimizer as administrator** under **Settings → General →
 Info** to launch at sign-in. Select **Current Version** in the same section to
-check for updates.
+check for updates. The app verifies the installer against the SHA-256 digest
+published with its GitHub release before offering to restart.
 
 [Installation, first launch, app settings, automatic startup, updates, and uninstallation](docs/GETTING-STARTED.md)
 

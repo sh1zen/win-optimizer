@@ -10,6 +10,18 @@ $signingDecision = $packageAst.EndBlock.Statements | Where-Object {
 }
 if (@($signingDecision).Count -ne 1) { throw 'Expected one production signing decision.' }
 $signingBlock = [scriptblock]::Create($signingDecision.Extent.Text)
+$applicationSigningStep = $packageAst.EndBlock.Statements | Where-Object {
+    $_ -is [Management.Automation.Language.IfStatementAst] -and
+    $_.Extent.Text -match 'Set-ApplicationSignatures -PublishDirectory'
+}
+if (@($applicationSigningStep).Count -ne 1) { throw 'Expected one production payload signing step.' }
+$applicationSigningBlock = [scriptblock]::Create($applicationSigningStep.Extent.Text)
+$installerVerification = $packageAst.EndBlock.Statements | Where-Object {
+    $_ -is [Management.Automation.Language.IfStatementAst] -and
+    $_.Extent.Text -match 'The final installer signature could not be verified'
+}
+if (@($installerVerification).Count -ne 1) { throw 'Expected one final installer signature check.' }
+$installerVerificationBlock = [scriptblock]::Create($installerVerification.Extent.Text)
 $passed = 0
 
 foreach ($scenario in @(
@@ -114,13 +126,13 @@ $null = New-Item -ItemType Directory -Path $fixture -Force
 $savedExitCode = $LASTEXITCODE
 $seenInputs = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
 try {
-    # Keep signing paths as literal tool arguments, including spaces and apostrophes.
+    # Keep signing paths literal, including spaces, apostrophes and wildcard characters.
     $signer = Join-Path $fixture "signtool's fixture.ps1"
     Set-Content -LiteralPath $signer -Value @'
 $args | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $PSScriptRoot 'signing-arguments.json')
 $global:LASTEXITCODE = [int](Get-Content -LiteralPath (Join-Path $PSScriptRoot 'signing-exit.txt') -Raw)
 '@
-    $fileToSign = Join-Path $fixture "app's output.exe"
+    $fileToSign = Join-Path $fixture "app's [output].exe"
     Set-Content -LiteralPath $fileToSign -Value 'fixture'
     $signingFunction = $packageAst.FindAll({ param($node)
         $node -is [Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Set-FileSignature'
@@ -154,6 +166,12 @@ $global:LASTEXITCODE = [int](Get-Content -LiteralPath (Join-Path $PSScriptRoot '
 $command = $args[0]
 $fileName = [IO.Path]::GetFileName($args[-1])
 Add-Content -LiteralPath (Join-Path $PSScriptRoot 'payload-signing.log') -Value "$command $fileName"
+$rejectFile = Join-Path $PSScriptRoot 'reject-signing.txt'
+if ($command -eq 'sign' -and (Test-Path -LiteralPath $rejectFile) -and
+    $fileName -eq (Get-Content -LiteralPath $rejectFile)) {
+    $global:LASTEXITCODE = 7
+    return
+}
 if ($command -eq 'sign' -and $fileName -ne 'unverifiable.exe') { Set-Content -LiteralPath "$($args[-1]).signed" -Value 'signed' }
 $global:LASTEXITCODE = if ($command -eq 'sign' -or (Test-Path -LiteralPath "$($args[-1]).signed")) { 0 } else { 1 }
 '@
@@ -170,7 +188,7 @@ $global:LASTEXITCODE = if ($command -eq 'sign' -or (Test-Path -LiteralPath "$($a
         $innoTemplate = Get-Content -LiteralPath (Join-Path $repoRoot 'extras/win-optimizer.Installer.iss') -Raw
         $payloadFunctions = $packageAst.EndBlock.Statements | Where-Object {
             $_ -is [Management.Automation.Language.FunctionDefinitionAst] -and
-            $_.Name -in @('Test-EmbeddedSignature', 'Test-PortableExecutable', 'Set-PayloadSignatures')
+            $_.Name -in @('Test-EmbeddedSignature', 'Test-PortableExecutable', 'Set-PayloadSignatures', 'Set-ApplicationSignatures')
         }
         & {
             . $signingDefinition
@@ -191,17 +209,79 @@ $global:LASTEXITCODE = if ($command -eq 'sign' -or (Test-Path -LiteralPath "$($a
             }
         }
         $passed += 2
+
+        # Exercise the standard signing branch on the same layout produced by .NET publish.
+        $appPayload = Join-Path $fixture 'application-payload'
+        $null = New-Item -ItemType Directory -Path $appPayload
+        $hosts = @('win-optimizer.exe', 'win-optimizer-preview.exe', 'win-optimizer-widgets.exe')
+        $projects = @('win-optimizer.dll', 'WinOptimizer.Infrastructure.dll', 'WindowsPackageManager.Interop.dll')
+        foreach ($name in $hosts + $projects + @('third-party.dll')) {
+            [IO.File]::WriteAllBytes((Join-Path $appPayload $name), $pe)
+        }
+        $manifestPath = Join-Path $appPayload 'win-optimizer.deps.json'
+        $runtimeTarget = '.NETCoreApp,Version=v10.0/win-x64'
+        $manifest = @{ runtimeTarget = @{ name = $runtimeTarget }; targets = @{ $runtimeTarget = @{} }; libraries = @{} }
+        foreach ($name in $projects + @('third-party.dll')) {
+            $id = "${name}/1.0.0"
+            $manifest.libraries[$id] = @{ type = if ($name -in $projects) { 'project' } else { 'package' } }
+            $manifest.targets[$runtimeTarget][$id] = @{ runtime = @{ $name = @{} } }
+        }
+        $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $manifestPath
+        $signingLog = Join-Path $fixture 'payload-signing.log'
+        & {
+            . $signingDefinition
+            foreach ($function in $payloadFunctions) { . ([scriptblock]::Create($function.Extent.Text)) }
+            $publishOutputPath = $appPayload
+            $shouldSign = $true
+            $SignPackagePayload = $false
+            $certificate = $testCertificate
+            $signToolPath = $payloadSigner
+            Clear-Content -LiteralPath $signingLog
+            . $applicationSigningBlock
+            $expected = ($hosts + $projects | ForEach-Object { "sign $_"; "verify $_" }) | Sort-Object
+            $actual = Get-Content -LiteralPath $signingLog | Sort-Object
+            if (Compare-Object $expected $actual) { throw "Unexpected application signing inputs: $actual" }
+
+            # A refused DLL signature must propagate before Inno Setup can run.
+            Set-Content -LiteralPath (Join-Path $fixture 'reject-signing.txt') -Value 'WinOptimizer.Infrastructure.dll'
+            $failure = ''
+            try { . $applicationSigningBlock } catch { $failure = $_.Exception.Message }
+            if ($failure -notmatch 'Could not sign published application executable: .*WinOptimizer\.Infrastructure\.dll') {
+                throw 'Application packaging accepted a refused Infrastructure signature.'
+            }
+
+            # A signer can return success without producing a verifiable signature.
+            Remove-Item -LiteralPath (Join-Path $fixture 'reject-signing.txt')
+            $manifest.libraries['unverifiable.exe/1.0.0'] = @{ type = 'project' }
+            $manifest.targets[$runtimeTarget]['unverifiable.exe/1.0.0'] = @{ runtime = @{ 'unverifiable.exe' = @{} } }
+            [IO.File]::WriteAllBytes((Join-Path $appPayload 'unverifiable.exe'), $pe)
+            $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $manifestPath
+            $failure = ''
+            try { . $applicationSigningBlock } catch { $failure = $_.Exception.Message }
+            if ($failure -notmatch 'Could not verify published application executable signature: .*unverifiable.exe') {
+                throw 'Application packaging accepted an unverifiable signature.'
+            }
+
+            # Validate the entire set before invoking the signer, including paths from the manifest.
+            Clear-Content -LiteralPath $signingLog
+            $manifest.targets[$runtimeTarget]['WindowsPackageManager.Interop.dll/1.0.0'].runtime = @{ '..\outside.dll' = @{} }
+            $manifest | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $manifestPath
+            $failure = ''
+            try { . $applicationSigningBlock } catch { $failure = $_.Exception.Message }
+            if ($failure -notmatch 'Invalid application file' -or (Get-Item -LiteralPath $signingLog).Length) {
+                throw 'An invalid project asset path reached the application signer.'
+            }
+        }
+        $passed += 4
     } finally {
         if ($testCertificate) { $testCertificate.Dispose() }
         $key.Dispose()
     }
-    foreach ($signingMode in @('Unsigned', 'Signed', 'Store')) {
-        $signed = $signingMode -ne 'Unsigned'
-        $storeSigning = $signingMode -eq 'Store'
+    foreach ($signed in @($false, $true)) {
         foreach ($outcome in @('Success', 'ExitFailure', 'Exception')) {
             $state = @{ Script = ''; Batch = ''; Invoked = $false }
             $failure = & {
-                param($flow, $state, $signed, $storeSigning, $outcome)
+                param($flow, $state, $signed, $outcome)
                 function Invoke-TestCompiler {
                     $state.Invoked = $true
                     $state.Script = [string]$args[-1]
@@ -211,7 +291,7 @@ $global:LASTEXITCODE = if ($command -eq 'sign' -or (Test-Path -LiteralPath "$($a
                         $state.Batch = $args[0].Substring('/Smysigntool='.Length) -replace ' \$f$', ''
                         $command = Get-Content -LiteralPath $state.Batch -Raw
                         if ($command -notlike '* /sha1 TEST %1*') { throw 'Missing signing batch input.' }
-                        if (($command -like '* verify /pa %1*') -ne $storeSigning) { throw 'Unexpected Inno signature verification command.' }
+                        if ($command -notlike '* verify /pa %1*') { throw 'Missing Inno signature verification command.' }
                     } elseif ($args.Count -ne 1) { throw 'Unsigned compilation received signing arguments.' }
                     if ($outcome -eq 'Exception') { throw 'Fixture compiler exception' }
                     $global:LASTEXITCODE = $(if ($outcome -eq 'ExitFailure') { 42 } else { 0 })
@@ -220,11 +300,10 @@ $global:LASTEXITCODE = if ($command -eq 'sign' -or (Test-Path -LiteralPath "$($a
                 $innoCompiler = 'Invoke-TestCompiler'
                 $innoContent = 'fixture content'
                 $shouldSign = $signed
-                $SignPackagePayload = $storeSigning
                 $signToolPath = 'C:\Windows SDK\signtool.exe'
                 $certificate = $(if ($signed) { [pscustomobject]@{ Thumbprint = 'TEST' } } else { $null })
                 try { . $flow; return '' } catch { return $_.Exception.Message }
-            } $compilationBlock $state $signed $storeSigning $outcome
+            } $compilationBlock $state $signed $outcome
             $expected = switch ($outcome) {
                 'Success' { '' }
                 'ExitFailure' { 'Installer compilation failed with exit code 42.' }
@@ -237,6 +316,28 @@ $global:LASTEXITCODE = if ($command -eq 'sign' -or (Test-Path -LiteralPath "$($a
             }
             $passed++
         }
+    }
+    foreach ($scenario in @(
+        @{ Signed = $false; Valid = $false; Checks = 0; Fails = $false },
+        @{ Signed = $true; Valid = $true; Checks = 1; Fails = $false },
+        @{ Signed = $true; Valid = $false; Checks = 1; Fails = $true }
+    )) {
+        $state = @{ Checks = 0 }
+        $failure = & {
+            function Test-EmbeddedSignature {
+                param($FilePath, $SignToolPath)
+                $state.Checks++
+                if ($FilePath -ne $installerPath -or $SignToolPath -ne $signToolPath) { throw 'Unexpected verification inputs.' }
+                return $scenario.Valid
+            }
+            $shouldSign = $scenario.Signed
+            $installerPath = Join-Path $fixture 'win-optimizer.Installer.exe'
+            $signToolPath = 'C:\Windows SDK\signtool.exe'
+            try { . $installerVerificationBlock; return '' } catch { return $_.Exception.Message }
+        }
+        $expected = if ($scenario.Fails) { 'The final installer signature could not be verified.' } else { '' }
+        if ($failure -ne $expected -or $state.Checks -ne $scenario.Checks) { throw "Unexpected final installer verification result: $failure" }
+        $passed++
     }
     # Simulate filesystem link metadata at the OS boundary before any fixture writes.
     $link = Join-Path $fixture 'build/temp'

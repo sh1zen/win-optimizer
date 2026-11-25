@@ -19,7 +19,7 @@ public interface IVersionService
     Task<VersionInfo> CheckForUpdateAsync(CancellationToken cancellationToken = default);
 
     /// <summary>
-    /// Downloads the installer for the latest version to a temp location.
+    /// Downloads and verifies the latest published installer for the relaunch action.
     /// </summary>
     Task DownloadAndInstallUpdateAsync(CancellationToken cancellationToken = default);
 

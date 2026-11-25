@@ -60,6 +60,12 @@ an unsigned installer without signing prompts. Use
 See [build configuration](../ARCHITECTURE.md#build-configuration) for build
 ownership, reuse of test and build outputs, and signing order.
 
+Use `-SignApplication -CertificateThumbprint <thumbprint>` with a code-signing
+certificate in the Windows current-user personal store. Packaging signs the app
+and companion executables, the project assemblies such as
+`WinOptimizer.Infrastructure.dll`, the installer, and its uninstaller. A signed
+build succeeds only after SignTool verifies the embedded signatures.
+
 For distribution that requires embedded Authenticode signatures on every
 packaged PE file, use `-SignApplication -SignPackagePayload` with
 `-CertificateThumbprint <thumbprint>`. Packaging preserves valid signatures

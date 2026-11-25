@@ -43,7 +43,13 @@ running MSBuild and validating its output. Build/restore use MSBuild's static gr
 Packaging resolves one version, refreshes
 bundled dependencies, builds Release, runs checks and publishes with `NoBuild=true`.
 Its UI compilation check reuses Release project outputs. Symbols are exported
-before signing; installer compilation cleans its unique temporary inputs on every exit.
+before signing. Application signing uses the published dependency manifest to
+select project assemblies and includes the application and companion hosts.
+Inno Setup signs the installer and its generated executables. Packaging verifies
+the embedded signatures before accepting the selected signed outputs.
+Installer compilation cleans its unique temporary inputs on every exit.
+The WinUI project excludes Mono's native assets from the Windows payload.
+LibreHardwareMonitor uses the Windows hardware path on this target.
 The packaged installer test runs in the disposable GitHub-hosted Windows VM in
 CI and uses Windows Sandbox for local development.
 See the [development guide](docs/DEVELOPMENT.md) for build commands, output
@@ -95,8 +101,9 @@ Infrastructure's `VersionService` owns release lookup and installer acquisition.
 The scheduler reports successful release lookups to `UpdateCheckViewModel`, which
 owns UI dispatch, cancellation and the title-bar summary.
 Release lookup failures propagate to the manual check's error presentation.
-`VersionService` validates the executable structure of a staged installer before
-publishing it and making relaunched installation available.
+`VersionService` pins the installer download to the tag that supplies its
+GitHub SHA-256 digest. It verifies the staged file against that digest and
+validates its executable structure before making it available for relaunch.
 
 ## Configuration and application mode
 

@@ -97,6 +97,8 @@
     <!-- DI - aligned with .NET 10 runtime -->
     <PackageReference Include="Microsoft.Extensions.DependencyInjection" Version="10.0.7" />
     <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.7" />
+    <!-- LibreHardwareMonitor 0.9.6 calls Mono only on Unix. Keep its managed reference and exclude the native helpers from Windows deployment. -->
+    <PackageReference Include="Mono.Posix.NETStandard" Version="1.0.0" ExcludeAssets="native" />
 
   </ItemGroup>
 

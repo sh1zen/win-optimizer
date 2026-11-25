@@ -5,6 +5,7 @@ using System.IO;
 using System.Net.Http;
 using System.Reflection;
 using System.Reflection.PortableExecutable;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading.Tasks;
 using WinOptimizer.Core.Features.Common.Enums;
@@ -22,13 +23,14 @@ public class VersionService : IVersionService
     // unless both conditions hold (env var set AND file exists), and every
     // activation emits a loud [DEV MODE] warning log.
     private const string LocalInstallerEnvVar = "WIN_OPTIMIZER_LOCAL_INSTALLER";
+    private const string InstallerFileName = "win-optimizer.Installer.exe";
+    private const string LatestReleaseApiUrl = "https://api.github.com/repos/sh1zen/win-optimizer/releases/latest";
+    private const string ReleaseDownloadRoot = "https://github.com/sh1zen/win-optimizer/releases/download/";
+    private const string UserAgent = "win-optimizer-Update-Checker";
 
     private readonly ILogService _logService;
     private readonly IFileSystemService _fileSystemService;
     private readonly HttpClient _httpClient;
-    private readonly string _latestReleaseApiUrl = "https://api.github.com/repos/sh1zen/win-optimizer/releases/latest";
-    private readonly string _latestReleaseDownloadUrl = "https://github.com/sh1zen/win-optimizer/releases/latest/download/win-optimizer.Installer.exe";
-    private readonly string _userAgent = "win-optimizer-Update-Checker";
     private string? _downloadedInstallerPath;
 
     public VersionService(ILogService logService, IProcessExecutor processExecutor, IFileSystemService fileSystemService, HttpClient httpClient)
@@ -106,29 +108,15 @@ public class VersionService : IVersionService
                     ? "Checking for updates..."
                     : $"Checking for updates (attempt {attempt}/{maxRetries})...");
 
-                // Get the latest release information from GitHub API
-                using var request = new HttpRequestMessage(HttpMethod.Get, _latestReleaseApiUrl);
-                request.Headers.TryAddWithoutValidation("User-Agent", _userAgent);
-                using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
-                response.EnsureSuccessStatusCode();
-
-                string responseBody = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
-                using JsonDocument doc = JsonDocument.Parse(responseBody);
-
-                if ((doc.RootElement.TryGetProperty("prerelease", out var prerelease) && prerelease.GetBoolean()) ||
-                    (doc.RootElement.TryGetProperty("draft", out var draft) && draft.GetBoolean()))
+                using var release = await GetLatestReleaseAsync(cancellationToken).ConfigureAwait(false);
+                if (!IsPublishedStableRelease(release.RootElement))
                 {
                     _logService.Log(LogLevel.Info, "Only published stable releases are eligible for updates.");
                     return new VersionInfo();
                 }
 
                 // Extract the tag name (version) from the response
-                string tagName = doc.RootElement.GetProperty("tag_name").GetString() ?? "v0.0.0";
-                string htmlUrl = doc.RootElement.GetProperty("html_url").GetString() ?? string.Empty;
-                DateTime publishedAt = doc.RootElement.TryGetProperty("published_at", out JsonElement publishedElement) &&
-                                      DateTime.TryParse(publishedElement.GetString(), out DateTime published)
-                                      ? published
-                                      : DateTime.MinValue;
+                string tagName = release.RootElement.GetProperty("tag_name").GetString() ?? "v0.0.0";
 
                 VersionInfo latestVersion = VersionInfo.FromTag(tagName);
                 if (string.IsNullOrEmpty(latestVersion.Version))
@@ -175,6 +163,22 @@ public class VersionService : IVersionService
         return false;
     }
 
+    // Use the same release endpoint for version checks and installer metadata.
+    private async Task<JsonDocument> GetLatestReleaseAsync(CancellationToken cancellationToken)
+    {
+        using var request = new HttpRequestMessage(HttpMethod.Get, LatestReleaseApiUrl);
+        request.Headers.UserAgent.ParseAdd(UserAgent);
+        using var response = await _httpClient.SendAsync(request, cancellationToken).ConfigureAwait(false);
+        response.EnsureSuccessStatusCode();
+        await using var content = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        return await JsonDocument.ParseAsync(content, cancellationToken: cancellationToken).ConfigureAwait(false);
+    }
+
+    private static bool IsPublishedStableRelease(JsonElement release) =>
+        !(release.TryGetProperty("prerelease", out var prerelease) && prerelease.GetBoolean()) &&
+        !(release.TryGetProperty("draft", out var draft) && draft.GetBoolean());
+
+    /// <summary>Verifies the published installer before making it available to the relaunch action.</summary>
     public async Task DownloadAndInstallUpdateAsync(CancellationToken cancellationToken = default)
     {
         using var logTopic = _logService.BeginTopic(LogTopic.Updates);
@@ -192,24 +196,41 @@ public class VersionService : IVersionService
 
         _logService.Log(LogLevel.Info, "Downloading update...");
 
+        // Pin the download to the release that supplied the digest.
+        using var release = await GetLatestReleaseAsync(cancellationToken).ConfigureAwait(false);
+        if (!IsPublishedStableRelease(release.RootElement) ||
+            !release.RootElement.TryGetProperty("tag_name", out var tag) || tag.ValueKind != JsonValueKind.String ||
+            tag.GetString() is not { } version || string.IsNullOrEmpty(VersionInfo.FromTag(version).Version))
+            throw new InvalidDataException("The latest GitHub release is not a published stable version.");
+        byte[] expectedDigest = ReadInstallerDigest(release.RootElement);
+        string downloadUrl = $"{ReleaseDownloadRoot}{Uri.EscapeDataString(version)}/{InstallerFileName}";
+
         // Stage beside the destination so validation and publication use the same file.
         _fileSystemService.CreateDirectory(AppDataPaths.Downloads);
-        string installerPath = _fileSystemService.CombinePath(AppDataPaths.Downloads, "win-optimizer.Installer.exe");
+        string installerPath = _fileSystemService.CombinePath(AppDataPaths.Downloads, InstallerFileName);
         string stagedPath = installerPath + $".{Guid.NewGuid():N}.download";
 
         // Download the installer using streaming to avoid loading the entire file into memory
-        using var downloadRequest = new HttpRequestMessage(HttpMethod.Get, _latestReleaseDownloadUrl);
-        downloadRequest.Headers.TryAddWithoutValidation("User-Agent", _userAgent);
+        using var downloadRequest = new HttpRequestMessage(HttpMethod.Get, downloadUrl);
+        downloadRequest.Headers.UserAgent.ParseAdd(UserAgent);
         using var response = await _httpClient.SendAsync(downloadRequest, HttpCompletionOption.ResponseHeadersRead, cancellationToken).ConfigureAwait(false);
         response.EnsureSuccessStatusCode();
 
         try
         {
             await using (var contentStream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false))
-            await using (var fileStream = new FileStream(stagedPath, FileMode.CreateNew, FileAccess.Write, FileShare.None, 81920, true))
+            await using (var fileStream = new FileStream(stagedPath, FileMode.CreateNew, FileAccess.ReadWrite, FileShare.None, 81920, true))
+            {
                 await contentStream.CopyToAsync(fileStream, cancellationToken).ConfigureAwait(false);
+                fileStream.Position = 0;
+                byte[] actualDigest = await SHA256.HashDataAsync(fileStream, cancellationToken).ConfigureAwait(false);
+                if (!CryptographicOperations.FixedTimeEquals(expectedDigest, actualDigest))
+                    throw new InvalidDataException("The downloaded installer does not match the SHA-256 digest published by GitHub.");
 
-            ValidateInstaller(stagedPath);
+                fileStream.Position = 0;
+                ValidateInstaller(fileStream);
+            }
+
             cancellationToken.ThrowIfCancellationRequested();
             File.Move(stagedPath, installerPath, overwrite: true);
             _downloadedInstallerPath = installerPath;
@@ -218,12 +239,41 @@ public class VersionService : IVersionService
         finally { File.Delete(stagedPath); }
     }
 
-    private static void ValidateInstaller(string path)
+    // Require the exact installer asset and a complete SHA-256 value from GitHub.
+    private static byte[] ReadInstallerDigest(JsonElement release)
+    {
+        if (!release.TryGetProperty("assets", out var assets) || assets.ValueKind != JsonValueKind.Array)
+            throw new InvalidDataException("The GitHub release is missing its installer assets.");
+
+        byte[]? expected = null;
+        foreach (var asset in assets.EnumerateArray())
+        {
+            if (asset.ValueKind != JsonValueKind.Object || !asset.TryGetProperty("name", out var name) ||
+                name.ValueKind != JsonValueKind.String || name.GetString() != InstallerFileName)
+                continue;
+
+            if (expected is not null)
+                throw new InvalidDataException("The GitHub release contains multiple assets with the installer name.");
+
+            if (!asset.TryGetProperty("digest", out var digest) || digest.ValueKind != JsonValueKind.String ||
+                digest.GetString() is not { Length: 71 } value || !value.StartsWith("sha256:", StringComparison.Ordinal))
+                throw new InvalidDataException("The GitHub release is missing a valid SHA-256 digest for the installer.");
+
+            try { expected = Convert.FromHexString(value.AsSpan(7)); }
+            catch (FormatException ex)
+            {
+                throw new InvalidDataException("The GitHub release contains a malformed installer SHA-256 digest.", ex);
+            }
+        }
+
+        return expected ?? throw new InvalidDataException("The GitHub release is missing the installer asset.");
+    }
+
+    private static void ValidateInstaller(Stream file)
     {
         try
         {
-            using var file = File.OpenRead(path);
-            using var reader = new PEReader(file);
+            using var reader = new PEReader(file, PEStreamOptions.LeaveOpen);
             var headers = reader.PEHeaders;
             var characteristics = headers.CoffHeader.Characteristics;
             if (headers.PEHeader is null || (characteristics & Characteristics.ExecutableImage) == 0 ||
@@ -240,7 +290,8 @@ public class VersionService : IVersionService
 
     public void LaunchInstallerAndRestart()
     {
-        if (string.IsNullOrEmpty(_downloadedInstallerPath))
+        var installerPath = _downloadedInstallerPath;
+        if (string.IsNullOrEmpty(installerPath))
             throw new InvalidOperationException("No update has been downloaded.");
 
         string appDir = AppContext.BaseDirectory;
@@ -253,7 +304,7 @@ public class VersionService : IVersionService
 
         // Use cmd /c to: run installer (wait for it to finish) then relaunch the app.
         // The caller should exit the application immediately after this call.
-        var cmdArgs = $"/c start /wait \"\" \"{_downloadedInstallerPath}\" {installerArgs} && start \"\" \"{appExePath}\"";
+        var cmdArgs = $"/c start /wait \"\" \"{installerPath}\" {installerArgs} && start \"\" \"{appExePath}\"";
         Process.Start(new ProcessStartInfo
         {
             FileName = "cmd.exe",

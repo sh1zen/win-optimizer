@@ -2,6 +2,9 @@
 
 ## [Unreleased]
 
+
+## [v26.11.25] - 2026-11-25
+
 ### Changed
 
 - Offer the soonest supported charging restart and keep valid resume selections when changing the charge limit.
@@ -11,6 +14,14 @@
 - Report rejected Acer battery settings and warn when charging continues above the reported limit.
 - Exit win-optimizer when the main window closes while SysMonitor and Notch run in a separate desktop companion.
 - Complete missing UI translations and clarify battery charge limits.
+- Include application libraries and desktop companions in signed installer builds.
+
+### Security
+
+- Verify downloaded updates against the SHA-256 digest published by GitHub.
+- Reject signed installer builds when signature verification fails.
+- Keep the Windows installer free of Mono's Unix hardware helpers.
+
 
 ## [v26.11.24] - 2026-11-24
 
@@ -63,6 +74,7 @@
 - Reject incomplete or invalid update downloads before marking an installer ready.
 - Apply first-logon customizations correctly in generated answer files, preserve imported answer-file encodings, validate setup media, and report failed ISO dismounts.
 
+
 ## [v26.11.18] - 2026-11-18
 
 - Use a brief blur-to-sharp animation when navigating between pages.
@@ -101,6 +113,7 @@
 - Align Windows runtime references and initialization across the application and native test hosts.
 - Clarify that win-optimizer is licensed under Apache 2.0.
 
+
 ## [v26.11.04] - 2026-11-04
 
 - Protect source ISOs contained in the extraction workspace and preserve preferences after read failures.
@@ -127,6 +140,7 @@
   diagnostics collapsed.
 - Block and minimize the app during native uninstallation, then offer an optional
   leftover scan with separate file and registry selection steps.
+
 
 ## [v26.10.27] - 2026-10-27
 
@@ -162,6 +176,7 @@
 - Clean usage, compatibility and shortcut traces, startup tasks, empty scheduler folders
   and Prefetch during full app uninstallation.
 - Consolidate regression tests, remove unused UI/test helpers and simplify documentation.
+
 
 ## [v26.10.21] - 2026-10-21
 

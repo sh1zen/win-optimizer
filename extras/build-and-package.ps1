@@ -157,7 +157,7 @@ function Set-FileSignature {
         return $false
     }
 
-    if (-not (Test-Path $FilePath)) {
+    if (-not (Test-Path -LiteralPath $FilePath -PathType Leaf)) {
         Write-Host ("File not found: {0}" -f $FilePath) -ForegroundColor Red
         return $false
     }
@@ -209,6 +209,57 @@ function Test-PortableExecutable {
     }
 }
 
+# Sign the app hosts and the project assemblies that form the published application.
+function Set-ApplicationSignatures {
+    param(
+        [string]$PublishDirectory,
+        [System.Security.Cryptography.X509Certificates.X509Certificate2]$Certificate,
+        [string]$SignToolPath
+    )
+
+    $dependenciesPath = Join-Path $PublishDirectory 'win-optimizer.deps.json'
+    $dependencies = Get-Content -LiteralPath $dependenciesPath -Raw | ConvertFrom-Json
+    $runtimeTarget = $dependencies.runtimeTarget.name
+    $runtimeLibraries = if ($runtimeTarget) { $dependencies.targets.$runtimeTarget }
+    if (-not $runtimeLibraries -or -not $dependencies.libraries) {
+        throw 'The published dependency manifest is missing its runtime target or libraries.'
+    }
+
+    $assemblyNames = foreach ($library in $dependencies.libraries.PSObject.Properties) {
+        if ($library.Value.type -eq 'project') {
+            $runtimeAssets = $runtimeLibraries.($library.Name).runtime
+            foreach ($asset in $runtimeAssets.PSObject.Properties) { $asset.Name }
+        }
+    }
+    if ($assemblyNames -notcontains 'win-optimizer.dll' -or $assemblyNames -notcontains 'WinOptimizer.Infrastructure.dll') {
+        throw 'The published dependency manifest is missing required application assemblies.'
+    }
+    $companionNames = (Get-ChildItem -LiteralPath $PublishDirectory -File -Filter 'win-optimizer-*.exe').Name
+    $fileNames = @('win-optimizer.exe') + @($companionNames) + @($assemblyNames)
+
+    # Validate the complete set before modifying any of the published files.
+    $files = foreach ($name in $fileNames | Where-Object { $_ } | Sort-Object -Unique) {
+        if ($name.IndexOfAny([IO.Path]::GetInvalidFileNameChars()) -ge 0 -or
+            [IO.Path]::GetExtension($name) -notin @('.dll', '.exe')) {
+            throw "Invalid application file in the published signing inputs: $name"
+        }
+        $file = Get-Item -LiteralPath (Join-Path $PublishDirectory $name)
+        if ($file.PSIsContainer -or ($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+            -not (Test-PortableExecutable -FilePath $file.FullName)) {
+            throw "Invalid published application executable: $($file.FullName)"
+        }
+        $file.FullName
+    }
+    foreach ($file in $files) {
+        if (-not (Set-FileSignature -FilePath $file -Certificate $Certificate -SignToolPath $SignToolPath)) {
+            throw "Could not sign published application executable: $file"
+        }
+        if (-not (Test-EmbeddedSignature -FilePath $file -SignToolPath $SignToolPath)) {
+            throw "Could not verify published application executable signature: $file"
+        }
+    }
+}
+
 # Apply Store signing requirements to the same published files Inno Setup includes.
 function Set-PayloadSignatures {
     param(
@@ -252,10 +303,7 @@ if (-not (Test-Path $OutputDir)) {
     New-Item -ItemType Directory -Path $OutputDir -Force | Out-Null
 }
 
-# Resolve signing certificate UP FRONT, before any subprocess runs.
-# Resolve certificate problems before spending time on the build. The cert and
-# shouldSign state are reused by Step 4 (exe signing), Step 5/6 (Inno Setup
-# uninstaller signing), and Step 7 (installer signing) below.
+# Resolve the certificate before building the payload and handing it to Inno Setup.
 if (-not $SkipSigning -and ($SignApplication -or (Read-Host "Do you want to sign the application? (y/n)").ToLower() -eq 'y')) {
     $certificate = Get-SigningCertificate -Subject $CertificateSubject -Thumbprint $CertificateThumbprint -ExactThumbprint:$SignPackagePayload
     if ($certificate) {
@@ -326,22 +374,15 @@ if ($LASTEXITCODE -ne 0) { throw "Application publishing failed with exit code $
 # Preserve the exact build's symbols outside the payload, before any signing.
 & (Join-Path $scriptRoot 'export-debug-symbols.ps1') -MSBuildPath $MSBuildPath -Version $Version
 
-# Step 4: Sign the application or verify and sign the complete Store payload.
+# Step 4: Sign the application files or verify and sign the complete Store payload.
 $innoContent = Get-Content -LiteralPath $innoSetupScript -Raw
-$mainExecutable = "$publishOutputPath\win-optimizer.exe"
 if ($SignPackagePayload) {
+    $mainExecutable = Join-Path $publishOutputPath 'win-optimizer.exe'
     if (-not (Test-Path -LiteralPath $mainExecutable -PathType Leaf)) { throw 'The published application executable is missing.' }
     Set-PayloadSignatures -PublishDirectory $publishOutputPath -InnoContent $innoContent -Certificate $certificate -SignToolPath $signToolPath
 }
 elseif ($shouldSign -and $certificate) {
-    Write-Host "Signing application executable..." -ForegroundColor Cyan
-    $signResult = Set-FileSignature -FilePath $mainExecutable -Certificate $certificate -SignToolPath $signToolPath
-    if ($signResult) {
-        Write-Host "Application executable signed successfully." -ForegroundColor Green
-    }
-    else {
-        throw 'Application signing failed. Installer creation has been stopped.'
-    }
+    Set-ApplicationSignatures -PublishDirectory $publishOutputPath -Certificate $certificate -SignToolPath $signToolPath
 }
 else {
     Write-Host "Skipping application signing..." -ForegroundColor Yellow
@@ -390,14 +431,11 @@ try {
     # Step 6: Run the InnoSetup compiler.
     Write-Host "Creating installer..." -ForegroundColor Green
     if ($shouldSign -and $certificate) {
-        # Inno invokes this command with its generated uninstaller path.
-        $signCommand = "@`"$signToolPath`" sign /tr http://timestamp.digicert.com /td sha256 /fd sha256 /sha1 $($certificate.Thumbprint) %1"
-        if ($SignPackagePayload) {
-            $signCommand += " && `"$signToolPath`" verify /pa %1"
-        }
+        # Inno signs and verifies Setup, its temporary copies and the uninstaller.
+        $signCommand = "@`"$signToolPath`" sign /tr http://timestamp.digicert.com /td sha256 /fd sha256 /sha1 $($certificate.Thumbprint) %1 && `"$signToolPath`" verify /pa %1"
         Set-Content -LiteralPath $signBatPath -Value $signCommand
 
-        Write-Host "Creating installer with signed uninstaller..." -ForegroundColor Green
+        Write-Host "Creating signed installer and uninstaller..." -ForegroundColor Green
         & $innoCompiler "/Smysigntool=$signBatPath `$f" $tempInnoScript
     } else {
         & $innoCompiler $tempInnoScript
@@ -411,27 +449,13 @@ try {
     }
 }
 
-# Sign the installer if the executable was signed
+# Verify the final installer that Inno signed before reporting success.
 $installerPath = Join-Path $OutputDir 'win-optimizer.Installer.exe'
 if (-not (Test-Path -LiteralPath $installerPath -PathType Leaf)) {
     throw "Installer compiler completed without producing the expected file: $installerPath"
 }
-if ($shouldSign -and $certificate -and (Test-Path $installerPath)) {
-    Write-Host "Signing the installer..." -ForegroundColor Cyan
-    $installerSignResult = Set-FileSignature -FilePath $installerPath -Certificate $certificate -SignToolPath $signToolPath
-    if ($SignPackagePayload -and $installerSignResult) {
-        $installerSignResult = Test-EmbeddedSignature -FilePath $installerPath -SignToolPath $signToolPath
-    }
-
-    if ($installerSignResult) {
-        Write-Host "Installer successfully signed." -ForegroundColor Green
-    }
-    else {
-        throw 'Installer signing failed. The package is not ready for distribution.'
-    }
-}
-elseif (-not $shouldSign) {
-    Write-Host "Skipping installer signing (executable was not signed)." -ForegroundColor Yellow
+if ($shouldSign -and -not (Test-EmbeddedSignature -FilePath $installerPath -SignToolPath $signToolPath)) {
+    throw 'The final installer signature could not be verified.'
 }
 
 Write-Host "Build and packaging completed successfully!" -ForegroundColor Cyan
@@ -441,14 +465,9 @@ Write-Host "Installer created at: $installerPath" -ForegroundColor Green
 if ($shouldSign) {
     Write-Host "`nSigning Summary:" -ForegroundColor Cyan
     Write-Host "  Certificate: $($certificate.Subject)" -ForegroundColor Green
-    Write-Host "  Executable: Signed" -ForegroundColor Green
+    Write-Host "  Application binaries: Signed" -ForegroundColor Green
     Write-Host "  Uninstaller: Signed (embedded in installer)" -ForegroundColor Green
-    if ($installerSignResult) {
-        Write-Host "  Installer: Signed" -ForegroundColor Green
-    }
-    else {
-        Write-Host "  Installer: Failed to sign" -ForegroundColor Red
-    }
+    Write-Host "  Installer: Signature verified" -ForegroundColor Green
 }
 else {
     Write-Host "`nSigning Summary: No files were signed" -ForegroundColor Yellow
