@@ -75,7 +75,11 @@ public sealed class DriverScanServiceTests
     [InlineData(false, 2, 0)]
     public async Task SavedPolicy_RequiresPositiveWhqlEvidenceOnlyWhenEnabled(bool onlyWhql, int count, int excluded)
     {
-        Updates(Update(), Update("unverified", DriverCertification.Unverified));
+        Inventory([Device("oem1.inf"), Device("oem2.inf") with { HardwareIds = [@"PCI\OTHER"] }], []);
+        var unverified = Update("unverified", DriverCertification.Unverified) with { HardwareId = @"PCI\OTHER" };
+        var catalog = unverified.Catalog!;
+        Updates(Update(), unverified with { Catalog = catalog with { Components =
+            [catalog.Components[0] with { Identifiers = [new(@"PCI\OTHER", DriverIdentifierKind.Hardware, 0)] }] } });
         var options = new DriverScanOptions { OnlyWhqlUpdates = onlyWhql };
         var result = await Scan(options);
         Assert.Equal(count, result.Updates.Count);
@@ -94,13 +98,26 @@ public sealed class DriverScanServiceTests
         Assert.Same(device, Assert.Single(match.Devices));
     }
     [Theory]
-    [InlineData("0.9", DriverVersionRelation.Older)] [InlineData("1.0", DriverVersionRelation.Current)]
-    [InlineData("2.0", DriverVersionRelation.Newer)] [InlineData("", DriverVersionRelation.Unknown)]
-    public async Task CandidateRetainsKnownOlderOrEqualVersionsWithTheirComparison(string version, DriverVersionRelation relation)
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task Scan_ProjectsOnlyProvenUpgradesForPresentDevices(bool onlyWhql)
     {
-        Inventory([Device("oem1.inf")], []);
-        Updates(Update(version: version));
-        Assert.Equal(relation, Assert.Single(Assert.Single((await Scan()).Updates).Comparisons).VersionRelation);
+        var older = Device("oem1.inf");
+        Inventory([older, Device("oem2.inf", version: "2.0"), Device("absent.inf", false)], []);
+        var metadata = Update("metadata");
+        var unsigned = Update("unsigned", version: "3.0");
+        var unsignedCatalog = unsigned.Catalog!;
+        Updates(Update("older", version: "0.9"), Update("same", version: "1.0"),
+            Update("newer"), Update("unknown", version: ""),
+            metadata with { Catalog = metadata.Catalog! with { Verification = DriverVerification.Metadata, Components = [] } },
+            unsigned with { Catalog = unsignedCatalog with { Components = [unsignedCatalog.Components[0] with { SignatureValid = false }] } });
+
+        var result = await Scan(new() { OnlyWhqlUpdates = onlyWhql });
+        var match = Assert.Single(result.Updates);
+        Assert.Equal("newer", match.Update.Id);
+        Assert.Same(older, Assert.Single(match.Devices));
+        Assert.Equal(DriverVersionRelation.Newer, Assert.Single(match.Comparisons).VersionRelation);
+        Assert.Equal(6, Assert.Single(result.Sources).Records);
     }
     [Fact]
     public async Task ExtensionOffer_IsNotComparedWithTheTargetDevicesNetworkDriverVersion()
@@ -108,9 +125,18 @@ public sealed class DriverScanServiceTests
         var device = Device("oem1.inf", version: "30.0");
         Inventory([device], []);
         Updates(Update(version: "1.0", className: "Extension"));
+        Assert.Empty((await Scan()).Updates);
+    }
+
+    [Fact]
+    public async Task SoftwareComponentOffer_IsComparedWithItsOwnInstalledDriver()
+    {
+        var software = Device("oem1.inf") with { ClassName = "SoftwareComponent" };
+        Inventory([Device("oem2.inf"), software], []);
+        Updates(Update(className: "SoftwareComponent"));
         var match = Assert.Single((await Scan()).Updates);
-        Assert.Same(device, Assert.Single(match.Devices));
-        Assert.Equal(DriverVersionRelation.NotComparable, Assert.Single(match.Comparisons).VersionRelation);
+        Assert.Same(software, Assert.Single(match.Devices));
+        Assert.Equal(DriverVersionRelation.Newer, Assert.Single(match.Comparisons).VersionRelation);
     }
     [Theory]
     [InlineData("2026-01-02", "0.9", DriverVersionRelation.Newer)]
@@ -119,11 +145,10 @@ public sealed class DriverScanServiceTests
     [InlineData("2026-01-01", "1.0.0.0", DriverVersionRelation.Current)]
     [InlineData("2026-01-01", "1.0.0.1", DriverVersionRelation.Newer)]
     [InlineData("unknown", "2.0", DriverVersionRelation.Newer)]
-    public async Task DriverComparison_UsesDateThenVersionAndNormalizesTrailingZeros(string date, string version, DriverVersionRelation relation)
+    public void DriverComparison_UsesDateThenVersionAndNormalizesTrailingZeros(string date, string version, DriverVersionRelation relation)
     {
-        Inventory([Device("oem1.inf") with { Date = "2026-01-01" }], []);
-        Updates(Update(version: version, date: date));
-        Assert.Equal(relation, Assert.Single(Assert.Single((await Scan()).Updates).Comparisons).VersionRelation);
+        var device = Device("oem1.inf") with { Date = "2026-01-01" };
+        Assert.Equal(relation, DriverCatalogMatching.Compare(device, "Net", version, date));
     }
     [Fact]
     public async Task OfflineUpdateFailure_PreservesLocalInventory_AndDoesNotClaimSuccessfulEmptySearch()

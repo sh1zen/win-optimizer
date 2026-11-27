@@ -26,6 +26,7 @@
     <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\CleanerProgressReporterTests.cs" Link="CleanerProgressReporterTests.cs"/>
     <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\CleanerViewModelTests.cs" Link="CleanerViewModelTests.cs"/>
     <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\DriversViewModelTests.cs" Link="DriversViewModelTests.cs"/>
+    <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\SystemInformationViewModelTests.cs" Link="SystemInformationViewModelTests.cs"/>
     <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\WimStep4IsoViewModelTests.cs" Link="WimStep4IsoViewModelTests.cs"/>
     <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\WimWorkflowRegressionTests.cs" Link="WimWorkflowRegressionTests.cs"/>
     <Compile Include="..\WinOptimizer.UI.Tests\ViewModels\WimStep1ViewModelTests.cs" Link="WimStep1ViewModelTests.cs"/>

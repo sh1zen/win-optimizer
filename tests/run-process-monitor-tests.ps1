@@ -8,5 +8,5 @@ if (-not $BuildRoot) { $BuildRoot = Join-Path $statusRoot 'build/process-monitor
 $statusExecutable = & (Join-Path $PSScriptRoot 'Build-NativeTestHost.ps1') `
     -ProjectName WinOptimizer.ProcessMonitor.Tests -BuildRoot $BuildRoot -MSBuildPath $MSBuildPath
 & $statusExecutable `
-    (Join-Path $statusRoot 'build/process-monitor-preview')
+    (Join-Path $statusRoot 'build/test-results/process-monitor')
 if ($LASTEXITCODE -ne 0) { throw "Process monitor checks failed: $LASTEXITCODE" }

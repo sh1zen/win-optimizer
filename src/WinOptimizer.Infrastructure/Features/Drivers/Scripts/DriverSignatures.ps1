@@ -23,7 +23,8 @@ public static class DriverSignatureQuery
     {
         var signer = new Signer { Size = (uint)Marshal.SizeOf(typeof(Signer)) };
         bool valid = Verify(path, IntPtr.Zero, ref signer);
-        return new { Path = path, Catalog = signer.Catalog ?? "", Publisher = signer.Publisher ?? "", Score = signer.Score, Valid = valid };
+        uint error = valid ? 0u : unchecked((uint)Marshal.GetLastWin32Error());
+        return new { Path = path, Catalog = signer.Catalog ?? "", Publisher = signer.Publisher ?? "", Score = signer.Score, Valid = valid, Error = error };
     }
 }
 '@

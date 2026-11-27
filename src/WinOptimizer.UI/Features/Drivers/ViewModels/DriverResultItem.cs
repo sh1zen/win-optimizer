@@ -13,7 +13,7 @@ namespace WinOptimizer.UI.Features.Drivers.ViewModels;
 public sealed partial class DriverResultItem(string name, string date, long? sizeBytes, Func<string> details,
     DriverRemovalTarget? target, ILocalizationService localization, IDialogService dialogs, bool removalPending = false,
     DriverUpdateMatch? candidate = null, Func<string>? subtitle = null, Uri? supportPage = null,
-    Func<DriverResultItem, Task>? verify = null, Func<Uri, Task>? openSupport = null, DriverDevice? device = null) : ObservableObject, ISelectableResultItem
+    Func<Uri, Task>? openSupport = null, DriverDevice? device = null) : ObservableObject, ISelectableResultItem
 {
     private bool _isSelected;
     private bool _isDownloadSelected;
@@ -56,17 +56,15 @@ public sealed partial class DriverResultItem(string name, string date, long? siz
     public bool CanDownload => candidate is { Applicability: not DriverApplicability.Incompatible, Update.Catalog: { } catalog } &&
         (catalog.Payloads.Length > 0 || catalog.References.Any(reference => reference.Source == DriverSources.WindowsUpdate) && !catalog.LicenseRequired);
     public bool IsDownloadSelected { get => _isDownloadSelected; set => SetProperty(ref _isDownloadSelected, value && CanDownload); }
-    public bool CanVerify => verify is not null && CanDownload && candidate?.Update.Catalog?.Verification != DriverVerification.Verified;
     public bool HasSupport => supportPage is not null && openSupport is not null;
-    public bool HasActions => HasSupport || CanVerify;
-    public string VerifyLabel => localization.GetString("Drivers_Verify");
     public string SupportLabel => localization.GetString("Drivers_OpenSupport");
     public string Detail => Name;
     public int DetailMaxLines => 1;
     public ResultReport? Report => null;
     public string Date => DateOnly.TryParseExact(date, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsed)
         ? parsed.ToString("d", CultureInfo.CurrentCulture) : localization.GetString("Drivers_Unknown");
-    public string Size => sizeBytes is not long bytes ? localization.GetString("Drivers_Unknown") : bytes switch
+    public string Size => sizeBytes is long bytes ? FormatSize(bytes) : localization.GetString("Drivers_Unknown");
+    internal static string FormatSize(long bytes) => bytes switch
     {
         >= 1L << 30 => $"{bytes / (double)(1L << 30):N1} GB",
         >= 1L << 20 => $"{bytes / (double)(1L << 20):N1} MB",
@@ -88,7 +86,7 @@ public sealed partial class DriverResultItem(string name, string date, long? siz
     /// <summary>Uses verified component versions when the offer covers multiple devices.</summary>
     private static string CandidateVersions(DriverUpdateMatch? match)
     {
-        var components = Versions(match?.Comparisons.Select(item => item.Component.Version));
+        var components = Versions(match?.Comparisons.Select(item => item.Version));
         return components.Length > 0 ? components : match?.Update.Version ?? "";
     }
 
@@ -108,9 +106,6 @@ public sealed partial class DriverResultItem(string name, string date, long? siz
     /// <summary>Opens the complete metadata without changing checkbox selection.</summary>
     [RelayCommand]
     private Task ShowDetailsAsync() => dialogs.ShowInformationAsync(Details, Name);
-
-    [RelayCommand(CanExecute = nameof(CanVerify))]
-    private Task VerifyAsync() => verify!(this);
 
     [RelayCommand(CanExecute = nameof(HasSupport))]
     private Task OpenSupportAsync() => openSupport!(supportPage!);

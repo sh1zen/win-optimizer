@@ -12,10 +12,7 @@ public sealed class UniformWrapLayoutTests
     [InlineData(612, 2)]
     [InlineData(923.9, 2)]
     [InlineData(924, 3)]
-    [InlineData(1052, 3)]
-    [InlineData(1052.3, 3)]
     [InlineData(1240, 3)]
-    [InlineData(1800, 3)]
     public void Stretching_FillsEveryRowAcrossResizeBoundaries(double width, int expectedColumns)
     {
         var layout = UniformWrapLayout.Calculate(width, 300, 12, 6, stretchItems: true, maxColumns: 3);

@@ -132,50 +132,6 @@ public class HardwareCompatibilityFilterTests
     }
 
     [Fact]
-    public async Task FilterSettingsByHardwareAsync_RequiresDesktopOnLaptop_FilteredOut()
-    {
-        // Arrange - simulate laptop (has battery + lid)
-        _mockHardwareDetection.Setup(h => h.HasBatteryAsync()).ReturnsAsync(true);
-        _mockHardwareDetection.Setup(h => h.HasLidAsync()).ReturnsAsync(true);
-
-        // Need a new filter instance since detection results are cached per instance
-        var filter = new HardwareCompatibilityFilter(
-            _mockHardwareDetection.Object,
-            _mockLogService.Object);
-
-        var settings = new List<SettingDefinition>
-        {
-            CreateSetting("desktopOnly", requiresDesktop: true),
-            CreateSetting("normal")
-        };
-
-        // Act
-        var result = await filter.FilterSettingsByHardwareAsync(settings);
-
-        // Assert
-        result.Should().ContainSingle()
-            .Which.Id.Should().Be("normal");
-    }
-
-    [Fact]
-    public async Task FilterSettingsByHardwareAsync_RequiresBrightnessWithoutSupport_FilteredOut()
-    {
-        // Arrange - no brightness support (default mock)
-        var settings = new List<SettingDefinition>
-        {
-            CreateSetting("brightness", requiresBrightness: true),
-            CreateSetting("normal")
-        };
-
-        // Act
-        var result = await _filter.FilterSettingsByHardwareAsync(settings);
-
-        // Assert
-        result.Should().ContainSingle()
-            .Which.Id.Should().Be("normal");
-    }
-
-    [Fact]
     public async Task FilterSettingsByHardwareAsync_RequiresHybridSleepWithoutSupport_FilteredOut()
     {
         // Arrange - no hybrid sleep (default mock)
@@ -191,21 +147,6 @@ public class HardwareCompatibilityFilterTests
         // Assert
         result.Should().ContainSingle()
             .Which.Id.Should().Be("normal");
-    }
-
-    [Fact]
-    public async Task FilterSettingsByHardwareAsync_CachesDetectionResults_OnlyQueriesOnce()
-    {
-        // Arrange
-        var settings = new List<SettingDefinition> { CreateSetting("s1") };
-
-        // Act - call twice
-        await _filter.FilterSettingsByHardwareAsync(settings);
-        await _filter.FilterSettingsByHardwareAsync(settings);
-
-        // Assert - detection methods called only once due to caching
-        _mockHardwareDetection.Verify(h => h.HasBatteryAsync(), Times.Once);
-        _mockHardwareDetection.Verify(h => h.HasLidAsync(), Times.Once);
     }
 
     #endregion

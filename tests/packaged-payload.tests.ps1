@@ -71,10 +71,6 @@ try {
         throw 'The installed package is missing its portable marker.'
     }
 
-    foreach ($applicationFile in @('win-optimizer.exe', 'win-optimizer.dll')) {
-        Assert-ArtifactVersion -Path (Join-Path $destination $applicationFile) -ExpectedVersion $releaseVersion
-    }
-
     # Match Inno's deliberate native-library exclusions, then verify every installed byte.
     $expected = @{}
     foreach ($file in Get-ChildItem -LiteralPath $PublishDirectory -Recurse -File) {

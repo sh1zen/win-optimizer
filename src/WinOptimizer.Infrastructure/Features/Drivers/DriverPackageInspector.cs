@@ -8,12 +8,14 @@ internal sealed class DriverPackageInspector(IDriverInfInspector inspector)
 {
     internal sealed record Evidence(DriverComponent[] Components, bool Unsupported, bool TrustedExecutable);
 
-    internal async Task<Evidence> InspectAsync(string[] originals, string root, CancellationToken ct)
+    internal async Task<Evidence> InspectAsync(string[] originals, string root, CancellationToken ct,
+        IProgress<DriverScanProgress>? progress = null)
     {
         var expandedCount = 0;
         var budget = new DriverArchive.Budget();
         var unsupported = false;
         var trustedExecutable = false;
+        var extracting = false;
         foreach (var path in originals)
         {
             var extension = Path.GetExtension(path);
@@ -22,24 +24,38 @@ internal sealed class DriverPackageInspector(IDriverInfInspector inspector)
                 trustedExecutable = await Task.Run(() => DriverPayloadIntegrity.VerifyExecutableSignature(path), ct).ConfigureAwait(false);
                 if (!trustedExecutable) throw new DriverScanException("The installer does not have a valid Authenticode signature.");
                 // Some signed executables carry a ZIP central directory. Opening it reads bytes only.
-                if (extension.Equals(".exe", StringComparison.OrdinalIgnoreCase) && IsZip(path))
-                    await ExpandAsync(path, ".zip", 0, ct).ConfigureAwait(false);
-                else if (extension.Equals(".exe", StringComparison.OrdinalIgnoreCase))
+                if (extension.Equals(".exe", StringComparison.OrdinalIgnoreCase))
                 {
-                    var stream = Path.Combine(root, $"embedded-{Guid.NewGuid():N}.7z");
-                    if (await DriverArchive.ExtractSevenZipOverlayAsync(path, stream, ct).ConfigureAwait(false))
-                        await ExpandAsync(stream, ".7z", 0, ct).ConfigureAwait(false);
-                    else unsupported = true;
+                    BeginExtraction();
+                    if (IsZip(path)) await ExpandAsync(path, ".zip", 0, ct).ConfigureAwait(false);
+                    else
+                    {
+                        var stream = Path.Combine(root, $"embedded-{Guid.NewGuid():N}.7z");
+                        if (await DriverArchive.ExtractSevenZipOverlayAsync(path, stream, ct).ConfigureAwait(false))
+                            await ExpandAsync(stream, ".7z", 0, ct).ConfigureAwait(false);
+                        else unsupported = true;
+                    }
                 }
                 else unsupported = true;
             }
             else if (IsArchive(extension))
+            {
+                BeginExtraction();
                 await ExpandAsync(path, extension, 0, ct).ConfigureAwait(false);
+            }
         }
 
         var paths = DriverScanWorkspace.EnumerateFiles(root, ".inf").ToArray();
+        if (paths.Length > 0) progress?.Report(new("Drivers_VerifyingInfs"));
         var components = await inspector.InspectAsync(root, paths, ct).ConfigureAwait(false);
         return new(components, unsupported, trustedExecutable);
+
+        void BeginExtraction()
+        {
+            if (extracting) return;
+            extracting = true;
+            progress?.Report(new("Drivers_ExtractingPackage"));
+        }
 
         async Task ExpandAsync(string path, string extension, int depth, CancellationToken token)
         {

@@ -61,17 +61,29 @@ public sealed class WindowsSystemInformationService(ISystemInformationQuery quer
 
     public async Task<SystemInformationSnapshot> ReadAsync(CancellationToken ct)
     {
-        var sections = new List<SystemInformationSection>(Categories.Length);
-        // Each category owns its own WMI query. Bound concurrent reads and retain catalogue order.
-        foreach (var batch in Categories.Chunk(4))
+        var sections = await CollectSectionsAsync(Categories, ct).ConfigureAwait(false);
+        var snapshot = new SystemInformationSnapshot(DateTimeOffset.UtcNow, sections);
+        Volatile.Write(ref _cachedSnapshot, snapshot);
+        return snapshot;
+    }
+
+    /// <inheritdoc />
+    public Task<IReadOnlyList<SystemInformationSection>> ReadSectionsAsync(
+        IReadOnlyCollection<SystemInformationCategory> categories, CancellationToken ct) =>
+        CollectSectionsAsync(Categories.Where(category => categories.Contains(category.Id)), ct);
+
+    /// <summary>Bounds concurrent Windows queries and retains catalogue order.</summary>
+    private async Task<IReadOnlyList<SystemInformationSection>> CollectSectionsAsync(
+        IEnumerable<Category> categories, CancellationToken ct)
+    {
+        var sections = new List<SystemInformationSection>();
+        foreach (var batch in categories.Chunk(4))
         {
             ct.ThrowIfCancellationRequested();
             sections.AddRange(await Task.WhenAll(batch.Select(category => ReadCategoryAsync(category, ct))).ConfigureAwait(false));
         }
         ct.ThrowIfCancellationRequested();
-        var snapshot = new SystemInformationSnapshot(DateTimeOffset.UtcNow, sections);
-        Volatile.Write(ref _cachedSnapshot, snapshot);
-        return snapshot;
+        return sections;
     }
 
     /// <summary>Reads and normalizes one independent WMI category, keeping unavailable-category evidence.</summary>

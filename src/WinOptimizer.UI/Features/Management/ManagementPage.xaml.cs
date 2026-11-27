@@ -44,12 +44,6 @@ public sealed partial class ManagementPage : Page
         if (Frame.CurrentSourcePageType != typeof(ConnectionPage)) Frame.Navigate(typeof(ConnectionPage));
     }
 
-    /// <summary>Opens explicit Windows servicing while preserving the Management sidebar owner.</summary>
-    private void WindowsStatusCard_Click(object sender, RoutedEventArgs e)
-    {
-        if (Frame.CurrentSourcePageType != typeof(WindowsStatusPage)) Frame.Navigate(typeof(WindowsStatusPage));
-    }
-
     /// <summary>Opens startup controls and advanced loading-point discovery within Control.</summary>
     private void AutorunsCard_Click(object sender, RoutedEventArgs e)
     {

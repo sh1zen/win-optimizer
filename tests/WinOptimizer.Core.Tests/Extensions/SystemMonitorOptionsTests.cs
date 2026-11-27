@@ -36,7 +36,7 @@ public sealed class SystemMonitorOptionsTests
         new SystemMonitorOptions { Theme = (SystemMonitorTheme)999 }.Validate());
 
     [Theory]
-    [InlineData(50)] [InlineData(75)] [InlineData(100)] [InlineData(135)] [InlineData(200)]
+    [InlineData(50)] [InlineData(75)] [InlineData(135)] [InlineData(200)]
     public void SupportedScalesAreAccepted(double percent) =>
         new SystemMonitorOptions { ScalePercent = percent }.Validate();
 

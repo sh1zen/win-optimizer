@@ -8,5 +8,5 @@ if (-not $BuildRoot) { $BuildRoot = Join-Path $journalRoot 'build/journal-valida
 $journalExecutable = & (Join-Path $PSScriptRoot 'Build-NativeTestHost.ps1') `
     -ProjectName WinOptimizer.Journal.Tests -BuildRoot $BuildRoot -MSBuildPath $MSBuildPath -DisableSharedCompilation
 & $journalExecutable `
-    (Join-Path $journalRoot 'build/journal-previews')
+    (Join-Path $journalRoot 'build/test-results/journal')
 if ($LASTEXITCODE -ne 0) { throw "Journal checks failed: $LASTEXITCODE" }

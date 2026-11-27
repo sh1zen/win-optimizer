@@ -10,6 +10,7 @@ using WinOptimizer.Core.Features.SoftwareApps.Interfaces;
 using WinOptimizer.Core.Features.SoftwareApps.Models;
 using WinOptimizer.UI.Features.Common.ViewModels;
 using WinOptimizer.UI.Features.Common.Interfaces;
+using WinOptimizer.UI.Features.Common.Services;
 
 namespace WinOptimizer.UI.Features.SoftwareApps.ViewModels;
 
@@ -29,7 +30,8 @@ public partial class LeftoverItemViewModel(LeftoverItem item) : ObservableObject
 
 /// <summary>Runs explicit leftover scans and confirmed cleanup while preserving notices, backups and cancellation outcomes.</summary>
 public partial class LeftoverAppsViewModel(ILeftoverService service, ILocalizationService text, IDialogService dialogs,
-    IApplicationModeService mode, ITaskProgressService tasks, IDispatcherService dispatcher, ILogService log) : BaseViewModel
+    IApplicationModeService mode, ITaskProgressService tasks, IDispatcherService dispatcher, ILogService log,
+    ScanCancellationNotifications? scanNotifications = null) : BaseViewModel
 {
     public ObservableCollection<LeftoverItemViewModel> Items { get; } = [];
     private AdvancedCollectionView? _itemsView;
@@ -92,7 +94,12 @@ public partial class LeftoverAppsViewModel(ILeftoverService service, ILocalizati
         IsBusy = true;
         var cancellation = tasks.StartTask(text.GetString("SoftwareApps_Tab_Leftover"), true);
         try { await ReadScanAsync(cancellation.Token); }
-        catch (OperationCanceledException) { ClearItems(); StatusText = text.GetString("UninstallResidue_Cancelled"); }
+        catch (OperationCanceledException)
+        {
+            ClearItems();
+            StatusText = text.GetString("Restore_Cancelled");
+            scanNotifications?.Publish(this, text.GetString("SoftwareApps_Tab_Leftover"), StatusText);
+        }
         catch (Exception ex) { ClearItems(); log.LogError("Leftover scan failed", ex); StatusText = ex.Message; }
         finally { IsBusy = false; tasks.CompleteTask(); NotifySelection(); }
     }
@@ -102,6 +109,7 @@ public partial class LeftoverAppsViewModel(ILeftoverService service, ILocalizati
         var scan = await service.ScanAsync(ct);
         await dispatcher.RunOnUIThreadAsync(() =>
         {
+            ct.ThrowIfCancellationRequested();
             ClearItems();
             foreach (var item in scan.Items.Where(item => item.CanRemove))
             {

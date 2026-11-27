@@ -1,5 +1,7 @@
 using System.Collections.ObjectModel;
 using FluentIcons.Common;
+using Microsoft.UI.Xaml.Automation.Peers;
+using Microsoft.UI.Xaml.Automation.Provider;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
 using Moq;
@@ -8,8 +10,10 @@ using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.UI.Features.Common.Controls;
 using WinOptimizer.UI.Features.Common.Interfaces;
 using WinOptimizer.UI.Features.Common.Models;
+using WinOptimizer.UI.Features.Management;
 using WinOptimizer.UI.Features.Optimize.ViewModels;
 using WinOptimizer.UI.Helpers;
+using WinOptimizer.UI.Tests.Helpers;
 using Xunit;
 
 namespace WinOptimizer.UI.Tests.Services;
@@ -17,6 +21,32 @@ namespace WinOptimizer.UI.Tests.Services;
 /// <summary>Exercises section history and shell routing on a real WinUI Frame with fake settings.</summary>
 public sealed class SectionNavigationTests
 {
+    [Fact]
+    public void RepairSidebarButtonOpensServicingAndStaysSelectedInHistory()
+    {
+        var router = new NavigationRouter(null, null, new ExtensionTestDispatcher());
+        var sidebar = new NavSidebar();
+        var frame = new Frame();
+        sidebar.ItemClicked += (_, e) => router.NavigateToPage(frame, e.NavigationTag?.ToString());
+        frame.Navigated += (_, e) => sidebar.SelectedTag = router.GetTagForCurrentPage(e.SourcePageType);
+        frame.Navigate(typeof(NavigationOtherPage));
+
+        var repair = Assert.IsType<NavButton>(sidebar.GetButton("Repair"));
+        var invoke = Assert.IsAssignableFrom<IInvokeProvider>(new NavButtonAutomationPeer(repair).GetPattern(PatternInterface.Invoke));
+        invoke.Invoke();
+        Assert.IsType<WindowsStatusPage>(frame.Content);
+        Assert.Equal("Repair", sidebar.SelectedTag);
+        Assert.True(repair.IsSelected);
+        invoke.Invoke();
+        Assert.Single(frame.BackStack);
+
+        frame.GoBack();
+        Assert.False(repair.IsSelected);
+        frame.GoForward();
+        Assert.IsType<WindowsStatusPage>(frame.Content);
+        Assert.True(repair.IsSelected);
+    }
+
     [Fact]
     public void BackReturnsToSectionOverviewAndForwardRestoresTheDetail()
     {

@@ -4,7 +4,6 @@ using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.Core.Features.Optimize.Interfaces;
 using WinOptimizer.Core.Features.Optimize.Models;
-using WinOptimizer.Infrastructure.Features.Common.Services;
 using WinOptimizer.Infrastructure.Features.Optimize.Services;
 using WinOptimizer.Infrastructure.Features.SoftwareApps.Services;
 using Xunit;
@@ -12,7 +11,7 @@ using Xunit;
 namespace WinOptimizer.Infrastructure.Tests.Services;
 
 /// <summary>Exercises the production orchestration using fake script, registry and setting-application boundaries.</summary>
-public sealed class OptimizationToolsServiceTests : IDisposable
+public sealed class OptimizationToolsServiceTests
 {
     private readonly Mock<IPowerShellRunner> _scripts = new();
     private readonly Mock<ISettingApplicationService> _settings = new();
@@ -22,8 +21,6 @@ public sealed class OptimizationToolsServiceTests : IDisposable
     private readonly Mock<IAppxDeployment> _deployment = new();
     private readonly Mock<IWindowsVersionService> _windows = new();
     private readonly Mock<ISystemSettingsDiscoveryService> _discovery = new();
-    private readonly DirectoryInfo _storage = Directory.CreateTempSubdirectory("win-optimizer-enhance-originals-");
-    private const string NetworkJson = "{\"AutoTuningLevel\":\"Normal\",\"ReceiveSideScaling\":\"Enabled\"}";
     private const string InteractiveSid = "S-1-5-21-111-222-333-1001";
 
     public OptimizationToolsServiceTests()
@@ -34,17 +31,13 @@ public sealed class OptimizationToolsServiceTests : IDisposable
         _mode.Setup(mode => mode.BeginSystemOperation()).Returns(Mock.Of<IDisposable>());
         _windows.Setup(windows => windows.IsWindows11()).Returns(true);
         _settings.Setup(settings => settings.ApplySettingAsync(It.IsAny<ApplySettingRequest>())).ReturnsAsync(OperationResult.Succeeded());
-        _scripts.Setup(scripts => scripts.RunScriptInMemoryAsync(It.IsAny<string>(), null, default)).ReturnsAsync("");
-        _scripts.Setup(scripts => scripts.RunScriptInMemoryAsync(OptimizationToolsService.ReadNetworkScript, null, default)).ReturnsAsync(NetworkJson);
         _deployment.SetupGet(deployment => deployment.InteractiveAccountSid).Returns(InteractiveSid);
         _deployment.Setup(deployment => deployment.GetPackagesAsync(InteractiveSid, default)).ReturnsAsync([]);
     }
 
     private OptimizationToolsService Create() => new(_scripts.Object, _settings.Object, _catalog.Object,
         _registry.Object, _mode.Object, _deployment.Object, _windows.Object, _discovery.Object,
-        new NetworkTuningOriginalStore(new FileSystemService(), _storage.FullName));
-
-    public void Dispose() => _storage.Delete(recursive: true);
+        new NetworkTuningOriginalStore(Mock.Of<IFileSystemService>()));
 
     [Fact]
     public async Task ReadsRestrictionsFromExistingOwnersAndIgnoresAbsentServices()
@@ -112,72 +105,20 @@ public sealed class OptimizationToolsServiceTests : IDisposable
         _mode.VerifyNoOtherCalls(); _deployment.VerifyNoOtherCalls(); _windows.VerifyNoOtherCalls();
     }
 
-    [Fact]
-    public async Task ReadsAndVerifiesNetworkEnhancementThroughNativeCommands()
-    {
-        var service = Create();
-        Assert.Equal(new NetworkPerformanceState("Normal", true), await service.ReadNetworkAsync());
-        _scripts.Verify(scripts => scripts.RunScriptInMemoryAsync(OptimizationToolsService.EnhanceNetworkScript, null, default), Times.Never);
-        Assert.Equal(new NetworkPerformanceState("Normal", true), await service.EnhanceNetworkAsync());
-        _scripts.Verify(scripts => scripts.RunScriptInMemoryAsync(OptimizationToolsService.EnhanceNetworkScript, null, default), Times.Once);
-        _settings.VerifyNoOtherCalls(); _registry.VerifyNoOtherCalls();
-    }
-
-    [Fact]
-    public async Task FirstEnhancementCapturesBothOriginalsBeforeTheWrite()
-    {
-        _scripts.SetupSequence(scripts => scripts.RunScriptInMemoryAsync(OptimizationToolsService.ReadNetworkScript, null, default))
-            .ReturnsAsync("{\"AutoTuningLevel\":\"Restricted\",\"ReceiveSideScaling\":\"Disabled\"}")
-            .ReturnsAsync(NetworkJson).ReturnsAsync(NetworkJson);
-        var originals = new NetworkTuningOriginalStore(new FileSystemService(), _storage.FullName);
-        _scripts.Setup(scripts => scripts.RunScriptInMemoryAsync(OptimizationToolsService.EnhanceNetworkScript, null, default))
-            .Returns(async () =>
-            {
-                Assert.Equal(new NetworkTuningValue("Restricted"), await originals.ReadAsync(NetworkTuningCatalog.AutoTuningId));
-                Assert.Equal(new NetworkTuningValue("Disabled"), await originals.ReadAsync(NetworkTuningCatalog.RssId));
-                return "";
-            });
-        await Create().EnhanceNetworkAsync();
-        await Create().EnhanceNetworkAsync();
-        _scripts.Verify(scripts => scripts.RunScriptInMemoryAsync(OptimizationToolsService.ReadNetworkScript, null, default), Times.Exactly(3));
-    }
-
-    [Theory]
-    [InlineData("{\"AutoTuningLevel\":\"Disabled\",\"ReceiveSideScaling\":\"Enabled\"}")]
-    [InlineData("{\"AutoTuningLevel\":\"Normal\",\"ReceiveSideScaling\":\"Disabled\"}")]
-    public async Task DoesNotReportNetworkSuccessWithoutMatchingReadback(string json)
-    {
-        _scripts.Setup(scripts => scripts.RunScriptInMemoryAsync(OptimizationToolsService.ReadNetworkScript, null, default)).ReturnsAsync(json);
-        await Assert.ThrowsAsync<InvalidOperationException>(() => Create().EnhanceNetworkAsync());
-        _scripts.Verify(scripts => scripts.RunScriptInMemoryAsync(OptimizationToolsService.EnhanceNetworkScript, null, default), Times.Once);
-    }
-
-    [Theory]
-    [InlineData("not json")]
-    [InlineData("{}")]
-    [InlineData("{\"AutoTuningLevel\":\"Normal\",\"ReceiveSideScaling\":\"Unknown\"}")]
-    public async Task InvalidNetworkResponsesRemainErrors(string output)
-    {
-        _scripts.Setup(scripts => scripts.RunScriptInMemoryAsync(OptimizationToolsService.ReadNetworkScript, null, default)).ReturnsAsync(output);
-        await Assert.ThrowsAsync<InvalidOperationException>(() => Create().ReadNetworkAsync());
-    }
-
     [Theory]
     [InlineData(WinOptimizerMode.Builder)]
     [InlineData(WinOptimizerMode.ConfigReview)]
-    public async Task AllowsInspectionAndBlocksEveryWriteOutsideNormalMode(WinOptimizerMode mode)
+    public async Task FeatureWritesAreBlockedOutsideNormalMode(WinOptimizerMode mode)
     {
         _mode.SetupGet(service => service.CurrentMode).Returns(mode);
         var service = Create();
-        await service.ReadNetworkAsync();
-        await Assert.ThrowsAsync<InvalidOperationException>(() => service.EnhanceNetworkAsync());
         foreach (var feature in Enum.GetValues<WindowsFeatureOptimization>())
         {
             await Assert.ThrowsAsync<InvalidOperationException>(() => service.ApplyFeatureAsync(feature));
             await Assert.ThrowsAsync<InvalidOperationException>(() => service.SetFeatureAsync(feature, false));
         }
         _settings.VerifyNoOtherCalls();
-        _scripts.Verify(scripts => scripts.RunScriptInMemoryAsync(OptimizationToolsService.EnhanceNetworkScript, null, default), Times.Never);
+        _scripts.VerifyNoOtherCalls();
     }
 
     [Fact]

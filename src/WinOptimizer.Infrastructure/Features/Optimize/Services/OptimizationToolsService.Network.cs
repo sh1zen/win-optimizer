@@ -72,20 +72,6 @@ public sealed partial class OptimizationToolsService
         return results;
     }
 
-    /// <summary>Saves the two values affected by Enhance before its first native write.</summary>
-    private async Task CaptureEnhancementOriginalsAsync()
-    {
-        var needsAutoTuning = await originals.ReadAsync(NetworkTuningCatalog.AutoTuningId).ConfigureAwait(false) == null;
-        var needsRss = await originals.ReadAsync(NetworkTuningCatalog.RssId).ConfigureAwait(false) == null;
-        if (!needsAutoTuning && !needsRss) return;
-
-        var state = await ReadNetworkCoreAsync().ConfigureAwait(false);
-        if (needsAutoTuning)
-            await originals.GetOrCaptureAsync(new(NetworkTuningCatalog.AutoTuningId, state.AutoTuningLevel, true)).ConfigureAwait(false);
-        if (needsRss)
-            await originals.GetOrCaptureAsync(new(NetworkTuningCatalog.RssId, state.ReceiveSideScaling ? NetworkTuningCatalog.Enabled : "Disabled", true)).ConfigureAwait(false);
-    }
-
     private async Task<IReadOnlyList<NetworkTuningState>> ReadNetworkTuningsCoreAsync()
     {
         var output = await scripts.RunScriptInMemoryAsync(ReadNetworkTuningsScript).ConfigureAwait(false);

@@ -26,8 +26,6 @@ public sealed class ManagementViewModelTests
         Assert.Equal("en:Utilities_BatteryDescription", vm.BatteryDescription);
         Assert.Equal("en:Utilities_Connection", vm.ConnectionDisplayName);
         Assert.Equal("en:Utilities_ConnectionDescription", vm.ConnectionDescription);
-        Assert.Equal("en:WindowsStatus_Title", vm.WindowsStatusDisplayName);
-        Assert.Equal("en:WindowsStatus_TitleDescription", vm.WindowsStatusDescription);
         Assert.Equal("en:Autoruns_Title", vm.AutorunsDisplayName);
         Assert.Equal("en:Autoruns_TitleDescription", vm.AutorunsDescription);
         Assert.Equal("en:ProcessMonitor_Title", vm.ProcessMonitorDisplayName);
@@ -46,8 +44,6 @@ public sealed class ManagementViewModelTests
         Assert.Equal("it:Utilities_BatteryDescription", vm.BatteryDescription);
         Assert.Equal("it:Utilities_Connection", vm.ConnectionDisplayName);
         Assert.Equal("it:Utilities_ConnectionDescription", vm.ConnectionDescription);
-        Assert.Equal("it:WindowsStatus_Title", vm.WindowsStatusDisplayName);
-        Assert.Equal("it:WindowsStatus_TitleDescription", vm.WindowsStatusDescription);
         Assert.Equal("it:Autoruns_Title", vm.AutorunsDisplayName);
         Assert.Equal("it:Autoruns_TitleDescription", vm.AutorunsDescription);
         Assert.Equal("it:ProcessMonitor_Title", vm.ProcessMonitorDisplayName);

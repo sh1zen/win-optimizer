@@ -1,5 +1,4 @@
 using System.Reflection;
-using System.Runtime.InteropServices.WindowsRuntime;
 using System.Text.Json;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
@@ -8,10 +7,8 @@ using Microsoft.UI.Xaml.Automation.Provider;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Media.Imaging;
 using Moq;
 using Windows.Graphics;
-using Windows.Graphics.Imaging;
 using WinOptimizer.Application.Journal;
 using WinOptimizer.Core.Features.Common.Enums;
 using WinOptimizer.Core.Features.Common.Interfaces;
@@ -132,13 +129,12 @@ public sealed partial class JournalTestApplication(string outputDirectory) : Win
                 Assert.True(element.ActualWidth > 0 && point.X >= -1 && point.X + element.ActualWidth <= shell.ActualWidth + 1, $"{child} exceeds width {width}.");
             }
             Assert.True(((ListView)control.FindName("TopicGroups")).ActualHeight >= 180, "The filters must leave room for the activity list.");
-            await CaptureAsync(shell, $"journal-{language}-{theme}-{width}.png");
             if (width != 1000) continue;
             var settings = vm.Groups.Single(group => group.Topic == LogTopic.Settings);
             settings.IsExpanded = true;
             var topicGroups = (ListView)control.FindName("TopicGroups");
             topicGroups.ScrollIntoView(settings);
-            await Task.Delay(200); await CaptureAsync(shell, $"journal-changes-{language}-{theme}.png");
+            await Task.Delay(200);
             var topicGroup = (ListViewItem)topicGroups.ContainerFromItem(settings);
             var detailsButton = Assert.IsType<ToggleButton>(FindVisual(topicGroup, "ShowDetails"));
             var details = Assert.IsType<Border>(FindVisual(topicGroup, "TechnicalDetails"));
@@ -163,7 +159,6 @@ public sealed partial class JournalTestApplication(string outputDirectory) : Win
             kindFilter.SelectedIndex = (int)JournalFilter.Problems; await vm.PendingRead;
             Assert.Single(vm.Entries); Assert.True(vm.Entries[0].Record.IsProblem);
             Assert.Equal((int)JournalFilter.Problems, kindFilter.SelectedIndex);
-            await Task.Delay(200); await CaptureAsync(shell, $"journal-problems-{language}-{theme}.png");
             kindFilter.SelectedIndex = (int)JournalFilter.All; await vm.PendingRead;
             var button = (Button)control.FindName("ClearLogsButton");
             ((IInvokeProvider)new ButtonAutomationPeer(button).GetPattern(PatternInterface.Invoke)).Invoke();
@@ -183,14 +178,6 @@ public sealed partial class JournalTestApplication(string outputDirectory) : Win
         return null;
     }
 
-    private async Task CaptureAsync(UIElement root, string name)
-    {
-        var bitmap = new RenderTargetBitmap(); await bitmap.RenderAsync(root); var pixels = await bitmap.GetPixelsAsync();
-        await using var output = File.Create(Path.Combine(outputDirectory, name));
-        var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, output.AsRandomAccessStream());
-        encoder.SetPixelData(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied, (uint)bitmap.PixelWidth, (uint)bitmap.PixelHeight, 96, 96, pixels.ToArray());
-        await encoder.FlushAsync();
-    }
     private void Finish(string? error = null)
     {
         File.WriteAllText(Path.Combine(outputDirectory, "result.log"), error ?? "All journal checks passed.");

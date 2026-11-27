@@ -126,10 +126,40 @@ public class DialogService : IDialogService
     {
         return await ExecuteDialogAsync(async () =>
         {
-            var builder = new Dialogs.ConfigImportDialogBuilder(_localization);
-            var dialog = builder.Build(XamlRoot!);
-            var result = await PopupHandler.ShowDialogAsync(dialog, XamlRoot!);
-            return builder.ExtractResult(result);
+            var root = XamlRoot!;
+            var content = new Dialogs.ConfigImportDialogContent(_localization);
+            var dialog = PopupHandler.CreateDialog(new PopupDialogOptions
+            {
+                Title = _localization.GetString("Dialog_ImportConfig_Title"),
+                Content = content,
+                PrimaryButtonText = _localization.GetString("Button_Apply"),
+                IsPrimaryButtonEnabled = false,
+                CloseButtonText = _localization.GetString("Button_Cancel")
+            });
+            dialog.PrimaryButtonStyle = (Style)content.Resources["ImportApplyButtonStyle"];
+            dialog.CloseButtonStyle = (Style)content.Resources["ImportCancelButtonStyle"];
+            dialog.Resources["ContentDialogMaxWidth"] = 484d;
+            content.SourceSelected += () => dialog.IsPrimaryButtonEnabled = true;
+
+            // Keep the title and actions visible as the body scrolls in a smaller window.
+            void ResizeContent()
+            {
+                content.Width = Math.Clamp(root.Size.Width - 72, 0, 432);
+                content.MaxHeight = Math.Clamp(root.Size.Height - 148, 0, 540);
+            }
+            void OnRootChanged(XamlRoot sender, XamlRootChangedEventArgs args) => ResizeContent();
+
+            ResizeContent();
+            root.Changed += OnRootChanged;
+            try
+            {
+                var result = await PopupHandler.ShowDialogAsync(dialog, root);
+                return (result == ContentDialogResult.Primary ? content.SelectedOption : null, content.GetOptions());
+            }
+            finally
+            {
+                root.Changed -= OnRootChanged;
+            }
         }, ((ImportOption?)null, new ImportOptions()));
     }
 
@@ -147,6 +177,9 @@ public class DialogService : IDialogService
                     TextWrapping = TextWrapping.Wrap
                 });
             }
+
+            if (confirmationRequest.ReferenceLink is { } link)
+                contentPanel.Children.Add(new HyperlinkButton { Content = link.Label, NavigateUri = link.Uri });
 
             if (confirmationRequest.Items is { Count: > 0 } items)
             {
@@ -226,7 +259,7 @@ public class DialogService : IDialogService
         await ExecuteDialogAsync(async () =>
         {
             var builder = new Dialogs.TaskOutputDialogBuilder(_localization, _taskProgressService);
-            var dialog = builder.Build(XamlRoot!, title, logMessages);
+            var dialog = builder.Build(title, logMessages);
             await PopupHandler.ShowDialogAsync(dialog, XamlRoot!,
                 () => builder.StartLiveUpdates(Microsoft.UI.Dispatching.DispatcherQueue.GetForCurrentThread()),
                 builder.StopLiveUpdates);

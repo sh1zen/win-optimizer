@@ -1,16 +1,10 @@
-using System.Runtime.InteropServices.WindowsRuntime;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Markup;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Media.Imaging;
-using Windows.Graphics.Imaging;
-using Windows.Storage.Streams;
 using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.Core.Features.Customize.Models;
 using WinOptimizer.Core.Features.Optimize.Models;
 using WinOptimizer.UI.Features.Common.Converters;
-using WinOptimizer.UI.Helpers;
 using Xunit;
 
 namespace WinOptimizer.UI.Tests.Converters;
@@ -87,53 +81,6 @@ public sealed class CustomIconTests
             // The converter centers geometry in its 28-unit box.
             Assert.InRange(icon.Data.Bounds.Width, .1, 24.01);
             Assert.InRange(icon.Data.Bounds.Height, .1, 24.01);
-        }
-    }
-
-    /// <summary>Renders the real resources in both themes for visual inspection.</summary>
-    [Fact]
-    public async Task OriginalArtworkRendersInLightAndDarkThemes()
-    {
-        var resources = OriginalPaths().ToList();
-        const int columns = 12;
-        var rows = (resources.Count + columns - 1) / columns;
-        foreach (var theme in new[] { ElementTheme.Light, ElementTheme.Dark })
-        {
-            var foreground = new SolidColorBrush(theme == ElementTheme.Light ? Microsoft.UI.Colors.Black : Microsoft.UI.Colors.White);
-            var grid = new Grid
-            {
-                Width = columns * 92, Height = rows * 58, RequestedTheme = theme,
-                Background = new SolidColorBrush(theme == ElementTheme.Light ? Microsoft.UI.Colors.White : Microsoft.UI.Colors.Black)
-            };
-            for (var i = 0; i < columns; i++) grid.ColumnDefinitions.Add(new ColumnDefinition());
-            for (var i = 0; i < rows; i++) grid.RowDefinitions.Add(new RowDefinition());
-            for (var i = 0; i < resources.Count; i++)
-            {
-                var geometry = (Geometry)XamlBindingHelper.ConvertValue(typeof(Geometry), resources[i].Value);
-                var cell = new StackPanel { HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(2) };
-                cell.Children.Add(new PathIcon { Data = geometry, Width = 28, Height = 28, Foreground = foreground });
-                cell.Children.Add(new TextBlock { Text = resources[i].Key.Replace("IconPath", string.Empty), Foreground = foreground,
-                    FontSize = 8, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 88, HorizontalAlignment = HorizontalAlignment.Center });
-                Grid.SetColumn(cell, i % columns); Grid.SetRow(cell, i / columns); grid.Children.Add(cell);
-            }
-            var window = new Window { Content = grid };
-            try
-            {
-                window.Activate();
-                await StartupUiCoordinator.RunAfterFirstRenderAsync(grid, () => Task.CompletedTask);
-                var bitmap = new RenderTargetBitmap();
-                await bitmap.RenderAsync(grid);
-                Assert.True(bitmap.PixelWidth > 0 && bitmap.PixelHeight > 0);
-                using var stream = new InMemoryRandomAccessStream();
-                var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, stream);
-                encoder.SetPixelData(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied,
-                    (uint)bitmap.PixelWidth, (uint)bitmap.PixelHeight, 96, 96, (await bitmap.GetPixelsAsync()).ToArray());
-                await encoder.FlushAsync();
-                stream.Seek(0);
-                await using var output = File.Create(Path.Combine(AppContext.BaseDirectory, $"custom-icons-{theme.ToString().ToLowerInvariant()}.png"));
-                await stream.AsStreamForRead().CopyToAsync(output);
-            }
-            finally { window.Close(); }
         }
     }
 

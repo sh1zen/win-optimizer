@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Globalization;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
@@ -17,7 +18,7 @@ public interface IDriverInfInspector
 /// <summary>Uses SetupAPI's INF parser and signer scores; an ordinary or unclassified signature is not WHQL.</summary>
 public sealed class WindowsDriverInfInspector(DriverPowerShell shell) : IDriverInfInspector
 {
-    private sealed record Signature(string Path, string Catalog, string Publisher, uint Score, bool Valid);
+    private sealed record Signature(string Path, string Catalog, string Publisher, uint Score, bool Valid, uint Error);
     private sealed record Signatures(Signature[] Items);
 
     /// <summary>Verifies the package's catalogs in one worker that releases native file handles on exit.</summary>
@@ -65,20 +66,19 @@ public sealed class WindowsDriverInfInspector(DriverPowerShell shell) : IDriverI
                     sections.Add(name.ToString());
             } while (SetupFindNextLine(ref manufacturer, out manufacturer));
         }
-        var identifiers = sections.SelectMany(section => ReadLines(inf, section))
-            .SelectMany(fields => fields.Skip(1).Select((id, index) =>
-                new DriverIdentifier(id, index == 0 ? DriverIdentifierKind.Hardware : DriverIdentifierKind.Compatible, index)))
-            .Where(id => !string.IsNullOrWhiteSpace(id.Value)).Distinct().ToArray();
-        var version = "";
-        var date = "";
-        if (SetupFindFirstLine(inf, "Version", "DriverVer", out var versionLine))
-        {
-            var rawDate = ReadField(ref versionLine, 1);
-            if (DateOnly.TryParse(rawDate, System.Globalization.CultureInfo.InvariantCulture, out var parsed))
-                date = parsed.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
-            if (SetupGetFieldCount(ref versionLine) >= 2) version = ReadField(ref versionLine, 2);
-        }
-        var verified = signer.Valid;
+        var (version, date) = ReadDriverVer(inf, "Version") ?? ("", "");
+        var installSections = sections.SelectMany(section => ReadLines(inf, section)).Where(fields => fields.Length > 1)
+            .GroupBy(fields => fields[0], StringComparer.OrdinalIgnoreCase).Select(models =>
+            {
+                var install = ActualInstallSection(inf, models.Key);
+                var (effectiveVersion, effectiveDate) = ReadDriverVer(inf, install) ?? (version, date);
+                var ids = models.SelectMany(fields => fields.Skip(1).Select((id, index) =>
+                        new DriverIdentifier(id, index == 0 ? DriverIdentifierKind.Hardware : DriverIdentifierKind.Compatible, index)))
+                    .Where(id => !string.IsNullOrWhiteSpace(id.Value)).Distinct().ToArray();
+                return new DriverInstallSection(install, effectiveVersion, effectiveDate, ids);
+            }).ToArray();
+        var identifiers = installSections.SelectMany(section => section.Identifiers).Distinct().ToArray();
+        var verified = HasTrustedSignature(signer.Valid, signer.Error);
         var architecture = RuntimeInformation.OSArchitecture switch
         { Architecture.X64 => ".NTamd64", Architecture.Arm64 => ".NTarm64", Architecture.X86 => ".NTx86", _ => "" };
         var catalogName = VersionField(inf, "CatalogFile" + architecture);
@@ -96,14 +96,36 @@ public sealed class WindowsDriverInfInspector(DriverPowerShell shell) : IDriverI
         // SIGNERSCORE_LOGO_PREMIUM, SIGNERSCORE_LOGO_STANDARD and SIGNERSCORE_WHQL.
         // INBOX (3) and UNCLASSIFIED (4) do not establish that a package passed WHQL testing.
         verified = verified && catalogHash.Length > 0;
-        var certification = verified && IsWhqlScore(signer.Score)
+        var certification = verified && signer.Valid && IsWhqlScore(signer.Score)
             ? DriverCertification.Whql : DriverCertification.Unverified;
         return new(Path.GetRelativePath(root, infPath), VersionField(inf, "Class"), VersionField(inf, "Provider"), version,
             date, identifiers, sections.ToArray(), HashFile(infPath), catalogHash, signer.Publisher, verified, certification)
-        { Catalog = catalogName, ExtensionId = VersionField(inf, "ExtensionId") };
+        { Catalog = catalogName, ExtensionId = VersionField(inf, "ExtensionId"), InstallSections = installSections };
     }
 
+    // ERROR_AUTHENTICODE_TRUSTED_PUBLISHER indicates a valid signature from the Trusted Publishers store.
+    internal static bool HasTrustedSignature(bool setupVerified, uint error) => setupVerified || error == 0xE0000241u;
+
     internal static bool IsWhqlScore(uint score) => score is 0x0D000001 or 0x0D000002 or 0x0D000005;
+
+    /// <summary>Resolves the locally applicable DDInstall decoration using the same parser as Models sections.</summary>
+    private static string ActualInstallSection(InfHandle inf, string section)
+    {
+        var actual = new StringBuilder(256);
+        if (!SetupDiGetActualSectionToInstall(inf, section, actual, (uint)actual.Capacity, out _, IntPtr.Zero))
+            throw new IOException($"Cannot resolve the driver INF install section '{section}'.", new Win32Exception(Marshal.GetLastWin32Error()));
+        return actual.ToString();
+    }
+
+    /// <summary>Reads an explicit DriverVer directive, leaving inheritance to the caller.</summary>
+    private static (string Version, string Date)? ReadDriverVer(InfHandle inf, string section)
+    {
+        if (!SetupFindFirstLine(inf, section, "DriverVer", out var line)) return null;
+        var count = SetupGetFieldCount(ref line);
+        var date = count >= 1 && DateOnly.TryParse(ReadField(ref line, 1), CultureInfo.InvariantCulture, out var parsed)
+            ? parsed.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) : "";
+        return (count >= 2 ? ReadField(ref line, 2) : "", date);
+    }
 
     private static string HashFile(string path)
     {
@@ -150,6 +172,9 @@ public sealed class WindowsDriverInfInspector(DriverPowerShell shell) : IDriverI
     private static extern InfHandle SetupOpenInfFile(string path, string? infClass, uint style, out uint errorLine);
     [DllImport("setupapi.dll")]
     private static extern void SetupCloseInfFile(IntPtr inf);
+    [DllImport("setupapi.dll", EntryPoint = "SetupDiGetActualSectionToInstallW", CharSet = CharSet.Unicode, SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)] private static extern bool SetupDiGetActualSectionToInstall(InfHandle inf,
+        string sectionName, StringBuilder section, uint sectionSize, out uint required, IntPtr extension);
     [DllImport("setupapi.dll", EntryPoint = "SetupDiGetActualModelsSectionW", CharSet = CharSet.Unicode, SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)] private static extern bool SetupDiGetActualModelsSection(ref InfContext manufacturer,
         IntPtr platform, StringBuilder section, uint sectionSize, out uint required, IntPtr reserved);

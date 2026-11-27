@@ -20,6 +20,10 @@ using WinOptimizer.UI.ViewModels;
 using WinOptimizer.Core.Features.Extensions;
 using WinOptimizer.UI.Features.Extensions;
 using WinOptimizer.UI.Features.Extensions.Notch;
+using WinOptimizer.Core.Features.SystemInformation.Interfaces;
+using WinOptimizer.Infrastructure.Features.Extensions;
+using WinOptimizer.UI.Features.Dashboard;
+using WinOptimizer.UI.Features.Benchmark;
 
 namespace WinOptimizer.UI.Features.Common.Extensions.DI;
 
@@ -38,6 +42,8 @@ public static class UIServicesExtensions
         // Dispatcher Service (Singleton - UI thread dispatching)
         // Requires late initialization in MainWindow.xaml.cs after window creation
         services.AddSingleton<IDispatcherService, DispatcherService>();
+        services.AddSingleton<ScanCancellationNotifications>();
+        services.AddSingleton<IScanCancellationNotifications>(provider => provider.GetRequiredService<ScanCancellationNotifications>());
 
         // Main Window Provider (Singleton - Abstracts static App.MainWindow access)
         services.AddSingleton<IMainWindowProvider, MainWindowProvider>();
@@ -136,6 +142,14 @@ public static class UIServicesExtensions
         services.AddSingleton<WinOptimizer.UI.Features.Drivers.ViewModels.DriverSettingsViewModel>();
         services.AddTransient<WinOptimizer.UI.Features.Drivers.ViewModels.DriversViewModel>();
         services.AddTransient<WinOptimizer.UI.Features.SystemInformation.ViewModels.SystemInformationViewModel>();
+        services.AddSingleton<ProgramSearchService>();
+        services.AddTransient<BenchmarkViewModel>();
+        services.AddSingleton<WinOptimizer.UI.Features.Disks.DiskToolSessions>();
+        services.AddTransient(provider => new DashboardViewModel(
+            provider.GetRequiredService<ISystemInformationService>(), WindowsSystemMonitorService.CreateUsageMonitor(),
+            provider.GetRequiredService<IInteractiveUserService>(), provider.GetRequiredService<ILocalizationService>(),
+            provider.GetRequiredService<ILogService>(), provider.GetRequiredService<IApplicationModeService>(),
+            provider.GetRequiredService<TimeProvider>()));
         services.AddSingleton<Func<WinOptimizer.UI.Features.Extensions.ViewModels.SystemMonitorReadingsViewModel, WinOptimizer.UI.Features.Extensions.ISystemMonitorWindow>>(
             _ => readings => new WinOptimizer.UI.Features.Extensions.SystemMonitorWindow(readings));
         if (desktopWidgetHost)
@@ -210,7 +224,8 @@ public static class UIServicesExtensions
                 () => (sp.GetRequiredService<IMainWindowProvider>().MainWindow as MainWindow)?.NavigationFrame
                     ?? throw new InvalidOperationException("The main navigation frame is unavailable."),
                 () => (sp.GetRequiredService<IMainWindowProvider>().MainWindow as MainWindow)?.SuspendForUninstall()
-                    ?? throw new InvalidOperationException("The main application window is unavailable.")));
+                    ?? throw new InvalidOperationException("The main application window is unavailable."),
+                sp.GetRequiredService<ScanCancellationNotifications>()));
         services.AddSingleton<IExternalAppsItemsProvider>(sp => sp.GetRequiredService<ExternalAppsViewModel>());
         services.AddSingleton<SoftwareAppsViewModel>();
 

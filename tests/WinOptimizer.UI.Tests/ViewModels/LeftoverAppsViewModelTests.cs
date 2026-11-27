@@ -1,5 +1,6 @@
 using System.Xml.Linq;
 using Moq;
+using WinOptimizer.UI.Features.Common.Services;
 using WinOptimizer.Core.Features.Common.Enums;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Models;
@@ -21,6 +22,7 @@ public sealed class LeftoverAppsViewModelTests : IDisposable
     private readonly Mock<ITaskProgressService> _tasks = new();
     private readonly Mock<IDispatcherService> _dispatcher = new();
     private readonly CancellationTokenSource _cancel = new();
+    private readonly ScanCancellationNotifications _notifications = new();
     private readonly LeftoverAppsViewModel _vm;
     private LeftoverItem _first = new(Guid.NewGuid(), "obsolete.msi", LeftoverKind.Msi, @"C:\Windows\Installer\obsolete.msi", 42, true, "Unreferenced fixture");
     private LeftoverItem _protected = new(Guid.NewGuid(), "protected.msp", LeftoverKind.Msp, @"C:\Windows\Installer\protected.msp", 80, false, "Ownership unknown");
@@ -34,7 +36,7 @@ public sealed class LeftoverAppsViewModelTests : IDisposable
         _dispatcher.Setup(source => source.RunOnUIThread(It.IsAny<Action>())).Callback((Action action) => action());
         _tasks.Setup(source => source.StartTask(It.IsAny<string>(), It.IsAny<bool>())).Returns(_cancel);
         _service.Setup(source => source.ScanAsync(It.IsAny<CancellationToken>())).ReturnsAsync(() => new LeftoverScan([_first, _protected], ["Fixture coverage notice"]));
-        _vm = new(_service.Object, _text.Object, _dialogs.Object, _mode.Object, _tasks.Object, _dispatcher.Object, Mock.Of<ILogService>());
+        _vm = new(_service.Object, _text.Object, _dialogs.Object, _mode.Object, _tasks.Object, _dispatcher.Object, Mock.Of<ILogService>(), _notifications);
     }
 
     [Fact]
@@ -141,9 +143,12 @@ public sealed class LeftoverAppsViewModelTests : IDisposable
         Assert.Empty(_vm.Items); Assert.False(_vm.HasSelectedItems); Assert.False(_vm.HasScanned);
         Assert.Equal("Selected: 0 · 0 B", _vm.SelectionText);
         Assert.Equal("Fixture inventory failed", _vm.StatusText);
+        var notices = new List<ScanCancellationNotice>();
+        _notifications.Cancelled += notices.Add;
         _service.Setup(source => source.ScanAsync(It.IsAny<CancellationToken>())).ThrowsAsync(new OperationCanceledException());
         await _vm.ScanAsync();
-        Assert.False(_vm.IsBusy); Assert.Equal("UninstallResidue_Cancelled", _vm.StatusText);
+        Assert.False(_vm.IsBusy); Assert.Equal("Restore_Cancelled", _vm.StatusText);
+        Assert.Equal("Restore_Cancelled", Assert.Single(notices).Message);
         Assert.Equal("Selected: 0 · 0 B", _vm.SelectionText);
     }
 

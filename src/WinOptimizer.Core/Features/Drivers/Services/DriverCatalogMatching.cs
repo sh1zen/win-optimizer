@@ -37,22 +37,31 @@ public static class DriverCatalogMatching
         foreach (var device in present)
         {
             var ids = Identifiers(device).ToArray();
-            if (ids.Any(id => listed.Contains(id.Value))) hinted.Add(device);
+            var isListed = ids.Any(id => listed.Contains(id.Value));
+            if (isListed) hinted.Add(device);
+            if (native && (listed.Count > 0 && !isListed ||
+                update.ClassName.Length > 0 && !update.ClassName.Equals(device.ClassName, StringComparison.OrdinalIgnoreCase)))
+                continue;
             var installed = Array.FindIndex(ids, id => id.Value.Equals(device.MatchingDeviceId, StringComparison.OrdinalIgnoreCase));
             foreach (var component in components)
             {
                 // Driver IDs and compatible IDs use their original positions and exact string equality.
-                var match = (from deviceId in ids
-                             from infId in component.Identifiers
+                var match = (from target in InstallTargets(component)
+                             from deviceId in ids
+                             from infId in target.Identifiers
                              where deviceId.Value.Equals(infId.Value, StringComparison.OrdinalIgnoreCase)
-                             orderby infId.Kind, deviceId.Kind, deviceId.Order, infId.Order
-                             select (deviceId, infId)).FirstOrDefault();
+                             let release = ReleasePreference(target.Section?.Date ?? component.Date, target.Section?.Version ?? component.Version)
+                             orderby infId.Kind, deviceId.Kind, deviceId.Order, infId.Order, release descending
+                             select (deviceId, infId, target.Section)).FirstOrDefault();
                 if (match.deviceId is null) continue;
                 var relation = device.DriverProvider.Length > 0 && component.Provider.Length > 0 &&
                     !device.DriverProvider.Equals(component.Provider, StringComparison.OrdinalIgnoreCase)
-                    ? DriverVersionRelation.NotComparable : Compare(device, component.ClassName, component.Version, component.Date);
+                    ? DriverVersionRelation.NotComparable : Compare(device, component.ClassName,
+                        match.Section?.Version ?? component.Version, match.Section?.Date ?? component.Date);
+                var position = Array.IndexOf(ids, match.deviceId);
                 comparisons.Add(new(device, component, match.deviceId, match.infId, relation,
-                    installed >= 0 && Array.IndexOf(ids, match.deviceId) < installed));
+                    installed >= 0 && position < installed)
+                { InstallSection = match.Section, LessSpecificIdentifier = installed >= 0 && position > installed });
             }
         }
 
@@ -65,17 +74,21 @@ public static class DriverCatalogMatching
         var certification = catalog?.Verification == DriverVerification.Verified &&
             matchingComponents.All(component => component.Certification == DriverCertification.Whql)
             ? DriverCertification.Whql : DriverCertification.Unverified;
-        var versions = matchingComponents.Select(component => component.Version).Distinct().ToArray();
+        var versions = comparisons.Select(match => match.Version).Distinct().ToArray();
         return new(update with { Version = versions.Length == 1 ? versions[0] : "", Certification = certification },
             comparisons.Select(match => match.Device).Distinct().ToArray())
         { Applicability = DriverApplicability.PackageMatch, Comparisons = comparisons };
     }
 
+    /// <summary>Retains INF-wide evidence for legacy components and components without model-level data.</summary>
+    private static IEnumerable<(DriverInstallSection? Section, DriverIdentifier[] Identifiers)> InstallTargets(DriverComponent component) =>
+        component.InstallSections.Length == 0 ? [(null, component.Identifiers)] :
+            component.InstallSections.Select(section => ((DriverInstallSection?)section, section.Identifiers));
+
     public static DriverVersionRelation Compare(DriverDevice device, string className, string version, string date)
     {
         if (className.Length == 0 || !className.Equals(device.ClassName, StringComparison.OrdinalIgnoreCase) ||
-            className.Equals("Extension", StringComparison.OrdinalIgnoreCase) ||
-            className.Equals("SoftwareComponent", StringComparison.OrdinalIgnoreCase))
+            className.Equals("Extension", StringComparison.OrdinalIgnoreCase))
             return DriverVersionRelation.NotComparable;
         if (!Version.TryParse(version, out var available) || !Version.TryParse(device.Version, out var installed))
             return DriverVersionRelation.Unknown;
@@ -90,35 +103,72 @@ public static class DriverCatalogMatching
     private static Version Normalize(Version version) =>
         new(version.Major, version.Minor, Math.Max(0, version.Build), Math.Max(0, version.Revision));
 
-    /// <summary>Marks the newest verified release within a device's comparable distribution and match group.</summary>
-    public static DriverUpdateMatch[] MarkNewest(IReadOnlyList<DriverUpdateMatch> matches)
+    /// <summary>Recommends the best proven upgrade per device and distribution under the selected certification policy.</summary>
+    public static (DriverUpdateMatch[] Updates, int Excluded) ClassifyCandidates(
+        IEnumerable<DriverUpdate> candidates, DriverInventory inventory, DriverScanOptions options, CancellationToken ct)
     {
-        var assignments = matches.SelectMany((match, index) => match.Comparisons
-            .Where(item => item.VersionRelation is DriverVersionRelation.Newer or DriverVersionRelation.Current or DriverVersionRelation.Older &&
-                match.Update.Catalog?.Verification == DriverVerification.Verified && Version.TryParse(item.Component.Version, out _))
-            .Select(item => (Index: index, Match: item, Catalog: match.Update.Catalog!)));
-        var groups = assignments.GroupBy(entry => (entry.Match.Device.InstanceId, entry.Match.Component.ClassName.ToUpperInvariant(),
-            entry.Match.Component.Provider.ToUpperInvariant(), entry.Match.InfIdentifier.Value.ToUpperInvariant(),
-            entry.Catalog.Branch, entry.Catalog.Family, entry.Catalog.Target.Oem, entry.Catalog.Target.Model));
-        var newest = new Dictionary<int, HashSet<DriverDeviceMatch>>();
-        foreach (var group in groups)
+        var matches = Deduplicate(candidates).Select(update =>
         {
-            var winner = group.MaxBy(entry => ReleaseOrder(entry.Match.Component));
-            var version = ReleaseOrder(winner.Match.Component);
-            foreach (var entry in group.Where(entry => ReleaseOrder(entry.Match.Component) == version))
+            ct.ThrowIfCancellationRequested();
+            return Evaluate(update, inventory);
+        }).ToArray();
+        var assignments = matches.SelectMany((match, index) => UpgradeComparisons(match, options.OnlyWhqlUpdates)
+            .Select(item => (Index: index, Match: item, Catalog: match.Update.Catalog!)));
+        var winners = assignments.GroupBy(entry => (entry.Match.Device.InstanceId.ToUpperInvariant(),
+                entry.Match.Component.Provider.ToUpperInvariant(), DistributionBranch(entry.Catalog),
+                entry.Catalog.Target.Oem.ToUpperInvariant(), entry.Catalog.Target.Model.ToUpperInvariant()))
+            .Select(group => group.OrderByDescending(entry => Preference(entry.Match))
+                .ThenByDescending(entry => entry.Match.Component.Certification)
+                .ThenByDescending(entry => entry.Catalog.OemRecommended)
+                .ThenByDescending(entry => matches[entry.Index].Applicability == DriverApplicability.WindowsUpdate)
+                .First())
+            .ToLookup(entry => entry.Index, entry => entry.Match);
+        var updates = winners.OrderBy(group => group.Key).Select(group =>
+        {
+            var match = matches[group.Key];
+            var comparisons = group.Select(item => item with { NewestFound = true }).ToArray();
+            var versions = comparisons.Select(item => item.Version).Distinct().ToArray();
+            return match with
             {
-                if (!newest.TryGetValue(entry.Index, out var marked)) newest.Add(entry.Index, marked = []);
-                marked.Add(entry.Match);
-            }
-        }
-        return matches.Select((match, index) => newest.TryGetValue(index, out var marked)
-            ? match with { Comparisons = match.Comparisons.Select(item => item with { NewestFound = marked.Contains(item) }).ToArray() }
-            : match).ToArray();
+                Devices = comparisons.Select(item => item.Device).Distinct().ToArray(),
+                Comparisons = comparisons,
+                Update = match.Update with
+                {
+                    Version = versions.Length == 1 ? versions[0] : "",
+                    Certification = comparisons.All(item => item.Component.Certification == DriverCertification.Whql)
+                        ? DriverCertification.Whql : DriverCertification.Unverified
+                }
+            };
+        }).ToArray();
+        ct.ThrowIfCancellationRequested();
+        return (updates, matches.Length - updates.Length);
     }
 
-    private static (DateOnly, Version) ReleaseOrder(DriverComponent component) =>
-        (DateOnly.TryParseExact(component.Date, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var date) ? date : default,
-            Normalize(Version.Parse(component.Version)));
+    // Windows Update and the Microsoft Catalog can deliver the same release to the same device.
+    private static string DistributionBranch(DriverCatalogRecord catalog) =>
+        catalog.References.Any(reference => reference.Source == DriverSources.WindowsUpdate) ||
+        catalog.Branch.Length == 0 && catalog.References.Any(reference => reference.Source == DriverSources.MicrosoftCatalog)
+            ? "WINDOWS UPDATE" : catalog.Branch.ToUpperInvariant();
+
+    // Evaluate the strongest signed INF within a package before comparing it with the installed driver.
+    private static IEnumerable<DriverDeviceMatch> UpgradeComparisons(DriverUpdateMatch match, bool onlyWhql)
+    {
+        if (match.Update.Catalog?.Verification != DriverVerification.Verified) return [];
+        return match.Comparisons.Where(item => item.Component.SignatureValid && !item.LessSpecificIdentifier &&
+                item.Component.ClassName.Equals(item.Device.ClassName, StringComparison.OrdinalIgnoreCase))
+            .GroupBy(item => item.Device.InstanceId, StringComparer.OrdinalIgnoreCase)
+            .Select(group => group.MaxBy(Preference)!)
+            .Where(item => item.VersionRelation == DriverVersionRelation.Newer &&
+                (!onlyWhql || item.Component.Certification == DriverCertification.Whql));
+    }
+
+    private static (int, int, int, (DateOnly, Version?)) Preference(DriverDeviceMatch match) =>
+        (-(int)match.InfIdentifier.Kind, -(int)match.DeviceIdentifier.Kind, -match.DeviceIdentifier.Order,
+            ReleasePreference(match.Date, match.Version));
+
+    private static (DateOnly Date, Version? Version) ReleasePreference(string date, string version) =>
+        (DateOnly.TryParseExact(date, "yyyy-MM-dd", CultureInfo.InvariantCulture, DateTimeStyles.None, out var parsedDate) ? parsedDate : default,
+            Version.TryParse(version, out var parsedVersion) ? Normalize(parsedVersion) : null);
 
     /// <summary>Uses complete verified payload identity and retains distribution alternatives with different constraints.</summary>
     public static IReadOnlyList<DriverUpdate> Deduplicate(IEnumerable<DriverUpdate> updates)

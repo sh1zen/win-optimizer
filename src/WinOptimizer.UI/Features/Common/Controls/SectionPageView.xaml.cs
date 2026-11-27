@@ -8,6 +8,7 @@ using WinOptimizer.Core.Features.Common.Events;
 using WinOptimizer.Core.Features.Common.Events.Settings;
 using WinOptimizer.Core.Features.Common.Events.UI;
 using WinOptimizer.Core.Features.Common.Interfaces;
+using WinOptimizer.Core.Features.Common.Localization;
 using WinOptimizer.UI.Features.Common.Helpers;
 using WinOptimizer.UI.Features.Common.Interfaces;
 using WinOptimizer.UI.Features.Common.Models;
@@ -19,6 +20,7 @@ namespace WinOptimizer.UI.Features.Common.Controls;
 public sealed partial class SectionPageView : UserControl
 {
     private IConfigReviewService _review = null!;
+    private ILocalizationService _localization = null!;
     private IEventBus _events = null!;
     private ISubscriptionToken? _appliedSubscription;
     private ISubscriptionToken? _refreshedSubscription;
@@ -56,6 +58,7 @@ public sealed partial class SectionPageView : UserControl
     {
         ViewModel = viewModel;
         Icon = icon;
+        _localization = localization;
         _review = review;
         _events = events;
         _navigate = navigate;
@@ -122,6 +125,12 @@ public sealed partial class SectionPageView : UserControl
 
         ViewModel.CurrentSectionKey = item.Key;
         var searchText = destination?.SearchText;
+        if (destination?.Setting is { } setting)
+        {
+            var key = SettingLocalizationKeys.Name(setting);
+            searchText = _localization.GetString(key);
+            if (searchText == $"[{key}]") searchText = setting.Name;
+        }
         if (!string.IsNullOrWhiteSpace(searchText)) item.Feature.ApplySearchFilter(searchText);
         if (!InnerContentFrame.Navigate(item.Route.PageType, searchText, new SuppressNavigationTransitionInfo()))
             throw new InvalidOperationException($"Cannot navigate to section {item.Key}.");

@@ -1,10 +1,9 @@
 # Manage Windows startup, processes, and system health
 
-Open **Control** to use the system tools. Test mode and configuration review
-block changes to environment variables, the hosts file, and battery firmware.
-These changes require the applicable Windows or firmware permissions.
-
-![Control tools for Windows and startup management alongside a sample process tree with the Details tab open](images/system-tools.jpg)
+Open **Control** for startup, process, and system configuration tools. Test mode
+and configuration review block changes to environment variables, the hosts file,
+and battery firmware. These changes require the applicable Windows or firmware
+permissions.
 
 ## Edit environment variables
 
@@ -80,7 +79,17 @@ for sort options, open-file queries, and network traffic.
 
 ## Diagnose and repair Windows
 
-Open **Windows status and restore** to run a quick health check, a full
-diagnosis, or a DISM and SFC repair. Component cleanup requires separate
-confirmation. See [Windows servicing operations](../src/WinOptimizer.Infrastructure/Features/Management/README.md)
+Open **Repair** in the sidebar and select **Diagnose** for a full diagnosis.
+For a quick health check, turn on **Quick status** before selecting **Diagnose**.
+Follow each phase in the progress card. The report summarizes the outcome and
+shows the next step. A full diagnosis can show how many components are affected
+and identify the component when Windows reports a single one. The analysis can
+also show the component store size and whether Windows recommends cleanup.
+Cancelling returns to the overview and shows a notification once the operation
+stops. Windows keeps the changes made by completed commands.
+Use **Repair** in a report that recommends it, or under **Repair options**.
+Return to the overview to run **Diagnose** again or reopen the latest report.
+Repair and component cleanup require confirmation. Select the **Info** icon
+next to the page title for requirements, log locations, and Microsoft's repair guidance.
+See [Windows servicing operations](../src/WinOptimizer.Infrastructure/Features/Management/README.md)
 for repair sources, restart restrictions, ResetBase, and cancellation.

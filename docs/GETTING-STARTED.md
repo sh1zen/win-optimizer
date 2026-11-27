@@ -19,12 +19,22 @@ only the files it installed.
 The startup screen shows initialization progress. The app then restores your
 language, theme, window position, sidebar, and app-list layout.
 
+**Dashboard** opens at startup. It shows your PC and Windows details, graphics
+driver versions, CPU core count and maximum clock, live CPU and memory usage,
+and capacity and file system details for the Windows drive. Select **Copy** to
+copy the device summary, or choose a quick action to open the corresponding tool.
+
+Use **Search the program** in the title bar to find pages, tools and settings
+by name or description in any available language. Results appear in the interface
+language over the current page. Select a result or press **Enter** from the search
+field to open the first result. Press **Esc** or select **Close** to return to the page.
+
 1. Select a section in the sidebar.
 2. Select a tool on the overview page.
 3. Examine the current values and available options.
 4. Select the changes or scan results.
 5. Confirm the operation.
-6. Monitor progress in the footer.
+6. Follow progress on the page or open the task icon in the title bar.
 
 Use the search suggestions in **Optimize** and **Customize** to find settings.
 Select **ⓘ** or press **Ctrl+D** to examine registry values, scripts, and
@@ -37,12 +47,38 @@ its own progress indicator.
 
 Use [Test mode](CONFIGURATION-RECOVERY.md#test-mode) to prepare supported settings
 before you apply them. Use [logs and history](CONFIGURATION-RECOVERY.md#logs-and-history)
-to examine the results. The footer lets you cancel operations that support
-cancellation.
+to examine the results. The task icon opens progress, terminal output, and
+cancellation when the operation supports it.
+When a cancelled scan stops, a notification appears and the app returns from
+the scan review to its starting page.
 
 If you close the app during an operation, the app asks for confirmation.
 Confirmed exits and update restarts wait for operation cleanup and pending saves.
 If you cancel the exit, monitoring continues.
+
+## Measure PC performance
+
+Open **Dashboard → Bench**. Review the CPU, RAM, graphics, and Windows details.
+Select **Run** on an individual test or **Run all tests**. Select the fixed drive
+for disk writes and the graphics adapter for the GPU test. Use **Cancel** to stop
+a run and keep its finished results.
+
+| Test | Measurement |
+| --- | --- |
+| CPU clock | Average CPU frequency reported by Windows during sampling, in GHz |
+| CPU throughput | Synthetic double-precision arithmetic throughput, in GFLOPS |
+| Memory copy | Sequential in-memory copy throughput, in GB/s |
+| Disk write | Sequential write-through throughput, in MB/s |
+| GPU throughput | Synthetic single-precision compute throughput on the selected GPU, in GFLOPS |
+
+The disk test needs at least 64 MiB of free space and write access to the
+selected drive. It creates a 64 MiB test file at the root of the drive and
+Windows removes it when the file closes. Test results reflect conditions during
+the run, including the power plan and other running programs.
+
+The GPU test requires a graphics card and Windows driver that support Direct3D
+feature level 11_0 or higher. It uses Direct3D components supplied with Windows
+and measures a compute shader using GPU timestamps.
 
 ## Change app preferences
 
@@ -72,7 +108,9 @@ remove the sign-in task.
 The update icon shows the installed version, the latest verified release, and
 the check status. Select **Check for Updates** from that icon, or select
 **Current Version** just above the links in **Settings → General → Info**.
-A manual check reports lookup errors.
+Manual checks show the result in a toast inside the app. The update menu stays
+open and refreshes its version and status. Update toasts provide the actions to
+download an available update and relaunch once it is ready.
 
 The automatic app update and removal-script checks have separate switches under
 **Settings → General → Updates**.

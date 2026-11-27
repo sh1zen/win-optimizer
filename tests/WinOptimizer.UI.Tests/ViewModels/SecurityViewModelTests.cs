@@ -1,4 +1,5 @@
 using Moq;
+using WinOptimizer.UI.Features.Common.Services;
 using WinOptimizer.Core.Features.Common.Enums;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Models;
@@ -36,8 +37,8 @@ public sealed class SecurityViewModelTests : IDisposable
         _service.Setup(service => service.FixAsync(It.IsAny<Guid>(), It.IsAny<IReadOnlyList<SecurityCheckId>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((Guid _, IReadOnlyList<SecurityCheckId> ids, CancellationToken _) => new SecurityFixResult(ids.Select(id => new SecurityFixOutcome(id, true, "")).ToArray(), false));
     }
-    private SecurityViewModel Create() => new(_service.Object, _dialogs.Object, _localization.Object, _mode.Object,
-        new ExtensionTestDispatcher(), _tasks.Object);
+    private SecurityViewModel Create(ScanCancellationNotifications? notifications = null) => new(_service.Object, _dialogs.Object, _localization.Object, _mode.Object,
+        new ExtensionTestDispatcher(), _tasks.Object, notifications);
 
     [Fact]
     public async Task ExplicitScanShowsFiveCategoriesAndOnlySupportedSelections()
@@ -95,7 +96,10 @@ public sealed class SecurityViewModelTests : IDisposable
     [Fact]
     public async Task ScanActionsShowCurrentTaskOutputAndRejectALateCancelledReport()
     {
-        using var vm = Create();
+        var notifications = new ScanCancellationNotifications();
+        var notices = new List<ScanCancellationNotice>();
+        notifications.Cancelled += notices.Add;
+        using var vm = Create(notifications);
         var worker = new TaskCompletionSource<SecurityScanReport>(TaskCreationOptions.RunContinuationsAsynchronously);
         var output = new List<string>();
         _tasks.Setup(tasks => tasks.UpdateDetailedProgress(It.IsAny<TaskProgressDetail>()))
@@ -119,6 +123,7 @@ public sealed class SecurityViewModelTests : IDisposable
         Assert.False(vm.CancelScanCommand.CanExecute(null));
         Assert.True(vm.IsScanning);
         Assert.Equal("Progress_Cancelling", vm.ScanProgressHint);
+        Assert.Empty(notices);
 
         worker.SetResult(new SecurityScanReport(Guid.NewGuid(), DateTimeOffset.UnixEpoch, true, []));
         await scan;
@@ -127,6 +132,7 @@ public sealed class SecurityViewModelTests : IDisposable
         Assert.True(vm.ShowIntroduction);
         Assert.False(vm.ShowScanDetailsCommand.CanExecute(null));
         Assert.Equal("Security_Cancelled", vm.Status);
+        Assert.Equal("Security_Cancelled", Assert.Single(notices).Message);
         _tasks.Verify(tasks => tasks.CompleteTask(), Times.Once);
     }
 

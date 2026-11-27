@@ -20,8 +20,6 @@ public sealed class ManagementViewModel : ObservableObject, IDisposable
     public string BatteryDescription => _localization.GetString("Utilities_BatteryDescription");
     public string ConnectionDisplayName => _localization.GetString("Utilities_Connection");
     public string ConnectionDescription => _localization.GetString("Utilities_ConnectionDescription");
-    public string WindowsStatusDisplayName => _localization.GetString("WindowsStatus_Title");
-    public string WindowsStatusDescription => _localization.GetString("WindowsStatus_TitleDescription");
     public string AutorunsDisplayName => _localization.GetString("Autoruns_Title");
     public string AutorunsDescription => _localization.GetString("Autoruns_TitleDescription");
     public string ProcessMonitorDisplayName => _localization.GetString("ProcessMonitor_Title");

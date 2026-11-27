@@ -22,11 +22,7 @@ internal abstract class OfficialDriverSource(OfficialDriverHttp http, DriverSour
         var query = new Query(http, Source, SupportPage, temporaryDirectory);
         try
         {
-            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            deadline.CancelAfter(TimeSpan.FromSeconds(90));
-            try { await CollectAsync(query, context.Inventory, context.Options, deadline.Token).ConfigureAwait(false); }
-            catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-            { query.Failure("The source reached its discovery time limit."); }
+            await CollectAsync(query, context.Inventory, context.Options, ct).ConfigureAwait(false);
         }
         catch (Exception ex) when (IsSourceError(ex))
         { query.Failure(ex.Message); }
@@ -80,13 +76,8 @@ internal abstract class OfficialDriverSource(OfficialDriverHttp http, DriverSour
             return result;
         }
 
-        public async Task<string> HtmlAsync(Uri url, CancellationToken ct, string? form = null)
-        {
-            var body = (await GetAsync(url, ct, form).ConfigureAwait(false)).Text;
-            if (Rx(@"<title[^>]*>\s*(Access Denied|Just a moment|Request Rejected|Attention Required)|cf-chl-|_Incapsula_Resource|verify you are human").IsMatch(body))
-                throw new DriverScanException($"{url.Host} blocked automated access or requires a CAPTCHA.");
-            return body;
-        }
+        public async Task<string> HtmlAsync(Uri url, CancellationToken ct, string? form = null) =>
+            (await GetAsync(url, ct, form).ConfigureAwait(false)).Text;
 
         public async Task<JsonDocument> JsonAsync(Uri url, CancellationToken ct) =>
             JsonDocument.Parse((await GetAsync(url, ct).ConfigureAwait(false)).Body);
@@ -123,12 +114,13 @@ internal abstract class OfficialDriverSource(OfficialDriverHttp http, DriverSour
             DriverTarget target, Uri landing, DriverPayload[] payloads, long? size = null, string branch = "",
             Uri? descriptor = null, string[]? ids = null, bool whql = false, bool license = false,
             string[]? components = null, string? revision = null, DateTimeOffset? retrievedAt = null,
-            bool oemRecommended = false, string[]? prerequisites = null)
+            bool oemRecommended = false, string[]? prerequisites = null, Uri? scanLicensePage = null)
         {
             if (string.IsNullOrWhiteSpace(id) || string.IsNullOrWhiteSpace(title))
                 throw new DriverScanException($"{source} returned a record without identity or title.");
             if (!OfficialDriverHttp.Approved(source, landing) ||
-                descriptor is not null && !OfficialDriverHttp.Approved(source, descriptor))
+                descriptor is not null && !OfficialDriverHttp.Approved(source, descriptor) ||
+                scanLicensePage is not null && !OfficialDriverHttp.Approved(source, scanLicensePage))
                 throw new DriverScanException($"{source} returned an unapproved support or descriptor URL.");
             var approved = payloads.Where(payload => OfficialDriverHttp.Approved(source, payload.Url)).ToArray();
             if (payloads.Length != approved.Length)
@@ -148,7 +140,7 @@ internal abstract class OfficialDriverSource(OfficialDriverHttp http, DriverSour
                 Catalog = new([reference], approved)
                 {
                     PackageVersion = version, Family = family, Branch = branch, Target = target, ListedHardwareIds = ids ?? [],
-                    ClaimsWhql = whql, LicenseRequired = license, ReleaseDate = release == default ? null : release,
+                    ClaimsWhql = whql, LicenseRequired = license, ScanLicensePage = scanLicensePage, ReleaseDate = release == default ? null : release,
                     Verification = license ? DriverVerification.LicenseRequired : DriverVerification.Metadata,
                     DeclaredComponents = components ?? [], OemRecommended = oemRecommended, DeclaredPrerequisites = prerequisites ?? []
                 }

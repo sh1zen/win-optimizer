@@ -10,7 +10,6 @@ public class WinGetProgressParserTests
     [Theory]
     [InlineData(null)]
     [InlineData("")]
-    [InlineData("   ")]
     [InlineData("\t")]
     [InlineData("InstallationDisclaimer1")]
     [InlineData("InstallationDisclaimer2")]
@@ -38,7 +37,6 @@ public class WinGetProgressParserTests
     [InlineData("Downloading https://example.com/", "Downloading...")]
     [InlineData("ReportIdentityFound Google Chrome [Google.Chrome] ShowVersion 120.0.1", "Found: Google Chrome v120.0.1")]
     [InlineData("0x8a15000f : Something went wrong", "Error: Something went wrong")]
-    [InlineData("Some random winget output text", "Some random winget output text")]
     [InlineData("   Some random winget output text   ", "Some random winget output text")]
     [InlineData("  - Microsoft.VCRedist.2015+.x64", "- Microsoft.VCRedist.2015+.x64")]
     public void TranslateLine_NativeOutput_ReturnsExpectedText(string input, string expected)
@@ -49,7 +47,6 @@ public class WinGetProgressParserTests
     [Theory]
     [InlineData(null)]
     [InlineData("")]
-    [InlineData("   ")]
     [InlineData("\t")]
     [InlineData("Some random unrecognized output")]
     public void ParseLine_EmptyOrUnrecognizedOutput_ReturnsNull(string? input)

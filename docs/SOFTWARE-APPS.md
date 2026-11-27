@@ -35,8 +35,8 @@ icons. If the app cannot read the artwork, it shows a category icon.
 
 Select the entries to remove. In **Installed apps**, **Select All** applies to
 the app packages shown by the current filters. Select **Uninstall selected**,
-confirm the operation, and monitor progress in the footer. Select the footer
-progress entry to see the task output.
+confirm the operation, and open the task icon in the title bar to follow
+progress or view terminal output.
 
 Desktop programs use their registered uninstaller when the app can identify
 one exact match. win-optimizer minimizes and waits for the uninstaller to exit.

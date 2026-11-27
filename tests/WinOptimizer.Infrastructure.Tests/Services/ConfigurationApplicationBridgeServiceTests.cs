@@ -95,30 +95,13 @@ public class ConfigurationApplicationBridgeServiceTests
             .Returns(dict);
     }
 
-    [Fact]
-    public async Task ApplyConfigurationSectionAsync_NullSection_ReturnsFalse()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ApplyConfigurationSectionAsync_WithoutItems_ReturnsFalse(bool hasSection)
     {
-        // Act
-        var result = await _service.ApplyConfigurationSectionAsync(null!, "TestSection");
-
-        // Assert
-        result.Should().BeFalse();
-        _mockLog.Verify(
-            x => x.Log(LogLevel.Warning, It.Is<string>(s => s.Contains("empty or null")), null),
-            Times.Once);
-    }
-
-    [Fact]
-    public async Task ApplyConfigurationSectionAsync_EmptySection_ReturnsFalse()
-    {
-        // Arrange
-        var section = new ConfigSection
-        {
-            Items = new List<ConfigurationItem>()
-        };
-
-        // Act
-        var result = await _service.ApplyConfigurationSectionAsync(section, "TestSection");
+        var section = hasSection ? new ConfigSection() : null;
+        var result = await _service.ApplyConfigurationSectionAsync(section!, "TestSection");
 
         // Assert
         result.Should().BeFalse();

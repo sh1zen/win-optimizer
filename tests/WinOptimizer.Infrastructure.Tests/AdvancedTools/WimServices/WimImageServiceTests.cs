@@ -139,17 +139,19 @@ public class WimImageServiceTests
         _mockFileSystem.Verify(fs => fs.DeleteFile(target), Times.Once);
     }
 
-    [Fact]
-    public async Task DetectImageFormatAsync_SourcesDirectoryNotFound_ReturnsNull()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DetectImageFormatAsync_WithoutImageFiles_ReturnsNull(bool sourcesDirectoryExists)
     {
-        // Arrange
-        _mockFileSystem.Setup(fs => fs.DirectoryExists(It.IsAny<string>())).Returns(false);
+        _mockFileSystem.Setup(fs => fs.DirectoryExists(It.IsAny<string>())).Returns(sourcesDirectoryExists);
+        _mockFileSystem.Setup(fs => fs.FileExists(It.IsAny<string>())).Returns(false);
 
-        // Act
-        var result = await _service.DetectImageFormatAsync(@"C:\work");
+        var result = await _service.DetectImageFormatAsync(@"C:work");
 
-        // Assert
         result.Should().BeNull();
+        _mockFileSystem.Verify(fs => fs.FileExists(It.IsAny<string>()),
+            sourcesDirectoryExists ? Times.Exactly(2) : Times.Never());
     }
 
     [Fact]
@@ -199,20 +201,6 @@ public class WimImageServiceTests
         // Assert
         result.Should().NotBeNull();
         result!.Format.Should().Be(ImageFormat.Esd);
-    }
-
-    [Fact]
-    public async Task DetectImageFormatAsync_NoImageFiles_ReturnsNull()
-    {
-        // Arrange
-        _mockFileSystem.Setup(fs => fs.DirectoryExists(It.IsAny<string>())).Returns(true);
-        _mockFileSystem.Setup(fs => fs.FileExists(It.IsAny<string>())).Returns(false);
-
-        // Act
-        var result = await _service.DetectImageFormatAsync(@"C:\work");
-
-        // Assert
-        result.Should().BeNull();
     }
 
     #endregion

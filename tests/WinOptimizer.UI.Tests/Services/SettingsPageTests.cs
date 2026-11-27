@@ -7,10 +7,7 @@ using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Automation.Provider;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Xaml.Media.Animation;
-using System.Runtime.InteropServices.WindowsRuntime;
-using Windows.Graphics.Imaging;
 using WinOptimizer.UI.Features.Common.Controls;
 using WinOptimizer.UI.Features.Cleaner;
 using WinOptimizer.UI.Features.Drivers;
@@ -86,12 +83,12 @@ public sealed class SettingsPageTests
                 generalCards.TakeLast(4).Select(card => Assert.IsType<string>(card.Header)));
             Assert.Equal(updates.CheckForUpdatesLabel, AutomationProperties.GetHelpText(versionCard));
             Assert.False(Assert.IsType<ProgressRing>(versionCard.Content).IsActive);
-            Assert.False(updates.IsUpdateInfoBarOpen);
+            Assert.False(updates.IsUpdateToastOpen);
             var checkForUpdates = Assert.IsAssignableFrom<IAsyncRelayCommand>(versionCard.Command);
             Assert.True(checkForUpdates.CanExecute(null));
             await checkForUpdates.ExecuteAsync(null);
-            Assert.True(updates.IsUpdateInfoBarOpen);
-            Assert.Equal(InfoBarSeverity.Success, updates.UpdateInfoBarSeverity);
+            Assert.True(updates.IsUpdateToastOpen);
+            Assert.Equal(InfoBarSeverity.Success, updates.UpdateToastSeverity);
             var categories = Assert.IsType<ListView>(page.FindName("CategoryList"));
             Assert.Same(defaultCategory, categories.SelectedItem);
             Assert.NotEmpty(categories.Items);
@@ -102,18 +99,6 @@ public sealed class SettingsPageTests
             Assert.Equal(Visibility.Collapsed, showCategories.Visibility);
             router.NavigateToPage(frame, "Settings");
             Assert.Single(frame.BackStack);
-            // Allow the native navigation entrance animation to finish before exporting pixels.
-            await Task.Delay(350);
-            var bitmap = new RenderTargetBitmap();
-            await bitmap.RenderAsync(frame);
-            var pixels = await bitmap.GetPixelsAsync();
-            await using (var output = File.Create(Path.Combine(AppContext.BaseDirectory, "settings-preview.png")))
-            {
-                var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, output.AsRandomAccessStream());
-                encoder.SetPixelData(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied,
-                    (uint)bitmap.PixelWidth, (uint)bitmap.PixelHeight, 96, 96, pixels.ToArray());
-                await encoder.FlushAsync();
-            }
             Assert.Contains(Descendants<TextBlock>(categories), text => text.Text == viewModel.Categories[0].Title);
             var firstCategory = Assert.IsType<ListViewItem>(categories.ContainerFromItem(viewModel.Categories[0]));
             var categoryCard = Assert.IsType<Grid>(VisualTreeHelper.GetChild(firstCategory, 0));

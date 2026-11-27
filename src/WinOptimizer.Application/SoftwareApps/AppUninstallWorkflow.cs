@@ -8,7 +8,7 @@ namespace WinOptimizer.Application.SoftwareApps;
 /// <summary>Coordinates capture, native uninstall, outcome verification and an explicit residue review.</summary>
 public sealed class AppUninstallWorkflow(IUninstallResidueService residues, IUninstallResidueReview review,
     IWindowsAppUninstallService windows, IExternalAppsService external, ITaskProgressService tasks,
-    IApplicationModeService mode, ILocalizationService localization) : IAppUninstallWorkflow
+    IApplicationModeService mode, ILocalizationService localization, IScanCancellationNotifications? scanNotifications = null) : IAppUninstallWorkflow
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
 
@@ -26,7 +26,7 @@ public sealed class AppUninstallWorkflow(IUninstallResidueService residues, IUni
         {
             using var operation = mode.BeginSystemOperation();
             session = await RunStageAsync("UninstallResidue_Capture", token =>
-                residues.CaptureAsync(applications, CreateProgress(), token), ct).ConfigureAwait(false);
+                residues.CaptureAsync(applications, CreateProgress(), token), ct, isScan: true).ConfigureAwait(false);
             List<UninstallNativeOutcome> outcomes = [];
             if (kind == AppUninstallKind.Windows)
             {
@@ -76,7 +76,7 @@ public sealed class AppUninstallWorkflow(IUninstallResidueService residues, IUni
             }
 
             var verifiedResult = await RunStageAsync("UninstallResidue_Verifying", token =>
-                session.VerifyAsync(outcomes, CreateProgress(), token), ct).ConfigureAwait(false);
+                session.VerifyAsync(outcomes, CreateProgress(), token), ct, isScan: true).ConfigureAwait(false);
             if (outcomes.Any(outcome => outcome.Cancelled))
                 verifiedResult = verifiedResult with { Notices = [localization.GetString("Restore_Cancelled"), .. verifiedResult.Notices] };
             // Reuse the verification evidence for the list before opening a long-lived review.
@@ -91,14 +91,19 @@ public sealed class AppUninstallWorkflow(IUninstallResidueService residues, IUni
         }
     }
 
-    /// <summary>Owns the footer task and links its cancellation only for stages it starts.</summary>
-    private async Task<T> RunStageAsync<T>(string title, Func<CancellationToken, Task<T>> action, CancellationToken ct)
+    /// <summary>Owns the shared task and links its cancellation only for stages it starts.</summary>
+    private async Task<T> RunStageAsync<T>(string title, Func<CancellationToken, Task<T>> action, CancellationToken ct, bool isScan = false)
     {
         var ownsTask = !tasks.IsTaskRunning;
         var taskCancellation = ownsTask ? tasks.StartTask(localization.GetString(title), true) : tasks.CurrentTaskCancellationSource;
         using var linked = taskCancellation is null ? CancellationTokenSource.CreateLinkedTokenSource(ct)
             : CancellationTokenSource.CreateLinkedTokenSource(ct, taskCancellation.Token);
         try { return await action(linked.Token).ConfigureAwait(false); }
+        catch (OperationCanceledException) when (isScan && linked.IsCancellationRequested)
+        {
+            scanNotifications?.Publish(localization.GetString(title), localization.GetString("Restore_Cancelled"));
+            throw;
+        }
         finally { if (ownsTask) tasks.CompleteTask(); }
     }
 

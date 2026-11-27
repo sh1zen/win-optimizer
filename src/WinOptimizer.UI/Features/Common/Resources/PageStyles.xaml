@@ -2,6 +2,54 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:toolkit="using:CommunityToolkit.WinUI.Controls"
                     xmlns:fluent="using:FluentIcons.WinUI">
+    <ResourceDictionary.ThemeDictionaries>
+        <ResourceDictionary x:Key="Dark">
+            <SolidColorBrush x:Key="ScanProgressAccentBrush" Color="#FFFFB36B"/>
+            <SolidColorBrush x:Key="ScanProgressIconBrush" Color="#FF603819"/>
+            <SolidColorBrush x:Key="ScanProgressTrackBrush" Color="#FF414248"/>
+            <SolidColorBrush x:Key="ScanProgressStrokeBrush" Color="#FF3C3D44"/>
+            <SolidColorBrush x:Key="ScanProgressOnAccentBrush" Color="#FF26170C"/>
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="Light">
+            <SolidColorBrush x:Key="ScanProgressAccentBrush" Color="#FF9B4200"/>
+            <SolidColorBrush x:Key="ScanProgressIconBrush" Color="#FF9B4200"/>
+            <SolidColorBrush x:Key="ScanProgressTrackBrush" Color="#FFD6D1CD"/>
+            <SolidColorBrush x:Key="ScanProgressStrokeBrush" Color="#FFD2CFCC"/>
+            <SolidColorBrush x:Key="ScanProgressOnAccentBrush" Color="White"/>
+        </ResourceDictionary>
+        <ResourceDictionary x:Key="HighContrast">
+            <SolidColorBrush x:Key="ScanProgressAccentBrush" Color="{ThemeResource SystemColorHighlightColor}"/>
+            <SolidColorBrush x:Key="ScanProgressIconBrush" Color="{ThemeResource SystemColorHighlightColor}"/>
+            <SolidColorBrush x:Key="ScanProgressTrackBrush" Color="{ThemeResource SystemColorWindowTextColor}"/>
+            <SolidColorBrush x:Key="ScanProgressStrokeBrush" Color="{ThemeResource SystemColorWindowTextColor}"/>
+            <SolidColorBrush x:Key="ScanProgressOnAccentBrush" Color="{ThemeResource SystemColorHighlightTextColor}"/>
+        </ResourceDictionary>
+    </ResourceDictionary.ThemeDictionaries>
+    <Style x:Key="ScanProgressCardStyle" TargetType="Border">
+        <Setter Property="Padding" Value="16,12,16,8"/>
+        <Setter Property="CornerRadius" Value="12"/>
+        <Setter Property="BorderThickness" Value="1"/>
+        <Setter Property="BorderBrush" Value="{ThemeResource ScanProgressStrokeBrush}"/>
+        <Setter Property="Background" Value="{ThemeResource CardBackgroundFillColorDefaultBrush}"/>
+    </Style>
+    <Style x:Key="ScanProgressIconStyle" TargetType="Border">
+        <Setter Property="Width" Value="44"/>
+        <Setter Property="Height" Value="44"/>
+        <Setter Property="CornerRadius" Value="12"/>
+        <Setter Property="Background" Value="{ThemeResource ScanProgressIconBrush}"/>
+        <Setter Property="VerticalAlignment" Value="Top"/>
+    </Style>
+    <Style x:Key="ScanProgressTrackStyle" TargetType="Border">
+        <Setter Property="Background" Value="{ThemeResource ScanProgressTrackBrush}"/>
+        <Setter Property="CornerRadius" Value="4"/>
+    </Style>
+    <Style x:Key="ScanProgressBarStyle" TargetType="ProgressBar">
+        <Setter Property="Height" Value="7"/>
+        <Setter Property="MinHeight" Value="7"/>
+        <Setter Property="CornerRadius" Value="4"/>
+        <Setter Property="Background" Value="Transparent"/>
+        <Setter Property="Foreground" Value="{ThemeResource ScanProgressAccentBrush}"/>
+    </Style>
     <!-- The shell owns side margins once; page containers retain vertical spacing and responsive behavior. -->
     <Thickness x:Key="PageHorizontalMargin">16,0,16,0</Thickness>
     <Thickness x:Key="PageContentPadding">0,8,0,24</Thickness>

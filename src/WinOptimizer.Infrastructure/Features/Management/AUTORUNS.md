@@ -98,8 +98,8 @@ Unexpected output fails explicitly. Unknown state stays unknown.
 Infrastructure, storage and native UI checks are listed in the
 [test guide](../../../../tests/README.md). They use fake registry/OS boundaries,
 isolated files and synthetic inventory. UI coverage includes consent loading,
-search/filter alignment, both modes, EN/IT, themes and three widths;
-previews go under `build/autoruns-preview`.
+search and filter alignment, both modes, English and Italian, both themes,
+and three widths.
 
 ## Microsoft references
 

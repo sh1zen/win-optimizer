@@ -35,9 +35,7 @@ public sealed class WindowsDriverUpdateSource(DriverPowerShell shell, IDriverInf
         {
             using var workspace = new DriverScanWorkspace(temporaryDirectory);
             var limit = Math.Clamp(context.Options.AutomaticVerificationLimit, 0, 8);
-            using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
-            deadline.CancelAfter(TimeSpan.FromMinutes(4));
-            var result = await QueryAsync(workspace, $"$verificationLimit={limit};", deadline.Token).ConfigureAwait(false);
+            var result = await QueryAsync(workspace, $"$verificationLimit={limit};", ct).ConfigureAwait(false);
             List<DriverUpdate> updates = [];
             List<string> notices = [];
             if (result.Partial) notices.Add("Windows Update reported an incomplete search.");
@@ -54,8 +52,8 @@ public sealed class WindowsDriverUpdateSource(DriverPowerShell shell, IDriverInf
                     {
                         var folder = OfferFolder(workspace, offer.Id);
                         var originals = DriverScanWorkspace.EnumerateFiles(folder, null).ToArray();
-                        update = await InspectAsync(update, originals, folder, context.Inventory, ct).ConfigureAwait(false);
-                        if (update.Certification != DriverCertification.Whql)
+                        update = await InspectAsync(update, originals, folder, context.Inventory, ct, progress).ConfigureAwait(false);
+                        if (context.Options.OnlyWhqlUpdates && update.Certification != DriverCertification.Whql)
                             notices.Add($"{offer.Title}: WHQL could not be established for the matching driver INFs.");
                     }
                     catch (Exception ex) when (IsPackageError(ex))
@@ -76,8 +74,6 @@ public sealed class WindowsDriverUpdateSource(DriverPowerShell shell, IDriverInf
                 SupportPage = SupportPage
             };
         }
-        catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-        { return new([], ["The Windows Update search reached its time limit."]) { State = DriverSourceState.Unavailable, SupportPage = SupportPage }; }
         catch (Exception ex) when (IsPackageError(ex))
         { return new([], [ex.Message]) { State = DriverSourceState.Unavailable, SupportPage = SupportPage }; }
     }
@@ -138,10 +134,11 @@ public sealed class WindowsDriverUpdateSource(DriverPowerShell shell, IDriverInf
         };
     }
 
-    private async Task<DriverUpdate> InspectAsync(DriverUpdate update, string[] files, string root, DriverInventory inventory, CancellationToken ct)
+    private async Task<DriverUpdate> InspectAsync(DriverUpdate update, string[] files, string root, DriverInventory inventory,
+        CancellationToken ct, IProgress<DriverScanProgress>? progress = null)
     {
         if (files.Length == 0) throw new DriverScanException("Windows Update exported an empty package.");
-        var evidence = await _packages.InspectAsync(files, root, ct).ConfigureAwait(false);
+        var evidence = await _packages.InspectAsync(files, root, ct, progress).ConfigureAwait(false);
         var original = update.Catalog!;
         var ids = new HashSet<string>(original.ListedHardwareIds, StringComparer.OrdinalIgnoreCase);
         foreach (var id in inventory.Devices.Where(device => device.Present &&

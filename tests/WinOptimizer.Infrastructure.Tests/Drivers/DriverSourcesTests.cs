@@ -183,6 +183,15 @@ public sealed class DriverSourcesTests
     [InlineData(0x0D000003u, false)] [InlineData(0x0D000004u, false)] [InlineData(0x0F000000u, false)] [InlineData(0u, false)]
     public void Certification_RequiresWhqlClassification_NotJustASignature(uint score, bool expected) => Assert.Equal(expected, WindowsDriverInfInspector.IsWhqlScore(score));
 
+    [Theory]
+    [InlineData(true, 0u, true)]
+    [InlineData(false, 0xE0000241u, true)]
+    [InlineData(false, 0xE0000242u, false)]
+    [InlineData(false, 0xE0000243u, false)]
+    [InlineData(false, 0x80096010u, false)]
+    public void InfSignatureAcceptsAuthenticodeFromTheTrustedPublisherStore(bool verified, uint error, bool trusted) =>
+        Assert.Equal(trusted, WindowsDriverInfInspector.HasTrustedSignature(verified, error));
+
     [Fact]
     public async Task NativeInfInspection_MatchesArchitectureAndHardware_WithoutCertifyingUnsignedFixtures()
     {
@@ -202,19 +211,32 @@ public sealed class DriverSourcesTests
             Test=Models,NTamd64,NTarm64,NTx86,{{architecture}}.10.0...{{futureBuild}}
             [Models.NTamd64]
             Test=Install,PCI\TEST
+            Second=DefaultInstall,PCI\DEFAULT
             [Models.NTarm64]
             Test=Install,PCI\TEST
+            Second=DefaultInstall,PCI\DEFAULT
             [Models.NTx86]
             Test=Install,PCI\TEST
+            Second=DefaultInstall,PCI\DEFAULT
             [Models.{{architecture}}.10.0...{{futureBuild}}]
             Test=Install,PCI\FUTURE_ONLY
+            [Install.{{architecture}}]
+            DriverVer=02/02/2026,3.0.0.0
+            [Install.NT]
+            DriverVer=03/03/2026,9.0.0.0
+            [DefaultInstall]
             """);
         var inspector = new WindowsDriverInfInspector(new(new ProcessExecutor()));
         var info = Assert.Single(await inspector.InspectAsync(workspace.Root, [path], default));
         Assert.Equal("2.0.0.0", info.Version);
         Assert.Equal(DriverCertification.Unverified, info.Certification);
-        Assert.Equal("PCI\\TEST", Assert.Single(info.Identifiers).Value);
+        Assert.Equal(["PCI\\TEST", "PCI\\DEFAULT"], info.Identifiers.Select(id => id.Value));
         Assert.Contains("Models." + architecture, info.ModelsSections);
+        var overridden = Assert.Single(info.InstallSections, section => section.Name == "Install." + architecture);
+        Assert.Equal("PCI\\TEST", Assert.Single(overridden.Identifiers).Value);
+        Assert.Equal(("3.0.0.0", "2026-02-02"), (overridden.Version, overridden.Date));
+        var inherited = Assert.Single(info.InstallSections, section => section.Name == "DefaultInstall");
+        Assert.Equal(("2.0.0.0", "2026-01-01"), (inherited.Version, inherited.Date));
     }
     [Fact]
     public void Workspace_RejectsEscapePaths_AndDisposesOnlyItsOwnedDirectory()

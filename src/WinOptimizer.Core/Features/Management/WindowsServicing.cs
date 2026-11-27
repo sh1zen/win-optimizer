@@ -9,7 +9,15 @@ public enum WindowsServicingState { Completed, ReviewFileResults, NeedsAttention
 public sealed record WindowsServicingRequest(WindowsServicingAction Action, string SourcePath = "", int WimIndex = 1,
     bool LimitAccess = false, bool ResetBase = false);
 public sealed record WindowsServicingStepResult(WindowsServicingStep Step, bool Succeeded, int? ExitCode,
-    WindowsImageHealth Health, bool RestartNeeded, string Output);
+    WindowsImageHealth Health, bool RestartNeeded, string Output)
+{
+    public WindowsComponentStoreAnalysis? StoreAnalysis { get; init; }
+    public WindowsComponentStoreFindings? StoreFindings { get; init; }
+}
+/// <summary>Measurements and advice reported by Windows for a component-store analysis.</summary>
+public sealed record WindowsComponentStoreAnalysis(decimal? SizeBytes, bool? CleanupRecommended);
+/// <summary>Corruption detected by a full scan, with a distinct component count when all findings identify one.</summary>
+public sealed record WindowsComponentStoreFindings(int DetectedProblems, int? AffectedComponents, string? SingleComponentName);
 public sealed record WindowsServicingProgress(WindowsServicingStep Step, int Completed, int Total);
 public sealed record WindowsServicingReport(WindowsServicingRequest Request, DateTimeOffset CompletedAt,
     WindowsServicingState State, WindowsImageHealth ImageHealth, IReadOnlyList<WindowsServicingStepResult> Steps);

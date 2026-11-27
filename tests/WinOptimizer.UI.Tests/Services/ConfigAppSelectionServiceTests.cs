@@ -206,75 +206,29 @@ public class ConfigAppSelectionServiceTests
     }
 
     [Fact]
-    public async Task SelectWindowsAppsFromConfigAsync_MatchesById()
+    public async Task SelectWindowsAppsFromConfigAsync_AppliesExplicitSelectionsToMatchingIds()
     {
-        var app = CreateAppItemViewModel("matching-id", "App 1");
+        var included = CreateAppItemViewModel("included", "Installed App 1");
+        var excluded = CreateAppItemViewModel("excluded", "Installed App 2");
+        excluded.IsSelected = true;
 
         _mockWindowsAppsVM.Setup(v => v.IsInitialized).Returns(true);
         _mockWindowsAppsVM.Setup(v => v.Items)
-            .Returns(new ObservableCollection<AppItemViewModel> { app });
+            .Returns(new ObservableCollection<AppItemViewModel> { included, excluded });
 
-        var configSection = new ConfigSection
+        var section = new ConfigSection
         {
-            Items = new List<ConfigurationItem>
-            {
-                new ConfigurationItem { Id = "matching-id", Name = "Config App", IsSelected = true }
-            }
+            Items =
+            [
+                new ConfigurationItem { Id = included.Id, Name = "Config App 1", IsSelected = true },
+                new ConfigurationItem { Id = excluded.Id, Name = "Config App 2", IsSelected = false }
+            ]
         };
 
-        var service = CreateService();
-        await service.SelectWindowsAppsFromConfigAsync(configSection);
+        await CreateService().SelectWindowsAppsFromConfigAsync(section);
 
-        app.IsSelected.Should().BeTrue();
-    }
-
-    [Fact]
-    public async Task SelectWindowsAppsFromConfigAsync_RespectsIsSelectedFalse()
-    {
-        var app = CreateAppItemViewModel("app1", "App 1", appxPackageName: ["Package1"]);
-        app.IsSelected = true; // Start selected
-
-        _mockWindowsAppsVM.Setup(v => v.IsInitialized).Returns(true);
-        _mockWindowsAppsVM.Setup(v => v.Items)
-            .Returns(new ObservableCollection<AppItemViewModel> { app });
-
-        var configSection = new ConfigSection
-        {
-            Items = new List<ConfigurationItem>
-            {
-                new ConfigurationItem
-                {
-                    Id = "app1",
-                    Name = "App 1",
-                    AppxPackageName = new[] { "Package1" },
-                    IsSelected = false
-                }
-            }
-        };
-
-        var service = CreateService();
-        await service.SelectWindowsAppsFromConfigAsync(configSection);
-
-        // Cleared first, then set to IsSelected=false from config
-        app.IsSelected.Should().BeFalse();
-    }
-
-    [Fact]
-    public async Task SelectWindowsAppsFromConfigAsync_WithNullSection_ClearsSelections()
-    {
-        var app = CreateAppItemViewModel("app1", "App 1");
-        app.IsSelected = true;
-
-        _mockWindowsAppsVM.Setup(v => v.IsInitialized).Returns(true);
-        _mockWindowsAppsVM.Setup(v => v.Items)
-            .Returns(new ObservableCollection<AppItemViewModel> { app });
-
-        var emptySection = new ConfigSection(); // null Items
-
-        var service = CreateService();
-        await service.SelectWindowsAppsFromConfigAsync(emptySection);
-
-        app.IsSelected.Should().BeFalse();
+        included.IsSelected.Should().BeTrue();
+        excluded.IsSelected.Should().BeFalse();
     }
 
     // -------------------------------------------------------

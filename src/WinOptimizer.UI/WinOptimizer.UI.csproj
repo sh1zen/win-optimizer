@@ -48,6 +48,7 @@
   <ItemGroup>
     <InternalsVisibleTo Include="WinOptimizer.UI.Tests" />
     <InternalsVisibleTo Include="WinOptimizer.Startup.Tests" />
+    <InternalsVisibleTo Include="WinOptimizer.WindowsStatus.Tests" />
     <InternalsVisibleTo Include="WinOptimizer.SoftwareApps.Tests" />
     <InternalsVisibleTo Include="WinOptimizer.Popup.Tests" />
     <InternalsVisibleTo Include="WinOptimizer.SystemMonitor.Tests" />

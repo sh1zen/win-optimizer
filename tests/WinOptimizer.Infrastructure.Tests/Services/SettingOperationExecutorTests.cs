@@ -373,7 +373,7 @@ public class SettingOperationExecutorTests
     }
 
     [Fact]
-    public async Task ApplySettingOperationsAsync_NoPowerCfgSettings_DoesNotCallPowerCfgApplier()
+    public async Task ApplySettingOperationsAsync_WithoutPowerCfgSettings_StillHandlesRestarts()
     {
         var setting = CreateSetting("no-powercfg");
 
@@ -383,19 +383,7 @@ public class SettingOperationExecutorTests
             p => p.ApplyPowerCfgSettingsAsync(
                 It.IsAny<SettingDefinition>(), It.IsAny<bool>(), It.IsAny<object?>()),
             Times.Never);
-    }
-
-    [Fact]
-    public async Task ApplySettingOperationsAsync_ProcessRestartCalledAfterOperations()
-    {
-        // Verify restart is called even with no other operations
-        var setting = CreateSetting("restart-only");
-
-        await _executor.ApplySettingOperationsAsync(setting, false, null);
-
-        _mockRestart.Verify(
-            r => r.HandleProcessAndServiceRestartsAsync(setting),
-            Times.Once);
+        _mockRestart.Verify(r => r.HandleProcessAndServiceRestartsAsync(setting), Times.Once);
     }
 
     // ---------------------------------------------------------------
@@ -403,7 +391,7 @@ public class SettingOperationExecutorTests
     // ---------------------------------------------------------------
 
     [Fact]
-    public async Task ApplySettingOperationsAsync_CombinedOperations_AppliesAllTypes()
+    public async Task ApplySettingOperationsAsync_CombinedOperations_AppliesAllTypesBeforeRestarts()
     {
         var regSetting = new RegistrySetting
         {
@@ -444,8 +432,18 @@ public class SettingOperationExecutorTests
             },
         };
 
-        var result = await _executor.ApplySettingOperationsAsync(setting, true, null);
+        var powerWrite = new TaskCompletionSource<OperationResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _mockPowerCfg.Setup(p => p.ApplyPowerCfgSettingsAsync(setting, true, null)).Returns(powerWrite.Task);
 
+        var applying = _executor.ApplySettingOperationsAsync(setting, true, null);
+        try
+        {
+            _mockPowerCfg.Verify(p => p.ApplyPowerCfgSettingsAsync(setting, true, null), Times.Once);
+            _mockRestart.Verify(r => r.HandleProcessAndServiceRestartsAsync(setting), Times.Never);
+        }
+        finally { powerWrite.SetResult(OperationResult.Succeeded()); }
+
+        var result = await applying;
         result.Success.Should().BeTrue();
         _mockRegistry.Verify(r => r.ApplySetting(regSetting, true, null), Times.Once);
         _mockScheduledTask.Verify(s => s.EnableTaskAsync(@"\CombTask"), Times.Once);

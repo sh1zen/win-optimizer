@@ -86,7 +86,7 @@ public class ApplicationInfoViewModelTests
         _mockVersionService.Verify(service => service.CheckForUpdateAsync(It.IsAny<CancellationToken>()), Times.Never);
         await vm.Updates.CheckForUpdatesCommand.ExecuteAsync(null);
         _mockVersionService.Verify(service => service.CheckForUpdateAsync(It.IsAny<CancellationToken>()), Times.Once);
-        vm.Updates.IsUpdateInfoBarOpen.Should().BeTrue();
+        vm.Updates.IsUpdateToastOpen.Should().BeTrue();
     }
 
     [Fact]

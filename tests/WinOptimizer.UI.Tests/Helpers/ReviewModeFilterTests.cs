@@ -27,30 +27,6 @@ namespace WinOptimizer.UI.Tests.Helpers;
 /// </summary>
 public class ReviewModeFilterTests
 {
-    // ---------- basic predicate behaviour ----------
-
-    [Fact]
-    public void ShouldShowInReviewQueue_WhenServiceHasDiff_ReturnsTrue()
-    {
-        var service = new Mock<IConfigReviewDiffService>();
-        service.Setup(s => s.GetDiffForSetting("setting-a"))
-               .Returns(new ConfigReviewDiff { SettingId = "setting-a" });
-
-        ReviewModeFilter.ShouldShowInReviewQueue("setting-a", service.Object).Should().BeTrue();
-    }
-
-    [Fact]
-    public void ShouldShowInReviewQueue_WhenServiceHasNoDiff_ReturnsFalse()
-    {
-        var service = new Mock<IConfigReviewDiffService>();
-        service.Setup(s => s.GetDiffForSetting(It.IsAny<string>()))
-               .Returns((ConfigReviewDiff?)null);
-
-        ReviewModeFilter.ShouldShowInReviewQueue("setting-not-in-config", service.Object).Should().BeFalse();
-    }
-
-    // ---------- null safety ----------
-
     [Fact]
     public void ShouldShowInReviewQueue_WhenServiceIsNull_ReturnsFalse()
     {

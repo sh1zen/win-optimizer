@@ -70,7 +70,7 @@ public class UpdateCheckViewModelTests : IDisposable
     }
 
     [Fact]
-    public async Task CheckForUpdatesCommand_UpdateAvailable_ShowsInfoBar()
+    public async Task CheckForUpdatesCommand_UpdateAvailable_ShowsToastWithInstallAction()
     {
         _mockVersionService
             .Setup(v => v.CheckForUpdateAsync(It.IsAny<CancellationToken>()))
@@ -81,19 +81,19 @@ public class UpdateCheckViewModelTests : IDisposable
 
         await _sut.CheckForUpdatesCommand.ExecuteAsync(null);
 
-        _sut.IsUpdateInfoBarOpen.Should().BeTrue();
-        _sut.UpdateInfoBarSeverity.Should().Be(InfoBarSeverity.Success);
+        _sut.IsUpdateToastOpen.Should().BeTrue();
+        _sut.UpdateToastSeverity.Should().Be(InfoBarSeverity.Success);
         _sut.IsUpdateActionButtonVisible.Should().BeTrue();
-        _sut.UpdateInfoBarTitle.Should().NotBeNullOrEmpty();
-        _sut.UpdateInfoBarMessage.Should().Contain("v25.05.01");
-        _sut.UpdateInfoBarMessage.Should().Contain("v25.06.01");
-        _sut.DismissUpdateInfoBar();
+        _sut.UpdateToastTitle.Should().NotBeNullOrEmpty();
+        _sut.UpdateToastMessage.Should().Contain("v25.05.01");
+        _sut.UpdateToastMessage.Should().Contain("v25.06.01");
+        _sut.DismissUpdateToast();
         Assert.Equal("Latest Version: v25.06.01", _sut.LatestVersionText);
         Assert.Equal("Update Available", _sut.UpdateStatusText);
     }
 
     [Fact]
-    public async Task CheckForUpdatesCommand_NoUpdateAvailable_ShowsInfoBarWithNoUpdates()
+    public async Task CheckForUpdatesCommand_NoUpdateAvailable_ShowsTransientToast()
     {
         _mockVersionService
             .Setup(v => v.CheckForUpdateAsync(It.IsAny<CancellationToken>()))
@@ -104,10 +104,11 @@ public class UpdateCheckViewModelTests : IDisposable
 
         await _sut.CheckForUpdatesCommand.ExecuteAsync(null);
 
-        _sut.IsUpdateInfoBarOpen.Should().BeTrue();
-        _sut.UpdateInfoBarSeverity.Should().Be(InfoBarSeverity.Success);
+        _sut.IsUpdateToastOpen.Should().BeTrue();
+        _sut.IsUpdateToastTransient.Should().BeTrue();
+        _sut.UpdateToastSeverity.Should().Be(InfoBarSeverity.Success);
         _sut.IsUpdateActionButtonVisible.Should().BeFalse();
-        _sut.UpdateInfoBarTitle.Should().Contain("No Updates");
+        _sut.UpdateToastTitle.Should().Contain("No Updates");
         Assert.Equal("Latest Version: v25.05.01", _sut.LatestVersionText);
         Assert.Equal("No Updates Available", _sut.UpdateStatusText);
     }
@@ -124,9 +125,9 @@ public class UpdateCheckViewModelTests : IDisposable
 
         await _sut.CheckForUpdatesCommand.ExecuteAsync(null);
 
-        _sut.IsUpdateInfoBarOpen.Should().BeTrue();
+        _sut.IsUpdateToastOpen.Should().BeTrue();
         _sut.IsUpdateActionButtonVisible.Should().BeFalse();
-        _sut.UpdateInfoBarSeverity.Should().Be(InfoBarSeverity.Error);
+        _sut.UpdateToastSeverity.Should().Be(InfoBarSeverity.Error);
     }
 
     [Fact]
@@ -134,7 +135,7 @@ public class UpdateCheckViewModelTests : IDisposable
     {
         _mockVersionService.Setup(service => service.CheckForUpdateAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new VersionInfo());
         await _sut.CheckForUpdatesCommand.ExecuteAsync(null);
-        Assert.Equal(InfoBarSeverity.Error, _sut.UpdateInfoBarSeverity);
+        Assert.Equal(InfoBarSeverity.Error, _sut.UpdateToastSeverity);
         Assert.False(_sut.IsUpdateActionButtonVisible);
     }
 
@@ -161,10 +162,10 @@ public class UpdateCheckViewModelTests : IDisposable
 
         await _sut.CheckForUpdatesCommand.ExecuteAsync(null);
 
-        _sut.IsUpdateInfoBarOpen.Should().BeTrue();
-        _sut.UpdateInfoBarSeverity.Should().Be(InfoBarSeverity.Error);
+        _sut.IsUpdateToastOpen.Should().BeTrue();
+        _sut.UpdateToastSeverity.Should().Be(InfoBarSeverity.Error);
         _sut.IsUpdateActionButtonVisible.Should().BeFalse();
-        _sut.UpdateInfoBarMessage.Should().Contain("Network error");
+        _sut.UpdateToastMessage.Should().Contain("Network error");
         Assert.Equal("Update Check Error", _sut.UpdateStatusText);
     }
 
@@ -228,7 +229,7 @@ public class UpdateCheckViewModelTests : IDisposable
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public async Task BackgroundVersionIsDispatchedToTheMenuAndOnlyUpdatesOpenTheInfoBar(bool updateAvailable)
+    public async Task BackgroundVersionIsDispatchedToTheMenuAndOnlyAvailableUpdatesShowAToast(bool updateAvailable)
     {
         Action<VersionInfo>? report = null;
         Action? publish = null;
@@ -242,12 +243,12 @@ public class UpdateCheckViewModelTests : IDisposable
         await _sut.StartBackgroundUpdateChecksAsync();
         var version = updateAvailable ? "v25.06.01" : "v25.05.01";
         report!(new VersionInfo { Version = version, IsUpdateAvailable = updateAvailable });
-        _sut.IsUpdateInfoBarOpen.Should().BeFalse();
+        _sut.IsUpdateToastOpen.Should().BeFalse();
         Assert.Equal("Latest Version: —", _sut.LatestVersionText);
         publish.Should().NotBeNull();
         publish!();
 
-        Assert.Equal(updateAvailable, _sut.IsUpdateInfoBarOpen);
+        Assert.Equal(updateAvailable, _sut.IsUpdateToastOpen);
         Assert.Equal(updateAvailable, _sut.IsUpdateActionButtonVisible);
         Assert.Equal($"Latest Version: {version}", _sut.LatestVersionText);
         Assert.Equal(updateAvailable ? "Update Available" : "No Updates Available", _sut.UpdateStatusText);
@@ -260,7 +261,7 @@ public class UpdateCheckViewModelTests : IDisposable
         await _sut.StartBackgroundUpdateChecksAsync();
         _backgroundUpdates.Verify(service => service.RunAsync(It.IsAny<Action<VersionInfo>>(), It.IsAny<CancellationToken>()), Times.Once);
         _mockVersionService.VerifyNoOtherCalls();
-        _sut.IsUpdateInfoBarOpen.Should().BeFalse();
+        _sut.IsUpdateToastOpen.Should().BeFalse();
     }
 
     [Fact]
@@ -277,7 +278,7 @@ public class UpdateCheckViewModelTests : IDisposable
         report!(new VersionInfo { IsUpdateAvailable = true });
         await _sut.StartBackgroundUpdateChecksAsync();
         _backgroundUpdates.Verify(service => service.RunAsync(It.IsAny<Action<VersionInfo>>(), It.IsAny<CancellationToken>()), Times.Once);
-        _sut.IsUpdateInfoBarOpen.Should().BeFalse();
+        _sut.IsUpdateToastOpen.Should().BeFalse();
     }
 
     [Fact]
@@ -294,15 +295,15 @@ public class UpdateCheckViewModelTests : IDisposable
 
         _sut.IsUpdateActionButtonVisible.Should().BeFalse();
         _sut.IsRelaunchButtonVisible.Should().BeTrue();
-        _sut.UpdateInfoBarSeverity.Should().Be(InfoBarSeverity.Success);
-        _sut.UpdateInfoBarTitle.Should().Contain("Update Ready");
-        _sut.UpdateInfoBarMessage.Should().Contain("Relaunch");
+        _sut.UpdateToastSeverity.Should().Be(InfoBarSeverity.Success);
+        _sut.UpdateToastTitle.Should().Contain("Update Ready");
+        _sut.UpdateToastMessage.Should().Contain("Relaunch");
     }
 
     [Fact]
     public async Task InstallUpdateCommand_Failure_ShowsErrorMessage()
     {
-        _sut.IsUpdateInfoBarOpen = true;
+        _sut.IsUpdateToastOpen = true;
         _mockVersionService
             .Setup(v => v.DownloadAndInstallUpdateAsync(It.IsAny<CancellationToken>()))
             .ThrowsAsync(new InvalidDataException("Download failed"));
@@ -311,14 +312,14 @@ public class UpdateCheckViewModelTests : IDisposable
         _mockLocalizationService.Setup(l => l.GetString("Dialog_Update_Status_Error")).Returns("Download error after language change: {0}");
         _mockLocalizationService.Raise(l => l.LanguageChanged += null, this, EventArgs.Empty);
 
-        _sut.UpdateInfoBarSeverity.Should().Be(InfoBarSeverity.Error);
-        _sut.UpdateInfoBarMessage.Should().Be("Download error after language change: Download failed");
+        _sut.UpdateToastSeverity.Should().Be(InfoBarSeverity.Error);
+        _sut.UpdateToastMessage.Should().Be("Download error after language change: Download failed");
         _sut.IsUpdateActionButtonVisible.Should().BeFalse();
         _sut.IsRelaunchButtonVisible.Should().BeFalse();
     }
 
     [Fact]
-    public async Task InstallUpdateCommand_ShowsDownloadingState_DuringExecution()
+    public async Task InstallUpdateCommand_PublishesRelaunchToastEvenIfProgressWasDismissed()
     {
         var tcs = new TaskCompletionSource();
         _mockVersionService
@@ -332,24 +333,27 @@ public class UpdateCheckViewModelTests : IDisposable
         // During download: action button hidden, relaunch not yet visible
         _sut.IsUpdateActionButtonVisible.Should().BeFalse();
         _sut.IsRelaunchButtonVisible.Should().BeFalse();
-        _sut.UpdateInfoBarTitle.Should().Contain("Downloading");
+        _sut.UpdateToastTitle.Should().Contain("Downloading");
+        _sut.IsUpdateToastOpen.Should().BeTrue();
+        _sut.DismissUpdateToast();
 
         tcs.SetResult();
         await commandTask;
 
         // After download: relaunch button visible
         _sut.IsRelaunchButtonVisible.Should().BeTrue();
-        _sut.UpdateInfoBarTitle.Should().Contain("Update Ready");
+        _sut.IsUpdateToastOpen.Should().BeTrue();
+        _sut.UpdateToastTitle.Should().Contain("Update Ready");
     }
 
     [Fact]
-    public void DismissUpdateInfoBar_ClosesInfoBar()
+    public void DismissUpdateToast_ClosesTheNotification()
     {
-        _sut.IsUpdateInfoBarOpen = true;
+        _sut.IsUpdateToastOpen = true;
 
-        _sut.DismissUpdateInfoBar();
+        _sut.DismissUpdateToast();
 
-        _sut.IsUpdateInfoBarOpen.Should().BeFalse();
+        _sut.IsUpdateToastOpen.Should().BeFalse();
     }
 
     [Fact]
@@ -375,7 +379,7 @@ public class UpdateCheckViewModelTests : IDisposable
     }
 
     [Fact]
-    public async Task LanguageChanged_WhenInfoBarOpen_RefreshesInfoBarText()
+    public async Task LanguageChanged_WhenToastIsOpen_RefreshesItsText()
     {
         // Set up an update available state
         _mockVersionService
@@ -386,7 +390,7 @@ public class UpdateCheckViewModelTests : IDisposable
             .Returns(new VersionInfo { Version = "v25.05.01" });
 
         await _sut.CheckForUpdatesCommand.ExecuteAsync(null);
-        var originalTitle = _sut.UpdateInfoBarTitle;
+        var originalTitle = _sut.UpdateToastTitle;
 
         // Now simulate language change with a new localization value
         _mockLocalizationService
@@ -395,18 +399,18 @@ public class UpdateCheckViewModelTests : IDisposable
 
         _mockLocalizationService.Raise(l => l.LanguageChanged += null, this, EventArgs.Empty);
 
-        _sut.UpdateInfoBarTitle.Should().Be("Mise a jour disponible");
+        _sut.UpdateToastTitle.Should().Be("Mise a jour disponible");
     }
 
     [Fact]
-    public void LanguageChanged_WhenInfoBarClosed_DoesNotRefreshInfoBarText()
+    public void LanguageChanged_WhenToastIsClosed_DoesNotRefreshItsText()
     {
-        _sut.IsUpdateInfoBarOpen = false;
+        _sut.IsUpdateToastOpen = false;
 
         _mockLocalizationService.Raise(l => l.LanguageChanged += null, this, EventArgs.Empty);
 
         // Title should remain as initialized (empty string)
-        _sut.UpdateInfoBarTitle.Should().BeEmpty();
+        _sut.UpdateToastTitle.Should().BeEmpty();
     }
 
     [Fact]

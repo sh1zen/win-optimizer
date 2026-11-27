@@ -30,16 +30,89 @@ public sealed class DriverPackageAcquisitionTests : IDisposable
         });
         var service = Service(http);
         var update = Candidate(OemUrl, new DriverHash("SHA256", Convert.ToHexString(SHA256.HashData(archive))));
-        var verified = await service.AcquireAsync(update, Inventory, false, null, default);
+        var stages = new List<string>();
+        var progress = new Mock<IProgress<DriverScanProgress>>();
+        progress.Setup(item => item.Report(It.IsAny<DriverScanProgress>())).Callback<DriverScanProgress>(value =>
+        {
+            stages.Add(value.Stage);
+            if (value.Stage == "Drivers_ExtractingPackage") Assert.Empty(Directory.EnumerateFiles(_workspace.Root, "*.inf", SearchOption.AllDirectories));
+            if (value.Stage == "Drivers_VerifyingInfs") Assert.Equal(2, Directory.EnumerateFiles(_workspace.Root, "*.inf", SearchOption.AllDirectories).Count());
+        });
+        var verified = await service.AcquireAsync(update, Inventory, false, progress.Object, default);
+        Assert.Equal(["Drivers_Downloading", "Drivers_VerifyingPackages", "Drivers_ExtractingPackage", "Drivers_VerifyingInfs"], stages.Distinct());
         Assert.Null(verified.OutputPath);
         Assert.Equal(DriverVerification.Verified, verified.Update.Catalog!.Verification);
         Assert.Equal("8.9", verified.Update.Catalog.PackageVersion);
         Assert.Equal("2.0", verified.Update.Version);
         Assert.Equal(2, verified.Update.Catalog.Components.Length);
-        var downloaded = await service.AcquireAsync(update, Inventory, true, null, default);
+        var downloaded = await service.AcquireAsync(verified.Update, Inventory, true, null, default);
         Assert.Equal(1, calls);
         Assert.Equal(archive, await File.ReadAllBytesAsync(Assert.Single(Directory.GetFiles(downloaded.OutputPath!, "*", SearchOption.AllDirectories))));
         Assert.Empty(Directory.EnumerateFileSystemEntries(_workspace.Root, "*.part", SearchOption.AllDirectories));
+    }
+
+    [Theory]
+    [InlineData(DriverSources.Asus, "https://dlcdnets.asus.com/pub/drivers.zip", "exceeds its size limit")]
+    [InlineData(DriverSources.Nvidia, "https://download.nvidia.com/driver.exe", "ended before its published content length")]
+    public async Task AutomaticTransferEnforcesSourceSizeRegardlessOfProgress(DriverSources source, string url, string reason)
+    {
+        var candidate = Candidate(url);
+        candidate = candidate with { Catalog = candidate.Catalog! with
+        { References = [candidate.Catalog.References[0] with { Source = source }] } };
+        using var http = Transport((_, _) =>
+        {
+            var response = Payload(new byte[8]);
+            response.Content.Headers.ContentLength = 1100L << 20;
+            return Task.FromResult(response);
+        });
+
+        var error = await Assert.ThrowsAsync<DriverScanException>(() => Service(http).AcquireAsync(candidate, Inventory, false,
+            Mock.Of<IProgress<DriverScanProgress>>(), default));
+
+        Assert.Contains(reason, error.Message);
+        Assert.Empty(Directory.EnumerateFiles(_workspace.Root, "*.part", SearchOption.AllDirectories));
+    }
+
+    [Fact]
+    public async Task AutomaticPackageDownloadsCanOverlapAndReportTransferredBytes()
+    {
+        var archive = Zip(("driver.inf", "test"));
+        var twoRequests = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var requests = 0;
+        using var http = Transport(async (_, ct) =>
+        {
+            if (Interlocked.Increment(ref requests) == 2) twoRequests.SetResult();
+            await twoRequests.Task.WaitAsync(ct);
+            return Payload(archive);
+        });
+        var service = Service(http);
+        var progress = new Mock<IProgress<DriverScanProgress>>();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var downloads = await Task.WhenAll(
+            service.AcquireAsync(Candidate(OemUrl), Inventory, false, progress.Object, timeout.Token),
+            service.AcquireAsync(Candidate(OemUrl.Replace("drivers", "alternate", StringComparison.Ordinal)), Inventory,
+                false, progress.Object, timeout.Token));
+
+        Assert.All(downloads, download => Assert.Equal(DriverVerification.Verified, download.Update.Catalog!.Verification));
+        progress.Verify(item => item.Report(It.Is<DriverScanProgress>(value =>
+            value.BytesTransferred == archive.Length && value.TotalBytes == archive.Length)), Times.Exactly(2));
+    }
+
+    [Fact]
+    public async Task DownloadRejectsBytesThatDifferFromTheVerifiedCandidate()
+    {
+        var archive = Zip(("driver.inf", "test"));
+        using var http = Transport((_, _) => Task.FromResult(Payload(archive)));
+        var update = Candidate(OemUrl, new DriverHash("SHA256", Convert.ToHexString(SHA256.HashData(archive))));
+        var selected = update with
+        {
+            Catalog = update.Catalog! with { Verification = DriverVerification.Verified, ContentSha256 = [new string('0', 64)] }
+        };
+
+        var error = await Assert.ThrowsAsync<DriverScanException>(() => Service(http).AcquireAsync(selected, Inventory, true, null, default));
+
+        Assert.Contains("changed since verification", error.Message);
+        Assert.False(Directory.Exists(Path.Combine(_workspace.Root, "downloads")));
     }
 
     [Theory]
@@ -130,8 +203,10 @@ public sealed class DriverPackageAcquisitionTests : IDisposable
         Assert.False(Directory.Exists(workspace.Root));
     }
 
-    [Fact]
-    public async Task CancellationKeepsVerifiedOutputAndPartialCacheEmpty()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CancellationKeepsVerifiedOutputAndPartialCacheEmpty(bool download)
     {
         var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         using var cancellation = new CancellationTokenSource();
@@ -141,7 +216,7 @@ public sealed class DriverPackageAcquisitionTests : IDisposable
             await Task.Delay(Timeout.InfiniteTimeSpan, ct);
             throw new InvalidOperationException("Delay should be cancelled");
         });
-        var operation = Service(http).AcquireAsync(Candidate(OemUrl), Inventory, true, null, cancellation.Token);
+        var operation = Service(http).AcquireAsync(Candidate(OemUrl), Inventory, download, null, cancellation.Token);
         await started.Task.WaitAsync(TimeSpan.FromSeconds(10));
         await cancellation.CancelAsync();
         await Assert.ThrowsAnyAsync<OperationCanceledException>(() => operation);

@@ -5,6 +5,9 @@ namespace WinOptimizer.Infrastructure.Features.Extensions;
 /// <summary>Serializes samples and computes deltas only for matching, non-reset counters.</summary>
 public sealed class WindowsSystemMonitorService(ISystemMonitorProbe probe) : ISystemMonitorService
 {
+    /// <summary>Creates a CPU and memory reader for views without network or sensor readings.</summary>
+    public static ISystemMonitorService CreateUsageMonitor() => new WindowsSystemMonitorService(new WindowsSystemMonitorProbe());
+
     /// <summary>Creates a separate counter history for a widget that only needs core counters and optional GPU load.</summary>
     public static ISystemMonitorService CreateCompactMonitor(bool includeGraphics) => CreateCompactMonitor(() => includeGraphics);
 

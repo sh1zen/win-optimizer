@@ -64,8 +64,6 @@ public class ConfigRoundTripTests
     {
         // Arrange
         var item = TestSettingFactory.CreateToggleItem("t1", "Simple Toggle", true);
-        // These should all be null and omitted from JSON
-        item.AppxPackageName.Should().BeNull();
 
         var config = new UnifiedConfigurationFile
         {

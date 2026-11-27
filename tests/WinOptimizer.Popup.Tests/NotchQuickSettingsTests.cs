@@ -84,7 +84,6 @@ public sealed partial class PreviewApplication
             nightLight.IsChecked == false && doNotDisturb.IsChecked == true &&
             Control<ToggleButton>("Balanced").IsChecked == true && Control<TextBlock>("BatteryValue").Text.Contains("91"),
             "Quick Settings did not show the current Windows values.");
-        await CaptureAsync(root, "notch-quick-settings.png");
 
         brightness.Value = 78;
         brightness.Value = 73;

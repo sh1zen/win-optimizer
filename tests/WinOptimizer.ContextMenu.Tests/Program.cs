@@ -9,7 +9,6 @@ using Microsoft.UI.Xaml.Media.Imaging;
 using Moq;
 using Windows.Foundation;
 using Windows.Graphics;
-using Windows.Graphics.Imaging;
 using WinOptimizer.Core.Features.Common.Enums;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Customize.Interfaces;
@@ -29,7 +28,7 @@ internal static class Program
     [STAThread]
     private static void Main(string[] args)
     {
-        if (args.Length != 3) throw new ArgumentException("Pass preview output, fixture icon path and application theme.");
+        if (args.Length != 3) throw new ArgumentException("Pass the test results directory, fixture icon path and application theme.");
         WinRT.ComWrappersSupport.InitializeComWrappers();
         Microsoft.UI.Xaml.Application.Start(initialization =>
         {
@@ -118,13 +117,11 @@ public sealed partial class ContextMenuApplication : Microsoft.UI.Xaml.Applicati
         shell.RequestedTheme = theme;
         shell.Background = new SolidColorBrush(theme == ElementTheme.Dark
             ? Windows.UI.Color.FromArgb(255, 32, 32, 32) : Windows.UI.Color.FromArgb(255, 243, 243, 243));
-        await Task.Delay(350); shell.UpdateLayout();
-        await CaptureAsync(shell, $"context-menu-{theme}-collapsed.png");
         archive.IsExpanded = true;
         foreach (var width in new[] { 1240, 480 })
         {
             _window!.AppWindow.ResizeClient(new SizeInt32(width, 900));
-            // Allow the native expander transition to finish before measuring and capturing its children.
+            // Allow the native expander transition to finish before measuring its children.
             await Task.Delay(600); shell.UpdateLayout();
             var programToggleX = programToggle.TransformToVisual(page).TransformPoint(new Point(0, 0)).X;
             foreach (var toggle in singleToggles)
@@ -138,7 +135,6 @@ public sealed partial class ContextMenuApplication : Microsoft.UI.Xaml.Applicati
                 var origin = toggle.TransformToVisual(page).TransformPoint(new Point(0, 0));
                 Require(origin.X >= 0 && origin.X + toggle.ActualWidth <= page.ActualWidth + 1, "A toggle exceeds the page width.");
             }
-            await CaptureAsync(shell, $"context-menu-{theme}-{width}.png");
         }
         Console.WriteLine($"PASS: context-menu switch alignment and bounds at 1240 and 480 pixels ({theme}).");
         var offEntry = archive.Entries[1];
@@ -200,16 +196,6 @@ public sealed partial class ContextMenuApplication : Microsoft.UI.Xaml.Applicati
             if (child is T match) yield return match;
             foreach (var nested in Tree<T>(child)) yield return nested;
         }
-    }
-
-    private async Task CaptureAsync(UIElement content, string name)
-    {
-        var bitmap = new RenderTargetBitmap(); await bitmap.RenderAsync(content);
-        await using var output = File.Create(Path.Combine(_outputDirectory, name));
-        var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, output.AsRandomAccessStream());
-        encoder.SetPixelData(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied, (uint)bitmap.PixelWidth,
-            (uint)bitmap.PixelHeight, 96, 96, (await bitmap.GetPixelsAsync()).ToArray());
-        await encoder.FlushAsync();
     }
 
     private static void Require(bool condition, string message) { if (!condition) throw new InvalidOperationException(message); }

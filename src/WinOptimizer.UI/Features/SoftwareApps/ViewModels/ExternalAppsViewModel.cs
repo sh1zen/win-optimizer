@@ -216,15 +216,8 @@ public partial class ExternalAppsViewModel : BaseViewModel, IExternalAppsItemsPr
     private Task? _loadTask;
 
     /// <summary>
-    /// Loads app definitions, checks installation status and resolves icons — exactly once.
-    /// Idempotent: startup triggers this from two independent paths — the UI init
-    /// (StartupUiCoordinator) and first-run backup-config creation (ConfigExportService,
-    /// via StartupOrchestrator phase 2). Both used to sail past an `if (IsInitialized)`
-    /// guard — IsInitialized is only set when the load *finishes* — so two full passes
-    /// ran concurrently, clobbering the shared Items collection and racing over the
-    /// icon-cache .tmp files. Now the first caller starts the load; every other caller
-    /// awaits the same Task. The core runs on the UI thread with a SynchronizationContext
-    /// so its continuations stay UI-thread-affine regardless of which path triggered it.
+    /// Loads definitions, installation status and icons once. Page navigation and
+    /// backup export share the same task and publish updates on the UI thread.
     /// </summary>
     [RelayCommand]
     public Task LoadAppsAndCheckInstallationStatusAsync()

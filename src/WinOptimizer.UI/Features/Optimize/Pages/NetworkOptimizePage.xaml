@@ -3,6 +3,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:fluent="using:FluentIcons.WinUI"
     xmlns:common="using:WinOptimizer.UI.Features.Common.Controls"
+    xmlns:toolkit="using:CommunityToolkit.WinUI.Controls"
     xmlns:vm="using:WinOptimizer.UI.Features.Optimize.ViewModels" x:DefaultBindMode="OneWay">
     <Page.Resources>
         <ResourceDictionary>
@@ -139,23 +140,29 @@
                             <Border Grid.ColumnSpan="2" BorderBrush="{ThemeResource AppSurfaceStrokeBrush}" BorderThickness="0,1,0,0"/>
                             <TextBlock Text="{x:Bind ViewModel.AutoTuningLabel}" Margin="6,6,10,6" TextWrapping="Wrap" VerticalAlignment="Center"/>
                             <TextBlock Grid.Column="1" Text="{x:Bind ViewModel.AutoTuningValue}" Margin="0,6,6,6" MaxWidth="108" TextWrapping="Wrap" VerticalAlignment="Center"/>
-                            <Border Grid.Row="1" Grid.ColumnSpan="2" BorderBrush="{ThemeResource AppSurfaceStrokeBrush}" BorderThickness="0,1,0,1"/>
+                            <Border Grid.Row="1" Grid.ColumnSpan="2" BorderBrush="{ThemeResource AppSurfaceStrokeBrush}" BorderThickness="0,1,0,0"/>
                             <TextBlock Grid.Row="1" Text="{x:Bind ViewModel.RssLabel}" Margin="6,6,10,6" TextWrapping="Wrap" VerticalAlignment="Center"/>
                             <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" Spacing="8" Margin="0,6,6,6">
                                 <Ellipse Width="9" Height="9" Fill="{ThemeResource SystemFillColorSuccessBrush}" VerticalAlignment="Center" Visibility="{x:Bind ViewModel.IsRssEnabled}"/>
                                 <TextBlock Text="{x:Bind ViewModel.RssValue}" VerticalAlignment="Center"/>
                             </StackPanel>
                         </Grid>
-                        <StackPanel Spacing="4" Margin="6,0,0,0">
-                            <Button Content="{x:Bind ViewModel.EnhanceLabel}" Command="{x:Bind ViewModel.EnhanceCommand}" Background="Transparent"/>
-                            <HyperlinkButton x:Name="DnsShortcut" Click="DnsShortcut_Click" Padding="0,4" AutomationProperties.Name="{x:Bind ViewModel.DnsTitle}">
-                                <StackPanel Orientation="Horizontal" Spacing="4">
-                                    <TextBlock Text="{x:Bind ViewModel.DnsTitle}" VerticalAlignment="Center"/>
-                                    <fluent:FluentIcon Icon="ChevronRight" IconVariant="Regular" FontSize="12" VerticalAlignment="Center" AutomationProperties.AccessibilityView="Raw"/>
-                                </StackPanel>
-                            </HyperlinkButton>
-                            <TextBlock Text="{x:Bind ViewModel.NetworkResultsHint}" TextWrapping="Wrap" FontSize="13" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
-                        </StackPanel>
+                        <Border x:Name="DnsControls" Visibility="{x:Bind ViewModel.ShowDnsSettings}"
+                                BorderBrush="{ThemeResource AppSurfaceStrokeBrush}" BorderThickness="0,1,0,0" Padding="6,10,6,0">
+                            <StackPanel Spacing="6">
+                                <TextBlock Text="{x:Bind ViewModel.DnsTitle}" FontSize="15" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                                <toolkit:WrapPanel Orientation="Horizontal" HorizontalSpacing="8" VerticalSpacing="6">
+                                    <ComboBox x:Name="DnsSelector" ItemsSource="{x:Bind ViewModel.DnsChoices}"
+                                              SelectedIndex="{x:Bind ViewModel.SelectedDnsIndex, Mode=TwoWay}" IsEnabled="{x:Bind ViewModel.CanWrite}"
+                                              MinWidth="168" MaxWidth="280" VerticalAlignment="Center" AutomationProperties.Name="{x:Bind ViewModel.DnsTitle}"/>
+                                    <Button Content="{x:Bind ViewModel.DnsApplyLabel}" Command="{x:Bind ViewModel.ApplyDnsCommand}"
+                                            Style="{StaticResource AccentButtonStyle}" VerticalAlignment="Center"/>
+                                </toolkit:WrapPanel>
+                                <TextBlock Text="{x:Bind ViewModel.DnsHint}" TextWrapping="Wrap" FontSize="12"
+                                           Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                                <TextBlock Text="{x:Bind ViewModel.DnsUnavailable}" Visibility="{x:Bind ViewModel.ShowDnsUnavailable}" TextWrapping="Wrap"/>
+                            </StackPanel>
+                        </Border>
                     </StackPanel>
                 </Border>
             </Grid>
@@ -170,15 +177,6 @@
                 </Grid>
                 <TextBlock Text="{x:Bind ViewModel.NoSettingsMatchesLabel}" Visibility="{x:Bind ViewModel.HasNoSettingsMatches}"
                            TextWrapping="Wrap" Foreground="{ThemeResource TextFillColorSecondaryBrush}" AutomationProperties.LiveSetting="Polite"/>
-                <Border x:Name="DnsCard" Style="{StaticResource PageCardStyle}" Visibility="{x:Bind ViewModel.ShowDnsSettings}">
-                    <StackPanel Spacing="12">
-                        <TextBlock Text="{x:Bind ViewModel.DnsTitle}" Style="{StaticResource SubtitleTextBlockStyle}"/>
-                        <TextBlock Text="{x:Bind ViewModel.DnsHint}" TextWrapping="Wrap"/>
-                        <ComboBox x:Name="DnsSelector" ItemsSource="{x:Bind ViewModel.DnsChoices}" HorizontalAlignment="Stretch" SelectedIndex="{x:Bind ViewModel.SelectedDnsIndex, Mode=TwoWay}" IsEnabled="{x:Bind ViewModel.CanWrite}" AutomationProperties.Name="{x:Bind ViewModel.DnsTitle}"/>
-                        <TextBlock Text="{x:Bind ViewModel.DnsUnavailable}" Visibility="{x:Bind ViewModel.ShowDnsUnavailable}" TextWrapping="Wrap"/>
-                        <Button Content="{x:Bind ViewModel.DnsApplyLabel}" Command="{x:Bind ViewModel.ApplyDnsCommand}" Style="{StaticResource AccentButtonStyle}"/>
-                    </StackPanel>
-                </Border>
                 <Border x:Name="VpnCard" Style="{StaticResource PageCardStyle}" Visibility="{x:Bind ViewModel.ShowVpnSettings}">
                     <StackPanel Spacing="12">
                         <TextBlock Text="{x:Bind ViewModel.VpnTitle}" Style="{StaticResource SubtitleTextBlockStyle}"/>

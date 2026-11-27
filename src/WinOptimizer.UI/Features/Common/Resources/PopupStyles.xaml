@@ -16,7 +16,7 @@
         <Setter Property="CornerRadius" Value="12"/>
         <Setter Property="MaxWidth" Value="{StaticResource Popup.MaxWidth}"/>
     </Style>
-    <Style x:Key="Popup.Dialog" TargetType="ContentDialog">
+    <Style x:Key="Popup.Dialog" TargetType="ContentDialog" BasedOn="{StaticResource DefaultContentDialogStyle}">
         <Setter Property="CornerRadius" Value="12"/>
     </Style>
     <Style x:Key="Popup.ToolTip" TargetType="ToolTip">

@@ -61,45 +61,10 @@ public sealed class OptimizationToolsViewModelTests
     private FeatureOptimizationViewModel Features() => new(_service.Object, _dialogs.Object, _windows.Object,
         _localization.Object, _mode.Object, new ExtensionTestDispatcher(), Mock.Of<ITaskProgressService>());
 
-    private static NetworkTuningState[] NetworkStates(string autoTuning = "Normal", bool rss = true) => NetworkTuningCatalog.All
-        .Select(item => new NetworkTuningState(item.Id, item.Id == "tcp-auto-tuning" ? autoTuning : item.Id == "offload-rss" ? rss ? "Enabled" : "Disabled"
+    private static NetworkTuningState[] NetworkStates() => NetworkTuningCatalog.All
+        .Select(item => new NetworkTuningState(item.Id, item.Id == NetworkTuningCatalog.AutoTuningId ? "Normal" : item.Id == NetworkTuningCatalog.RssId ? "Enabled"
             : item.Id == "tcp-timestamps" ? "Allowed" : item.Input == NetworkTuningInput.Toggle ? "Disabled"
             : item.HasRegistryOverride ? null : item.Minimum.ToString(), true)).ToArray();
-
-    [Fact]
-    public async Task NetworkLoadsOnDemandAndDisplaysOnlyVerifiedEnhancementResults()
-    {
-        var original = new NetworkPerformanceState("Disabled", false);
-        var updated = new NetworkPerformanceState("Normal", true);
-        _service.Setup(service => service.ReadNetworkTuningsAsync()).ReturnsAsync(NetworkStates("Disabled", false));
-        _service.Setup(service => service.EnhanceNetworkAsync())
-            .Callback(() => _service.Setup(service => service.ReadNetworkTuningsAsync()).ReturnsAsync(NetworkStates())).ReturnsAsync(updated);
-        using var vm = Network();
-        Assert.False(vm.CanEnhance); _service.VerifyNoOtherCalls();
-        await vm.RefreshAsync();
-        Assert.Equal(original, vm.State); Assert.True(vm.CanEnhance);
-        await vm.EnhanceCommand.ExecuteAsync(null);
-        Assert.Equal(updated, vm.State); Assert.False(vm.IsError);
-        _dialogs.Verify(dialogs => dialogs.ShowConfirmationAsync(It.Is<ConfirmationRequest>(request =>
-            request.Title == vm.EnhanceLabel && request.Message == vm.EnhanceDescription)), Times.Once);
-    }
-
-    [Fact]
-    public async Task NetworkCancellationAndFailuresDoNotFabricateAnAppliedState()
-    {
-        var original = new NetworkPerformanceState("Restricted", false);
-        _service.Setup(service => service.ReadNetworkTuningsAsync()).ReturnsAsync(NetworkStates("Restricted", false));
-        using var vm = Network();
-        await vm.RefreshAsync();
-        var baseline = vm.State;
-        _dialogs.Setup(dialogs => dialogs.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>())).ReturnsAsync(new ConfirmationResponse());
-        await vm.EnhanceCommand.ExecuteAsync(null);
-        _service.Verify(service => service.EnhanceNetworkAsync(), Times.Never);
-        _dialogs.Setup(dialogs => dialogs.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>())).ReturnsAsync(new ConfirmationResponse { Confirmed = true });
-        _service.Setup(service => service.EnhanceNetworkAsync()).ThrowsAsync(new InvalidOperationException("Readback failed"));
-        await vm.EnhanceCommand.ExecuteAsync(null);
-        Assert.Equal(original, vm.State); Assert.Same(baseline, vm.State); Assert.True(vm.IsError); Assert.Equal("Readback failed", vm.Status);
-    }
 
     [Theory]
     [InlineData(WinOptimizerMode.Builder)]
@@ -109,7 +74,10 @@ public sealed class OptimizationToolsViewModelTests
         _mode.SetupGet(service => service.CurrentMode).Returns(mode);
         using var network = Network(); using var features = Features();
         await network.RefreshAsync();
-        Assert.False(network.CanEnhance); Assert.True(network.ShowModeNotice);
+        Assert.True(network.ShowModeNotice);
+        var autoTuning = network.Choices.Single(choice => choice.Definition.Id == NetworkTuningCatalog.AutoTuningId);
+        await network.SetAsync(autoTuning, "Restricted");
+        _service.Verify(service => service.SetNetworkTuningAsync(It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
         Assert.True(network.HasVpnSnapshot);
         network.SelectedDnsIndex = 0;
         Assert.False(network.ApplyDnsCommand.CanExecute(null));

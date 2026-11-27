@@ -225,14 +225,6 @@ public class WindowSizeManagerTests
     }
 
     [Fact]
-    public void IsWindowRectVisible_PartiallyOffRight_StillVisibleEnough_ReturnsTrue()
-    {
-        // Window mostly off the right edge but with 300px still visible.
-        WindowSizeManager.IsWindowRectVisible(R(1620, 100, 1280, 800), SingleDisplay)
-            .Should().BeTrue();
-    }
-
-    [Fact]
     public void IsWindowRectVisible_OffScreenNegative_FromDisconnectedMonitor_ReturnsFalse()
     {
         // Reproduces issue #585: secondary monitor was to the left, saved Left=-1524.

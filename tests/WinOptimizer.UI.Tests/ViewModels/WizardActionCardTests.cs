@@ -6,34 +6,15 @@ namespace WinOptimizer.UI.Tests.ViewModels;
 
 public class WizardActionCardTests
 {
-    [Fact]
-    public void IconPath_WhenSetToNonEmpty_SetsUsePathIconTrue()
+    [Theory]
+    [InlineData((string?)null)]
+    [InlineData("")]
+    public void IconPath_UsesTheCustomIconUntilThePathIsCleared(string? clearedPath)
     {
-        var card = new WizardActionCard();
-
-        card.IconPath = "M0,0 L10,10";
-
+        var card = new WizardActionCard { IconPath = "M0,0 L10,10" };
         card.UsePathIcon.Should().BeTrue();
-    }
 
-    [Fact]
-    public void IconPath_WhenSetToEmpty_SetsUsePathIconFalse()
-    {
-        var card = new WizardActionCard();
-        card.IconPath = "M0,0 L10,10"; // first set to non-empty
-
-        card.IconPath = "";
-
-        card.UsePathIcon.Should().BeFalse();
-    }
-
-    [Fact]
-    public void IconPath_WhenSetToNull_SetsUsePathIconFalse()
-    {
-        var card = new WizardActionCard();
-        card.IconPath = "some path";
-
-        card.IconPath = null!;
+        card.IconPath = clearedPath!;
 
         card.UsePathIcon.Should().BeFalse();
     }

@@ -4,6 +4,7 @@ using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.UI.Features.AdvancedTools;
 using WinOptimizer.UI.Features.Cleaner;
 using WinOptimizer.UI.Features.Extensions;
+using WinOptimizer.UI.Features.Extensions.Notch;
 using WinOptimizer.UI.Features.Extensions.Preview;
 using WinOptimizer.UI.Features.Restore;
 using WinOptimizer.UI.Features.SystemInformation;
@@ -25,6 +26,7 @@ public sealed class NavigationRouterTests
     {
         var router = new NavigationRouter(null, null, new ExtensionTestDispatcher());
         Assert.Equal("Cleaner", router.GetTagForCurrentPage(typeof(CleanerResultsPage)));
+        Assert.Equal("Repair", router.GetTagForCurrentPage(typeof(WindowsStatusResultsPage)));
         Assert.Equal("Cleaner", router.GetTagForCurrentPage(typeof(EventsCleanupPage)));
         Assert.Equal("TimeMachine", router.GetTagForCurrentPage(typeof(WinOptimizer.UI.Features.TimeMachine.TimeMachinePage)));
         Assert.Equal("Security", router.GetTagForCurrentPage(typeof(WinOptimizer.UI.Features.Security.SecurityPage)));
@@ -33,9 +35,9 @@ public sealed class NavigationRouterTests
         Assert.Equal("Optimize", router.GetTagForCurrentPage(typeof(WinOptimizer.UI.Features.Optimize.Pages.FeaturesOptimizePage)));
         Assert.Equal("AdvancedTools", router.GetTagForCurrentPage(typeof(RestorePage)));
         Assert.Equal("AdvancedTools", router.GetTagForCurrentPage(typeof(SystemInformationPage)));
-        foreach (var page in new[] { typeof(UtilitiesPage), typeof(SystemMonitorSettingsPage), typeof(PreviewPage) })
+        foreach (var page in new[] { typeof(UtilitiesPage), typeof(SystemMonitorSettingsPage), typeof(NotchSettingsPage), typeof(NotchSysInfoPage), typeof(PreviewPage) })
             Assert.Equal("Functionalities", router.GetTagForCurrentPage(page));
-        foreach (var page in new[] { typeof(ManagementPage), typeof(EnvironmentEditorPage), typeof(HostsEditorPage), typeof(BatteryChargePage), typeof(ConnectionPage), typeof(SavedWifiPage), typeof(WindowsStatusPage), typeof(AutorunsPage), typeof(ProcessMonitorPage) })
+        foreach (var page in new[] { typeof(ManagementPage), typeof(EnvironmentEditorPage), typeof(HostsEditorPage), typeof(BatteryChargePage), typeof(ConnectionPage), typeof(SavedWifiPage), typeof(AutorunsPage), typeof(ProcessMonitorPage) })
             Assert.Equal("Management", router.GetTagForCurrentPage(page));
         Assert.Null(router.GetTagForCurrentPage(null));
         Assert.Null(router.GetTagForCurrentPage(typeof(NavigationRouterTests)));

@@ -59,63 +59,49 @@ public class PowerCfgApplierTests
         }
     };
 
-    // ---------------------------------------------------------------
-    // Null/Empty PowerCfgSettings - returns success immediately
-    // ---------------------------------------------------------------
-
-    [Fact]
-    public async Task ApplyPowerCfgSettingsAsync_NullPowerCfgSettings_ReturnsSuccess()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ApplyPowerCfgSettingsAsync_WithoutSettings_ReturnsSuccess(bool hasEmptyList)
     {
-        var setting = new SettingDefinition
+        var setting = CreatePowerSetting("no-power") with
         {
-            Id = "no-power",
-            Name = "No Power",
-            Description = "Test",
-            PowerCfgSettings = null,
+            PowerCfgSettings = hasEmptyList ? Array.Empty<PowerCfgSetting>() : null,
         };
 
         var result = await _applier.ApplyPowerCfgSettingsAsync(setting, true, null);
 
         result.Success.Should().BeTrue();
+        _writer.VerifyNoOtherCalls();
     }
 
-    [Fact]
-    public async Task ApplyPowerCfgSettingsAsync_EmptyPowerCfgSettings_ReturnsSuccess()
+    [Theory]
+    [InlineData(PowerModeSupport.Both, true, true, true)]
+    [InlineData(PowerModeSupport.ACOnly, true, true, false)]
+    [InlineData(PowerModeSupport.DCOnly, true, false, true)]
+    [InlineData(PowerModeSupport.Both, false, true, false)]
+    [InlineData(PowerModeSupport.DCOnly, false, false, false)]
+    public async Task ApplyPowerCfgSettingsAsync_ToggleWritesOnlySupportedPowerSources(
+        PowerModeSupport mode, bool hasBattery, bool writesAc, bool writesDc)
     {
-        var setting = new SettingDefinition
-        {
-            Id = "empty-power",
-            Name = "Empty Power",
-            Description = "Test",
-            PowerCfgSettings = Array.Empty<PowerCfgSetting>(),
-        };
-
-        var result = await _applier.ApplyPowerCfgSettingsAsync(setting, true, null);
-
-        result.Success.Should().BeTrue();
-    }
-
-    // ---------------------------------------------------------------
-    // Test Case 1: Both AC/DC mode applied
-    // ---------------------------------------------------------------
-
-    [Fact]
-    public async Task ApplyPowerCfgSettingsAsync_BothMode_Toggle_QueriesCurrentValues()
-    {
-        // Arrange
-        var setting = CreatePowerSetting("both-toggle", InputType.Toggle, PowerModeSupport.Both);
-        _mockHardware.Setup(h => h.HasBatteryAsync()).ReturnsAsync(true);
-        _mockPowerQuery
-            .Setup(q => q.GetPowerSettingACDCValuesAsync(It.IsAny<PowerCfgSetting>()))
-            .ReturnsAsync((0, 0));
+        var setting = CreatePowerSetting("toggle", powerMode: mode);
+        var powerSetting = setting.PowerCfgSettings![0];
+        var subgroup = Guid.Parse(powerSetting.SubgroupGuid);
+        var settingId = Guid.Parse(powerSetting.SettingGuid);
+        _mockHardware.Setup(h => h.HasBatteryAsync()).ReturnsAsync(hasBattery);
+        _mockPowerQuery.Setup(q => q.GetPowerSettingACDCValuesAsync(powerSetting)).ReturnsAsync((0, 0));
 
         var result = await _applier.ApplyPowerCfgSettingsAsync(setting, true, null);
 
         result.Success.Should().BeTrue();
         _mockHardware.Verify(h => h.HasBatteryAsync(), Times.Once);
-        _mockPowerQuery.Verify(q => q.GetPowerSettingACDCValuesAsync(
-            It.Is<PowerCfgSetting>(p => p.PowerModeSupport == PowerModeSupport.Both)),
-            Times.Once);
+        _mockPowerQuery.Verify(q => q.GetPowerSettingACDCValuesAsync(powerSetting), Times.Once);
+        var scheme = _scheme;
+        _writer.Verify(w => w.GetActiveScheme(out scheme), Times.Once);
+        _writer.Verify(w => w.WriteValue(_scheme, subgroup, settingId, true, 1), writesAc ? Times.Once() : Times.Never());
+        _writer.Verify(w => w.WriteValue(_scheme, subgroup, settingId, false, 1), writesDc ? Times.Once() : Times.Never());
+        _writer.Verify(w => w.SetActiveScheme(_scheme), writesAc || writesDc ? Times.Once() : Times.Never());
+        _writer.VerifyNoOtherCalls();
     }
 
     [Theory]
@@ -140,58 +126,6 @@ public class PowerCfgApplierTests
         _writer.Verify(x => x.WriteValue(_scheme, It.IsAny<Guid>(), It.IsAny<Guid>(), false, 1), lookup == 0 ? Times.Once() : Times.Never());
         _writer.Verify(x => x.SetActiveScheme(_scheme), lookup == 0 ? Times.Once() : Times.Never());
     }
-
-    // ---------------------------------------------------------------
-    // Test Case 2: ACOnly mode - only AC applied
-    // ---------------------------------------------------------------
-
-    [Fact]
-    public async Task ApplyPowerCfgSettingsAsync_ACOnlyMode_Toggle_QueriesCurrentValues()
-    {
-        // Arrange
-        var setting = CreatePowerSetting("ac-only", InputType.Toggle, PowerModeSupport.ACOnly);
-        _mockHardware.Setup(h => h.HasBatteryAsync()).ReturnsAsync(true);
-        _mockPowerQuery
-            .Setup(q => q.GetPowerSettingACDCValuesAsync(It.IsAny<PowerCfgSetting>()))
-            .ReturnsAsync((0, 0));
-
-        // Act
-        var result = await _applier.ApplyPowerCfgSettingsAsync(setting, true, null);
-
-        // Assert
-        result.Success.Should().BeTrue();
-        _mockPowerQuery.Verify(q => q.GetPowerSettingACDCValuesAsync(
-            It.Is<PowerCfgSetting>(p => p.PowerModeSupport == PowerModeSupport.ACOnly)),
-            Times.Once);
-    }
-
-    // ---------------------------------------------------------------
-    // Test Case 3: DCOnly mode - only DC applied
-    // ---------------------------------------------------------------
-
-    [Fact]
-    public async Task ApplyPowerCfgSettingsAsync_DCOnlyMode_Toggle_QueriesCurrentValues()
-    {
-        // Arrange
-        var setting = CreatePowerSetting("dc-only", InputType.Toggle, PowerModeSupport.DCOnly);
-        _mockHardware.Setup(h => h.HasBatteryAsync()).ReturnsAsync(true);
-        _mockPowerQuery
-            .Setup(q => q.GetPowerSettingACDCValuesAsync(It.IsAny<PowerCfgSetting>()))
-            .ReturnsAsync((0, 0));
-
-        // Act
-        var result = await _applier.ApplyPowerCfgSettingsAsync(setting, true, null);
-
-        // Assert
-        result.Success.Should().BeTrue();
-        _mockPowerQuery.Verify(q => q.GetPowerSettingACDCValuesAsync(
-            It.Is<PowerCfgSetting>(p => p.PowerModeSupport == PowerModeSupport.DCOnly)),
-            Times.Once);
-    }
-
-    // ---------------------------------------------------------------
-    // Test Case 4: Disable mode restores defaults (enable=false => value=0)
-    // ---------------------------------------------------------------
 
     [Fact]
     public async Task ApplyPowerCfgSettingsAsync_DisableToggle_UsesZeroValue()
@@ -234,10 +168,6 @@ public class PowerCfgApplierTests
             It.Is<string>(msg => msg.Contains("enable-toggle") && msg.Contains("value: 1")),
             null), Times.Once);
     }
-
-    // ---------------------------------------------------------------
-    // Test Case 5: Selection input type maps value correctly
-    // ---------------------------------------------------------------
 
     [Fact]
     public async Task ApplyPowerCfgSettingsAsync_SelectionInput_ResolvesIndexAndLogsValue()
@@ -327,46 +257,6 @@ public class PowerCfgApplierTests
             It.Is<SettingDefinition>(s => s.Id == "sel-dict"), 4), Times.Once);
     }
 
-    // ---------------------------------------------------------------
-    // Test Case 6: No battery present - skips DC
-    // ---------------------------------------------------------------
-
-    [Fact]
-    public async Task ApplyPowerCfgSettingsAsync_NoBattery_BothMode_StillCallsHasBattery()
-    {
-        // Arrange: No battery => DC write should be skipped inside ExecutePowerCfgSettings
-        var setting = CreatePowerSetting("no-battery-both", InputType.Toggle, PowerModeSupport.Both);
-        _mockHardware.Setup(h => h.HasBatteryAsync()).ReturnsAsync(false);
-        _mockPowerQuery
-            .Setup(q => q.GetPowerSettingACDCValuesAsync(It.IsAny<PowerCfgSetting>()))
-            .ReturnsAsync((0, 0));
-
-        // Act
-        var result = await _applier.ApplyPowerCfgSettingsAsync(setting, true, null);
-
-        // Assert: Battery check was performed; method succeeds
-        result.Success.Should().BeTrue();
-        _mockHardware.Verify(h => h.HasBatteryAsync(), Times.Once);
-    }
-
-    [Fact]
-    public async Task ApplyPowerCfgSettingsAsync_NoBattery_DCOnlyMode_StillCallsHasBattery()
-    {
-        // Arrange: No battery with DCOnly - the inner switch will skip writing
-        var setting = CreatePowerSetting("no-battery-dc", InputType.Toggle, PowerModeSupport.DCOnly);
-        _mockHardware.Setup(h => h.HasBatteryAsync()).ReturnsAsync(false);
-        _mockPowerQuery
-            .Setup(q => q.GetPowerSettingACDCValuesAsync(It.IsAny<PowerCfgSetting>()))
-            .ReturnsAsync((0, 0));
-
-        // Act
-        var result = await _applier.ApplyPowerCfgSettingsAsync(setting, true, null);
-
-        // Assert
-        result.Success.Should().BeTrue();
-        _mockHardware.Verify(h => h.HasBatteryAsync(), Times.Once);
-    }
-
     [Fact]
     public async Task ApplyPowerCfgSettingsAsync_NoBattery_SeparateSelection_StillResolvesValues()
     {
@@ -390,10 +280,6 @@ public class PowerCfgApplierTests
         _mockComboBox.Verify(c => c.GetValueFromIndex(It.IsAny<SettingDefinition>(), 0), Times.Once);
         _mockComboBox.Verify(c => c.GetValueFromIndex(It.IsAny<SettingDefinition>(), 1), Times.Once);
     }
-
-    // ---------------------------------------------------------------
-    // Additional edge case tests
-    // ---------------------------------------------------------------
 
     [Fact]
     public async Task ApplyPowerCfgSettingsAsync_NumericRange_RequiresAnExplicitValue()

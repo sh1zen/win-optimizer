@@ -7,6 +7,7 @@ and performance settings, and check Windows health.
 Review scan results before you remove files, apps, or drivers. Use **Test mode**
 to prepare supported changes in a draft. Use **TimeMachine** to browse saved
 snapshots, compare settings, and restore supported changes if necessary.
+Use the task icon in the title bar to check shared operation progress and output.
 
 ## Download win-optimizer
 
@@ -25,17 +26,21 @@ drivers. The installer includes the .NET and Windows App SDK runtimes.
 1. Open `win-optimizer.Installer.exe`.
 2. Select **Regular** or **Portable**.
 3. Select the destination folder.
-4. Open `win-optimizer.exe`.
+4. Open `win-optimizer.exe` to see the Dashboard with hardware details, live CPU and memory usage, system drive capacity, and quick actions. Search from the title bar to see results over the current page.
 
 **Regular** adds Windows shortcuts and an uninstall entry. **Portable**
 installs the app in a folder you can move.
 
 Turn on **Start win-optimizer as administrator** under **Settings → General →
 Info** to launch at sign-in. Select **Current Version** in the same section to
-check for updates. The app verifies the installer against the SHA-256 digest
-published with its GitHub release before offering to restart.
+check for updates. Manual checks show the result in a toast. The app verifies
+the installer against the SHA-256 digest published with its GitHub release
+before offering to restart.
 
 [Installation, first launch, app settings, automatic startup, updates, and uninstallation](docs/GETTING-STARTED.md)
+
+Open **Dashboard → Bench** to view hardware details and run CPU, GPU, memory,
+and disk benchmarks. [Run a benchmark](docs/GETTING-STARTED.md#measure-pc-performance)
 
 ## Clean and configure Windows
 
@@ -69,11 +74,10 @@ File Explorer context menus.
 ### Internet speed and network settings
 
 Use **Internet** in the sidebar to measure download, upload, and HTTPS latency
-to Cloudflare. Compare with the previous result, apply TCP auto-tuning and RSS,
-limit background download bandwidth on supported Windows editions, configure
-DNS, and manage Windows VPN profiles.
-Use **Network settings** to search the individual controls and compare their
-saved original values with suggested values.
+to Cloudflare. Compare with the previous result, configure DNS in the
+**Network** card, and manage Windows VPN profiles. In **Network settings**, edit
+TCP auto-tuning and RSS individually, limit background download bandwidth on
+supported Windows editions, and compare saved original values with suggested values.
 
 [Measure and tune the connection](docs/WINDOWS-SETTINGS.md#internet)
 
@@ -90,11 +94,23 @@ apply supported fixes.
 
 ## Maintain and monitor the PC
 
+### Disks, file recovery, and USB
+
+Open **Disks** in the sidebar and select a tool to unlock and delete a file,
+reset inherited permissions, restore previous versions from shadow copies,
+or verify a file or folder with SHA-256. You can also safely eject USB storage,
+scan for deleted files, and analyze or optimize a fixed drive.
+
+[Use the disk tools and recover files](docs/DISKS.md)
+
 ### Driver updates and unused packages
 
 Use **Drivers** to compare installed drivers with updates from official sources.
-Follow scan progress and review source coverage, version comparisons, and
-certification. Verify or download matching packages, search disconnected
+Review compatible updates with verified INF matches and check source coverage
+and certification. When an NVIDIA package is eligible for verification, review
+its license during the scan. Use **Cancel scan** to stop an active scan.
+When a cancelled scan stops, the app returns to the starting page and shows a notification.
+Download matching packages, search disconnected
 devices, and review entries before removal.
 
 [Check driver updates and remove unused packages](docs/DRIVERS.md)
@@ -105,17 +121,22 @@ Use **Control → Autorun management** to filter startup entries and inspect or
 change their state. Use **Control** to inspect running processes, check network
 connections, and edit environment variables or the hosts file. Set battery
 charge limits and restart thresholds on compatible hardware, and check whether
-charging continues above the limit. Check Windows health and run DISM and SFC
-repairs.
+charging continues above the limit. Use **Repair** in the sidebar to check
+Windows health and run DISM and SFC repairs.
+Turn on **Quick status** beside **Diagnose** for a quick health check.
+Follow progress in Repair, then read the outcome and next steps in the report.
+A full diagnosis can identify affected components in the report.
+Return to the overview to run **Diagnose** again or reopen the latest report.
+Select the **Info** icon in Repair for requirements, log locations, and guidance.
 
 [Manage startup, monitor processes, and repair Windows](docs/SYSTEM-TOOLS.md)
 
 ### Hardware monitoring and desktop widgets
 
-Use **SysMonitor** to see CPU, memory, network, and available hardware sensor
-readings on the desktop. Use **Notch** for media controls, a focus timer, a
-calendar, and quick access to apps and files. Enabled widgets run in a desktop
-companion while the main app closes independently.
+Open **Extension** in the sidebar. Use **SysMonitor** to see CPU, memory,
+network, and available hardware sensor readings on the desktop. Use **Notch**
+for media controls, a focus timer, a calendar, and quick access to apps and files.
+Enabled widgets run in a desktop companion while the main app closes independently.
 
 [Set up SysMonitor and Notch](docs/EXTENSIONS.md)
 

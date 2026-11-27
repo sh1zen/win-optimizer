@@ -43,10 +43,9 @@ internal class TaskOutputDialogBuilder
     /// Builds the ContentDialog with terminal rendering UI. The caller is responsible for
     /// showing it through PopupHandler with the live-update start/stop callbacks.
     /// </summary>
-    /// <param name="xamlRoot">The XamlRoot for sizing calculations.</param>
     /// <param name="title">The dialog title.</param>
     /// <param name="logMessages">Initial log messages to display.</param>
-    public ContentDialog Build(XamlRoot xamlRoot, string title, IReadOnlyList<string> logMessages)
+    public ContentDialog Build(string title, IReadOnlyList<string> logMessages)
     {
         // Mutable list of all lines -- snapshot + live additions.
         // Used by Copy to Clipboard at click time.
@@ -105,25 +104,9 @@ internal class TaskOutputDialogBuilder
             DefaultButton = ContentDialogButton.Close
         });
 
-        // Blow out WinUI's built-in ContentDialog size caps so that the
-        // SizeChanged handler below can drive actual content dimensions.
-        dialog.Resources["ContentDialogMaxWidth"] = 8192;
-        dialog.Resources["ContentDialogMaxHeight"] = 4096;
-
-        dialog.SizeChanged += (_, _) =>
-        {
-            if (dialog.Content is FrameworkElement content && xamlRoot.Size.Width > 0)
-            {
-                double winWidth = xamlRoot.Size.Width;
-                double winHeight = xamlRoot.Size.Height;
-
-                // 90% of window width, floor 600px, minus dialog chrome padding (~48px)
-                content.Width = Math.Min(Math.Max(600, winWidth * 0.90) - 48, 8192);
-
-                // 70% of window height, floor 300px, minus title+buttons chrome (~120px)
-                content.Height = Math.Min(Math.Max(300, winHeight * 0.70) - 120, 4096);
-            }
-        };
+        // Let WinUI measure short logs at their natural size and constrain the scroll viewport for long logs.
+        dialog.Resources["ContentDialogMaxWidth"] = (double)Microsoft.UI.Xaml.Application.Current.Resources["Popup.MaxWidth"];
+        dialog.Resources["ContentDialogMaxHeight"] = 480d;
 
         // Copy to Clipboard -- build text dynamically to include live lines
         dialog.SecondaryButtonClick += (_, _) =>
@@ -157,6 +140,7 @@ internal class TaskOutputDialogBuilder
 
             dispatcherQueue.TryEnqueue(() =>
             {
+                var followOutput = _scrollViewer.VerticalOffset >= _scrollViewer.ScrollableHeight - 20;
                 // Always remove the last progress line
                 // before adding ANY new line. This handles:
                 //   progress -> progress: replacement (progress bar filling)
@@ -189,11 +173,11 @@ internal class TaskOutputDialogBuilder
 
                 // Auto-scroll only if the user is near the bottom;
                 // if they scrolled up, leave the view where they put it.
-                _scrollViewer.UpdateLayout();
-                var isNearBottom = _scrollViewer.VerticalOffset
-                    >= _scrollViewer.ScrollableHeight - 20;
-                if (isNearBottom)
+                if (followOutput)
+                {
+                    _scrollViewer.UpdateLayout();
                     _scrollViewer.ChangeView(null, _scrollViewer.ScrollableHeight, null, true);
+                }
             });
 
             // Unsubscribe only when the overall task has actually stopped

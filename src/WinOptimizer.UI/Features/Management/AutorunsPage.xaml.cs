@@ -1,6 +1,8 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
+using Microsoft.UI.Xaml.Controls.Primitives;
+using WinOptimizer.UI.Features.Common.Helpers;
 using WinOptimizer.UI.Features.Management.ViewModels;
 
 namespace WinOptimizer.UI.Features.Management;
@@ -14,6 +16,7 @@ public sealed partial class AutorunsPage : Page
     {
         ViewModel = viewModel;
         InitializeComponent();
+        PopupHandler.AttachMenu(ActionsButton, ["WindowsStartupSettings", "ClearStartupFilters"], FlyoutPlacementMode.Top);
         SizeChanged += (_, args) => UpdateLayoutMode(args.NewSize.Width);
         Loaded += async (_, _) =>
         {

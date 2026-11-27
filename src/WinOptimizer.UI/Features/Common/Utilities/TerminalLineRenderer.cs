@@ -5,9 +5,7 @@ using WinOptimizer.Core.Features.Common.Helpers;
 namespace WinOptimizer.UI.Features.Common.Utilities;
 
 /// <summary>
-/// Shared rendering logic for terminal output lines.
-/// Used by both the closed TaskProgressControl bar and the Terminal Output dialog
-/// so that progress bars and colored text render identically in both views.
+/// Renders colored terminal output in the Terminal Output dialog.
 /// </summary>
 internal static class TerminalLineRenderer
 {
@@ -78,14 +76,8 @@ internal static class TerminalLineRenderer
     /// (consistent height) but different colors.
     /// </summary>
     /// <param name="line">The terminal line text.</param>
-    /// <param name="appendNewline">
-    /// True to append a trailing newline (for multi-line dialog view);
-    /// false for single-line inline view.
-    /// </param>
-    public static Run[] CreateLineRuns(string line, bool appendNewline = true)
+    public static Run[] CreateLineRuns(string line)
     {
-        var nl = appendNewline ? "\x0a" : "";
-
         // Check if this is a progress bar line (contains filled block chars and ░ unfilled track).
         // At low percentages the filled portion may be a partial block (U+2589–U+258F)
         // rather than a full block (U+2588), so check the whole range.
@@ -117,23 +109,20 @@ internal static class TerminalLineRenderer
                 }
                 else
                 {
-                    bool isLastSegment = i >= line.Length;
                     runs.Add(new Run
                     {
-                        Text = isLastSegment ? segment + nl : segment,
+                        Text = segment,
                         Foreground = GetLineBrush(line)
                     });
                 }
             }
-            // Ensure trailing newline on the last Run
-            if (appendNewline && runs.Count > 0 && !runs[^1].Text.EndsWith("\x0a"))
-                runs[^1].Text += "\x0a";
+            runs[^1].Text += "\n";
             return runs.ToArray();
         }
 
         return [new Run
         {
-            Text = line + nl,
+            Text = line + "\n",
             Foreground = GetLineBrush(line)
         }];
     }

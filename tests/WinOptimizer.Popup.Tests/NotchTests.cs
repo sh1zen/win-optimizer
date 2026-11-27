@@ -73,7 +73,6 @@ public sealed partial class PreviewApplication
             var y = day.TransformToVisual(monthViewport).TransformPoint(default).Y;
             return y >= -1 && y + day.ActualHeight <= monthViewport.ViewportHeight + 1;
         }) == 31);
-        await CaptureAsync(root, "notch-calendar-six-weeks.png");
         Console.WriteLine("PASS: the full Notch calendar aligns with Today and displays all six weeks.");
     }
 
@@ -128,7 +127,6 @@ public sealed partial class PreviewApplication
         var secondPosition = second.TransformToVisual(panel).TransformPoint(default);
         Require(firstPosition.Y == secondPosition.Y && firstPosition.X + first.ActualWidth < secondPosition.X &&
             !panel.CanScroll, "Two battery cards did not fit side by side.");
-        await CaptureAsync(root, "notch-batteries.png");
         await notch.SetModuleAsync(NotchModule.Uptime, true);
         await notch.SetSysInfoEnabledAsync(true);
         void Select(string tab) => ((ISelectionItemProvider)new RadioButtonAutomationPeer((RadioButton)root.FindName(tab))
@@ -236,7 +234,6 @@ public sealed partial class PreviewApplication
             Math.Abs(statusOrigin.Y + tileOrigin.Y + tile.ActualHeight - scroll.ViewportHeight) <= 2,
             $"Quick access did not center its empty state below the fixed header. Tile at {tileOrigin}, hint at {statusOrigin}, " +
             $"viewport {scroll.ViewportWidth} × {scroll.ViewportHeight}.");
-        await CaptureAsync(root, "notch-shortcuts-empty.png");
 
         Invoke(add);
         await WaitForNotchAsync(() => picks.Count == 1);
@@ -255,7 +252,6 @@ public sealed partial class PreviewApplication
             { HorizontalAlignment: HorizontalAlignment.Right, VerticalAlignment: VerticalAlignment.Top } remove &&
             AutomationProperties.GetName(remove) == "Remove Notch Sample from Quick access",
             "Editing did not show a labeled removal action in the top-right corner of the tile.");
-        await CaptureAsync(root, "notch-shortcuts-edit.png");
         failNextWrite = true;
         Invoke(RemoveButton()!);
         await WaitForNotchAsync(() => status.Text == "Shortcut write failed.");
@@ -391,7 +387,6 @@ public sealed partial class PreviewApplication
             shown.AppWindow.Size.Width > baselineSize.Width &&
             badges.All(badge => badge.TransformToVisual(root).TransformPoint(default).X + badge.ActualWidth <= root.ActualWidth),
             "The compact bar did not fit and label all Bluetooth batteries with known percentages.");
-        await CaptureAsync(root, "notch-compact-batteries.png");
 
         await notch.SetModuleAsync(NotchModule.Batteries, false);
         Require(compactBatteries.Visibility == Visibility.Collapsed && compactBatteries.Items.Count == 0 &&
@@ -457,7 +452,6 @@ public sealed partial class PreviewApplication
         Require(VisibleOrder().SequenceEqual(original), "The default compact order did not match the metrics and clock layout.");
         var cpu = (TextBlock)root.FindName("CpuValue");
         await WaitForNotchAsync(() => cpu.Text == "6%" && cpu.ActualWidth > 0);
-        await CaptureAsync(root, "notch-compact-order.png");
 
         (NotchModule, double)[] targets = [(NotchModule.Cpu, 25), (NotchModule.Gpu, 100), (NotchModule.Memory, 175),
             (NotchModule.Traffic, 250), (NotchModule.Clock, 325)];
@@ -690,7 +684,6 @@ public sealed partial class PreviewApplication
             Require(compactTime.Visibility == Visibility.Visible &&
                 DateTime.TryParse(compactTime.Text, CultureInfo.CurrentUICulture, DateTimeStyles.None, out _),
                 "The enabled clock did not show the local time in the compact notch.");
-            await CaptureAsync(root, "notch-compact.png");
             CheckNotchOutline(shown);
             var grip = (Button)root.FindName("Grip");
             var surface = Descendants<Grid>(grip).Single(grid => grid.Name == "GripSurface");
@@ -721,7 +714,6 @@ public sealed partial class PreviewApplication
                 playbackFace.Background is SolidColorBrush { Color.R: 27, Color.G: 28, Color.B: 32 } &&
                 playbackFace.Foreground is SolidColorBrush { Color.R: 130, Color.G: 132, Color.B: 138 },
                 "The disabled play button should show a readable muted glyph on the dark media controls.");
-            await CaptureAsync(root, "notch-media-empty.png");
             hasMediaSession = true;
             await WaitForNotchAsync(() => panel.Visibility == Visibility.Visible && track.Text == "Sample track");
             Require(playbackButton.IsEnabled && playbackIcon.Symbol == Symbol.Pause,
@@ -754,7 +746,6 @@ public sealed partial class PreviewApplication
             await WaitForNotchAsync(() => seeks.Count > 0);
             Require(seeks.SequenceEqual([(7L, TimeSpan.FromSeconds(63))]) && elapsed.Text == "01:03",
                 $"Scrubbing did not send the final position for the displayed track. Requests: {string.Join(", ", seeks)}. Elapsed: {elapsed.Text}.");
-            await CaptureAsync(root, "notch-media.png");
             Invoke((Button)root.FindName("PlaybackButton"));
             await WaitForNotchAsync(() => waveFrame.Visibility == Visibility.Collapsed);
             media.Verify(m => m.ControlAsync(DesktopMediaCommand.PlayPause), Times.Once);
@@ -780,7 +771,6 @@ public sealed partial class PreviewApplication
                 "The pinned countdown stopped or disappeared when the Notch collapsed.");
             Invoke((Button)root.FindName("Grip"));
             await WaitForNotchAsync(() => panel.Visibility == Visibility.Visible);
-            await CaptureAsync(root, "notch-focus.png");
             ((ComboBox)root.FindName("Phase")).SelectedIndex = (int)FocusPhase.Custom;
             var duration = (NumberBox)root.FindName("TimerMinutes");
             duration.Value = 12;
@@ -791,7 +781,6 @@ public sealed partial class PreviewApplication
             await WaitForNotchAsync(() => calendar.Visibility == Visibility.Visible && calendar.ActualHeight > 220);
             Require(((RadioButton)root.FindName("CalendarTab")).IsChecked == true,
                 "The calendar dot did not synchronize with the tab.");
-            await CaptureAsync(root, "notch-calendar.png");
             Require(shown.HandlePageWheel(60) && !((RadioButton)root.FindName("FocusTab")).IsChecked.GetValueOrDefault(),
                 "A partial touchpad movement changed the page.");
             Require(shown.HandlePageWheel(60), "The vertical wheel step was not handled.");
@@ -870,7 +859,6 @@ public sealed partial class PreviewApplication
                 "Editing a single reading incorrectly changed the Sys info switch.");
             Toggle(uptimeSwitch);
             await notch.FlushAsync();
-            await CaptureAsync(sysPage, "notch-sys-info-settings.png");
             settingsHost.GoBack();
             details = (NotchSettingsPage)settingsHost.Content;
             await LoadedAsync(details);
@@ -884,7 +872,6 @@ public sealed partial class PreviewApplication
             await WaitForNotchAsync(() => monitor.Invocations.Count(call => call.Method.Name == nameof(ISystemMonitorService.StopAsync)) == 1);
             Toggle(sysInfo);
             await notch.FlushAsync();
-            await CaptureAsync(details, "notch-settings.png");
 
             Select("WeatherTab");
             var conditions = (TextBlock)root.FindName("WeatherCondition");
@@ -943,7 +930,6 @@ public sealed partial class PreviewApplication
                 "The dedicated weather view did not render the hourly forecast above the weekly highs and lows.");
             Require(((HyperlinkButton)root.FindName("WeatherSource")).Content is FluentIcons.WinUI.FluentIcon,
                 "The weather data source should be linked through an icon.");
-            await CaptureAsync(root, "notch-weather.png");
 
             Select("OverviewTab");
             var playerTile = (Grid)root.FindName("MediaPanel");
@@ -984,7 +970,6 @@ public sealed partial class PreviewApplication
                     });
             }
             await WaitForNotchAsync(ContainsCurrentMonth);
-            await CaptureAsync(root, "notch-overview.png");
             Invoke((Button)root.FindName("PlaybackButton"));
             await WaitForNotchAsync(() => media.Invocations.Count(call => call.Method.Name == nameof(IDesktopMediaSession.ControlAsync)) == 2);
             media.Verify(m => m.ControlAsync(DesktopMediaCommand.PlayPause), Times.Exactly(2));
@@ -1054,7 +1039,6 @@ public sealed partial class PreviewApplication
                     : double.PositiveInfinity;
             }
             await WaitForNotchAsync(() => !dashboard.CanScroll && DashboardBottomGap() is >= 9 and <= 12.5);
-            await CaptureAsync(root, "notch-dashboard.png");
             var cpuHistory = Row(NotchModule.Cpu).Graph!.Readings.Single().History;
 
             await notch.SetModuleAsync(NotchModule.Gpu, false);
@@ -1096,7 +1080,6 @@ public sealed partial class PreviewApplication
             Require(audioPin.IsChecked == true && audio.Visibility == Visibility.Visible && micBadge.Visibility == Visibility.Visible &&
                 ReferenceEquals(wave.Parent, audio) && ReferenceEquals(micBadge.Parent, audio) && ReferenceEquals(audio.Parent, root.FindName("CompactReadouts")),
                 "One audio pin did not place the microphone activity and waveform together.");
-            await CaptureAsync(root, "notch-compact-metrics.png");
             var audioSwitch = ModuleSwitch(NotchModule.AudioVisualizer);
             Toggle(audioSwitch);
             await notch.FlushAsync();
@@ -1136,7 +1119,6 @@ public sealed partial class PreviewApplication
             Button? OpenShortcut(NotchShortcut shortcut) => Descendants<Button>(shortcutItems)
                 .SingleOrDefault(button => button.Name != "RemoveShortcut" && button.Tag is NotchShortcut item && item == shortcut);
             await WaitForNotchAsync(() => savedShortcuts.All(shortcut => OpenShortcut(shortcut) is { IsEnabled: true }));
-            await CaptureAsync(root, "notch-shortcuts.png");
             Invoke(OpenShortcut(savedShortcuts[0])!);
             await WaitForNotchAsync(() => opened.SequenceEqual([file]) && shown.AppWindow.Size.Height == compact.Height);
             Invoke((Button)root.FindName("Grip"));
@@ -1282,7 +1264,6 @@ public sealed partial class PreviewApplication
         await WaitForNotchAsync(() => Volatile.Read(ref baselineReads) == 31 && fps.Text == "144 FPS");
         Require(banner.Visibility == Visibility.Collapsed && fpsStrip.Visibility == Visibility.Visible,
             "The initial samples created a notice or failed to show the game FPS strip.");
-        await CaptureAsync(root, "notch-game-fps.png");
         var compactHeight = root.ActualHeight;
 
         Volatile.Write(ref state, state with { Volume = new(57, false) });
@@ -1293,7 +1274,6 @@ public sealed partial class PreviewApplication
         CheckCompactBanner();
         Require(level.TransformToVisual(banner).TransformPoint(default).Y >= CenterY(label) + label.ActualHeight / 2 - 1,
             "The volume level overlapped the label.");
-        await CaptureAsync(root, "notch-status-volume.png");
         Volatile.Write(ref state, state with { Volume = new(57, true) });
         await WaitForNotchAsync(() => label.Text == "Volume muted" && level.Visibility == Visibility.Collapsed);
 
@@ -1308,7 +1288,6 @@ public sealed partial class PreviewApplication
             icon.Foreground is SolidColorBrush accent && value.Foreground is SolidColorBrush percent &&
             accent.Color.G > accent.Color.R && accent.Color.G > accent.Color.B && accent.Color.Equals(percent.Color),
             "The charging banner did not use a green icon and percentage.");
-        await CaptureAsync(root, "notch-status-charging.png");
         Volatile.Write(ref state, state with { Power = new(true, 100, false) });
         await WaitForNotchAsync(() => label.Text == "Battery full" && value.Text == "100%");
         Require(icon.Glyph == "\uEBA7" && icon.Foreground is SolidColorBrush batteryAccent && batteryAccent.Color.B > batteryAccent.Color.G,
@@ -1316,7 +1295,6 @@ public sealed partial class PreviewApplication
         Volatile.Write(ref state, state with { Power = new(false, 100, false) });
         await WaitForNotchAsync(() => label.Text == "On battery" && value.Text == "100%");
         CheckCompactBanner();
-        await CaptureAsync(root, "notch-status-on-battery.png");
         await notch.SetPlacementAsync(new NotchPlacement(Floating: true));
         await WaitForNotchAsync(() => Near(root.ActualWidth, 300));
         CheckCompactBanner(shoulder: 0);
@@ -1324,7 +1302,6 @@ public sealed partial class PreviewApplication
 
         Volatile.Write(ref state, state with { BluetoothDevices = [new("headset", "Headset", BatteryEndpointId: "headset-endpoint")] });
         await WaitForNotchAsync(() => label.Text == "Headset connected" && value.Text == "82%");
-        await CaptureAsync(root, "notch-status-device.png");
         Volatile.Write(ref state, state with { BluetoothDevices = [] });
         await WaitForNotchAsync(() => label.Text == "Headset disconnected" && value.Text.Length == 0);
 

@@ -3,6 +3,7 @@ using WinOptimizer.Core.Features.Common.Constants;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Services;
 using WinOptimizer.UI.Features.AdvancedTools;
+using WinOptimizer.UI.Features.Benchmark;
 using WinOptimizer.UI.Features.Common.Controls;
 using WinOptimizer.UI.Features.Common.Interfaces;
 using WinOptimizer.UI.Features.Customize;
@@ -11,6 +12,7 @@ using WinOptimizer.UI.Features.Optimize.Pages;
 using WinOptimizer.UI.Features.Settings;
 using WinOptimizer.UI.Features.Restore;
 using WinOptimizer.UI.Features.Cleaner;
+using WinOptimizer.UI.Features.Disks;
 using WinOptimizer.UI.Features.Drivers;
 using WinOptimizer.UI.Features.SystemInformation;
 using WinOptimizer.UI.Features.Extensions;
@@ -19,6 +21,7 @@ using WinOptimizer.UI.Features.Extensions.Preview;
 using WinOptimizer.UI.Features.Utilities;
 using WinOptimizer.UI.Features.Management;
 using WinOptimizer.UI.Features.SoftwareApps;
+using WinOptimizer.UI.Features.Dashboard;
 using System;
 using System.Collections.Generic;
 
@@ -30,25 +33,29 @@ namespace WinOptimizer.UI.Helpers;
 /// </summary>
 internal sealed class NavigationRouter
 {
+    public const string DashboardTag = "Dashboard";
+
     private readonly IConfigReviewService? _configReviewService;
     private readonly INavBadgeService? _navBadgeService;
     private readonly IDispatcherService _dispatcher;
 
     private static readonly Dictionary<string, Type> TagToPageType = new()
     {
+        [DashboardTag] = typeof(DashboardPage),
         ["Settings"] = typeof(SettingsPage),
         ["TimeMachine"] = typeof(WinOptimizer.UI.Features.TimeMachine.TimeMachinePage),
+        ["Functionalities"] = typeof(UtilitiesPage),
         ["Restore"] = typeof(RestorePage),
         ["Optimize"] = typeof(OptimizePage),
         ["Internet"] = typeof(NetworkOptimizePage),
         ["Cleaner"] = typeof(CleanerPage),
+        ["Disks"] = typeof(DisksPage),
         ["Drivers"] = typeof(DriversPage),
         ["SystemInformation"] = typeof(SystemInformationPage),
-        ["Functionalities"] = typeof(UtilitiesPage),
         ["Management"] = typeof(ManagementPage),
+        ["Repair"] = typeof(WindowsStatusPage),
         ["Security"] = typeof(WinOptimizer.UI.Features.Security.SecurityPage),
         ["EventsCleanup"] = typeof(EventsCleanupPage),
-        ["WindowsStatus"] = typeof(WindowsStatusPage),
         ["Autoruns"] = typeof(AutorunsPage),
         ["ProcessMonitor"] = typeof(ProcessMonitorPage),
         ["SysMonitor"] = typeof(SystemMonitorSettingsPage),
@@ -60,6 +67,8 @@ internal sealed class NavigationRouter
 
     private static readonly Dictionary<string, string> PageTypeNameToTag = new()
     {
+        [nameof(DashboardPage)] = DashboardTag,
+        [nameof(BenchmarkPage)] = DashboardTag,
         [nameof(SettingsPage)] = "Settings",
         [nameof(WinOptimizer.UI.Features.TimeMachine.TimeMachinePage)] = "TimeMachine",
         [nameof(RestorePage)] = "AdvancedTools",
@@ -67,6 +76,8 @@ internal sealed class NavigationRouter
         [nameof(NetworkOptimizePage)] = "Internet",
         [nameof(FeaturesOptimizePage)] = "Optimize",
         [nameof(CleanerPage)] = "Cleaner",
+        [nameof(DisksPage)] = "Disks",
+        [nameof(DiskToolPage)] = "Disks",
         [nameof(DriversPage)] = "Drivers",
         [nameof(SystemInformationPage)] = "AdvancedTools",
         [nameof(UtilitiesPage)] = "Functionalities",
@@ -74,9 +85,10 @@ internal sealed class NavigationRouter
         [nameof(HostsEditorPage)] = "Management",
         [nameof(BatteryChargePage)] = "Management",
         [nameof(ManagementPage)] = "Management",
+        [nameof(WindowsStatusPage)] = "Repair",
+        [nameof(WindowsStatusResultsPage)] = "Repair",
         [nameof(WinOptimizer.UI.Features.Security.SecurityPage)] = "Security",
         [nameof(EventsCleanupPage)] = "Cleaner",
-        [nameof(WindowsStatusPage)] = "Management",
         [nameof(AutorunsPage)] = "Management",
         [nameof(ProcessMonitorPage)] = "Management",
         [nameof(ConnectionPage)] = "Management",
@@ -149,7 +161,7 @@ internal sealed class NavigationRouter
     }
 
     /// <summary>Shares overview reset and duplicate-entry policy between sidebar and nested navigation.</summary>
-    private static bool NavigateToDestination(Frame frame, Type pageType, object? parameter)
+    internal static bool NavigateToDestination(Frame frame, Type pageType, object? parameter)
     {
         if (frame.CurrentSourcePageType == pageType && parameter == null &&
             frame.Content is not ISectionNavigationPage { IsInDetailPage: true }) return false;

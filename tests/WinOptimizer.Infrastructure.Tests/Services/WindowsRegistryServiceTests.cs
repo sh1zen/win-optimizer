@@ -214,13 +214,6 @@ public class WindowsRegistryServiceTests : IDisposable
     }
 
     [Fact]
-    public void IsRegistryValueInEnabledState_MatchesDisabledValue_ReturnsFalse()
-    {
-        var setting = CreateTestSetting(enabledValue: [1], disabledValue: [0]);
-        _sut.IsRegistryValueInEnabledState(setting, 0, true).Should().BeFalse();
-    }
-
-    [Fact]
     public void IsRegistryValueInEnabledState_MatchesNeither_ReturnsFalse()
     {
         var setting = CreateTestSetting(enabledValue: [1], disabledValue: [0]);

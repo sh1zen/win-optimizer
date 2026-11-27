@@ -5,6 +5,7 @@ using CommunityToolkit.Mvvm.Input;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.SystemInformation.Interfaces;
 using WinOptimizer.Core.Features.SystemInformation.Models;
+using WinOptimizer.UI.Features.Common.Services;
 
 namespace WinOptimizer.UI.Features.SystemInformation.ViewModels;
 
@@ -13,6 +14,7 @@ public partial class SystemInformationViewModel : ObservableObject, IDisposable
 {
     private readonly ISystemInformationService _service;
     private readonly ILocalizationService _localization;
+    private readonly ScanCancellationNotifications? _scanNotifications;
     private readonly List<SystemInformationCategoryViewModel> _sections = [];
     private CancellationTokenSource? _operation;
     private SystemInformationSnapshot? _snapshot;
@@ -49,10 +51,12 @@ public partial class SystemInformationViewModel : ObservableObject, IDisposable
     public string Notices => string.Join(Environment.NewLine, _sections.Where(section => section.Section?.Error is not null)
         .Select(section => $"{section.Title}: {section.Section!.Error}"));
 
-    public SystemInformationViewModel(ISystemInformationService service, ILocalizationService localization)
+    public SystemInformationViewModel(ISystemInformationService service, ILocalizationService localization,
+        ScanCancellationNotifications? scanNotifications = null)
     {
         _service = service;
         _localization = localization;
+        _scanNotifications = scanNotifications;
         _localization.LanguageChanged += OnLanguageChanged;
     }
 
@@ -80,7 +84,18 @@ public partial class SystemInformationViewModel : ObservableObject, IDisposable
             if (_disposed) return;
             PublishSnapshot(snapshot);
         }
-        catch (OperationCanceledException) { if (!_disposed) Status = Text("SystemInfo_Cancelled"); }
+        catch (OperationCanceledException)
+        {
+            if (!_disposed)
+            {
+                Status = Text("SystemInfo_Cancelled");
+                if (owner.IsCancellationRequested)
+                {
+                    SelectedCategory = Categories.FirstOrDefault();
+                    _scanNotifications?.Publish(this, Heading, Status);
+                }
+            }
+        }
         catch (SystemInformationException ex) { if (!_disposed) Status = ex.Message; }
         finally { _operation = null; IsBusy = false; }
     }

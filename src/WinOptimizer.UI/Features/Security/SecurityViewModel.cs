@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using CommunityToolkit.Mvvm.ComponentModel;
+using WinOptimizer.UI.Features.Common.Services;
 using CommunityToolkit.Mvvm.Input;
 using FluentIcons.Common;
 using WinOptimizer.Core.Features.Common.Interfaces;
@@ -77,11 +78,14 @@ public partial class SecurityViewModel : UtilityViewModel
     public string Summary => _report == null ? "" : string.Format(Text(_report.Deep ? "Security_DeepSummary" : "Security_Summary"),
         ScanTime, ReviewCount, UnavailableCount);
 
+    private readonly ScanCancellationNotifications? _scanNotifications;
+
     public SecurityViewModel(ISecurityScanService service, IDialogService dialogs, ILocalizationService localization,
-        IApplicationModeService mode, IDispatcherService dispatcher, ITaskProgressService tasks)
+        IApplicationModeService mode, IDispatcherService dispatcher, ITaskProgressService tasks, ScanCancellationNotifications? scanNotifications = null)
         : base(localization, mode, dispatcher, tasks, "Security_Title")
     {
         _service = service; _dialogs = dialogs; _localization = localization; _tasks = tasks;
+        _scanNotifications = scanNotifications;
         var areas = SecurityCheck.All.Where(check => !check.DeepOnly).Select(check => check.Area).Distinct().ToArray();
         ScanCoverage = areas.Select((area, index) => new SecurityCoverageItem(area, index < areas.Length - 1, localization)).ToArray();
     }
@@ -130,6 +134,7 @@ public partial class SecurityViewModel : UtilityViewModel
         {
             Status = Text("Security_Cancelled");
             ReportScanProgress(Title, Status);
+            _scanNotifications?.Publish(this, Title, Status);
         }
         finally
         {
@@ -141,7 +146,7 @@ public partial class SecurityViewModel : UtilityViewModel
 
     private bool CanCancelScan() => IsScanning && !IsScanCancelling;
 
-    /// <summary>Requests cancellation on the scan token shared with the task footer.</summary>
+    /// <summary>Requests cancellation on the scan token shared with the task controls.</summary>
     [RelayCommand(CanExecute = nameof(CanCancelScan))]
     private void CancelScan()
     {

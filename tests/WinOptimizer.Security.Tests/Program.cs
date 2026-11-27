@@ -1,5 +1,4 @@
 using System.Reflection;
-using System.Runtime.InteropServices.WindowsRuntime;
 using System.Text.Json;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI;
@@ -9,13 +8,12 @@ using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Automation.Provider;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Media.Imaging;
 using Moq;
 using Windows.Graphics;
-using Windows.Graphics.Imaging;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Security;
 using WinOptimizer.UI.Features.Common.Controls;
+using WinOptimizer.UI.Features.Common.Helpers;
 using WinOptimizer.UI.Features.Common.Interfaces;
 using WinOptimizer.UI.Features.Security;
 using WinOptimizer.UI.Tests.Helpers;
@@ -123,7 +121,6 @@ public sealed partial class SecurityTestApplication(string outputDirectory) : Wi
                 Assert.Equal(scan.ActualWidth, scan.ActualHeight);
                 Assert.Equal(new CornerRadius(68), scan.CornerRadius);
                 Assert.True(deepScan.ActualWidth > 0);
-                await CaptureAsync(shell, wide ? $"security-{language}-intro.png" : $"security-{language}-intro-{width}.png");
             }
             Assert.Equal(vm.ScanLabel, scan.Content);
             Assert.Equal(vm.DeepScanLabel, deepScan.Content);
@@ -133,7 +130,7 @@ public sealed partial class SecurityTestApplication(string outputDirectory) : Wi
 
             pendingRead = new(TaskCreationOptions.RunContinuationsAsynchronously);
             var scanning = Assert.IsAssignableFrom<IAsyncRelayCommand>(scan.Command).ExecuteAsync(scan.CommandParameter);
-            await RenderScanProgressAsync(shell, page, language);
+            await RenderScanProgressAsync(shell, page);
             var cancel = Assert.IsType<Button>(page.FindName("CancelScanButton"));
             var token = current!.Token;
             cancel.Command.Execute(cancel.CommandParameter);
@@ -152,7 +149,7 @@ public sealed partial class SecurityTestApplication(string outputDirectory) : Wi
             var deepRescan = (Button)page.FindName("DeepRescanButton");
             Assert.Same(vm.ScanCommand, rescan.Command);
             Assert.Same(vm.DeepScanCommand, deepRescan.Command);
-            await RenderStandardResultsAsync(shell, page, language);
+            await RenderStandardResultsAsync(shell, page);
             pendingRead = new(TaskCreationOptions.RunContinuationsAsynchronously);
             var deepScanning = Assert.IsAssignableFrom<IAsyncRelayCommand>(deepRescan.Command).ExecuteAsync(deepRescan.CommandParameter);
             Assert.Equal(Visibility.Visible, Assert.IsType<ScrollViewer>(page.FindName("ScanProgressView")).Visibility);
@@ -194,14 +191,13 @@ public sealed partial class SecurityTestApplication(string outputDirectory) : Wi
                 Assert.Equal(3, metrics.Children.Count);
                 var lastMetricOrigin = metrics.Children[2].TransformToVisual(metrics).TransformPoint(default);
                 Assert.Equal(width == 480, lastMetricOrigin.Y > 0);
-                await CaptureAsync(shell, $"security-{language}-{theme}-{width}.png");
             }
         }
         Console.WriteLine("PASS: English/Italian production Security page, three widths and light/dark themes.");
     }
 
     /// <summary>Checks a standard report, its displayed technical evidence, and the unavailable-check shortcut.</summary>
-    private async Task RenderStandardResultsAsync(Grid shell, SecurityPage page, string language)
+    private async Task RenderStandardResultsAsync(Grid shell, SecurityPage page)
     {
         var window = Assert.IsType<Window>(_window);
         shell.RequestedTheme = ElementTheme.Dark;
@@ -229,7 +225,6 @@ public sealed partial class SecurityTestApplication(string outputDirectory) : Wi
         var evidence = Assert.IsType<ItemsControl>(FindNamed(list, "StructuredEvidence"));
         Assert.Equal(new SecurityEvidenceValue("EnableLUA", "1"), evidence.Items[0]);
         Assert.Equal(new SecurityEvidenceValue("ConsentPromptBehaviorAdmin", "5"), evidence.Items[1]);
-        await CaptureAsync(shell, $"security-{language}-results.png");
 
         var unavailable = Assert.IsType<Button>(page.FindName("ViewUnavailableButton"));
         Assert.Equal(Visibility.Visible, unavailable.Visibility);
@@ -245,8 +240,8 @@ public sealed partial class SecurityTestApplication(string outputDirectory) : Wi
         Assert.True(uac.AreDetailsExpanded);
     }
 
-    /// <summary>Checks the live scan view and captures the wide and compact layouts.</summary>
-    private async Task RenderScanProgressAsync(Grid shell, SecurityPage page, string language)
+    /// <summary>Checks the live scan view at wide and compact widths.</summary>
+    private async Task RenderScanProgressAsync(Grid shell, SecurityPage page)
     {
         var window = Assert.IsType<Window>(_window);
         shell.Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 24, 25, 28));
@@ -254,8 +249,6 @@ public sealed partial class SecurityTestApplication(string outputDirectory) : Wi
         var cover = Assert.IsType<ItemsControl>(page.FindName("ScanCoverageCards"));
         var cancel = Assert.IsType<Button>(page.FindName("CancelScanButton"));
         var details = Assert.IsType<Button>(page.FindName("ScanDetailsButton"));
-        var options = Assert.IsType<Button>(page.FindName("DeepScanOptionsButton"));
-        var flyout = Assert.IsType<Flyout>(options.Flyout);
         Assert.Equal(Visibility.Visible, progress.Visibility);
         Assert.Equal(Visibility.Collapsed, Assert.IsType<ScrollViewer>(page.FindName("ScanIntro")).Visibility);
         Assert.True(Assert.IsType<ProgressBar>(page.FindName("ScanProgressBar")).IsIndeterminate);
@@ -276,14 +269,19 @@ public sealed partial class SecurityTestApplication(string outputDirectory) : Wi
                 var left = item.TransformToVisual(cover).TransformPoint(default).X;
                 Assert.InRange(left + item.ActualWidth, 1, cover.ActualWidth + 1);
             });
-            await CaptureAsync(shell, $"security-{language}-progress-{width}.png");
         }
-        flyout.ShowAt(options);
-        await Task.Yield();
+
+        var options = Assert.IsType<Button>(page.FindName("DeepScanOptionsButton"));
+        var flyout = Assert.IsType<Flyout>(options.Flyout);
+        var opened = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        flyout.Opened += (_, _) => opened.TrySetResult();
+        PopupHandler.SetIsOpen(options, true);
+        await opened.Task.WaitAsync(TimeSpan.FromSeconds(3));
         var contents = Assert.IsType<StackPanel>(flyout.Content);
+        Assert.Same(contents, PopupHandler.GetContent(options));
         var checks = Assert.Single(contents.Children.OfType<ItemsControl>());
         Assert.Equal(SecurityCheck.All.Count(check => check.DeepOnly), checks.Items.Count);
-        flyout.Hide();
+        PopupHandler.SetIsOpen(options, false);
     }
 
     private static FrameworkElement? FindNamed(DependencyObject parent, string name)
@@ -292,15 +290,6 @@ public sealed partial class SecurityTestApplication(string outputDirectory) : Wi
         for (var index = 0; index < VisualTreeHelper.GetChildrenCount(parent); index++)
             if (FindNamed(VisualTreeHelper.GetChild(parent, index), name) is { } match) return match;
         return null;
-    }
-
-    private async Task CaptureAsync(UIElement root, string name)
-    {
-        var bitmap = new RenderTargetBitmap(); await bitmap.RenderAsync(root); var pixels = await bitmap.GetPixelsAsync();
-        await using var output = File.Create(Path.Combine(outputDirectory, name));
-        var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, output.AsRandomAccessStream());
-        encoder.SetPixelData(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied, (uint)bitmap.PixelWidth, (uint)bitmap.PixelHeight, 96, 96, pixels.ToArray());
-        await encoder.FlushAsync();
     }
 
     private void Finish(string? error = null)

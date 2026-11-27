@@ -505,8 +505,7 @@ public partial class SoftwareAppsViewModel : BaseViewModel
     }
 
     /// <summary>
-    /// Loads the Windows Apps tab through its shared task. Deferred startup calls
-    /// this after the first Software & Apps frame, using the tab's loading indicator.
+    /// Loads the Windows Apps tab through its shared task and tab loading indicator.
     /// </summary>
     public async Task InitializeWindowsAppsAsync()
     {
@@ -519,10 +518,7 @@ public partial class SoftwareAppsViewModel : BaseViewModel
     }
 
     /// <summary>
-    /// Loads only the External Apps tab. Cold-start fires this in the background
-    /// (see <see cref="StartupUiCoordinator"/>); the tab's per-tab loading
-    /// overlay (bound to <see cref="ExternalAppsViewModel.IsLoading"/>) covers
-    /// the case where the user clicks External Apps before resolution completes.
+    /// Loads the External Apps tab using its own loading indicator.
     /// </summary>
     public async Task InitializeExternalAppsAsync()
     {

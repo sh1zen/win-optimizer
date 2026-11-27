@@ -37,7 +37,7 @@ public class TaskProgressServiceTests
     }
 
     [Fact]
-    public void PageOwnedProgress_CarriesPresentationThroughCompletion_AndNextTaskUsesGlobalBar()
+    public void PageOwnedProgress_CarriesPresentationThroughCompletion_AndNextTaskUsesSharedPresentation()
     {
         var updates = new List<(bool Show, bool Running, bool Completion)>();
         _sut.ProgressUpdated += (_, detail) => updates.Add((detail.ShowInTaskBar, _sut.IsTaskRunning, detail.IsCompletion));

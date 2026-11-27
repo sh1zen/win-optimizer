@@ -5,11 +5,12 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:local="using:WinOptimizer.UI"
     xmlns:controls="using:WinOptimizer.UI.Features.Common.Controls"
+    xmlns:dashboard="using:WinOptimizer.UI.Features.Dashboard"
     xmlns:helpers="using:WinOptimizer.UI.Features.Common.Helpers"
     xmlns:fluentIcons="using:FluentIcons.WinUI"
     Title="win-optimizer">
 
-    <Grid x:Name="RootGrid" Loaded="RootGrid_Loaded"
+    <Grid x:Name="RootGrid" Loaded="RootGrid_Loaded" PreviewKeyDown="RootGrid_PreviewKeyDown"
           Background="Transparent" KeyboardAcceleratorPlacementMode="Hidden">
         <Grid.KeyboardAccelerators>
             <!-- Ctrl+1-5: Navigate to sections -->
@@ -32,7 +33,6 @@
         <Grid.RowDefinitions>
             <RowDefinition Height="48"/>    <!-- TitleBar -->
             <RowDefinition Height="Auto"/>  <!-- OTS Elevation InfoBar -->
-            <RowDefinition Height="Auto"/>  <!-- Update InfoBar -->
             <RowDefinition Height="*"/>     <!-- Main Content -->
         </Grid.RowDefinitions>
         <Grid.ColumnDefinitions>
@@ -40,9 +40,9 @@
             <ColumnDefinition Width="*"/>
         </Grid.ColumnDefinitions>
 
-        <Border x:Name="SolidCanvas" Grid.RowSpan="4" Grid.ColumnSpan="2"
+        <Border x:Name="SolidCanvas" Grid.RowSpan="3" Grid.ColumnSpan="2"
                 Background="{ThemeResource AppCanvasBrush}" IsHitTestVisible="False"/>
-        <Grid x:Name="SidebarSurface" Grid.RowSpan="4"
+        <Grid x:Name="SidebarSurface" Grid.RowSpan="3"
               Background="{ThemeResource AppSurfaceBrush}" IsHitTestVisible="False">
             <Rectangle x:Name="SidebarSeparator" Width="1" HorizontalAlignment="Right"
                        Fill="{ThemeResource AppSurfaceStrokeBrush}"/>
@@ -53,7 +53,8 @@
             <Grid.ColumnDefinitions>
                 <ColumnDefinition x:Name="LeftPaddingColumn" Width="0"/>
                 <ColumnDefinition Width="Auto"/>
-                <ColumnDefinition x:Name="DragColumn" Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
                 <ColumnDefinition x:Name="ButtonsColumn" Width="Auto"/>
                 <ColumnDefinition x:Name="RightPaddingColumn" Width="0"/>
             </Grid.ColumnDefinitions>
@@ -85,9 +86,12 @@
                 </Button>
             </StackPanel>
 
+            <dashboard:ProgramSearch x:Name="TitleBarSearch" Grid.Column="3"
+                                     MaxWidth="620" Margin="16,0" VerticalAlignment="Center"/>
+
             <!-- Title Bar Action Buttons -->
             <StackPanel x:Name="TitleBarButtons"
-                        Grid.Column="3"
+                        Grid.Column="4"
                         Orientation="Horizontal"
                         VerticalAlignment="Center"
                         Margin="0,0,8,0"
@@ -130,6 +134,8 @@
                     <fluentIcons:FluentIcon Icon="BookQuestionMark" IconVariant="Regular" FontSize="20"/>
                 </Button>
 
+                <controls:TaskProgressControl x:Name="TaskActivity" ViewModel="{x:Bind ViewModel.TaskProgress, Mode=OneWay}"/>
+
                 <Button x:Name="UpdatesButton"
                         Style="{StaticResource TitleBarButtonStyle}"
                         ToolTipService.ToolTip="{x:Bind ViewModel.UpdateCheck.CheckForUpdatesLabel, Mode=OneWay}"
@@ -145,7 +151,6 @@
                                        AutomationProperties.LiveSetting="Polite"
                                        Text="{x:Bind ViewModel.UpdateCheck.UpdateStatusText, Mode=OneWay}"/>
                             <Button x:Name="CheckForUpdatesAction" Margin="0,4,0,0" HorizontalAlignment="Stretch"
-                                    helpers:PopupHandler.DismissOnClick="True"
                                     Command="{x:Bind ViewModel.UpdateCheck.CheckForUpdatesCommand, Mode=OneWay}">
                                 <TextBlock TextWrapping="Wrap"
                                            Text="{x:Bind ViewModel.UpdateCheck.CheckForUpdatesLabel, Mode=OneWay}"/>
@@ -173,18 +178,8 @@
                  IsClosable="True"
                  Closed="OtsElevationInfoBar_Closed"/>
 
-        <!-- Update InfoBar -->
-        <InfoBar x:Name="UpdateInfoBar"
-                 Grid.Row="2" Grid.Column="1"
-                 IsOpen="{x:Bind ViewModel.UpdateCheck.IsUpdateInfoBarOpen, Mode=OneWay}"
-                 Title="{x:Bind ViewModel.UpdateCheck.UpdateInfoBarTitle, Mode=OneWay}"
-                 Message="{x:Bind ViewModel.UpdateCheck.UpdateInfoBarMessage, Mode=OneWay}"
-                 Severity="{x:Bind ViewModel.UpdateCheck.UpdateInfoBarSeverity, Mode=OneWay}"
-                 IsClosable="True"
-                 Closed="UpdateInfoBar_Closed"/>
-
         <!-- Main Content Area -->
-        <Grid Grid.Row="3" Grid.ColumnSpan="2" x:Name="ZoomViewport">
+        <Grid Grid.Row="2" Grid.ColumnSpan="2" x:Name="ZoomViewport">
             <!-- ZoomHost is inverse-sized + ScaleTransform'd by UiZoomManager for app-local zoom -->
             <Grid x:Name="ZoomHost">
                 <Grid.ColumnDefinitions>
@@ -199,15 +194,9 @@
                                  IsPaneOpen="{x:Bind ViewModel.SidebarPreferences.IsExpanded, Mode=OneWay}"
                                  ItemClicked="NavSidebar_ItemClicked"/>
 
-            <!-- Content + Task Progress -->
             <Grid Grid.Column="1" Margin="0,8,0,0">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="*"/>
-                    <RowDefinition Height="Auto"/>
-                </Grid.RowDefinitions>
-
                 <!-- Content Frame for Page Navigation -->
-                <Frame x:Name="ContentFrame" Grid.Row="0" Margin="{StaticResource PageHorizontalMargin}" Navigating="ContentFrame_Navigating" Navigated="ContentFrame_Navigated">
+                <Frame x:Name="ContentFrame" Margin="{StaticResource PageHorizontalMargin}" Navigating="ContentFrame_Navigating" Navigated="ContentFrame_Navigated">
                     <Frame.ContentTransitions>
                         <TransitionCollection>
                             <NavigationThemeTransition>
@@ -216,7 +205,7 @@
                         </TransitionCollection>
                     </Frame.ContentTransitions>
                 </Frame>
-                <Border x:Name="TrialToolsOverlay" Grid.Row="0" Visibility="Collapsed"
+                <Border x:Name="TrialToolsOverlay" Visibility="Collapsed"
                         Background="{ThemeResource AppCanvasBrush}" Padding="32">
                     <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Spacing="12" MaxWidth="480">
                         <TextBlock Text="{x:Bind ViewModel.TrialModeLabel, Mode=OneWay}" FontSize="24" FontWeight="SemiBold"/>
@@ -224,17 +213,22 @@
                     </StackPanel>
                 </Border>
 
-                <!-- Task progress footer -->
-                <Grid Grid.Row="1" Margin="{StaticResource PageHorizontalMargin}">
-                    <Grid Style="{StaticResource PageGridStyle}" Padding="0" Margin="0,2,0,8">
-                        <controls:TaskProgressControl x:Name="TaskProgressControl"/>
-                    </Grid>
-                </Grid>
             </Grid>
             </Grid>
         </Grid>
 
+        <dashboard:ProgramSearchResults x:Name="SearchResultsOverlay" Grid.Row="1" Grid.RowSpan="2"
+                                        Grid.ColumnSpan="2" Visibility="Collapsed"/>
+
+        <StackPanel Grid.Row="2" Grid.ColumnSpan="2" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                    MaxWidth="400" Margin="16" Spacing="8">
+            <controls:UpdateToast x:Name="UpdateNotification" HorizontalAlignment="Right"
+                                  ViewModel="{x:Bind ViewModel.UpdateCheck, Mode=OneWay}"/>
+            <InfoBar x:Name="ScanCancellationToast" HorizontalAlignment="Right" IsClosable="True"
+                     CornerRadius="{StaticResource OverlayCornerRadius}" Severity="Informational"/>
+        </StackPanel>
+
         <!-- The same loader is retained while the full shell initializes. -->
-        <Grid x:Name="LoadingOverlay" Grid.RowSpan="4" Grid.ColumnSpan="2" Visibility="Visible"/>
+        <Grid x:Name="LoadingOverlay" Grid.RowSpan="3" Grid.ColumnSpan="2" Visibility="Visible"/>
     </Grid>
 </Window>

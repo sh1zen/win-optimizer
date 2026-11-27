@@ -1,0 +1,11 @@
+<UserControl
+    x:Class="WinOptimizer.UI.Features.Dashboard.ProgramSearch"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:helpers="using:WinOptimizer.UI.Features.Common.Helpers"
+    HorizontalContentAlignment="Stretch">
+    <AutoSuggestBox x:Name="ProgramSearchBox" QueryIcon="Find"
+                    helpers:AutoSuggestBoxExtensions.PlaceholderEllipsis="True"
+                    TextChanged="Search_TextChanged" QuerySubmitted="Search_QuerySubmitted"
+                    PreviewKeyDown="Search_PreviewKeyDown"/>
+</UserControl>

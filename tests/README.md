@@ -3,7 +3,8 @@
 Run commands from the repository root. Use the Windows toolchain in the
 [development guide](../docs/DEVELOPMENT.md#build-requirements). Native UI hosts
 need cached NuGet packages. They use test data and simulate Windows interfaces.
-Put test output and previews under `build/`.
+Native UI hosts write their results under `build/`. Hosts with a dedicated
+results directory use `build/test-results/<suite>/`.
 
 ## Main suites
 
@@ -70,13 +71,15 @@ Native UI hosts:
 Windows PowerShell fixtures with fake OS boundaries:
 
 ```powershell
-powershell.exe -NoProfile -File ./tests/optimization-tools-scripts.tests.ps1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./tests/security-scripts.tests.ps1
 ./tests/autoruns-storage.tests.ps1
 powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./tests/registry-defrag.tests.ps1
 ```
 
 ## Test boundaries
+
+Disk file tests use real temporary files and simulate Restart Manager at the
+lock-session boundary.
 
 Registry service and context-menu tests exercise native `RegistryKey` APIs on
 empty temporary hives opened with `RegLoadAppKey`. Each fixture owns its handles

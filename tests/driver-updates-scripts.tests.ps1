@@ -122,6 +122,18 @@ $workspace = Join-Path $workspace 'metadata-only'
 $result = (. $ScriptPath) | ConvertFrom-Json
 Assert-True ($result.Updates.Count -eq 2 -and $result.Updates[0].VerificationSkipped -and $result.Updates[1].VerificationSkipped) 'Metadata-only discovery must retain offers.'
 Assert-True (-not (Test-Path -LiteralPath $workspace)) 'Metadata-only discovery must skip all exports.'
+
+$workspace = Join-Path $workspace 'prioritized'
+$verificationLimit = 2
+$script:testOffers = @((New-TestUpdate $testChildId), (New-TestUpdate $testOtherId), (New-TestUpdate $testId))
+$script:testOffers[0].DriverVerDate = [datetime]'2026-03-02'
+$script:testOffers[1].DriverVerDate = [datetime]'2026-03-03'
+$script:testOffers[2].DriverHardwareID = 'PCI\OTHER'
+$result = (. $ScriptPath) | ConvertFrom-Json
+Assert-True $result.Updates[0].VerificationSkipped 'An earlier offer for the same device must yield its slot.'
+Assert-True (-not $result.Updates[1].VerificationSkipped -and -not $result.Updates[2].VerificationSkipped) 'The newest offer per device should be verified first.'
+Assert-True (Test-Path -LiteralPath (Join-Path $workspace "$testOtherId\driver.inf")) 'The newest release was not exported.'
+Assert-True (Test-Path -LiteralPath (Join-Path $workspace "$testId\driver.inf")) 'The second device did not get a verification slot.'
 $verificationLimit = $null
 
 $script:testOffers = @()

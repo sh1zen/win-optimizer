@@ -1,5 +1,4 @@
 using System.Reflection;
-using System.Runtime.InteropServices.WindowsRuntime;
 using System.Text.Json;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Windowing;
@@ -8,12 +7,10 @@ using Microsoft.UI.Xaml.Automation.Peers;
 using Microsoft.UI.Xaml.Automation.Provider;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
-using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Xaml.Media;
 using Polyline = Microsoft.UI.Xaml.Shapes.Polyline;
 using Moq;
 using Windows.Foundation;
-using Windows.Graphics.Imaging;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.Core.Features.Extensions;
@@ -41,7 +38,7 @@ internal static class Program
     }
 }
 
-/// <summary>Exercises production sizing and captures each scale without sampling hardware or changing preferences.</summary>
+/// <summary>Exercises production widget sizing and layout using synthetic sensor data.</summary>
 public sealed partial class MonitorTestApplication(string output) : Microsoft.UI.Xaml.Application
 {
     private Window? _window;
@@ -129,9 +126,6 @@ public sealed partial class MonitorTestApplication(string output) : Microsoft.UI
             Assert.True(Origin(4).Y > Origin(0).Y);
             Assert.Equal(Origin(4).Y, Origin(5).Y);
             Assert.Equal(tiles[4].ActualHeight, tiles[5].ActualHeight);
-            var scroll = Assert.IsType<ScrollViewer>(page.Content);
-            scroll.ChangeView(null, scroll.ScrollableHeight, null, disableAnimation: true);
-            await SavePreviewAsync(await RenderAsync(grid), "expanded-settings.png");
 
             page.Width = 420;
             shell.UpdateLayout();
@@ -182,7 +176,7 @@ public sealed partial class MonitorTestApplication(string output) : Microsoft.UI
             foreach (var theme in new[] { ElementTheme.Dark, ElementTheme.Light })
             {
                 widget.ApplyOptions(options, theme);
-                var bitmap = await RenderAsync(root);
+                await WaitForLayoutAsync(root);
                 var center = panel.ActualWidth / 2;
                 var pixel = 1 / root.XamlRoot.RasterizationScale;
                 Assert.InRange(CenterOf(Assert.IsType<StackPanel>(panel.FindName("WidgetTitle")), panel), center - pixel, center + pixel);
@@ -204,7 +198,6 @@ public sealed partial class MonitorTestApplication(string output) : Microsoft.UI
                 Assert.Equal(Visibility.Visible, empty.Visibility);
                 Assert.Equal(TextAlignment.Center, empty.TextAlignment);
                 Assert.Equal(Visibility.Collapsed, Assert.Single(Descendants<ScrollViewer>(fans)).Visibility);
-                await SavePreviewAsync(bitmap, $"expanded-{theme.ToString().ToLowerInvariant()}.png");
             }
 
             widget.Publish(sample with
@@ -213,7 +206,7 @@ public sealed partial class MonitorTestApplication(string output) : Microsoft.UI
                 Fans = [new("CPU Fan", 1200)],
                 Notices = []
             });
-            await RenderAsync(root);
+            await WaitForLayoutAsync(root);
             Assert.Equal(Visibility.Collapsed, diagnostics.Visibility);
             Assert.InRange(Math.Abs(CenterOf(sizeButton, panel) - panel.ActualWidth / 2), 0, 1 / root.XamlRoot.RasterizationScale);
             Assert.Equal(Visibility.Visible, Assert.Single(Descendants<ScrollViewer>(fans)).Visibility);
@@ -243,8 +236,7 @@ public sealed partial class MonitorTestApplication(string output) : Microsoft.UI
             foreach (var scale in new[] { 50d, 100d, 135d, 200d })
             {
                 widget.ApplyOptions(new() { IsCompact = compact, ScalePercent = scale }, ElementTheme.Dark);
-                root.UpdateLayout();
-                var image = await RenderAsync(root);
+                await WaitForLayoutAsync(root);
                 var width = compact ? SystemMonitorPanel.CompactWidth : SystemMonitorPanel.ExpandedWidth;
                 Assert.InRange(root.ActualWidth, width * scale / 100 - 1, width * scale / 100 + 1);
                 var origin = panel.TransformToVisual(root).TransformPoint(new Point());
@@ -254,15 +246,13 @@ public sealed partial class MonitorTestApplication(string output) : Microsoft.UI
                 Assert.InRange(edge.X - origin.X, viewbox.Width - pixel, viewbox.Width + pixel);
                 Assert.InRange(edge.Y - origin.Y, viewbox.Height - pixel, viewbox.Height + pixel);
                 Assert.True(panel.DragRegion.ActualHeight > 0);
-                Assert.True(image.PixelWidth > 0 && image.PixelHeight > 0, $"Empty render for compact={compact}, scale={scale}, size={root.ActualWidth}x{root.ActualHeight}.");
                 var area = DisplayArea.GetFromWindowId(widget.AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
                 Assert.True(widget.AppWindow.Size.Width <= area.Width && widget.AppWindow.Size.Height <= area.Height);
             }
             // Long diagnostics must remain scrollable even on a large display at the largest scale.
             var workArea = DisplayArea.GetFromWindowId(widget.AppWindow.Id, DisplayAreaFallback.Primary).WorkArea;
             widget.ShowError(string.Join('\n', Enumerable.Repeat("Synthetic diagnostic", workArea.Height / 10 + 1)));
-            root.UpdateLayout();
-            await RenderAsync(root);
+            await WaitForLayoutAsync(root);
             var viewport = Assert.IsType<ScrollViewer>(panel.FindName("ReadingsViewport"));
             Assert.True(viewport.ScrollableHeight > 0);
             var readings = Assert.IsType<StackPanel>(panel.FindName("ReadingsSurface"));
@@ -290,8 +280,7 @@ public sealed partial class MonitorTestApplication(string output) : Microsoft.UI
             foreach (var theme in new[] { ElementTheme.Dark, ElementTheme.Light })
             {
                 widget.ApplyOptions(options, theme);
-                root.UpdateLayout();
-                var bitmap = await RenderAsync(root);
+                await WaitForLayoutAsync(root);
                 var charts = Descendants<SystemMonitorMetricChart>(root).ToArray();
                 Assert.Equal(7, charts.Length);
                 Assert.All(charts, chart =>
@@ -299,7 +288,6 @@ public sealed partial class MonitorTestApplication(string output) : Microsoft.UI
                     Assert.True(chart.ActualWidth > 0 && chart.ActualHeight > 0);
                     Assert.Contains(Descendants<Polyline>(chart), line => line.Points.Count > 1);
                 });
-                await SavePreviewAsync(bitmap, $"hardware-charts-{theme.ToString().ToLowerInvariant()}.png");
             }
             var gpu = Descendants<SystemMonitorMetricChart>(root).Single(chart => chart.Section is MonitorMetricSection { Kind: SystemMonitorMetricKind.GpuUsage });
             var legend = Assert.Single(Descendants<UniformWrapPanel>(gpu));
@@ -344,8 +332,8 @@ public sealed partial class MonitorTestApplication(string output) : Microsoft.UI
         }
     }
 
-    /// <summary>Waits for a real compositor frame before reading pixels from a newly shown or resized window.</summary>
-    private static async Task<RenderTargetBitmap> RenderAsync(FrameworkElement root)
+    /// <summary>Waits for a compositor frame after arranging a newly shown or resized window.</summary>
+    private static async Task WaitForLayoutAsync(FrameworkElement root)
     {
         var frame = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         EventHandler<object>? rendered = null;
@@ -353,19 +341,6 @@ public sealed partial class MonitorTestApplication(string output) : Microsoft.UI
         CompositionTarget.Rendering += rendered;
         root.UpdateLayout();
         await frame.Task;
-        var bitmap = new RenderTargetBitmap();
-        await bitmap.RenderAsync(root);
-        return bitmap;
-    }
-
-    /// <summary>Saves the actual WinUI render to the native suite's preview directory.</summary>
-    private async Task SavePreviewAsync(RenderTargetBitmap bitmap, string fileName)
-    {
-        await using var preview = File.Create(Path.Combine(output, fileName));
-        var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, preview.AsRandomAccessStream());
-        encoder.SetPixelData(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied, (uint)bitmap.PixelWidth,
-            (uint)bitmap.PixelHeight, 96, 96, (await bitmap.GetPixelsAsync()).ToArray());
-        await encoder.FlushAsync();
     }
 
     /// <summary>Uses packaged English labels while isolating preferences and hardware providers.</summary>

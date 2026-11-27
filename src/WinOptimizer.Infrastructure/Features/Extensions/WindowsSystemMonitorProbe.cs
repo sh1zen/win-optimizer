@@ -1,4 +1,5 @@
 using System.ComponentModel;
+using System.Collections.Frozen;
 using System.Diagnostics;
 using System.Globalization;
 using System.Management;
@@ -13,6 +14,9 @@ public sealed class WindowsSystemMonitorProbe(HardwareMonitorSensors? sensors, b
 {
     private readonly SensorQueries _queries = new(provider => new WmiSensorQuery(provider));
     private readonly Func<bool>? _includeSensors;
+    private readonly bool _includeNetwork = true;
+
+    internal WindowsSystemMonitorProbe() : this(null, useExternalSensors: false) => _includeNetwork = false;
 
     internal WindowsSystemMonitorProbe(HardwareMonitorSensors sensors, Func<bool> includeSensors)
         : this(sensors, useExternalSensors: false) => _includeSensors = includeSensors;
@@ -31,23 +35,7 @@ public sealed class WindowsSystemMonitorProbe(HardwareMonitorSensors? sensors, b
         { totalMemory = memory.TotalPhysical; availableMemory = memory.AvailablePhysical; }
         else notices.Add($"RAM: {new Win32Exception(Marshal.GetLastWin32Error()).Message}");
 
-        Dictionary<string, (long Received, long Sent)> network = [];
-        try
-        {
-            foreach (var adapter in NetworkInterface.GetAllNetworkInterfaces())
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                if (adapter.OperationalStatus != OperationalStatus.Up ||
-                    adapter.NetworkInterfaceType is NetworkInterfaceType.Loopback or NetworkInterfaceType.Tunnel) continue;
-                try
-                {
-                    var statistics = adapter.GetIPStatistics();
-                    network[adapter.Id] = (statistics.BytesReceived, statistics.BytesSent);
-                }
-                catch (NetworkInformationException ex) { notices.Add($"{adapter.Name}: {ex.Message}"); }
-            }
-        }
-        catch (NetworkInformationException ex) { notices.Add($"Network: {ex.Message}"); }
+        var network = _includeNetwork ? ReadNetwork(cancellationToken, notices) : FrozenDictionary<string, (long, long)>.Empty;
 
         // Timestamp the fast counters before optional sensor queries, whose latency is unrelated to their rates.
         var timestamp = DateTimeOffset.Now;
@@ -67,6 +55,29 @@ public sealed class WindowsSystemMonitorProbe(HardwareMonitorSensors? sensors, b
         if (useExternalSensors && fans.Count == 0) notices.Add("Fans: no supported RPM sensor is reporting a value. Firmware may not expose fan speeds; check hardware sensor setup in SysMonitor settings.");
         return new(timestamp, elapsed, idle, kernel, user, totalMemory, availableMemory,
             network, temperatures, fans, notices) { HardwareMetrics = metrics };
+    }
+
+    /// <summary>Reads active adapters for consumers that display transfer rates.</summary>
+    private static IReadOnlyDictionary<string, (long Received, long Sent)> ReadNetwork(CancellationToken token, List<string> notices)
+    {
+        Dictionary<string, (long Received, long Sent)> network = [];
+        try
+        {
+            foreach (var adapter in NetworkInterface.GetAllNetworkInterfaces())
+            {
+                token.ThrowIfCancellationRequested();
+                if (adapter.OperationalStatus != OperationalStatus.Up ||
+                    adapter.NetworkInterfaceType is NetworkInterfaceType.Loopback or NetworkInterfaceType.Tunnel) continue;
+                try
+                {
+                    var statistics = adapter.GetIPStatistics();
+                    network[adapter.Id] = (statistics.BytesReceived, statistics.BytesSent);
+                }
+                catch (NetworkInformationException ex) { notices.Add($"{adapter.Name}: {ex.Message}"); }
+            }
+        }
+        catch (NetworkInformationException ex) { notices.Add($"Network: {ex.Message}"); }
+        return network;
     }
 
     /// <summary>Uses an already-running hardware WMI provider; missing providers leave sensors unavailable.</summary>

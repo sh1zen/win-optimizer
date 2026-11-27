@@ -125,7 +125,7 @@ public partial class AutounattendGeneratorViewModel : ObservableObject
                     await _dialogService.ShowInformationAsync(_localizationService.GetString("Cleaner_Wait"), GenerateCardHeader);
                     return;
                 }
-                // XML generation has no cancellation contract; the footer exposes its activity without a cancel action.
+                // Show XML generation as a non-cancellable task.
                 _tasks.StartTask(GenerateCardHeader, isIndeterminate: true, showInTaskBar: true, canCancel: false);
                 try
                 {

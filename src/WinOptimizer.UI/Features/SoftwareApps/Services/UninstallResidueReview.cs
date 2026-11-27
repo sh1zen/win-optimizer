@@ -5,6 +5,7 @@ using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.Core.Features.SoftwareApps.Interfaces;
 using WinOptimizer.Core.Features.SoftwareApps.Models;
 using WinOptimizer.UI.Features.Common.Interfaces;
+using WinOptimizer.UI.Features.Common.Services;
 using WinOptimizer.UI.Features.SoftwareApps.ViewModels;
 
 namespace WinOptimizer.UI.Features.SoftwareApps.Services;
@@ -12,7 +13,8 @@ namespace WinOptimizer.UI.Features.SoftwareApps.Services;
 /// <summary>Marshals residue pages and recovery dialogs while their owning workflow retains the session.</summary>
 public sealed class UninstallResidueReview(IUninstallResidueService service, IDialogService dialogs,
     IDispatcherService dispatcher, ITaskProgressService tasks, ILocalizationService text,
-    IApplicationModeService mode, Func<Frame> reviewFrame, Func<IDisposable> suspendWindow) : IUninstallResidueReview
+    IApplicationModeService mode, Func<Frame> reviewFrame, Func<IDisposable> suspendWindow,
+    ScanCancellationNotifications? scanNotifications = null) : IUninstallResidueReview
 {
     private readonly object _reviewGate = new();
     private readonly Queue<PendingReview> _pending = new();
@@ -80,7 +82,7 @@ public sealed class UninstallResidueReview(IUninstallResidueService service, IDi
         dispatcher.RunOnUIThreadWithContextAsync(async () =>
         {
             ct.ThrowIfCancellationRequested();
-            using var viewModel = new UninstallResidueViewModel(session, verification, service, tasks, text);
+            using var viewModel = new UninstallResidueViewModel(session, verification, service, tasks, text, scanNotifications);
             var frame = reviewFrame();
             if (!frame.Navigate(typeof(UninstallResiduePage), viewModel))
                 throw new InvalidOperationException("The uninstall results page could not be opened.");

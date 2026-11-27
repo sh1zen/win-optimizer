@@ -19,6 +19,7 @@ using WinOptimizer.UI.Features.Common.Interfaces;
 using WinOptimizer.UI.Features.Common.Resources;
 using WinOptimizer.UI.Features.Common.Services;
 using WinOptimizer.UI.Features.Common.Utilities;
+using WinOptimizer.UI.Features.Dashboard;
 using WinOptimizer.UI.Helpers;
 using WinOptimizer.UI.Features.Extensions;
 using WinOptimizer.UI.Features.Extensions.Notch;
@@ -54,7 +55,6 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
     internal bool IsClosed { get; private set; }
 
     // Helper classes (Phases 2-5)
-    private TaskProgressCoordinator? _taskProgressCoordinator;
     private NavigationRouter? _navigationRouter;
     private StartupUiCoordinator? _startupUiCoordinator;
     private PageFadeTransition? _pageFadeTransition;
@@ -139,6 +139,13 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
         StartupLogger.Log("MainWindow", "InitializeComponent completed");
 
         SetTitleBar(AppTitleBar);
+        if (App.Services.GetService<ScanCancellationNotifications>() is { } scanNotifications)
+        {
+            var presentation = new ScanCancellationPresentation(scanNotifications, ContentFrame, ScanCancellationToast, UpdateNavigationState);
+            Closed += (_, _) => presentation.Dispose();
+        }
+        TitleBarSearch.AttachResults(SearchResultsOverlay);
+        TitleBarSearch.DestinationSelected += NavigateToSearchResult;
         UpdatesButton.Flyout.Placement = FlyoutPlacementMode.BottomEdgeAlignedRight;
 
         RootGrid.ActualThemeChanged += (_, _) => _titleBarManager?.ApplyThemeToCaptionButtons(RootGrid.ActualTheme);
@@ -161,7 +168,6 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
         NavSidebar.SizeChanged += (_, _) => UpdateSidebarLayout();
 
         // Set default navigation after sidebar is loaded
-        NavSidebar.Loaded += NavSidebar_Loaded;
     }
 
     /// <summary>Updates the native background when Settings changes the shared preference.</summary>
@@ -211,25 +217,6 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
     }
 
     #region Startup & Initialization
-
-    /// <summary>
-    /// Sets the default navigation item after the NavSidebar is loaded.
-    /// </summary>
-    private void NavSidebar_Loaded(object sender, RoutedEventArgs e)
-    {
-        StartupLogger.Log("MainWindow", "NavSidebar_Loaded");
-
-        // Skip auto-navigation during startup -- CompleteStartup() will trigger it
-        if (_isStartupLoading)
-        {
-            StartupLogger.Log("MainWindow", "Startup loading in progress, deferring navigation");
-            return;
-        }
-
-        NavSidebar.SelectedTag = "SoftwareApps";
-        _navigationRouter?.NavigateToPage(ContentFrame, "SoftwareApps");
-        StartupLogger.Log("MainWindow", "SoftwareApps selected");
-    }
 
     /// <summary>
     /// Kicks off the async startup sequence. Called by App.xaml.cs after Activate + InitializeTheme.
@@ -305,10 +292,12 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
                 closeService.BeforeRestart = WinOptimizer.Infrastructure.Features.Extensions.DesktopExtensionProcess.StopForUpdateAsync;
             applicationCloseService.BeforeShutdown = async () =>
             {
+                TitleBarSearch.DismissResults();
                 if (_windowSizeManager != null)
                     await _windowSizeManager.SaveWindowSettingsAsync();
                 await App.Services.GetRequiredService<WinOptimizer.UI.Features.Cleaner.ViewModels.CleanerViewModel>().FlushAreaSelectionAsync();
                 await Task.WhenAll(
+                    App.Services.GetRequiredService<WinOptimizer.UI.Features.Disks.DiskToolSessions>().WaitForWritesAsync(),
                     App.Services.GetRequiredService<WinOptimizer.UI.Features.Utilities.ViewModels.EnvironmentEditorViewModel>().WaitForWriteAsync(),
                     App.Services.GetRequiredService<WinOptimizer.UI.Features.Customize.ViewModels.ContextMenuViewModel>().WaitForWriteAsync(),
                     App.Services.GetRequiredService<WinOptimizer.UI.Features.Optimize.ViewModels.NetworkOptimizationViewModel>().WaitForWriteAsync(),
@@ -438,6 +427,11 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
         InitializeDialogService();
     }
 
+    private void RootGrid_PreviewKeyDown(object sender, KeyRoutedEventArgs e)
+    {
+        if (e.Key == VirtualKey.Escape && TitleBarSearch.DismissResults(restoreFocus: true)) e.Handled = true;
+    }
+
     private void InitializeDispatcherService()
     {
         try
@@ -488,6 +482,7 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
 
         AppTitleBar.SizeChanged += (_, _) => UpdateTitleBarInputRegions();
         TitleBarLeadingContent.SizeChanged += (_, _) => UpdateTitleBarInputRegions();
+        TitleBarSearch.SizeChanged += (_, _) => UpdateTitleBarInputRegions();
         TitleBarButtons.SizeChanged += (_, _) => UpdateTitleBarInputRegions();
 
         // Initialize ViewModel and wire up bindings
@@ -505,9 +500,13 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
         TitleBarLeadingContent.MinWidth = Math.Max(0, width - LeftPaddingColumn.Width.Value);
     }
 
-    /// <summary>Keeps the two button groups clickable and leaves the branding in the window drag region.</summary>
+    /// <summary>Keeps the search field and buttons clickable within the window drag region.</summary>
     private void UpdateTitleBarInputRegions() =>
-        _titleBarManager?.SetPassthroughRegions(AppTitleBar, TitleBarNavigation, TitleBarButtons);
+        _titleBarManager?.SetPassthroughRegions(AppTitleBar, TitleBarNavigation, TitleBarSearch, TitleBarButtons);
+
+    /// <summary>Records search destinations in the same journal as the other shell routes.</summary>
+    private void NavigateToSearchResult(ProgramSearchEntry entry) =>
+        NavigationRouter.NavigateToDestination(ContentFrame, entry.PageType, entry.Parameter);
 
     /// <summary>
     /// Initializes the ViewModel and wires up button commands and helper classes.
@@ -526,25 +525,14 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
 
                 // Set initial filter button icon
 
-                // Subscribe to property changes that require code-behind
-                // (mode restrictions and update actions)
+                // Apply mode restrictions that require code-behind.
                 ViewModel.PropertyChanged += ViewModel_PropertyChanged;
-                ViewModel.UpdateCheck.PropertyChanged += UpdateCheck_PropertyChanged;
 
                 // Deferred initialization: subscribes to events and sets initial state
                 ViewModel.Initialize();
 
                 // Pass ViewModel to NavSidebar for localized nav button text
                 NavSidebar.ViewModel = ViewModel;
-
-                _taskProgressCoordinator = new TaskProgressCoordinator(TaskProgressControl, this.DispatcherQueue);
-
-                TaskProgressControl.CancelCommand = ViewModel.TaskProgress.CancelCommand;
-                TaskProgressControl.CancelText = ViewModel.TaskProgress.CancelButtonLabel;
-                TaskProgressControl.ShowDetailsCommand = ViewModel.TaskProgress.ShowDetailsCommand;
-
-                ViewModel.TaskProgress.PropertyChanged += (s, e) =>
-                    _taskProgressCoordinator?.HandlePropertyChanged(ViewModel.TaskProgress, e.PropertyName);
 
                 // Wire up Navigation Router (Phase 3)
                 _configReviewService = App.Services.GetService<IConfigReviewService>();
@@ -600,7 +588,7 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
                 NavSidebar.SetButtonLocked("AdvancedTools", true,
                     localizationService?.GetString("Nav_AdvancedTools_Locked_Tooltip") ?? "Unavailable during config review");
 
-                // If currently on Advanced Tools, navigate away to Software & Apps
+                // Return to Software & Apps when entering config review from Advanced Tools.
                 var currentTag = _navigationRouter?.GetTagForCurrentPage(ContentFrame.CurrentSourcePageType);
                 if (currentTag == "AdvancedTools")
                 {
@@ -653,6 +641,7 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
     /// <summary>Synchronizes the sidebar and controls after normal, backward or forward navigation.</summary>
     private void ContentFrame_Navigated(object sender, Microsoft.UI.Xaml.Navigation.NavigationEventArgs e)
     {
+        TitleBarSearch.DismissResults();
         var tag = _navigationRouter?.GetTagForCurrentPage(e.SourcePageType);
         if (tag != null) NavSidebar.SelectedTag = tag;
         _navigationRouter?.OnNavigated(e.SourcePageType, ApplyNavBadges);
@@ -697,59 +686,6 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
         TrialToolsOverlay.Visibility = blocked ? Visibility.Visible : Visibility.Collapsed;
     }
 
-    /// <summary>
-    /// Handles UpdateCheckViewModel property changes that require code-behind:
-    /// dynamic action button creation (cannot be done in XAML).
-    /// IsOpen, Title, Message, Severity are now handled by XAML x:Bind.
-    /// </summary>
-    private void UpdateCheck_PropertyChanged(object? sender, PropertyChangedEventArgs e)
-    {
-        if (ViewModel == null) return;
-
-        if (e.PropertyName == nameof(UpdateCheckViewModel.IsUpdateActionButtonVisible)
-            || e.PropertyName == nameof(UpdateCheckViewModel.InstallNowButtonText)
-            || e.PropertyName == nameof(UpdateCheckViewModel.IsRelaunchButtonVisible)
-            || e.PropertyName == nameof(UpdateCheckViewModel.RelaunchButtonText))
-        {
-            DispatcherQueue.TryEnqueue(UpdateInfoBarActionButton);
-        }
-    }
-
-    #endregion
-
-    #region UI Update Helpers
-
-    private void UpdateInfoBarActionButton()
-    {
-        if (ViewModel == null) return;
-        var uc = ViewModel.UpdateCheck;
-
-        if (uc.IsRelaunchButtonVisible)
-        {
-            var button = new Button
-            {
-                Content = uc.RelaunchButtonText,
-                Command = uc.RelaunchCommand,
-                Style = (Style)Microsoft.UI.Xaml.Application.Current.Resources["AccentButtonStyle"],
-            };
-            UpdateInfoBar.ActionButton = button;
-        }
-        else if (uc.IsUpdateActionButtonVisible)
-        {
-            var button = new Button
-            {
-                Content = uc.InstallNowButtonText,
-                Command = uc.InstallUpdateCommand,
-                Style = (Style)Microsoft.UI.Xaml.Application.Current.Resources["AccentButtonStyle"],
-            };
-            UpdateInfoBar.ActionButton = button;
-        }
-        else
-        {
-            UpdateInfoBar.ActionButton = null;
-        }
-    }
-
     #endregion
 
     #region Event Handlers (XAML-referenced)
@@ -757,11 +693,6 @@ public sealed partial class MainWindow : Window, INotifyPropertyChanged
     private void OtsElevationInfoBar_Closed(InfoBar sender, InfoBarClosedEventArgs args)
     {
         ViewModel?.DismissOtsInfoBar();
-    }
-
-    private void UpdateInfoBar_Closed(InfoBar sender, InfoBarClosedEventArgs args)
-    {
-        ViewModel?.UpdateCheck.DismissUpdateInfoBar();
     }
 
     #endregion

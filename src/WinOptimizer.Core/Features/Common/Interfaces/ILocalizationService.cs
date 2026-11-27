@@ -19,4 +19,7 @@ public interface ILocalizationService
     event EventHandler? LanguageChanged;
 
     IReadOnlyList<LanguageOption> GetAvailableLanguages();
+
+    /// <summary>Reads distinct translations for the requested keys across the installed languages.</summary>
+    IReadOnlyDictionary<string, IReadOnlyList<string>> ReadTranslations(IReadOnlySet<string> keys);
 }

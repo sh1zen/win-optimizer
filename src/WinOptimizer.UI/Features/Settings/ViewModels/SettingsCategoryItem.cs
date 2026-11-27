@@ -6,6 +6,13 @@ namespace WinOptimizer.UI.Features.Settings.ViewModels;
 
 public enum SettingsCategory { General, Privacy, Junk, Registry, Shortcuts, Disk, Drivers, ResetAll, LogsAndHistory, TimeMachine }
 
+/// <summary>Shared navigation and localized search labels for a Settings category.</summary>
+internal sealed record SettingsCategoryDefinition(SettingsCategory Category, string TitleKey, string DescriptionKey,
+    string GroupKey, Icon Icon, params string[] SearchKeys)
+{
+    public IReadOnlyList<string> TrailingSearchKeys { get; init; } = [];
+}
+
 /// <summary>A settings destination whose searchable labels come from its owning controls.</summary>
 public sealed class SettingsCategoryItem(SettingsCategory category, string titleKey, string descriptionKey,
     string groupKey, Icon icon, ILocalizationService localization, Func<IEnumerable<string>> searchLabels) : ObservableObject

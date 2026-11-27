@@ -1,3 +1,4 @@
+using System.Windows.Input;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 
@@ -18,6 +19,8 @@ public sealed partial class NavigationCard : UserControl
         nameof(Badges), typeof(UIElement), typeof(NavigationCard), new PropertyMetadata(null));
     public static readonly DependencyProperty ActionsProperty = DependencyProperty.Register(
         nameof(Actions), typeof(UIElement), typeof(NavigationCard), new PropertyMetadata(null));
+    public static readonly DependencyProperty CommandProperty = DependencyProperty.Register(
+        nameof(Command), typeof(ICommand), typeof(NavigationCard), new PropertyMetadata(null));
 
     public string Title { get => (string)GetValue(TitleProperty); set => SetValue(TitleProperty, value); }
     public string Description { get => (string)GetValue(DescriptionProperty); set => SetValue(DescriptionProperty, value); }
@@ -25,6 +28,7 @@ public sealed partial class NavigationCard : UserControl
     public UIElement? TitleAccessory { get => (UIElement?)GetValue(TitleAccessoryProperty); set => SetValue(TitleAccessoryProperty, value); }
     public UIElement? Badges { get => (UIElement?)GetValue(BadgesProperty); set => SetValue(BadgesProperty, value); }
     public UIElement? Actions { get => (UIElement?)GetValue(ActionsProperty); set => SetValue(ActionsProperty, value); }
+    public ICommand? Command { get => (ICommand?)GetValue(CommandProperty); set => SetValue(CommandProperty, value); }
     public event RoutedEventHandler? Click;
 
     public NavigationCard()

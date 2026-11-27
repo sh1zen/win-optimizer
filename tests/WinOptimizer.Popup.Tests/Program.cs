@@ -1,5 +1,4 @@
 using System.Reflection;
-using System.Runtime.InteropServices.WindowsRuntime;
 using System.Text.Json;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Windowing;
@@ -14,14 +13,12 @@ using Microsoft.UI.Xaml.Media;
 using Microsoft.UI.Xaml.Media.Imaging;
 using Moq;
 using Windows.Graphics;
-using Windows.Graphics.Imaging;
 using WinOptimizer.Core.Features.Common.Enums;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.UI.Features.Common.Controls;
 using WinOptimizer.UI.Features.Common.Helpers;
 using WinOptimizer.UI.Features.Common.Models;
 using WinOptimizer.UI.Features.Common.Resources;
-using WinOptimizer.UI.Features.Common.Services;
 using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.Core.Features.Extensions;
 using WinOptimizer.UI.Features.Extensions.Preview;
@@ -36,7 +33,7 @@ internal static class Program
     [STAThread]
     private static void Main(string[] args)
     {
-        if (args.Length != 1) throw new ArgumentException("Pass a preview output directory.");
+        if (args.Length != 1) throw new ArgumentException("Pass a test results directory.");
         var output = Path.GetFullPath(args[0]);
         Directory.CreateDirectory(output);
         WinRT.ComWrappersSupport.InitializeComWrappers();
@@ -78,7 +75,9 @@ public sealed partial class PreviewApplication : Microsoft.UI.Xaml.Application
             try
             {
                 await CheckModalQueueAsync();
+                await CheckConfigImportAsync(shell);
                 await CheckFramesAsync(shell);
+                await CheckTaskOutputAsync(shell);
                 await CheckTechnicalDetailsAsync(shell);
                 CheckFirstPreviewAfterMinimize();
                 await CheckFilePreviewAsync(shell);
@@ -90,7 +89,6 @@ public sealed partial class PreviewApplication : Microsoft.UI.Xaml.Application
                 await CheckNotchBatteriesAsync();
                 await CheckCompactOrderAsync();
                 await CheckNotchAsync(shell);
-                await CheckApplicationCloseAsync();
                 deadline.Stop();
                 stage = "Notch desktop checks";
                 deadline.Interval = TimeSpan.FromSeconds(25);
@@ -201,7 +199,6 @@ public sealed partial class PreviewApplication : Microsoft.UI.Xaml.Application
             Require(created.Text.Length > 0 && folderPath.Text == folder.Path && metadata.Text.Contains("Hidden", StringComparison.Ordinal),
                 "Folder properties are missing from the summary.");
             Require(Fits(folderPath) && Fits(metadata), "The path or attributes did not fit in the visible folder summary.");
-            await CaptureAsync(surface, "file-preview-folder.png");
 
             var toggle = (IToggleProvider)new ToggleButtonAutomationPeer(contents).GetPattern(PatternInterface.Toggle);
             toggle.Toggle();
@@ -226,7 +223,6 @@ public sealed partial class PreviewApplication : Microsoft.UI.Xaml.Application
             await surface.PresentAsync(shortcut, shortcutLifetime);
             Require(body.Visibility == Visibility.Visible && contents.Visibility == Visibility.Collapsed && excerpt.Text == text.Text,
                 "The text preview did not expand automatically or retained the folder controls.");
-            await CaptureAsync(surface, "file-preview-text.png");
             processExecutor.Setup(executor => executor.ShellExecuteAsync(shortcut.Path, null, false, shortcutLifetime))
                 .ThrowsAsync(new System.ComponentModel.Win32Exception("File unavailable"));
             invokeOpen.Invoke();
@@ -251,7 +247,6 @@ public sealed partial class PreviewApplication : Microsoft.UI.Xaml.Application
             Require(size.Text.EndsWith(" MiB", StringComparison.Ordinal) && diskMetric.Visibility == Visibility.Collapsed &&
                 folderPath.Visibility == Visibility.Collapsed && files.Text.Length == 0 && subfolders.Text.Length == 0,
                 "The file summary did not display its size or retained properties from the previous folder.");
-            await CaptureAsync(surface, "file-preview-archive.png");
 
             // At a narrow width, wrapped shortcut metadata must grow the summary itself.
             double archiveHeight = layout.Height;
@@ -374,6 +369,10 @@ public sealed partial class PreviewApplication : Microsoft.UI.Xaml.Application
                 .Concat(VisualTreeHelper.GetOpenPopupsForXamlRoot(shell.XamlRoot).SelectMany(popup => Tree<Button>(popup.Child))).Distinct().ToArray();
             var primary = dialogButtons.SingleOrDefault(button => button.Name == "PrimaryButton" || Equals(button.Content, "Confirm"))
                 ?? throw new InvalidOperationException("Dialog buttons: " + string.Join("; ", dialogButtons.Select(button => button.Name + "=" + button.Content)));
+            var close = dialogButtons.Single(button => button.Name == "CloseButton");
+            Require(primary.CornerRadius.TopLeft > 0 && primary.CornerRadius.Equals(close.CornerRadius) &&
+                Math.Abs(primary.ActualWidth - close.ActualWidth) < 1 && Math.Abs(primary.ActualHeight - close.ActualHeight) < 1,
+                $"Dialog actions have different shapes: primary {primary.CornerRadius} ({primary.ActualWidth}x{primary.ActualHeight}), close {close.CornerRadius} ({close.ActualWidth}x{close.ActualHeight}).");
             Invoke(primary); await Task.Delay(80);
             Require(!showing.IsCompleted && primaryClicks == 1, "Cancelled validation closed the dialog.");
             Invoke(primary);
@@ -459,7 +458,6 @@ public sealed partial class PreviewApplication : Microsoft.UI.Xaml.Application
                 var surface = ((AcrylicBrush)dialog.Background).TintColor;
                 var renderedRed = (color.R * color.A + surface.R * (255 - color.A)) / 255;
                 Require(theme == ElementTheme.Dark ? renderedRed < 120 : renderedRed > 180, "Card brushes use the wrong popup theme.");
-                await CaptureAsync(dialog, $"technical-details-{language}-{theme}-{width}.png");
                 await CloseDetailsAsync(dialog, () => Invoke(DialogButtons(dialog).Single(button => button.Name == "CloseButton")));
                 Require(!regular.IsTechnicalDetailsExpanded, "Closing left stale popup state.");
             }
@@ -479,7 +477,6 @@ public sealed partial class PreviewApplication : Microsoft.UI.Xaml.Application
             var allTexts = Descendants<TextBlock>(content).Select(text => text.Text).ToArray();
             foreach (var expected in new[] { "Write-Output 'technical preview'", "Windows Registry Editor Version 5.00", "Test dependency", @"\Test\ScheduledTask", "TEST_POWER_SETTING", "On Apply" })
                 Require(allTexts.Contains(expected), "Missing technical content: " + expected);
-            await CaptureAsync(activeDialog, $"technical-details-all-types-{language}.png");
             _window!.AppWindow.ResizeClient(new SizeInt32(380, 600)); await Task.Delay(100);
             content.UpdateLayout();
             Require(content.ActualWidth < shell.ActualWidth && content.ActualHeight < shell.ActualHeight,
@@ -543,40 +540,6 @@ public sealed partial class PreviewApplication : Microsoft.UI.Xaml.Application
         new(DetailRowType.RegContent, strings["TechnicalDetails_Section_RegContent"], false, [new() { RowType = DetailRowType.RegContent, ContentLabel = "On Enable", ContentBody = "Windows Registry Editor Version 5.00" }]),
         new(DetailRowType.Dependency, strings["TechnicalDetails_Section_Dependencies"], false, [new() { RowType = DetailRowType.Dependency, DependencyLabel = "Test dependency", DependencyRelation = "= On" }])
     ];
-
-    /// <summary>Exercises production shutdown while keeping the native test application alive.</summary>
-    private static async Task CheckApplicationCloseAsync()
-    {
-        foreach (var (running, confirmed) in new[] { (false, true), (true, true), (true, false) })
-        {
-            var tasks = new Mock<ITaskProgressService>();
-            tasks.Setup(service => service.IsTaskRunning).Returns(running);
-            var dialogs = new Mock<IDialogService>(MockBehavior.Strict);
-            if (running)
-                dialogs.Setup(service => service.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>()))
-                    .ReturnsAsync(new ConfirmationResponse { Confirmed = confirmed });
-            var cleanupCompleted = false;
-            var shutdownCount = 0;
-            var close = new ApplicationCloseService(Mock.Of<ILogService>(), tasks.Object, dialogs.Object)
-            {
-                BeforeShutdown = () => { cleanupCompleted = true; return Task.CompletedTask; },
-                ShutdownAction = () =>
-                {
-                    Require(cleanupCompleted, "Shutdown ran before cleanup completed.");
-                    shutdownCount++;
-                }
-            };
-
-            var result = await close.CheckOperationsAndCloseAsync();
-
-            Require(result.Success == confirmed && shutdownCount == (confirmed ? 1 : 0), "Close confirmation or shutdown count changed.");
-            if (running)
-                dialogs.Verify(service => service.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>()), Times.Once);
-            dialogs.VerifyNoOtherCalls();
-            tasks.Verify(service => service.CancelCurrentTask(), running && confirmed ? Times.Once() : Times.Never());
-        }
-        Console.WriteLine("PASS: idle shutdown, confirmed operation cancellation and cancelled close.");
-    }
 
     private static void Invoke(Button button) => ((IInvokeProvider)new ButtonAutomationPeer(button).GetPattern(PatternInterface.Invoke)).Invoke();
     private static void Require(bool valid, string message) { if (!valid) throw new InvalidOperationException(message); }
@@ -654,22 +617,6 @@ public sealed partial class PreviewApplication : Microsoft.UI.Xaml.Application
             var child = VisualTreeHelper.GetChild(root, index); if (child is T match) yield return match;
             foreach (var nested in Descendants<T>(child)) yield return nested;
         }
-    }
-
-    private async Task CaptureAsync(FrameworkElement content, string name)
-    {
-        if (content is ContentDialog { Content: FrameworkElement body })
-        {
-            content = body;
-            while (VisualTreeHelper.GetParent(content) is FrameworkElement parent) content = parent;
-        }
-        await Task.Delay(100); content.UpdateLayout();
-        var bitmap = new RenderTargetBitmap(); await bitmap.RenderAsync(content);
-        Require(bitmap.PixelWidth > 0 && bitmap.PixelHeight > 0, "Empty preview: " + name);
-        await using var output = File.Create(Path.Combine(_output, name));
-        var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, output.AsRandomAccessStream());
-        encoder.SetPixelData(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied, (uint)bitmap.PixelWidth, (uint)bitmap.PixelHeight, 96, 96, (await bitmap.GetPixelsAsync()).ToArray());
-        await encoder.FlushAsync();
     }
 
     private void Finish(string? error = null)

@@ -1,6 +1,6 @@
 # Monitor hardware and customize desktop widgets
 
-Open **Extension** to configure **SysMonitor**, **Notch**, or
+Open **Extension** in the sidebar to configure **SysMonitor**, **Notch**, or
 [Preview with Space](PREVIEW.md).
 
 ## Start a widget with Windows

@@ -48,7 +48,7 @@ public class TaskProgressViewModelTests : IDisposable
     }
 
     [Fact]
-    public void NonCancellableOperation_ShowsFooterProgressWithoutAcceptingCancellation()
+    public void NonCancellableOperation_ShowsActivityWithoutAcceptingCancellation()
     {
         _mockTaskProgressService.Setup(service => service.IsTaskRunning).Returns(true);
         _mockTaskProgressService.Raise(service => service.ProgressUpdated += null, this,
@@ -86,7 +86,7 @@ public class TaskProgressViewModelTests : IDisposable
     }
 
     [Fact]
-    public void PageOwnedTask_HidesGlobalBarThroughFailureAndCompletion_AndNextGlobalTaskAppears()
+    public void PageOwnedTask_KeepsTheSharedTaskIndicatorHiddenThroughFailureAndCompletion()
     {
         _mockTaskProgressService.Setup(service => service.IsTaskRunning).Returns(true);
         _mockTaskProgressService.Raise(service => service.ProgressUpdated += null, this,

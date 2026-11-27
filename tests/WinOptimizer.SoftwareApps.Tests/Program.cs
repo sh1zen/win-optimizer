@@ -1,12 +1,9 @@
 using WinOptimizer.UI.Tests.Helpers;
 using System.Reflection;
-using System.Runtime.InteropServices.WindowsRuntime;
 using System.Text.Json;
 using Moq;
 using Windows.Graphics;
-using Windows.Graphics.Imaging;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Media.Imaging;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
@@ -27,7 +24,6 @@ using WinOptimizer.UI.Features.Common.Controls;
 using WinOptimizer.UI.Features.Common.Resources;
 using WinOptimizer.UI.Features.SoftwareApps;
 using WinOptimizer.UI.Features.SoftwareApps.ViewModels;
-using WinOptimizer.UI.Features.SoftwareApps.Services;
 using WinUIApplication = Microsoft.UI.Xaml.Application;
 
 namespace WinOptimizer.SoftwareAppsTests;
@@ -55,7 +51,7 @@ public sealed partial class SortingTestApplication(string resultPath) : WinOptim
 
     private static IHost CreateTestHost() => new HostBuilder().ConfigureServices(services =>
     {
-        services.AddTransient(_ => new AppSortingTests().Create(EnglishText(), PreviewApps()));
+        services.AddTransient(_ => new AppSortingTests().Create(EnglishText(), InventoryApps()));
         services.AddSingleton(Mock.Of<IThemeService>());
     }).Build();
 
@@ -71,7 +67,7 @@ public sealed partial class SortingTestApplication(string resultPath) : WinOptim
         return text.Object;
     }
 
-    private static IReadOnlyList<ItemDefinition> PreviewApps() =>
+    private static IReadOnlyList<ItemDefinition> InventoryApps() =>
         new (string Name, string Description, bool Reinstallable)[]
         {
             ("AI Manager", "Local AI requests for Office apps", false),
@@ -120,9 +116,8 @@ public sealed partial class SortingTestApplication(string resultPath) : WinOptim
             await VerifyActiveTabHighlightAsync();
             await VerifyCardLayoutAsync();
             await VerifyInventoryLayoutAsync();
-            await CaptureLeftoverPreviewsAsync();
-            await CaptureUninstallPreviewsAsync();
-            Finish($"PASS: {count} Software & Apps cases on the WinUI dispatcher; active tab underline, responsive inventory and card layout, and English/Italian Leftover and uninstall-result previews.", true);
+            await VerifyLeftoverBindingsAsync();
+            Finish($"PASS: {count} Software & Apps cases on the WinUI dispatcher; active tab underline, responsive inventory and card layout, and English/Italian Leftovers bindings.", true);
         }
         catch (Exception ex) { Finish(ex.ToString()); }
     }
@@ -230,16 +225,6 @@ public sealed partial class SortingTestApplication(string resultPath) : WinOptim
                     Assert.True(filterPosition.Y >= searchPosition.Y + search.ActualHeight);
                     Assert.True(selectionY >= headingY + heading.ActualHeight);
                 }
-
-                if (width < 460) continue;
-                var bitmap = new RenderTargetBitmap();
-                await bitmap.RenderAsync(shell);
-                Assert.True(bitmap.PixelWidth > 0 && bitmap.PixelHeight > 0);
-                await using var output = File.Create(Path.Combine(Path.GetDirectoryName(resultPath)!, $"software-apps-{width}.png"));
-                var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, output.AsRandomAccessStream());
-                encoder.SetPixelData(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied, (uint)bitmap.PixelWidth,
-                    (uint)bitmap.PixelHeight, 96, 96, (await bitmap.GetPixelsAsync()).ToArray());
-                await encoder.FlushAsync();
             }
 
             Assert.Equal("Search apps", search.PlaceholderText);
@@ -321,8 +306,8 @@ public sealed partial class SortingTestApplication(string resultPath) : WinOptim
         Environment.Exit(passed ? 0 : 1);
     }
 
-    /// <summary>Renders the production control with fake scan evidence and actual translated resources.</summary>
-    private async Task CaptureLeftoverPreviewsAsync()
+    /// <summary>Checks selection and eligibility bindings in the production Leftovers control.</summary>
+    private async Task VerifyLeftoverBindingsAsync()
     {
         foreach (var language in new[] { "en", "it" })
         {
@@ -362,73 +347,6 @@ public sealed partial class SortingTestApplication(string resultPath) : WinOptim
                     }
                     else if (checkbox.DataContext == vm) Assert.Equal((bool?)vm.IsAllSelected, checkbox.IsChecked);
                 }
-                var bitmap = new RenderTargetBitmap(); await bitmap.RenderAsync(content);
-                Assert.True(bitmap.PixelWidth > 0 && bitmap.PixelHeight > 0);
-                await using var output = File.Create(Path.Combine(Path.GetDirectoryName(resultPath)!, $"leftover-{language}-{width}.png"));
-                var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, output.AsRandomAccessStream());
-                encoder.SetPixelData(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied, (uint)bitmap.PixelWidth, (uint)bitmap.PixelHeight, 96, 96, (await bitmap.GetPixelsAsync()).ToArray());
-                await encoder.FlushAsync();
-            }
-        }
-    }
-
-    /// <summary>Renders both result categories on the production page with isolated post-uninstall evidence.</summary>
-    private async Task CaptureUninstallPreviewsAsync()
-    {
-        foreach (var language in new[] { "en", "it" })
-        {
-            using var resource = Assembly.GetExecutingAssembly().GetManifestResourceStream(language + ".json")!;
-            var strings = JsonSerializer.Deserialize<Dictionary<string, string>>(resource)!;
-            var text = new Mock<ILocalizationService>();
-            text.Setup(source => source.GetString(It.IsAny<string>())).Returns((string key) => strings[key]);
-            text.Setup(source => source.GetString(It.IsAny<string>(), It.IsAny<object[]>()))
-                .Returns((string key, object[] values) => string.Format(strings[key], values));
-            var dispatcher = new Mock<IDispatcherService>();
-            dispatcher.Setup(source => source.RunOnUIThreadWithContextAsync(It.IsAny<Func<Task>>()))
-                .Returns((Func<Task> action) => action());
-            foreach (var width in new[] { 620, 1100 })
-            {
-                var frame = new Frame
-                {
-                    RequestedTheme = ElementTheme.Dark,
-                    Background = new SolidColorBrush(Windows.UI.Color.FromArgb(255, 32, 32, 32))
-                };
-                frame.Navigate(typeof(Page));
-                _window!.Content = frame;
-                var tasks = new Mock<ITaskProgressService>();
-                tasks.Setup(source => source.StartTask(It.IsAny<string>(), true)).Returns(() => new CancellationTokenSource());
-                var review = new UninstallResidueReview(Mock.Of<IUninstallResidueService>(), Mock.Of<IDialogService>(),
-                    dispatcher.Object, tasks.Object, text.Object, Mock.Of<IApplicationModeService>(), () => frame, () => Mock.Of<IDisposable>());
-                var scan = new UninstallResidueScan([
-                    new(Guid.NewGuid(), "app", "Example App", "Account", UninstallArtifactKind.File,
-                        @"C:\Users\Account\AppData\Local\Example App\settings.ini", null, "", 2048, DateTime.UtcNow, false, true, "Application settings"),
-                    new(Guid.NewGuid(), "app", "Example App", "Account", UninstallArtifactKind.RegistryKey,
-                        @"HKEY_USERS\Account\Software\Example App", null, "", 0, null, false, true, "Application settings")
-                ], [new("app", "Example App", UninstallVerificationState.Removed, "")], [], 2);
-                var session = new Mock<IUninstallResidueSession>();
-                session.Setup(source => source.ScanAsync(null, It.IsAny<CancellationToken>())).ReturnsAsync(scan);
-                var showing = review.ShowAsync(session.Object, new(scan.Applications, scan.Notices), CancellationToken.None);
-                var page = Assert.IsType<UninstallResiduePage>(frame.Content);
-                var control = Assert.IsType<UninstallResidueReviewControl>(((ContentControl)page.FindName("ReviewHost")).Content);
-                _window.AppWindow.ResizeClient(new SizeInt32(width, 850));
-                await Task.Delay(350);
-                foreach (var category in new[] { -1, 0, 1 })
-                {
-                    if (category == 0) await control.ViewModel.ScanCommand.ExecuteAsync(null);
-                    if (category == 1) control.ViewModel.NextCommand.Execute(null);
-                    await Task.Delay(200);
-                    page.UpdateLayout();
-                    var bitmap = new RenderTargetBitmap();
-                    await bitmap.RenderAsync(frame);
-                    Assert.True(bitmap.PixelWidth > 0 && bitmap.PixelHeight > 0);
-                    await using var output = File.Create(Path.Combine(Path.GetDirectoryName(resultPath)!, $"uninstall-{language}-{width}-{(category == -1 ? "scan" : category.ToString())}.png"));
-                    var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, output.AsRandomAccessStream());
-                    encoder.SetPixelData(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied, (uint)bitmap.PixelWidth,
-                        (uint)bitmap.PixelHeight, 96, 96, (await bitmap.GetPixelsAsync()).ToArray());
-                    await encoder.FlushAsync();
-                }
-                frame.GoBack();
-                Assert.Equal(UninstallReviewDisposition.Completed, await showing);
             }
         }
     }

@@ -3,6 +3,7 @@ using WinOptimizer.Core.Features.Cleaner.Models;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.Infrastructure.Features.Common.Services;
+using WinOptimizer.Infrastructure.Features.Disks;
 
 namespace WinOptimizer.Infrastructure.Features.Cleaner;
 
@@ -37,8 +38,7 @@ public sealed class WindowsCleanerBackend(CleanerFileScanner files, CleanerRegis
             case CleanerArea.Registry:
                 return await Task.Run(() => registry.Scan(options, ct, progress), ct).ConfigureAwait(false);
             case CleanerArea.Disk:
-                ValidateDrive(options.DiskRoot);
-                var analysis = await processes.ExecuteAsync(SystemTool("defrag.exe"), $"{options.DiskRoot[..2]} /A /V", ct).ConfigureAwait(false);
+                var analysis = await VolumeOptimization.RunAsync(processes, options.DiskRoot, analyzeOnly: true, ct).ConfigureAwait(false);
                 if (!analysis.Succeeded) return new([], [$"{options.DiskRoot}: {analysis.StandardError} {analysis.StandardOutput}"]);
                 return new([new(Guid.NewGuid(), area, "Cleaner_Disk", analysis.StandardOutput,
                     0, true, new CleanerDiskTarget(options.DiskRoot))], []);
@@ -62,8 +62,7 @@ public sealed class WindowsCleanerBackend(CleanerFileScanner files, CleanerRegis
                 await registry.CleanAsync(value, ct).ConfigureAwait(false);
                 break;
             case CleanerDiskTarget disk:
-                ValidateDrive(disk.Root);
-                var result = await processes.ExecuteAsync(SystemTool("defrag.exe"), $"{disk.Root[..2]} /O /U /V", ct).ConfigureAwait(false);
+                var result = await VolumeOptimization.RunAsync(processes, disk.Root, analyzeOnly: false, ct).ConfigureAwait(false);
                 if (!result.Succeeded) throw new IOException($"Disk optimization failed: {result.StandardError} {result.StandardOutput}");
                 timeMachine?.Record(LogTopic.Cleaner, disk.Root, "Drive optimized");
                 break;
@@ -78,16 +77,6 @@ public sealed class WindowsCleanerBackend(CleanerFileScanner files, CleanerRegis
         foreach (var hive in hives)
             timeMachine?.Record(LogTopic.Cleaner, hive.KeyPath, "Registry hive compaction scheduled");
     }
-
-    internal static void ValidateDrive(string root)
-    {
-        if (root.Length != 3 || !char.IsAsciiLetter(root[0]) || root[1..] != ":\\")
-            throw new ArgumentException("Select a local fixed drive.", nameof(root));
-        var drive = new DriveInfo(root);
-        if (!drive.IsReady || drive.DriveType != DriveType.Fixed) throw new IOException("The selected fixed drive is unavailable.");
-    }
-
-    private static string SystemTool(string name) => Path.Combine(Environment.SystemDirectory, name);
 
     /// <summary>Maps file and registry discovery into one privacy stage without posting asynchronous late callbacks.</summary>
     private sealed class StageProgress(IProgress<CleanerProgress> progress, int stage) : IProgress<CleanerProgress>

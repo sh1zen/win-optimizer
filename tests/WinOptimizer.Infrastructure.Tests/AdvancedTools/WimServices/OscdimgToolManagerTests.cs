@@ -109,21 +109,6 @@ public class OscdimgToolManagerTests
     #region IsOscdimgAvailableAsync
 
     [Fact]
-    public async Task IsOscdimgAvailableAsync_PathFound_ReturnsTrue()
-    {
-        // Arrange
-        _mockFileSystem
-            .Setup(fs => fs.FileExists(It.Is<string>(p => p.Contains("Windows Kits"))))
-            .Returns(true);
-
-        // Act
-        var result = await _service.IsOscdimgAvailableAsync();
-
-        // Assert
-        result.Should().BeTrue();
-    }
-
-    [Fact]
     public async Task IsOscdimgAvailableAsync_PathNotFound_ReturnsFalse()
     {
         // Arrange

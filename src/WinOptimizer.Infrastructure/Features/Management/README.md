@@ -1,27 +1,38 @@
-# Windows status and restore
+# Repair
 
-Control exposes servicing for the running Windows installation. Opening the
+Repair exposes servicing for the running Windows installation. Opening the
 page performs no checks or repairs. Every operation requires administrator rights
 and normal application mode; Test mode and configuration review block execution.
 
 ## Choosing an operation
 
-The Windows status page shows repair source options, component cleanup, and
-requirements and logs in cards below diagnosis and any completed results.
-When a result reports repairable corruption, choose **Repair** in its banner.
+The Repair page shows repair source options and component cleanup below
+diagnosis. Select the **Info** icon next to the page
+title for requirements, log locations, and Microsoft's repair guidance.
+When the report offers **Repair**, select it to start the repair workflow.
+The **Quick status** switch selects the next diagnosis. When it is off,
+**Diagnose** runs the full diagnosis.
+
+Use the progress card in Repair to follow the active phase or request cancellation.
+The report opens when the operation returns results. It shows the outcome and next
+action. The analysis summary shows the actual component-store size and Windows'
+cleanup recommendation when those values are available.
+The full scan uses the CBS detection summary to count distinct affected
+components when all findings include identities. A quick status check reports
+the component-store category and offers guidance for getting a count.
+Use the **Results** card in Repair to reopen the latest report.
 
 | Action | Ordered operations | Meaning |
 | --- | --- | --- |
-| Quick status | DISM CheckHealth | Reads corruption already flagged by servicing; it is not a new full scan. |
-| Full diagnosis | DISM ScanHealth → AnalyzeComponentStore → SFC `/verifyonly` | Scans the store, reports its actual usage and verifies protected files without repairing them. |
+| Diagnose with Quick status on | DISM CheckHealth | Reads corruption already flagged by servicing. |
+| Diagnose with Quick status off | DISM ScanHealth → AnalyzeComponentStore → SFC `/verifyonly` | Scans the store, reports its actual usage and verifies protected files without repairing them. |
 | Analyze component store | DISM AnalyzeComponentStore | Reports Windows' component-store measurements and cleanup recommendation. Explorer's directory size includes hard links. |
 | Repair image and system files | DISM RestoreHealth → SFC `/scannow` | Repairs the store first, then protected files. SFC starts only after a successful, healthy DISM result without a restart request. |
 | Clean component store | DISM CheckHealth → AnalyzeComponentStore → StartComponentCleanup | Performs explicit component cleanup after a healthy quick check. |
 
 Image health comes from the structured `ImageHealthState` returned by the built-in
-DISM PowerShell module. Unknown values stay unknown. A successful SFC process exit
-is not presented as proof that every protected file is healthy: inspect the
-retained native SFC output and CBS log for that separate result.
+DISM PowerShell module. Unknown values stay unknown. The report describes completion
+of the system-file operation and the CBS log records the file-level findings.
 
 Repair and cleanup require confirmation. ResetBase is an advanced cleanup option,
 off by default, with its own consequence notice and unchecked acknowledgement.
@@ -58,7 +69,7 @@ or HRESULT, retaining earlier receipts.
 
 Cancel stops the active owned DISM/PowerShell/SFC process tree and skips remaining
 phases. The task and system-operation reservation remain active until the worker
-exits and its output drains. The dated report retains completed phase receipts;
+exits and its output drains. The report retains completed phase receipts;
 completed changes remain applied. No arbitrary short timeout is applied during
 normal execution of these potentially long-running maintenance commands.
 
@@ -76,6 +87,7 @@ separate recovery decision; this tool does not automatically reinstall Windows.
 
 - [Repair a Windows image](https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/repair-a-windows-image)
 - [Repair-WindowsImage: structured health, source, LimitAccess and NoRestart](https://learn.microsoft.com/en-us/powershell/module/dism/repair-windowsimage)
+- [Read corruption summaries in the CBS log](https://learn.microsoft.com/en-us/troubleshoot/windows-server/installing-updates-features-roles/fix-windows-update-errors#step-1-analyze-the-cbslog-file)
 - [Configure a Windows repair source](https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/configure-a-windows-repair-source)
 - [Component-store analysis and actual size](https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/determine-the-actual-size-of-the-winsxs-folder)
 - [Component cleanup and ResetBase consequences](https://learn.microsoft.com/en-us/windows-hardware/manufacture/desktop/clean-up-the-winsxs-folder)

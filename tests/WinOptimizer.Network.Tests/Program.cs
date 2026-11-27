@@ -1,5 +1,4 @@
 using System.Reflection;
-using System.Runtime.InteropServices.WindowsRuntime;
 using System.Text.Json;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
@@ -9,10 +8,8 @@ using Microsoft.UI.Xaml.Automation.Provider;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Documents;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Media.Imaging;
 using Moq;
 using Windows.Graphics;
-using Windows.Graphics.Imaging;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.Core.Features.Optimize.Interfaces;
@@ -78,7 +75,7 @@ public sealed partial class NetworkTestApplication(string outputDirectory) : Win
         Console.WriteLine($"PASS: {optimize} production Optimize view-model and layout cases.");
     }
 
-    /// <summary>Exercises speed results, native network controls, and wide/narrow English and Italian layouts.</summary>
+    /// <summary>Exercises speed results, native network controls, and responsive English and Italian layouts.</summary>
     private async Task RenderAsync(Grid shell)
     {
         foreach (var language in new[] { "en", "it" })
@@ -196,9 +193,22 @@ public sealed partial class NetworkTestApplication(string outputDirectory) : Win
                 number.Value = value; await Task.Delay(40);
                 Assert.Equal(value.ToString(), vm.Choices.Single(choice => choice.Definition.Id == id).State.Value);
             }
-            var selector = selectors.Single(control => control.DataContext is NetworkTuningChoice choice && choice.Definition.Id == "tcp-auto-tuning");
-            selector.SelectedIndex = 2; await Task.Delay(40);
-            Assert.Equal("Restricted", vm.Choices.Single(choice => choice.Definition.Id == "tcp-auto-tuning").State.Value);
+            var networkCard = (FrameworkElement)page.FindName("NetworkSummaryCard");
+            var networkSettings = (FrameworkElement)page.FindName("NetworkSettingsSection");
+            var autoTuning = Descendants<ComboBox>(networkSettings).Single(control => control.Visibility == Visibility.Visible &&
+                control.DataContext is NetworkTuningChoice choice && choice.Definition.Id == NetworkTuningCatalog.AutoTuningId);
+            autoTuning.SelectedItem = autoTuning.Items.OfType<NetworkTuningOption>().Single(option => option.Value == "Restricted");
+            await Task.Delay(40);
+            service.Verify(source => source.SetNetworkTuningAsync(NetworkTuningCatalog.AutoTuningId, "Restricted", "Normal"), Times.Once);
+            service.Verify(source => source.SetNetworkTuningAsync(NetworkTuningCatalog.RssId, It.IsAny<string?>(), It.IsAny<string?>()), Times.Never);
+            Assert.Contains(Descendants<TextBlock>(networkCard), text => text.Text == strings["OptimizeNetwork_Option_Restricted"]);
+            var rss = Descendants<ToggleSwitch>(networkSettings).Single(control => control.Visibility == Visibility.Visible &&
+                control.DataContext is NetworkTuningChoice choice && choice.Definition.Id == NetworkTuningCatalog.RssId);
+            ((IToggleProvider)new ToggleSwitchAutomationPeer(rss).GetPattern(PatternInterface.Toggle)).Toggle();
+            await Task.Delay(40);
+            service.Verify(source => source.SetNetworkTuningAsync(NetworkTuningCatalog.RssId, "Disabled", "Enabled"), Times.Once);
+            service.Verify(source => source.SetNetworkTuningAsync(NetworkTuningCatalog.AutoTuningId, It.IsAny<string?>(), It.IsAny<string?>()), Times.Once);
+            Assert.Contains(Descendants<TextBlock>(networkCard), text => text.Text == strings["Common_Off"]);
             timestamps.SelectedItem = timestamps.Items.OfType<NetworkTuningOption>().Single(option => option.Value == "Enabled");
             await Task.Delay(40);
             service.Verify(source => source.SetNetworkTuningAsync("tcp-timestamps", "Enabled", "Allowed"), Times.Once);
@@ -208,11 +218,11 @@ public sealed partial class NetworkTestApplication(string outputDirectory) : Win
             Assert.Same(allowed, timestamps.SelectedItem);
             var scroll = Descendants<ScrollViewer>(page).First();
             var speedCard = (FrameworkElement)page.FindName("SpeedTestCard");
-            var networkCard = (FrameworkElement)page.FindName("NetworkSummaryCard");
-            var networkSettings = (FrameworkElement)page.FindName("NetworkSettingsSection");
             var search = (AutoSuggestBox)page.FindName("NetworkSettingsSearch");
-            var dnsCard = (Border)page.FindName("DnsCard");
+            var dnsControls = (Border)page.FindName("DnsControls");
             var vpnCard = (Border)page.FindName("VpnCard");
+            Assert.Same(dns, Assert.Single(Descendants<ComboBox>(networkCard)));
+            Assert.Contains(applyDns, Descendants<Button>(networkCard));
             var settingRows = Descendants<Border>(networkSettings)
                 .Where(border => border.Name == "NetworkSettingRow").ToArray();
             var settingGroups = Descendants<Border>(networkSettings)
@@ -228,7 +238,7 @@ public sealed partial class NetworkTestApplication(string outputDirectory) : Win
             });
             search.Text = "HostsPriority";
             Assert.Equal("HostsPriority", vm.SettingsSearchText);
-            Assert.Equal(Visibility.Collapsed, dnsCard.Visibility);
+            Assert.Equal(Visibility.Collapsed, dnsControls.Visibility);
             Assert.Equal(Visibility.Collapsed, vpnCard.Visibility);
             Assert.Single(settingGroups, border => border.Visibility == Visibility.Visible);
             var matchingRow = Assert.Single(settingRows, border => border.Visibility == Visibility.Visible);
@@ -239,17 +249,21 @@ public sealed partial class NetworkTestApplication(string outputDirectory) : Win
             service.Verify(source => source.SetNetworkTuningAsync("priority-hosts", "12", "5"), Times.Once);
             search.Text = "no such setting";
             Assert.Contains(Descendants<TextBlock>(networkSettings), text => text.Text == vm.NoSettingsMatchesLabel && text.Visibility == Visibility.Visible);
+            search.Text = vm.DnsTitle;
+            Assert.Equal(Visibility.Visible, dnsControls.Visibility);
+            Assert.Equal(Visibility.Collapsed, vpnCard.Visibility);
+            Assert.False(vm.HasNoSettingsMatches);
             search.Text = "";
             Assert.All(settingRows, row => Assert.Equal(Visibility.Visible, row.Visibility));
-            Assert.Equal(Visibility.Visible, dnsCard.Visibility);
+            Assert.Equal(Visibility.Visible, dnsControls.Visibility);
             Assert.Equal(Visibility.Visible, vpnCard.Visibility);
-            foreach (var width in new[] { 620, 1300 })
+            foreach (var width in new[] { 620, 1040, 1300 })
             {
                 _window!.AppWindow.ResizeClient(new SizeInt32(width, 900)); await Task.Delay(80); shell.UpdateLayout();
                 scroll.ChangeView(null, 0, null, true); await Task.Delay(40);
                 var speedPosition = speedCard.TransformToVisual(shell).TransformPoint(default);
                 var networkPosition = networkCard.TransformToVisual(shell).TransformPoint(default);
-                if (width == 1300)
+                if (width >= 1040)
                 {
                     Assert.True(networkPosition.X > speedPosition.X + speedCard.ActualWidth);
                     Assert.InRange(Math.Abs(networkPosition.Y - speedPosition.Y), 0, 1);
@@ -260,31 +274,30 @@ public sealed partial class NetworkTestApplication(string outputDirectory) : Win
                     Assert.True(networkPosition.Y > speedPosition.Y + speedCard.ActualHeight);
                     Assert.InRange(Math.Abs(networkPosition.X - speedPosition.X), 0, 1);
                 }
-                await CaptureAsync(shell, $"network-{language}-{width}-top.png");
-                search.StartBringIntoView(new BringIntoViewOptions { VerticalAlignmentRatio = 0, AnimationDesired = false });
-                await Task.Delay(40);
-                await CaptureAsync(shell, $"network-{language}-{width}-settings.png");
+                var dnsPosition = dns.TransformToVisual(dnsControls).TransformPoint(default);
+                var applyPosition = applyDns.TransformToVisual(dnsControls).TransformPoint(default);
+                Assert.True(dnsPosition.X >= 0 && dnsPosition.X + dns.ActualWidth <= dnsControls.ActualWidth);
+                Assert.True(applyPosition.X >= 0 && applyPosition.X + applyDns.ActualWidth <= dnsControls.ActualWidth);
+                if (width == 1040)
+                {
+                    Assert.True(applyPosition.Y > dnsPosition.Y + dns.ActualHeight);
+                    Assert.InRange(Math.Abs(applyPosition.X - dnsPosition.X), 0, 1);
+                }
+                else
+                {
+                    Assert.True(applyPosition.X > dnsPosition.X + dns.ActualWidth);
+                    Assert.InRange(Math.Abs(applyPosition.Y - dnsPosition.Y), 0, 1);
+                }
+                if (width == 1040) continue;
                 scroll.ChangeView(null, scroll.ScrollableHeight, null, true); await Task.Delay(40);
-                await CaptureAsync(shell, $"network-{language}-{width}-priorities.png");
                 Assert.True(local.ActualWidth > 0);
                 var bounds = local.TransformToVisual(shell).TransformPoint(default);
                 Assert.True(bounds.X > shell.ActualWidth / 2 && bounds.X + local.ActualWidth <= shell.ActualWidth + 1, "Priority editor is not within the right-hand column.");
             }
 
-            _window!.AppWindow.ResizeClient(new SizeInt32(620, 540));
-            scroll.ChangeView(null, 0, null, true);
-            search.Text = "HostsPriority";
-            await Task.Delay(80);
-            var shortcut = (HyperlinkButton)page.FindName("DnsShortcut");
-            ((IInvokeProvider)new HyperlinkButtonAutomationPeer(shortcut).GetPattern(PatternInterface.Invoke)).Invoke();
-            await Task.Delay(80);
-            Assert.Empty(search.Text);
-            Assert.True(scroll.VerticalOffset > 0, "The DNS shortcut did not scroll to its card.");
-            var dnsPosition = dns.TransformToVisual(scroll).TransformPoint(default);
-            Assert.InRange(dnsPosition.Y, 0, scroll.ActualHeight - dns.ActualHeight);
             shell.Children.Clear();
         }
-        Console.WriteLine("PASS: Speed test, DNS and VPN controls, searchable network settings, and English/Italian previews at two widths.");
+        Console.WriteLine("PASS: Speed test, inline DNS and VPN controls, searchable network settings, and English/Italian layout at three widths.");
     }
 
     private static IEnumerable<T> Descendants<T>(DependencyObject root) where T : DependencyObject
@@ -295,15 +308,6 @@ public sealed partial class NetworkTestApplication(string outputDirectory) : Win
             if (child is T match) yield return match;
             foreach (var descendant in Descendants<T>(child)) yield return descendant;
         }
-    }
-
-    private async Task CaptureAsync(UIElement root, string name)
-    {
-        var bitmap = new RenderTargetBitmap(); await bitmap.RenderAsync(root); var pixels = await bitmap.GetPixelsAsync();
-        await using var output = File.Create(Path.Combine(outputDirectory, name));
-        var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, output.AsRandomAccessStream());
-        encoder.SetPixelData(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied, (uint)bitmap.PixelWidth, (uint)bitmap.PixelHeight, 96, 96, pixels.ToArray());
-        await encoder.FlushAsync();
     }
 
     private void Finish(string? error = null)

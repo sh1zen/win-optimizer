@@ -41,6 +41,20 @@ public sealed class SystemInformationServiceTests
     }
 
     [Fact]
+    public async Task SelectedCategoriesReadOnlyTheRequestedWindowsSourcesAndPreserveFullInventory()
+    {
+        var fullInventory = await _service.ReadAsync(default);
+        _query.Invocations.Clear();
+        var sections = await _service.ReadSectionsAsync([SystemInformationCategory.Graphics, SystemInformationCategory.Windows], default);
+
+        Assert.Equal(new[] { SystemInformationCategory.Windows, SystemInformationCategory.Graphics }, sections.Select(section => section.Category));
+        _query.Verify(source => source.ReadAsync("Win32_OperatingSystem", It.IsAny<IReadOnlyList<string>>(), It.IsAny<CancellationToken>()), Times.Once);
+        _query.Verify(source => source.ReadAsync("Win32_VideoController", It.IsAny<IReadOnlyList<string>>(), It.IsAny<CancellationToken>()), Times.Once);
+        _query.VerifyNoOtherCalls();
+        Assert.Same(fullInventory, _service.CachedSnapshot);
+    }
+
+    [Fact]
     public async Task CancelledOrFailedRefresh_RetainsTheLastCompletedSessionSnapshot()
     {
         var previous = await _service.ReadAsync(default);

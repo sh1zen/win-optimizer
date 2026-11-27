@@ -225,38 +225,47 @@ public partial class SettingsViewModel : ObservableObject, IDisposable
         if (!_disposed) RebuildGroups();
     }
 
-    private IReadOnlyList<SettingsCategoryItem> CreateCategories()
+    internal static IReadOnlyList<SettingsCategoryDefinition> CategoryDefinitions { get; } =
+    [
+        new(SettingsCategory.General, "Category_General", "Settings_GeneralDescription", "Settings_GroupApplication", Icon.Settings,
+            "Settings_Appearance", "Settings_Menu_Language", "Settings_Theme_Title", "Settings_ExpandNavigation", "Settings_ExpandNavigationDescription",
+            "Settings_AppColor", "Settings_AppColorDescription", "Settings_BlurWindowBackground", "Settings_BlurWindowBackgroundDescription",
+            "Settings_Info", "Logs_Topic_Updates", "Dialog_Update_CurrentVersion", "Menu_CheckForUpdates", "Menu_SupportWinOptimizer", "Tooltip_Documentation", "Tooltip_ReportBug",
+            "Settings_AutomaticAppUpdates", "Settings_AutomaticScriptUpdates")
+        { TrailingSearchKeys = ["Autoruns_ApplicationStartup", "Autoruns_ApplicationStartupDescription"] },
+        new(SettingsCategory.LogsAndHistory, "Settings_LogsAndHistory", "Settings_LogsAndHistoryDescription", "Settings_GroupApplication", Icon.DocumentText,
+            "Menu_WinOptimizerLogs", "Menu_ChangeHistory"),
+        new(SettingsCategory.TimeMachine, "TimeMachine_Title", "TimeMachine_KeepDays", "Settings_GroupApplication", Icon.History, "TimeMachine_KeepDays"),
+        new(SettingsCategory.Privacy, "Cleaner_Privacy", "Settings_PrivacyDescription", "Cleaner_Settings", Icon.ShieldLock,
+            "Cleaner_RecentFiles", "Cleaner_BrowserCache", "Cleaner_BrowserHistory", "Cleaner_RegistryAccounts"),
+        new(SettingsCategory.Junk, "Cleaner_JunkFiles", "Settings_JunkDescription", "Cleaner_Settings", Icon.Delete,
+            "Cleaner_UserTemp", "Cleaner_WindowsTemp", "Cleaner_WindowsLogs", "Cleaner_ShaderCache", "Cleaner_ThumbnailCache", "Cleaner_ErrorReports",
+            "Cleaner_CrashDumps", "Cleaner_InternetCache", "Cleaner_MinimumAge", "Cleaner_ApplicationCaches", "Cleaner_RegistryAccounts"),
+        new(SettingsCategory.Registry, "Cleaner_Registry", "Settings_RegistryDescription", "Cleaner_Settings", Icon.Database, "Cleaner_DeepClean", "Cleaner_RegistryAccounts"),
+        new(SettingsCategory.Shortcuts, "Cleaner_Shortcuts", "Settings_ShortcutsDescription", "Cleaner_Settings", Icon.Link,
+            "Cleaner_Desktop", "Cleaner_StartMenu", "Cleaner_RecentFiles", "Cleaner_RegistryAccounts"),
+        new(SettingsCategory.Disk, "Cleaner_Disk", "Settings_DiskDescription", "Cleaner_Settings", Icon.HardDrive),
+        new(SettingsCategory.Drivers, "Nav_Drivers", "Settings_DriversDescription", "Settings_GroupTools", Icon.PlugConnected, "Drivers_WhqlLabel", "Drivers_WhqlDescription"),
+        new(SettingsCategory.ResetAll, "Settings_ResetAllTitle", "Settings_ResetAllDescription", "Settings_GroupConfiguration", Icon.ArrowReset, "Settings_ResetAll")
+    ];
+
+    private IReadOnlyList<SettingsCategoryItem> CreateCategories() => CategoryDefinitions.Select(definition =>
+        new SettingsCategoryItem(definition.Category, definition.TitleKey, definition.DescriptionKey, definition.GroupKey, definition.Icon, _localizationService,
+            () => definition.SearchKeys.Select(_localizationService.GetString).Concat(GetDynamicSearchLabels(definition.Category))
+                .Concat(definition.TrailingSearchKeys.Select(_localizationService.GetString)))).ToArray();
+
+    /// <summary>Includes live names and current choices in the local Settings search.</summary>
+    private IEnumerable<string> GetDynamicSearchLabels(SettingsCategory category) => category switch
     {
-        IEnumerable<string> Labels(params string[] keys) => keys.Select(_localizationService.GetString);
-        return
-        [
-            new(SettingsCategory.General, "Category_General", "Settings_GeneralDescription", "Settings_GroupApplication", Icon.Settings, _localizationService,
-                () => Labels("Settings_Appearance", "Settings_Menu_Language", "Settings_Theme_Title", "Settings_ExpandNavigation", "Settings_ExpandNavigationDescription",
-                        "Settings_AppColor", "Settings_AppColorDescription", "Settings_BlurWindowBackground", "Settings_BlurWindowBackgroundDescription",
-                        "Settings_Info", "Logs_Topic_Updates", "Dialog_Update_CurrentVersion", "Menu_CheckForUpdates", "Menu_SupportWinOptimizer", "Tooltip_Documentation", "Tooltip_ReportBug",
-                        "Settings_AutomaticAppUpdates", "Settings_AutomaticScriptUpdates")
-                    .Concat(Languages.Select(item => item.DisplayText)).Concat(Themes.Select(item => item.DisplayText))
-                    .Concat(AppColorPreferences.Colors.Select(item => item.DisplayText)).Append(Info.VersionInfo)
-                    .Append(ApplicationStartup.Title).Append(ApplicationStartup.Description)),
-            new(SettingsCategory.LogsAndHistory, "Settings_LogsAndHistory", "Settings_LogsAndHistoryDescription", "Settings_GroupApplication", Icon.DocumentText, _localizationService,
-                () => Labels("Menu_WinOptimizerLogs", "Menu_ChangeHistory")),
-            new(SettingsCategory.TimeMachine, "TimeMachine_Title", "TimeMachine_KeepDays", "Settings_GroupApplication", Icon.History, _localizationService,
-                () => Labels("TimeMachine_KeepDays")),
-            new(SettingsCategory.Privacy, "Cleaner_Privacy", "Settings_PrivacyDescription", "Cleaner_Settings", Icon.ShieldLock, _localizationService,
-                () => Labels("Cleaner_RecentFiles", "Cleaner_BrowserCache", "Cleaner_BrowserHistory", "Cleaner_RegistryAccounts").Concat(Cleaner.PrivacyAccounts.Select(item => item.Title))),
-            new(SettingsCategory.Junk, "Cleaner_JunkFiles", "Settings_JunkDescription", "Cleaner_Settings", Icon.Delete, _localizationService,
-                () => Labels("Cleaner_UserTemp", "Cleaner_WindowsTemp", "Cleaner_WindowsLogs", "Cleaner_ShaderCache", "Cleaner_ThumbnailCache", "Cleaner_ErrorReports", "Cleaner_CrashDumps", "Cleaner_InternetCache", "Cleaner_MinimumAge", "Cleaner_ApplicationCaches", "Cleaner_RegistryAccounts").Concat(Cleaner.Applications.Select(item => item.Title)).Concat(Cleaner.JunkAccounts.Select(item => item.Title))),
-            new(SettingsCategory.Registry, "Cleaner_Registry", "Cleaner_RegistryDescription", "Cleaner_Settings", Icon.Database, _localizationService,
-                () => Labels("Cleaner_DeepClean", "Cleaner_RegistryAccounts").Concat(Cleaner.RegistryCategories.Select(item => item.Title)).Concat(Cleaner.RegistryAccounts.Select(item => item.Title))),
-            new(SettingsCategory.Shortcuts, "Cleaner_Shortcuts", "Settings_ShortcutsDescription", "Cleaner_Settings", Icon.Link, _localizationService,
-                () => Labels("Cleaner_Desktop", "Cleaner_StartMenu", "Cleaner_RecentFiles", "Cleaner_RegistryAccounts").Concat(Cleaner.ShortcutAccounts.Select(item => item.Title))),
-            new(SettingsCategory.Disk, "Cleaner_Disk", "Settings_DiskDescription", "Cleaner_Settings", Icon.HardDrive, _localizationService, () => Cleaner.Drives),
-            new(SettingsCategory.Drivers, "Nav_Drivers", "Settings_DriversDescription", "Settings_GroupTools", Icon.PlugConnected, _localizationService,
-                () => Labels("Drivers_WhqlLabel", "Drivers_WhqlDescription")),
-            new(SettingsCategory.ResetAll, "Settings_ResetAllTitle", "Settings_ResetAllDescription", "Settings_GroupConfiguration", Icon.ArrowReset, _localizationService,
-                () => Labels("Settings_ResetAll"))
-        ];
-    }
+        SettingsCategory.General => Languages.Select(item => item.DisplayText).Concat(Themes.Select(item => item.DisplayText))
+            .Concat(AppColorPreferences.Colors.Select(item => item.DisplayText)).Append(Info.VersionInfo),
+        SettingsCategory.Privacy => Cleaner.PrivacyAccounts.Select(item => item.Title),
+        SettingsCategory.Junk => Cleaner.Applications.Select(item => item.Title).Concat(Cleaner.JunkAccounts.Select(item => item.Title)),
+        SettingsCategory.Registry => Cleaner.RegistryCategories.Select(item => item.Title).Concat(Cleaner.RegistryAccounts.Select(item => item.Title)),
+        SettingsCategory.Shortcuts => Cleaner.ShortcutAccounts.Select(item => item.Title),
+        SettingsCategory.Disk => Cleaner.Drives,
+        _ => []
+    };
 
     partial void OnQueryChanged(string value) { SelectedCategory = null; RebuildGroups(); }
 

@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
 using WinOptimizer.Core.Features.Drivers.Models;
 using WinOptimizer.Infrastructure.Features.Drivers;
 using Xunit;
@@ -28,7 +29,7 @@ public sealed class DriverCatalogProviderTests : IDisposable
                 return Response("""
                     {"Success":"1","IDS":[{"downloadInfo":{"ID":"42","Name":"NVIDIA%20Studio%20Driver","Version":"561.3",
                     "Release":"560","IsCRD":"1","IsWHQL":"1","ReleaseDateTime":"Sep 12, 2025",
-                    "DownloadURLFileSize":"600 MB","DetailsURL":"https://www.nvidia.com/en-us/drivers/details/42/",
+                    "DownloadURLFileSize":"1100 MB","DetailsURL":"https://www.nvidia.com/en-us/drivers/details/42/",
                     "DownloadURL":"https://us.download.nvidia.com/Windows/561.3/driver.exe"}}]}
                     """);
             return Response(uri.Query switch
@@ -47,6 +48,8 @@ public sealed class DriverCatalogProviderTests : IDisposable
         Assert.Equal("561.3", record.PackageVersion);
         Assert.True(record.ClaimsWhql);
         Assert.True(record.LicenseRequired);
+        Assert.Equal("www.nvidia.com", record.ScanLicensePage?.Host);
+        Assert.Equal(1100L << 20, result.Updates[0].SizeBytes);
         Assert.Equal(DriverCertification.Unverified, result.Updates[0].Certification);
         var lookup = Assert.Single(requests, uri => uri.Host == "gfwsl.geforce.com").Query;
         Assert.Contains("psid=127&pfid=1000&osID=135", lookup);
@@ -189,6 +192,46 @@ public sealed class DriverCatalogProviderTests : IDisposable
         Assert.Empty(update.Version);
     }
 
+    [Theory]
+    [InlineData(19045, 19045)]
+    [InlineData(22000, 22000)]
+    public async Task MicrosoftCatalogUsesTheLocalWindowsAudienceAndKeepsSearchingAfterUnresolvedListings(int build, int floor)
+    {
+        string[] ids = ["00000000-0000-0000-0000-000000000001", "00000000-0000-0000-0000-000000000002",
+            "00000000-0000-0000-0000-000000000003", "00000000-0000-0000-0000-000000000004"];
+        const string details = """
+            <div id="archDiv"><span>Architecture:</span>AMD64</div>
+            <div id="driverhwIDs"><div>pci\ven_10de&amp;dev_2684&amp;subsys_51001462</div></div>
+            """;
+        using var http = Transport(request =>
+        {
+            var url = request.RequestUri!;
+            if (url.AbsolutePath == "/Search.aspx")
+                return Response(string.Concat(ids.Select((id, index) => $"""
+                    <tr id="{id}_R0"><td></td><td>Driver {index}</td>
+                    <td>Windows 10, version 22H2 and later, Windows 11, version 21H2 and later</td>
+                    <td>Drivers (Video)</td><td>7/{25 - index}/2026</td><td>1.2.3.4</td><td>Package</td></tr>
+                    """)));
+            if (url.AbsolutePath == "/ScopedViewInline.aspx")
+                return Response(url.Query.EndsWith(ids[0], StringComparison.Ordinal) ? "Details unavailable" : details);
+            var form = request.Content!.ReadAsStringAsync().GetAwaiter().GetResult();
+            var requested = ids.Single(id => form.Contains(id, StringComparison.Ordinal));
+            if (requested == ids[1]) return Response("Download unresolved");
+            return Response($"""
+                downloadInformation[0].updateID ='{requested}';
+                downloadInformation[0].files[0].url = 'https://catalog.s.download.windowsupdate.com/drivers/a.cab';
+                """);
+        });
+
+        var result = await new MicrosoftDriverCatalogSource(http).SearchAsync(new(Inventory(Windows with { Build = build }), new()), null, default);
+
+        Assert.Equal(DriverSourceState.Partial, result.State);
+        Assert.Equal(ids[2..], result.Updates.Select(update => Assert.Single(update.Catalog!.References).Id));
+        Assert.All(result.Updates, update => Assert.Equal(floor, update.Catalog!.Target.MinBuild));
+        Assert.Contains(result.Notices, note => note.Contains("details layout", StringComparison.Ordinal));
+        Assert.Contains(result.Notices, note => note.Contains("resolve this update identity", StringComparison.Ordinal));
+    }
+
     [Fact]
     public async Task LenovoResolvesPayloadFromExactMachineTypeAndDescriptorChecksum()
     {
@@ -263,6 +306,35 @@ public sealed class DriverCatalogProviderTests : IDisposable
         var result = await http.ReadAsync(DriverSources.Asus, url, default);
         Assert.Equal("cached response", result.Text);
         Assert.NotNull(result.StaleReason);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task Http200ChallengesAreNeverReusedOnRescan(bool legacyCache)
+    {
+        var clock = new TestClock();
+        var calls = 0;
+        const string challenge = "<html><title>Just a moment…</title></html>";
+        var url = new Uri("https://www.asus.com/support/");
+        if (legacyCache)
+        {
+            var key = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes($"http\n{DriverSources.Asus}\n{url}\n")));
+            var cache = Directory.CreateDirectory(Path.Combine(_workspace.Root, "cache"));
+            await File.WriteAllTextAsync(Path.Combine(cache.FullName, key + ".json"), JsonSerializer.Serialize(new
+            { Retrieved = clock.Now, Tag = "\"challenge\"", Modified = (DateTimeOffset?)null, Body = Encoding.UTF8.GetBytes(challenge) }));
+        }
+        using var http = Transport(request =>
+        {
+            Assert.Empty(request.Headers.IfNoneMatch);
+            return Response(++calls == 1 ? challenge : "recovered source");
+        }, clock);
+
+        var failure = await Assert.ThrowsAsync<DriverScanException>(() => http.ReadAsync(DriverSources.Asus, url, default));
+        Assert.Contains("CAPTCHA", failure.Message);
+        Assert.Equal("recovered source", (await http.ReadAsync(DriverSources.Asus, url, default)).Text);
+        Assert.Equal("recovered source", (await http.ReadAsync(DriverSources.Asus, url, default)).Text);
+        Assert.Equal(2, calls);
     }
 
     private static string Matrix(params (string Name, string Id)[] values) =>

@@ -1,0 +1,102 @@
+<Page x:Class="WinOptimizer.UI.Features.Disks.DiskToolPage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      xmlns:common="using:WinOptimizer.UI.Features.Common.Controls"
+      xmlns:toolkit="using:CommunityToolkit.WinUI.Controls">
+    <Grid Style="{StaticResource PageGridStyle}">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+        <StackPanel Spacing="8">
+            <TextBlock Text="{x:Bind T('Nav_Disks')}" Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+            <common:PageHeader x:Name="ToolHeader" Icon="{x:Bind ToolIcon}" Title="{x:Bind ToolTitle}" Description="{x:Bind ToolDescription}"/>
+        </StackPanel>
+        <ScrollView x:Name="PageScroll" Grid.Row="1" Padding="{StaticResource ScrollContentPadding}" HorizontalScrollMode="Disabled">
+            <StackPanel Spacing="{StaticResource PageCardSpacing}">
+                <Border Style="{StaticResource PageCardStyle}">
+                    <StackPanel Spacing="14">
+                        <ContentControl IsEnabled="{x:Bind ViewModel.CanInteract, Mode=OneWay}" HorizontalContentAlignment="Stretch">
+                            <StackPanel Spacing="12">
+                                <StackPanel x:Name="PathPanel" Spacing="8">
+                                    <TextBox x:Name="TargetPath" Header="{x:Bind T('Disks_Path')}"/>
+                                    <toolkit:WrapPanel HorizontalSpacing="8" VerticalSpacing="8">
+                                        <Button Content="{x:Bind T('Disks_SelectFile')}" Click="SelectFile_Click"/>
+                                        <Button x:Name="FolderPicker" Content="{x:Bind T('Disks_SelectFolder')}" Click="SelectFolder_Click"/>
+                                    </toolkit:WrapPanel>
+                                </StackPanel>
+                                <toolkit:WrapPanel x:Name="DeletePanel" HorizontalSpacing="8" VerticalSpacing="8">
+                                    <Button Content="{x:Bind T('Disks_ListLocks')}" Click="ListLocks_Click" Style="{StaticResource AccentButtonStyle}"/>
+                                    <Button Content="{x:Bind T('Disks_Unlock')}" Click="Unlock_Click"
+                                            IsEnabled="{x:Bind ViewModel.CanWrite, Mode=OneWay}"/>
+                                    <Button Content="{x:Bind T('Disks_ForceDelete')}" Click="ForceDelete_Click"
+                                            IsEnabled="{x:Bind ViewModel.CanWrite, Mode=OneWay}"/>
+                                </toolkit:WrapPanel>
+                                <StackPanel x:Name="PermissionsPanel" Spacing="8">
+                                    <Button Content="{x:Bind T('Disks_ResetPermissions')}" Click="RepairPermissions_Click" Style="{StaticResource AccentButtonStyle}"
+                                            IsEnabled="{x:Bind ViewModel.CanWrite, Mode=OneWay}"/>
+                                </StackPanel>
+                                <StackPanel x:Name="ShadowPanel" Spacing="8">
+                                    <Button Content="{x:Bind T('Disks_FindVersions')}" Click="FindVersions_Click" Style="{StaticResource AccentButtonStyle}"/>
+                                    <ComboBox x:Name="VersionSelector" Header="{x:Bind T('Disks_SelectVersion')}" HorizontalAlignment="Stretch"/>
+                                    <Button Content="{x:Bind T('Disks_RestoreCopy')}" Click="RestoreVersion_Click"
+                                            IsEnabled="{x:Bind ViewModel.CanWrite, Mode=OneWay}"/>
+                                </StackPanel>
+                                <StackPanel x:Name="HashPanel" Spacing="8">
+                                    <TextBox x:Name="ExpectedHash" Header="{x:Bind T('Disks_ExpectedHash')}" MaxLength="128"/>
+                                    <Button Content="{x:Bind T('Disks_CalculateHash')}" Click="CalculateHash_Click" Style="{StaticResource AccentButtonStyle}"/>
+                                </StackPanel>
+                                <StackPanel x:Name="UsbPanel" Spacing="8">
+                                    <ComboBox x:Name="UsbSelector" Header="{x:Bind T('Disks_UsbDevice')}" HorizontalAlignment="Stretch"/>
+                                    <toolkit:WrapPanel HorizontalSpacing="8" VerticalSpacing="8">
+                                        <Button Content="{x:Bind T('Disks_Eject')}" Click="Eject_Click" Style="{StaticResource AccentButtonStyle}"
+                                                IsEnabled="{x:Bind ViewModel.CanWrite, Mode=OneWay}"/>
+                                        <Button Content="{x:Bind T('Button_Refresh')}" Click="Refresh_Click"/>
+                                    </toolkit:WrapPanel>
+                                </StackPanel>
+                                <StackPanel x:Name="RecoveryPanel" Spacing="8">
+                                    <toolkit:WrapPanel HorizontalSpacing="12" VerticalSpacing="8">
+                                        <ComboBox x:Name="RecoverySource" Header="{x:Bind T('Disks_Source')}" MinWidth="130"/>
+                                        <ComboBox x:Name="RecoveryDestination" Header="{x:Bind T('Disks_Destination')}" MinWidth="130"/>
+                                        <ComboBox x:Name="RecoveryDepth" Header="{x:Bind T('Disks_RecoveryMode')}" SelectedIndex="0">
+                                            <ComboBoxItem Content="{x:Bind T('Disks_Regular')}"/>
+                                            <ComboBoxItem Content="{x:Bind T('Disks_Extensive')}"/>
+                                        </ComboBox>
+                                    </toolkit:WrapPanel>
+                                    <TextBox x:Name="RecoveryFilter" Header="{x:Bind T('Disks_RecoveryFilter')}" PlaceholderText="*.jpg"/>
+                                    <toolkit:WrapPanel HorizontalSpacing="8" VerticalSpacing="8">
+                                        <Button Content="{x:Bind T('Disks_StartRecovery')}" Click="Recover_Click" Style="{StaticResource AccentButtonStyle}"
+                                                IsEnabled="{x:Bind ViewModel.CanWrite, Mode=OneWay}"/>
+                                        <Button Content="{x:Bind T('Button_Refresh')}" Click="Refresh_Click"/>
+                                        <HyperlinkButton Content="{x:Bind T('Disks_GetRecoveryTool')}"
+                                                         NavigateUri="https://apps.microsoft.com/detail/9n26s50ln705"/>
+                                    </toolkit:WrapPanel>
+                                </StackPanel>
+                                <StackPanel x:Name="OptimizePanel" Spacing="8">
+                                    <ComboBox x:Name="OptimizeVolume" Header="{x:Bind T('Disks_Volume')}" MinWidth="130"/>
+                                    <toolkit:WrapPanel HorizontalSpacing="8" VerticalSpacing="8">
+                                        <Button Content="{x:Bind T('Disks_Analyze')}" Click="Analyze_Click" Style="{StaticResource AccentButtonStyle}"/>
+                                        <Button Content="{x:Bind T('Disks_RunOptimize')}" Click="Optimize_Click"
+                                                IsEnabled="{x:Bind ViewModel.CanWrite, Mode=OneWay}"/>
+                                        <Button Content="{x:Bind T('Button_Refresh')}" Click="Refresh_Click"/>
+                                    </toolkit:WrapPanel>
+                                </StackPanel>
+                            </StackPanel>
+                        </ContentControl>
+                        <TextBlock x:Name="ModeMessage" Text="{x:Bind T('Disks_NormalMode')}" TextWrapping="Wrap"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}" Visibility="Collapsed"/>
+                        <ProgressBar IsIndeterminate="True"
+                                     Visibility="{x:Bind ViewModel.IsBusy, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                        <Button Content="{x:Bind T('Button_Cancel')}" Click="Cancel_Click"
+                                Visibility="{x:Bind ViewModel.CanCancel, Mode=OneWay, Converter={StaticResource BooleanToVisibilityConverter}}"/>
+                        <InfoBar IsOpen="{x:Bind ViewModel.HasResult, Mode=OneWay}" IsClosable="False"
+                                 Severity="{x:Bind ViewModel.Severity, Mode=OneWay}">
+                            <TextBlock Text="{x:Bind ViewModel.Result, Mode=OneWay}" TextWrapping="Wrap"
+                                       IsTextSelectionEnabled="True" AutomationProperties.LiveSetting="Polite"/>
+                        </InfoBar>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollView>
+    </Grid>
+</Page>

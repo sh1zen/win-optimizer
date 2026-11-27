@@ -25,9 +25,6 @@
                 <common:NavigationCard x:Name="ConnectionCard" Title="{x:Bind ViewModel.ConnectionDisplayName, Mode=OneWay}" Description="{x:Bind ViewModel.ConnectionDescription, Mode=OneWay}" Click="ConnectionCard_Click">
                     <common:NavigationCard.Icon><fluent:FluentIcon Icon="Globe" IconVariant="Regular" FontSize="28"/></common:NavigationCard.Icon>
                 </common:NavigationCard>
-                <common:NavigationCard x:Name="WindowsStatusCard" Title="{x:Bind ViewModel.WindowsStatusDisplayName, Mode=OneWay}" Description="{x:Bind ViewModel.WindowsStatusDescription, Mode=OneWay}" Click="WindowsStatusCard_Click">
-                    <common:NavigationCard.Icon><fluent:FluentIcon Icon="ShieldCheckmark" IconVariant="Regular" FontSize="28"/></common:NavigationCard.Icon>
-                </common:NavigationCard>
                 <common:NavigationCard x:Name="AutorunsCard" Title="{x:Bind ViewModel.AutorunsDisplayName, Mode=OneWay}" Description="{x:Bind ViewModel.AutorunsDescription, Mode=OneWay}" Click="AutorunsCard_Click">
                     <common:NavigationCard.Icon><fluent:FluentIcon Icon="PlayCircle" IconVariant="Regular" FontSize="28"/></common:NavigationCard.Icon>
                 </common:NavigationCard>

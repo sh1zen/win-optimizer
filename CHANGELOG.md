@@ -2,6 +2,43 @@
 
 ## [Unreleased]
 
+## [v26.11.27] - 2026-11-27
+
+### Added
+
+- Open the Dashboard at startup with hardware details, live CPU and memory usage, system drive capacity, and quick actions.
+- Search pages, tools, and settings in every available language, with full-page results over a blurred background.
+- Open Bench from the Dashboard to inspect hardware and measure CPU, GPU, memory, and disk performance.
+- Open dedicated tools in Disks to unlock files, repair permissions, restore previous versions, verify SHA-256, safely eject USB storage, recover deleted files, and optimize drives.
+
+### Changed
+
+- Reorder the sidebar and place Extension above Advanced Tools.
+- Open Windows diagnosis and repair from Repair in the sidebar and view requirements and logs from the Info button.
+- Use the Quick status switch beside Diagnose to select a quick health check.
+- Show Repair progress inline and present the outcome, affected components and next action in one report card.
+- Show verified compatible driver updates in a single candidate list.
+- Show shared task progress and controls on demand from the title bar.
+- Show package extraction and INF verification in the Drivers scan progress card.
+- Configure DNS directly in the Internet page’s Network card.
+- Adjust TCP auto-tuning and RSS individually in Network settings.
+
+### Fixed
+
+- Keep Diagnose as the main action when returning to the Repair overview.
+- Show a toast and return to the starting page when a scan is interrupted.
+- Show update results as toasts and keep the version menu open during checks.
+- Match the configuration import dialog to the app theme and clarify the selected source.
+- Align the Cleaner confirmation buttons and show details for the selected operations.
+- Size the terminal output popup to its content and keep long logs scrollable.
+- Apply shared popup styling to Drivers, Autoruns, and Security.
+- Localize the Disks page in every supported language.
+- Verify eligible NVIDIA driver packages after license review, including large installers.
+- Keep lengthy driver scans running until they finish or the user cancels.
+- Compare the INF version that applies to each device and recognize trusted Authenticode signatures.
+- Resolve compatible Microsoft Catalog offers for the running Windows version.
+- Retry catalog access after temporary blocks and report package progress and verification limits.
+
 
 ## [v26.11.25] - 2026-11-25
 

@@ -1,4 +1,4 @@
-# Builds and renders production popup controls with isolated data and services.
+# Builds and checks production popup controls with isolated data and services.
 [CmdletBinding()]
 param()
 $ErrorActionPreference = 'Stop'
@@ -15,5 +15,5 @@ Write-Output 'PASS: application popup construction is centralized.'
 $buildRoot = Join-Path $repositoryRoot 'build/technical-details-validation/'
 $executable = & (Join-Path $PSScriptRoot 'Build-NativeTestHost.ps1') `
     -ProjectName WinOptimizer.Popup.Tests -BuildRoot $buildRoot -DisableSharedCompilation
-& $executable (Join-Path $repositoryRoot 'build/technical-details-previews')
+& $executable (Join-Path $repositoryRoot 'build/test-results/popup')
 if ($LASTEXITCODE -ne 0) { throw "Popup checks failed: $LASTEXITCODE" }

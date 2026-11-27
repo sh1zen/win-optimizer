@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using CommunityToolkit.Mvvm.ComponentModel;
+using WinOptimizer.UI.Features.Common.Services;
 using CommunityToolkit.Mvvm.Input;
 using FluentIcons.Common;
 using WinOptimizer.Core.Features.Common.Interfaces;
@@ -33,6 +34,7 @@ public partial class DriversViewModel : ObservableObject, IDisposable
     private readonly HashSet<DriverResultItem> _visibleSelectableRows = [];
     private int _visibleSelectedCount;
     private bool _disposed;
+    private string _scanPackageActivity = "";
     public DriverSettingsViewModel Settings { get; }
     public ObservableCollection<SelectableResultGroup> ResultGroups { get; } = [];
     [ObservableProperty] [NotifyPropertyChangedFor(nameof(IsIdle), nameof(ShowEmptyState), nameof(ShowScanInformation), nameof(HasStatus))]
@@ -71,7 +73,7 @@ public partial class DriversViewModel : ObservableObject, IDisposable
     public string CategoryEmptyTitle => Text(UpdatesUnavailable ? "Drivers_UpdatesUnavailableTitle" : "Drivers_CategoryEmpty");
     public string CategoryEmptyDescription => UpdatesUnavailable ? Text("Drivers_UpdatesUnavailable") :
         HasDeviceSearch && !string.IsNullOrWhiteSpace(DeviceQuery) ? Text("Drivers_NoDevicesMatch") :
-        _report is { ExcludedUpdates: > 0 } && SelectedGroup?.LabelKey == "Drivers_Updates"
+        _report is { ExcludedUpdates: > 0, Options.OnlyWhqlUpdates: true } && IsCandidateCategory
             ? Text("Drivers_FilterWhql") : Text("Drivers_CategoryEmptyDescription");
     public bool HasRescanHint => _report is not null && _report.Options != Settings.Options;
     public string Heading => Text("Nav_Drivers");
@@ -107,7 +109,7 @@ public partial class DriversViewModel : ObservableObject, IDisposable
         DriverScanPhase.CheckSources => [
             new(Text("Drivers_DevicesDetected"), Icon.Desktop),
             new(Text("Drivers_DriverVersionsLoaded"), Icon.Layer),
-            new(Text("Drivers_SearchingUpdates"), Icon.Cloud, true)],
+            new(_scanPackageActivity.Length > 0 ? _scanPackageActivity : Text("Drivers_SearchingUpdates"), Icon.Cloud, true)],
         _ => [
             new(Text("Drivers_DevicesDetected"), Icon.Desktop),
             new(Text("Drivers_DriverVersionsLoaded"), Icon.Layer),
@@ -150,19 +152,13 @@ public partial class DriversViewModel : ObservableObject, IDisposable
     public string DeviceSearchLabel => Text("Drivers_SearchDevices");
     public string DeviceResultCount => string.Format(Text("Drivers_DeviceResults"), VisibleRows.Count, SelectedGroup?.Items.Count ?? 0);
     public bool HasDeviceSearch => SelectedGroup?.LabelKey == "Drivers_Disconnected";
-    public bool IsCandidateCategory => SelectedGroup?.LabelKey is "Drivers_Updates" or "Drivers_Filtered";
+    public bool IsCandidateCategory => SelectedGroup?.LabelKey == "Drivers_Updates";
     public string CategorySummary
     {
         get
         {
             var count = SelectedGroup?.Items.Count ?? 0;
             if (HasDeviceSearch) return string.Format(Text("Drivers_DisconnectedSummary"), count);
-            if (IsCandidateCategory && count > 0)
-            {
-                var newer = VisibleRows.Count(row => row.IsNewer);
-                var current = VisibleRows.Count(row => row.VersionRelation == DriverVersionRelation.Current);
-                if (newer + current == count) return string.Format(Text("Drivers_CandidateSummary"), newer, current);
-            }
             return string.Format(Text("Drivers_ResultCount"), count);
         }
     }
@@ -203,12 +199,15 @@ public partial class DriversViewModel : ObservableObject, IDisposable
     public bool HasTestModeHint => _mode.CurrentMode == WinOptimizerMode.Builder;
     public string TestModeHint => HasTestModeHint ? Text("Drivers_TestMode") : "";
 
+    private readonly ScanCancellationNotifications? _scanNotifications;
+
     public DriversViewModel(IDriverScanService scanner, DriverSettingsViewModel settings, ILocalizationService localization,
         ITaskProgressService tasks, IDispatcherService dispatcher, IDriverRemovalService removal,
-        IDialogService dialogs, IApplicationModeService mode, IDriverPackageService? packages = null)
+        IDialogService dialogs, IApplicationModeService mode, IDriverPackageService? packages = null, ScanCancellationNotifications? scanNotifications = null)
     {
         _scanner = scanner; Settings = settings; _localization = localization; _tasks = tasks; _dispatcher = dispatcher;
         _removal = removal; _dialogs = dialogs; _mode = mode; _packages = packages;
+        _scanNotifications = scanNotifications;
         _localization.LanguageChanged += OnLanguageChanged;
         Settings.PropertyChanged += OnSettingsChanged;
         _mode.ModeChanged += OnModeChanged;
@@ -238,6 +237,7 @@ public partial class DriversViewModel : ObservableObject, IDisposable
             owner = _tasks.StartTask(Heading, isIndeterminate: true);
             _operation = owner;
             Status = Text("Drivers_Inventory");
+            _scanPackageActivity = "";
             ScanPhase = DriverScanPhase.DetectDevices;
             var scanOwner = owner;
             using var cancellationRegistration = scanOwner.Token.Register(() => _dispatcher.RunOnUIThread(() =>
@@ -245,7 +245,7 @@ public partial class DriversViewModel : ObservableObject, IDisposable
                 if (!_disposed && ReferenceEquals(_operation, scanOwner)) IsScanCancelling = true;
             }));
             var options = Settings.Options;
-            var report = await _scanner.ScanAsync(options, CreateProgress(owner), owner.Token);
+            var report = await _scanner.ScanAsync(options, CreateProgress(owner), owner.Token, ConfirmScanLicenseAsync);
             owner.Token.ThrowIfCancellationRequested();
             if (_disposed) return;
             _report = report;
@@ -254,7 +254,14 @@ public partial class DriversViewModel : ObservableObject, IDisposable
             Status = "";
             NotifyReport();
         }
-        catch (OperationCanceledException) { if (!_disposed) Status = Text("Cleaner_Cancelled"); }
+        catch (OperationCanceledException)
+        {
+            if (!_disposed)
+            {
+                Status = Text("Cleaner_Cancelled");
+                _scanNotifications?.Publish(this, Heading, Status);
+            }
+        }
         catch (Exception ex) when (ex is DriverScanException or IOException or UnauthorizedAccessException or InvalidOperationException)
         { ReportFailure(ex.Message, owner); }
         finally
@@ -270,7 +277,26 @@ public partial class DriversViewModel : ObservableObject, IDisposable
         }
     }
 
-    /// <summary>Routes the page action to the cancellation source shared with the task footer.</summary>
+    /// <summary>Lets the user review the publisher's terms before a licensed package is retrieved.</summary>
+    private async Task<bool> ConfirmScanLicenseAsync(Uri page, CancellationToken ct)
+    {
+        if (!page.IsAbsoluteUri || page.Scheme != Uri.UriSchemeHttps) return false;
+        var accepted = false;
+        await _dispatcher.RunOnUIThreadAsync(async () =>
+        {
+            if (_disposed || ct.IsCancellationRequested) return;
+            var result = await _dialogs.ShowConfirmationAsync(new ConfirmationRequest
+            {
+                Title = Text("Drivers_LicenseRequired"), Message = Text("Drivers_ScanLicenseConfirm"),
+                ReferenceLink = (page, Text("Drivers_OpenSupport")),
+                ConfirmButtonText = Text("Button_Continue"), CancelButtonText = CancelLabel
+            });
+            accepted = result.Confirmed;
+        }).WaitAsync(ct);
+        return accepted;
+    }
+
+    /// <summary>Routes the page action to the shared task's cancellation source.</summary>
     [RelayCommand(CanExecute = nameof(CanCancelScan))]
     private void CancelScan() => _operation?.Cancel();
 
@@ -307,9 +333,9 @@ public partial class DriversViewModel : ObservableObject, IDisposable
             (component.SignatureValid ? $" · {Text("Drivers_ValidSignature")}" : "") + "\n" +
             $"INF SHA256 {component.InfSha256}\nCAT SHA256 {component.CatalogSha256}");
         var comparisons = match.Comparisons.Select(item =>
-            $"{item.Device.Name} · {item.Device.Version} → {item.Component.Version} · {Text("Drivers_Version_" + item.VersionRelation)} · " +
+            $"{item.Device.Name} · {item.Device.Version} → {item.Version} · {item.Date} · {Text("Drivers_Version_" + item.VersionRelation)} · " +
             $"{item.DeviceIdentifier.Value} · {item.DeviceIdentifier.Kind} #{item.DeviceIdentifier.Order + 1} · " +
-            $"{item.InfIdentifier.Kind} #{item.InfIdentifier.Order + 1}" +
+            $"{item.InfIdentifier.Kind} #{item.InfIdentifier.Order + 1}" + (item.InstallSection is { } section ? $" · {section.Name}" : "") +
             (item.MoreSpecificIdentifier ? $" · {Text("Drivers_BetterIdentifier")}" : "") +
             (item.NewestFound ? $" · {Text("Drivers_NewestFound")}" : ""));
         string[] evidence =
@@ -336,7 +362,7 @@ public partial class DriversViewModel : ObservableObject, IDisposable
         if (update.Catalog is not { } catalog) return Certification(update.Certification);
         var installed = match.Devices.Select(device => device.Version).Where(version => version.Length > 0).Distinct().ToArray();
         var available = update.Version.Length > 0 ? update.Version : string.Join(", ", match.Comparisons
-            .Select(item => item.Component.Version).Where(version => version.Length > 0).Distinct());
+            .Select(item => item.Version).Where(version => version.Length > 0).Distinct());
         var versions = available.Length > 0
             ? $"{string.Join(", ", installed.DefaultIfEmpty(Text("Drivers_Unknown")))} → {available}"
             : catalog.PackageVersion.Length > 0 ? $"{Text("Drivers_PackageVersion")} {catalog.PackageVersion}" : "";
@@ -374,10 +400,7 @@ public partial class DriversViewModel : ObservableObject, IDisposable
                 _pendingRemovals.Contains(new(DriverRemovalKind.Device, device.InstanceId)), device: device);
         }));
         AddGroup("Drivers_Updates", report.Updates
-            .OrderByDescending(match => match.Comparisons.Any(item => item is { VersionRelation: DriverVersionRelation.Newer, NewestFound: true }))
-            .ThenByDescending(match => match.Comparisons.Any(item => item.VersionRelation == DriverVersionRelation.Newer))
-            .ThenByDescending(match => match.Applicability).Select(CandidateRow));
-        if (report.Filtered.Count > 0) AddGroup("Drivers_Filtered", report.Filtered.Select(CandidateRow));
+            .OrderByDescending(match => match.Applicability).Select(CandidateRow));
         if (report.Sources.Count > 0) AddGroup("Drivers_Sources", report.Sources.Select(outcome =>
         {
             var name = DriverSourceNames.Get(outcome.Source);
@@ -393,7 +416,7 @@ public partial class DriversViewModel : ObservableObject, IDisposable
     private DriverResultItem CandidateRow(DriverUpdateMatch match) => new(match.Update.Title,
         match.Update.Date, match.Update.SizeBytes, () => UpdateDetail(match), null, _localization, _dialogs,
         candidate: match, subtitle: () => CatalogSummary(match), supportPage: match.Update.Catalog?.References.FirstOrDefault()?.LandingPage,
-        verify: _packages is null ? null : row => RunPackagesAsync([row], download: false), openSupport: OpenSupportAsync);
+        openSupport: OpenSupportAsync);
 
     private async Task OpenSupportAsync(Uri page)
     {
@@ -433,14 +456,13 @@ public partial class DriversViewModel : ObservableObject, IDisposable
         NotifySelection();
     }
 
+    /// <summary>Saves the selected official payloads under the existing cancellable task owner.</summary>
     [RelayCommand(CanExecute = nameof(CanDownload))]
-    private Task DownloadAsync() => RunPackagesAsync(ResultGroups.SelectMany(group => group.Items).OfType<DriverResultItem>()
-        .Where(row => row.IsDownloadSelected).ToArray(), download: true);
-
-    /// <summary>Verifies or saves the selected official payloads under the existing cancellable task owner.</summary>
-    private async Task RunPackagesAsync(DriverResultItem[] rows, bool download)
+    private async Task DownloadAsync()
     {
-        if (_disposed || IsBusy || _packages is null || _report is not { } report || rows.Length == 0) return;
+        if (!CanDownload || _packages is null || _report is not { } report) return;
+        var rows = ResultGroups.SelectMany(group => group.Items).OfType<DriverResultItem>()
+            .Where(row => row.IsDownloadSelected).ToArray();
         if (_tasks.IsTaskRunning) { Status = Text("Cleaner_Wait"); return; }
         IsBusy = true;
         CancellationTokenSource? owner = null;
@@ -455,14 +477,14 @@ public partial class DriversViewModel : ObservableObject, IDisposable
                 {
                     Title = Text("Drivers_LicenseRequired"), Message = Text("Drivers_LicenseConfirm"),
                     Items = gated.Select(row => $"{row.Name}\n{row.Candidate!.Update.Catalog!.References[0].LandingPage}").ToArray(),
-                    ConfirmButtonText = download ? DownloadLabel : Text("Drivers_Verify"), CancelButtonText = CancelLabel
+                    ConfirmButtonText = DownloadLabel, CancelButtonText = CancelLabel
                 });
                 if (!confirmation.Confirmed || _disposed || lifetime.IsCancellationRequested) return;
             }
             if (_tasks.IsTaskRunning) { Status = Text("Cleaner_Wait"); return; }
-            owner = _tasks.StartTask(download ? DownloadLabel : Text("Drivers_Verify"), isIndeterminate: true);
+            owner = _tasks.StartTask(DownloadLabel, isIndeterminate: true);
             _operation = owner;
-            var changed = new Dictionary<DriverUpdateMatch, DriverUpdateMatch>();
+            var changed = new Dictionary<DriverUpdateMatch, DriverUpdate>();
             var paths = new List<string>();
             var failures = new List<string>();
             foreach (var row in rows)
@@ -471,19 +493,16 @@ public partial class DriversViewModel : ObservableObject, IDisposable
                 if (row.Candidate is not { } candidate) continue;
                 try
                 {
-                    var acquired = await _packages.AcquireAsync(candidate.Update, report.Inventory, download, CreateProgress(owner),
+                    var acquired = await _packages.AcquireAsync(candidate.Update, report.Inventory, true, CreateProgress(owner),
                         owner.Token, licenseAccepted: gated.Contains(row));
                     owner.Token.ThrowIfCancellationRequested();
                     if (_operation != owner || _disposed) return;
-                    changed[candidate] = DriverCatalogMatching.Evaluate(acquired.Update, report.Inventory);
+                    changed[candidate] = acquired.Update;
                     if (acquired.OutputPath is { } path) paths.Add(path);
                 }
                 catch (DriverScanException ex)
                 {
                     failures.Add($"{row.Name}: {ex.Message}");
-                    if (!download && candidate.Update.Catalog is { } catalog)
-                        changed[candidate] = candidate with { Update = candidate.Update with
-                        { Catalog = catalog with { Verification = DriverVerification.Failed, VerificationDetail = ex.Message } } };
                 }
             }
             owner.Token.ThrowIfCancellationRequested();
@@ -491,19 +510,15 @@ public partial class DriversViewModel : ObservableObject, IDisposable
             var removalSelection = ResultGroups.SelectMany(group => group.Items).OfType<DriverResultItem>()
                 .Where(row => row.IsSelected).Select(row => row.Target).ToHashSet();
             var selectedDownloads = ResultGroups.SelectMany(group => group.Items).OfType<DriverResultItem>()
-                .Where(row => row.IsDownloadSelected && (!download || !changed.ContainsKey(row.Candidate!)))
+                .Where(row => row.IsDownloadSelected && !changed.ContainsKey(row.Candidate!))
                 .Select(row => row.Candidate!.Update).ToHashSet();
-            var category = SelectedGroup is { } group ? ResultGroups.IndexOf(group) : 0;
-            var reviewed = DriverCatalogMatching.Deduplicate(report.Updates.Concat(report.Filtered)
-                    .Select(match => changed.GetValueOrDefault(match, match).Update))
-                .Select(update => DriverCatalogMatching.Evaluate(update, report.Inventory)).ToArray();
-            var filtered = reviewed.Where(match => match.Applicability == DriverApplicability.Incompatible ||
-                (report.Options.OnlyWhqlUpdates && match.Update.Certification != DriverCertification.Whql)).ToHashSet();
-            _report = report with { Updates = DriverCatalogMatching.MarkNewest(reviewed.Where(match => !filtered.Contains(match)).ToArray()),
-                Filtered = filtered.ToArray(), ExcludedUpdates = filtered.Count };
+            var category = SelectedGroup?.LabelKey;
+            var reviewed = report.Updates.Select(match => changed.GetValueOrDefault(match, match.Update));
+            var (updates, excluded) = DriverCatalogMatching.ClassifyCandidates(reviewed, report.Inventory, report.Options, owner.Token);
+            _report = report with { Updates = updates, ExcludedUpdates = report.ExcludedUpdates + excluded };
             ClearResults();
             PublishRows(_report);
-            if (category >= 0 && category < ResultGroups.Count) SelectedGroup = ResultGroups[category];
+            if (ResultGroups.FirstOrDefault(group => group.LabelKey == category) is { } selectedGroup) SelectedGroup = selectedGroup;
             foreach (var row in ResultGroups.SelectMany(result => result.Items).OfType<DriverResultItem>())
             {
                 row.IsSelected = row.Target is not null && removalSelection.Contains(row.Target);
@@ -511,10 +526,7 @@ public partial class DriversViewModel : ObservableObject, IDisposable
                     update.Id == candidate.Update.Id && update.Catalog?.References[0].Revision == candidate.Update.Catalog?.References[0].Revision);
             }
             Notices = string.Join(Environment.NewLine, report.Notices.Concat(failures));
-            Status = failures.Count > 0 ? string.Join(Environment.NewLine, failures.Concat(paths)) :
-                download ? string.Join(Environment.NewLine, paths) : string.Join(Environment.NewLine, changed.Values.Select(match =>
-                    string.Join(Environment.NewLine, new[] { CatalogSummary(match), match.Update.Catalog?.VerificationDetail }
-                        .Where(value => !string.IsNullOrEmpty(value)))));
+            Status = string.Join(Environment.NewLine, failures.Concat(paths));
             NotifyReport();
         }
         catch (OperationCanceledException) { if (!_disposed) Status = Text("Cleaner_Cancelled"); }
@@ -600,7 +612,7 @@ public partial class DriversViewModel : ObservableObject, IDisposable
         }
     }
 
-    /// <summary>Retains the page error and marks only this operation's footer task as failed.</summary>
+    /// <summary>Retains the page error and marks only this operation's task as failed.</summary>
     private void ReportFailure(string message, CancellationTokenSource? owner)
     {
         if (_disposed) return;
@@ -673,14 +685,31 @@ public partial class DriversViewModel : ObservableObject, IDisposable
         NotifySelection();
     }
 
-    /// <summary>Publishes scan milestones to the page and measured progress to the shared footer.</summary>
+    /// <summary>Publishes scan milestones to the page and measured progress to the shared task.</summary>
     private IProgress<DriverScanProgress> CreateProgress(CancellationTokenSource owner) => new ScanProgress(value =>
         _dispatcher.RunOnUIThread(() =>
         {
             if (_disposed || _operation != owner || owner.IsCancellationRequested) return;
             if (IsScanning && value.Phase > ScanPhase) ScanPhase = value.Phase;
             double? progress = value.Total > 0 ? Math.Clamp(value.Completed * 100d / value.Total, 0, 100) : null;
-            var status = Text(value.Stage) + (value.Total > 0 ? $" ({value.Completed}/{value.Total})" : "");
+            var activity = value.ActivePackageStages.Count > 0
+                ? string.Join(" · ", value.ActivePackageStages.Select(Text)) : Text(value.Stage);
+            var status = activity + (value.Total > 0 ? $" ({value.Completed}/{value.Total})" : "");
+            if (value.BytesTransferred is long bytes)
+            {
+                status += $" · {DriverResultItem.FormatSize(bytes)}";
+                if (value.TotalBytes is > 0 and var total)
+                {
+                    status += $" / {DriverResultItem.FormatSize(total)}";
+                    if (!IsScanning) progress = Math.Clamp(bytes * 100d / total, 0, 100);
+                }
+            }
+            if (ScanPhase == DriverScanPhase.CheckSources && value.Stage is
+                "Drivers_VerifyingPackages" or "Drivers_Downloading" or "Drivers_ExtractingPackage" or "Drivers_VerifyingInfs")
+            {
+                _scanPackageActivity = status;
+                OnPropertyChanged(nameof(ScanActivity));
+            }
             _tasks.UpdateDetailedProgress(new TaskProgressDetail
             {
                 Progress = progress, IsIndeterminate = progress is null, StatusText = Heading,

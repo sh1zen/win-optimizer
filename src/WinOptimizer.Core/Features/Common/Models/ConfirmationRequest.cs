@@ -29,6 +29,9 @@ public sealed record ConfirmationRequest
     /// </summary>
     public IReadOnlyList<string>? Items { get; init; } = null;
 
+    /// <summary>Optional documentation the user can open before deciding.</summary>
+    public (Uri Uri, string Label)? ReferenceLink { get; init; }
+
     /// <summary>
     /// Gets whether the optional checkbox starts checked. Defaults to true.
     /// </summary>

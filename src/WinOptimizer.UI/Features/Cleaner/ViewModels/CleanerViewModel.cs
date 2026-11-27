@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using CommunityToolkit.Mvvm.ComponentModel;
+using WinOptimizer.UI.Features.Common.Services;
 using CommunityToolkit.Mvvm.Input;
 using WinOptimizer.Core.Features.Cleaner.Interfaces;
 using WinOptimizer.Core.Features.Cleaner.Models;
@@ -203,12 +204,15 @@ public partial class CleanerViewModel : ObservableObject, IDisposable
     public string CancelLabel => Text("Button_Cancel");
     private string Text(string key) => _localization.GetString(key);
 
+    private readonly ScanCancellationNotifications? _scanNotifications;
+
     public CleanerViewModel(ICleanerService cleaner, CleanerSettingsViewModel settings, ILocalizationService localization,
         IDialogService dialogs, ITaskProgressService tasks, ILogService log,
-        IApplicationModeService applicationModeService, IUserPreferencesService preferences)
+        IApplicationModeService applicationModeService, IUserPreferencesService preferences, ScanCancellationNotifications? scanNotifications = null)
     {
         _cleaner = cleaner; Settings = settings; _localization = localization; _dialogs = dialogs; _tasks = tasks; _log = log;
         _preferences = preferences;
+        _scanNotifications = scanNotifications;
         _applicationModeService = applicationModeService;
         _applicationModeService.ModeChanged += OnApplicationModeChanged;
         foreach (var area in Enum.GetValues<CleanerArea>())
@@ -368,6 +372,7 @@ public partial class CleanerViewModel : ObservableObject, IDisposable
             ApplyCommand.NotifyCanExecuteChanged();
         }
         RefreshReport();
+        if (completed == RunResult.Cancelled) _scanNotifications?.Publish(this, Title, Status);
     }
 
     private bool CanCancelScan() => IsScanning && !IsScanCancelling;
@@ -408,6 +413,28 @@ public partial class CleanerViewModel : ObservableObject, IDisposable
         }
     }
 
+    /// <summary>Describes each area represented in the cleanup snapshot and its applicable backup policy.</summary>
+    private string DescribeSelectionForConfirmation(IReadOnlyList<CleanerFinding> selected)
+    {
+        var lines = new List<string> { string.Format(Text("Cleaner_Confirm"), selected.Count) };
+        foreach (var area in selected.Select(finding => finding.Area).Distinct())
+        {
+            lines.Add(Text(area switch
+            {
+                CleanerArea.Privacy => "Cleaner_PrivacyConfirmation",
+                CleanerArea.JunkFiles => "Cleaner_JunkFilesConfirmation",
+                CleanerArea.Shortcuts => "Cleaner_ShortcutsConfirmation",
+                CleanerArea.RegistryDefrag => "Cleaner_RegistryDefragConfirmation",
+                CleanerArea.Registry => "Cleaner_RegistryConfirmation",
+                CleanerArea.Disk => "Cleaner_DiskConfirmation",
+                _ => throw new ArgumentOutOfRangeException(nameof(area))
+            }));
+        }
+        if (selected.Any(finding => finding.Target is CleanerFileTarget or CleanerRegistryTarget))
+            lines.Add(Text(Settings.Options.BackupBeforeCleaning ? "Cleaner_BackupOn" : "Cleaner_BackupOff"));
+        return string.Join(Environment.NewLine, lines);
+    }
+
     [RelayCommand(CanExecute = nameof(CanApply))]
     private async Task ApplyAsync()
     {
@@ -423,13 +450,7 @@ public partial class CleanerViewModel : ObservableObject, IDisposable
         {
             var answer = await _dialogs.ShowConfirmationAsync(new ConfirmationRequest
             {
-                Title = Title, Message = string.Join(Environment.NewLine, new[]
-                {
-                    string.Format(Text("Cleaner_Confirm"), ids.Length),
-                    selected.Any(finding => finding.Target is CleanerFileTarget or CleanerRegistryTarget)
-                        ? Text(Settings.Options.BackupBeforeCleaning ? "Cleaner_BackupOn" : "Cleaner_BackupOff") : null,
-                    selected.Any(finding => finding.Target is CleanerHiveTarget) ? Text("Cleaner_RegistryDefragConfirmation") : null
-                }.Where(message => !string.IsNullOrWhiteSpace(message))),
+                Title = Title, Message = DescribeSelectionForConfirmation(selected),
                 ConfirmButtonText = ApplyLabel, CancelButtonText = CancelLabel
             });
             if (!answer.Confirmed) return;
@@ -460,7 +481,7 @@ public partial class CleanerViewModel : ObservableObject, IDisposable
             scheduled = result.Scheduled > 0;
             if (scheduled) Status += $"{Environment.NewLine}{Text("Cleaner_RegistryDefragScheduled")}";
             Notices = string.Join(Environment.NewLine, new[] { Notices }.Concat(result.Errors).Where(text => !string.IsNullOrWhiteSpace(text)));
-            // Keep the final outcome in task details even when coalesced progress never reaches the footer.
+            // Record the final outcome independently of coalesced progress updates.
             var output = result.Errors.Count > 0 ? $"{Status}{Environment.NewLine}{Notices}" : Status;
             _tasks.UpdateDetailedProgress(new TaskProgressDetail
             {

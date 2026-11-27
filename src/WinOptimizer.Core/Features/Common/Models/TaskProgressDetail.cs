@@ -6,7 +6,7 @@ public class TaskProgressDetail
 {
     /// <summary>False when the owning page presents the task's progress and cancellation controls.</summary>
     public bool ShowInTaskBar { get; set; } = true;
-    /// <summary>Whether the operation supports cancellation from the footer.</summary>
+    /// <summary>Whether the operation supports cancellation from the shared task controls.</summary>
     public bool CanCancel { get; set; } = true;
     public double? Progress { get; set; }
     public string? StatusText { get; set; }

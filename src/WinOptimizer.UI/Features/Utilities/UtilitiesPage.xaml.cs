@@ -32,7 +32,7 @@ public sealed partial class UtilitiesPage : Page
         Loaded += async (_, _) => await Task.WhenAll(Extensions.LoadAsync(), Preview.LoadAsync(), Notch.LoadAsync());
     }
 
-    /// <summary>Opens SysMonitor settings while retaining Extension as the owning sidebar section.</summary>
+    /// <summary>Opens SysMonitor settings in the shell journal.</summary>
     private void OpenMonitorSettings_Click(object sender, RoutedEventArgs e)
     {
         if (Frame.CurrentSourcePageType != typeof(SystemMonitorSettingsPage))

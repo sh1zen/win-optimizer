@@ -4,6 +4,7 @@ using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.Core.Features.Management;
 using WinOptimizer.UI.Features.Common.Interfaces;
+using WinOptimizer.UI.Features.Common.Services;
 using WinOptimizer.UI.Features.Management.ViewModels;
 using WinOptimizer.UI.Tests.Helpers;
 using Xunit;
@@ -23,9 +24,9 @@ public sealed class WindowsStatusViewModelTests : IDisposable
 
     public WindowsStatusViewModelTests()
     {
-        _localization.Setup(service => service.GetString(It.IsAny<string>())).Returns((string key) => key == "WindowsStatus_HealthSummary" ? "{0}: {1}" : key);
+        _localization.Setup(service => service.GetString(It.IsAny<string>())).Returns((string key) => key);
         _tasks.SetupGet(service => service.CurrentTaskCancellationSource).Returns(() => _current);
-        _tasks.Setup(service => service.StartTask(It.IsAny<string>(), true, true, true)).Returns(() =>
+        _tasks.Setup(service => service.StartTask(It.IsAny<string>(), true, false, true)).Returns(() =>
         { _current = new(); _sources.Add(_current); return _current; });
         _tasks.Setup(service => service.CompleteTask()).Callback(() => _current = null);
         _dialogs.Setup(dialog => dialog.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>())).ReturnsAsync(new ConfirmationResponse { Confirmed = true });
@@ -35,14 +36,14 @@ public sealed class WindowsStatusViewModelTests : IDisposable
                     [new(WindowsServicingStep.RepairFiles, true, 0, WindowsImageHealth.Unknown, false, "SFC native result")]));
     }
 
-    private WindowsStatusViewModel Create() => new(_service.Object, _dialogs.Object, Mock.Of<IFilePickerService>(),
-        _localization.Object, _mode.Object, new ExtensionTestDispatcher(), _tasks.Object);
+    private WindowsStatusViewModel Create(ScanCancellationNotifications? notifications = null) => new(_service.Object, _dialogs.Object, Mock.Of<IFilePickerService>(),
+        _localization.Object, _mode.Object, new ExtensionTestDispatcher(), _tasks.Object, notifications);
 
     [Fact]
     public void OpeningTheToolDoesNotRunCommandsOrEnableResetBase()
     {
         using var vm = Create(); Assert.False(vm.ResetBase); Assert.False(vm.HasReport); Assert.Empty(vm.SourcePath);
-        Assert.Equal("Nav_Management", vm.SectionTitle); _service.VerifyNoOtherCalls();
+        Assert.Equal("WindowsStatus_Title", vm.SectionTitle); _service.VerifyNoOtherCalls();
     }
 
     [Fact]
@@ -53,7 +54,7 @@ public sealed class WindowsStatusViewModelTests : IDisposable
         _service.Verify(service => service.RunAsync(It.Is<WindowsServicingRequest>(request =>
             request.Action == WindowsServicingAction.Repair && request.SourcePath == @"D:\sources\install.wim" && request.WimIndex == 6 && request.LimitAccess && !request.ResetBase),
             It.IsAny<IProgress<WindowsServicingProgress>>(), It.IsAny<CancellationToken>()), Times.Once);
-        Assert.Equal("SFC native result", Assert.Single(vm.Steps).Output);
+        Assert.Equal("SFC native result", Assert.Single(vm.Report!.Steps).Output);
         Assert.Equal("WindowsStatus_StateReviewFileResults", vm.ReportSummary);
         Assert.Equal(Microsoft.UI.Xaml.Controls.InfoBarSeverity.Informational, vm.ReportSeverity);
     }
@@ -99,32 +100,52 @@ public sealed class WindowsStatusViewModelTests : IDisposable
     }
 
     [Fact]
-    public async Task PendingOperationDisablesCommandsAndShutdownWaitsForItsReport()
+    public async Task InlineCancellationKeepsTheOperationReservedUntilTheWorkerStops()
     {
         var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var finished = new TaskCompletionSource<WindowsServicingReport>(TaskCreationOptions.RunContinuationsAsynchronously);
         _service.Setup(service => service.RunAsync(It.IsAny<WindowsServicingRequest>(), It.IsAny<IProgress<WindowsServicingProgress>>(), It.IsAny<CancellationToken>()))
             .Returns(() => { started.TrySetResult(); return finished.Task; });
-        using var vm = Create(); var running = vm.RunCommand.ExecuteAsync("Diagnosis"); await started.Task;
+        var notifications = new ScanCancellationNotifications();
+        var notices = new List<ScanCancellationNotice>();
+        notifications.Cancelled += notices.Add;
+        using var vm = Create(notifications); var running = vm.RunCommand.ExecuteAsync("Diagnosis"); await started.Task;
         Assert.False(vm.RunCommand.CanExecute("Repair")); Assert.False(vm.WaitForWriteAsync().IsCompleted);
+        Assert.True(vm.IsOperationRunning);
+        Assert.True(vm.CancelOperationCommand.CanExecute(null));
+        vm.CancelOperationCommand.Execute(null);
+        Assert.True(_current!.IsCancellationRequested);
+        Assert.True(vm.IsCancelling);
+        Assert.False(vm.CancelOperationCommand.CanExecute(null));
+        Assert.Empty(notices);
+        _tasks.Verify(service => service.StartTask(It.IsAny<string>(), true, false, true), Times.Once);
         finished.SetResult(new(new(WindowsServicingAction.Diagnosis), DateTimeOffset.Now, WindowsServicingState.Cancelled, WindowsImageHealth.Unknown, []));
-        await running; await vm.WaitForWriteAsync(); Assert.False(vm.IsBusy); Assert.Equal("WindowsStatus_StateCancelled", vm.ReportSummary);
+        await running; await vm.WaitForWriteAsync();
+        Assert.False(vm.IsBusy);
+        Assert.False(vm.HasReport);
+        Assert.Equal("WindowsStatus_StateCancelled", Assert.Single(notices).Message);
+        Assert.False(vm.IsOperationRunning);
+        Assert.False(vm.IsCancelling);
+        Assert.Equal("Diagnosis", vm.DiagnosisAction);
+        Assert.Equal("WindowsStatus_DiagnosisShort", vm.DiagnosisLabel);
     }
 
     [Theory]
-    [InlineData("QuickCheck", WindowsImageHealth.Repairable, "WindowsStatus_StateRepairable", "Repair")]
-    [InlineData("Diagnosis", WindowsImageHealth.Repairable, "WindowsStatus_StateRepairable", "Repair")]
-    [InlineData("Cleanup", WindowsImageHealth.Repairable, "WindowsStatus_StateCleanupNeedsRepair", "Repair")]
-    [InlineData("Repair", WindowsImageHealth.Repairable, "WindowsStatus_StateRepairIncomplete", "Repair")]
-    [InlineData("QuickCheck", WindowsImageHealth.NonRepairable, "WindowsStatus_StateNonRepairable", "Diagnosis")]
-    [InlineData("QuickCheck", WindowsImageHealth.Unknown, "WindowsStatus_StateNeedsAttention", "Diagnosis")]
-    public async Task AttentionGuidanceReflectsTheHealthAndTheOperationActuallyRun(string action, WindowsImageHealth health, string summary, string nextAction)
+    [InlineData("QuickCheck", WindowsImageHealth.Repairable, "WindowsStatus_StateRepairable", true)]
+    [InlineData("Diagnosis", WindowsImageHealth.Repairable, "WindowsStatus_StateRepairable", true)]
+    [InlineData("Cleanup", WindowsImageHealth.Repairable, "WindowsStatus_StateCleanupNeedsRepair", true)]
+    [InlineData("Repair", WindowsImageHealth.Repairable, "WindowsStatus_StateRepairIncomplete", true)]
+    [InlineData("QuickCheck", WindowsImageHealth.NonRepairable, "WindowsStatus_StateNonRepairable", false)]
+    [InlineData("QuickCheck", WindowsImageHealth.Unknown, "WindowsStatus_StateNeedsAttention", false)]
+    public async Task AttentionGuidanceReflectsTheHealthAndTheOperationActuallyRun(string action, WindowsImageHealth health, string summary, bool needsRepair)
     {
         _service.Setup(service => service.RunAsync(It.IsAny<WindowsServicingRequest>(), It.IsAny<IProgress<WindowsServicingProgress>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((WindowsServicingRequest request, IProgress<WindowsServicingProgress>? _, CancellationToken _) =>
                 new WindowsServicingReport(request, DateTimeOffset.Now, WindowsServicingState.NeedsAttention, health, []));
         using var vm = Create(); await vm.RunCommand.ExecuteAsync(action);
-        Assert.Equal(summary, vm.ReportSummary); Assert.Equal(nextAction, vm.PrimaryAction);
+        Assert.Equal(summary, vm.ReportSummary);
+        Assert.Equal(needsRepair, vm.NeedsRepair);
+        Assert.Equal("Diagnosis", vm.DiagnosisAction);
         Assert.Equal(Microsoft.UI.Xaml.Controls.InfoBarSeverity.Warning, vm.ReportSeverity);
         _service.Verify(service => service.RunAsync(It.IsAny<WindowsServicingRequest>(), It.IsAny<IProgress<WindowsServicingProgress>>(), It.IsAny<CancellationToken>()), Times.Once);
     }
@@ -137,27 +158,37 @@ public sealed class WindowsStatusViewModelTests : IDisposable
         _service.Setup(service => service.RunAsync(It.IsAny<WindowsServicingRequest>(), It.IsAny<IProgress<WindowsServicingProgress>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new WindowsServicingReport(new(WindowsServicingAction.Diagnosis), DateTimeOffset.Now, state, WindowsImageHealth.Repairable, []));
         using var vm = Create(); await vm.RunCommand.ExecuteAsync("Diagnosis");
-        Assert.Equal("WindowsStatus_State" + state, vm.ReportSummary); Assert.False(vm.NeedsRepair); Assert.Equal("Diagnosis", vm.PrimaryAction);
+        Assert.Equal("WindowsStatus_State" + state, vm.ReportSummary); Assert.False(vm.NeedsRepair); Assert.Equal("Diagnosis", vm.DiagnosisAction);
     }
 
     [Fact]
-    public async Task RecommendedRepairStillRequiresConfirmationAndAHealthyResultUpdatesTheMainAction()
+    public async Task RepairRecommendationSurvivesCancellationAndClearsWhenTheImageIsHealthy()
     {
         _service.SetupSequence(service => service.RunAsync(It.IsAny<WindowsServicingRequest>(), It.IsAny<IProgress<WindowsServicingProgress>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new WindowsServicingReport(new(WindowsServicingAction.QuickCheck), DateTimeOffset.Now,
                 WindowsServicingState.NeedsAttention, WindowsImageHealth.Repairable, []))
             .ReturnsAsync(new WindowsServicingReport(new(WindowsServicingAction.Repair), DateTimeOffset.Now,
                 WindowsServicingState.ReviewFileResults, WindowsImageHealth.Healthy, []));
-        using var vm = Create(); await vm.RunCommand.ExecuteAsync("QuickCheck");
-        Assert.True(vm.NeedsRepair); Assert.Equal("WindowsStatus_RepairShort", vm.PrimaryActionLabel);
+        using var vm = Create();
+        vm.UseQuickCheck = true;
+        await vm.RunCommand.ExecuteAsync(vm.DiagnosisAction);
+        Assert.True(vm.NeedsRepair);
+        Assert.Equal("WindowsStatus_RepairShort", vm.ReportRepairLabel);
+        var diagnosis = vm.Report;
         _dialogs.Setup(dialog => dialog.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>())).ReturnsAsync(new ConfirmationResponse());
-        await vm.RunCommand.ExecuteAsync(vm.PrimaryAction); Assert.True(vm.NeedsRepair);
+        await vm.RunCommand.ExecuteAsync(nameof(WindowsServicingAction.Repair));
+        Assert.Same(diagnosis, vm.Report);
+        Assert.True(vm.NeedsRepair);
+        Assert.Equal("QuickCheck", vm.DiagnosisAction);
+        Assert.Equal("WindowsStatus_DiagnosisShort", vm.DiagnosisLabel);
         _service.Verify(service => service.RunAsync(It.IsAny<WindowsServicingRequest>(), It.IsAny<IProgress<WindowsServicingProgress>>(), It.IsAny<CancellationToken>()), Times.Once);
         _dialogs.Setup(dialog => dialog.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>())).ReturnsAsync(new ConfirmationResponse { Confirmed = true });
         var notifications = new List<string?>(); vm.PropertyChanged += (_, change) => notifications.Add(change.PropertyName);
-        await vm.RunCommand.ExecuteAsync(vm.PrimaryAction);
-        Assert.False(vm.NeedsRepair); Assert.Equal("Diagnosis", vm.PrimaryAction); Assert.Equal("WindowsStatus_DiagnosisShort", vm.PrimaryActionLabel);
-        Assert.Contains(nameof(vm.PrimaryAction), notifications); Assert.Contains(nameof(vm.IntroTitle), notifications);
+        await vm.RunCommand.ExecuteAsync(nameof(WindowsServicingAction.Repair));
+        Assert.False(vm.NeedsRepair);
+        Assert.Equal("QuickCheck", vm.DiagnosisAction);
+        Assert.Equal("WindowsStatus_DiagnosisShort", vm.DiagnosisLabel);
+        Assert.Contains(nameof(vm.NeedsRepair), notifications);
         Assert.Equal("WindowsStatus_StateReviewFileResults", vm.ReportSummary);
         _dialogs.Verify(dialog => dialog.ShowConfirmationAsync(It.Is<ConfirmationRequest>(request => request.Message == "WindowsStatus_ConfirmRepair")), Times.Exactly(2));
     }

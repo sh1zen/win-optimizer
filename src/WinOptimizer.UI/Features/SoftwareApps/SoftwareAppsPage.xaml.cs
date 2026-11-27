@@ -16,6 +16,8 @@ using WinOptimizer.UI.Features.SoftwareApps.ViewModels;
 
 namespace WinOptimizer.UI.Features.SoftwareApps;
 
+internal enum SoftwareAppsTab { Windows, External, Leftovers }
+
 public sealed partial class SoftwareAppsPage : Page
 {
     public SoftwareAppsViewModel ViewModel { get; }
@@ -199,11 +201,18 @@ public sealed partial class SoftwareAppsPage : Page
     {
         base.OnNavigatedTo(e);
         ViewModel.InitializePresentation();
-
-        // Startup restores presentation here and defers inventory until after the page is visible.
-        if (e.Parameter as string == "startup")
-            return;
-
+        switch (e.Parameter)
+        {
+            case SoftwareAppsTab.Windows:
+                ViewModel.SelectWindowsAppsTab();
+                break;
+            case SoftwareAppsTab.External when ViewModel.IsExternalAppsTabEnabled:
+                ViewModel.SelectExternalAppsTab();
+                break;
+            case SoftwareAppsTab.Leftovers:
+                await ViewModel.SelectLeftoverTabAsync();
+                break;
+        }
         await ViewModel.InitializeAsync();
     }
 

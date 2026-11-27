@@ -27,25 +27,6 @@ public class ApplicationCloseServiceTests
     }
 
     [Fact]
-    public async Task CheckOperationsAndCloseAsync_WhenBeforeShutdownSet_InvokesHook()
-    {
-        var hookInvoked = false;
-        var service = CreateService();
-        service.BeforeShutdown = () =>
-        {
-            hookInvoked = true;
-            return Task.CompletedTask;
-        };
-
-        _mockTaskProgressService.Setup(t => t.IsTaskRunning).Returns(false);
-
-        await service.CheckOperationsAndCloseAsync();
-
-        hookInvoked.Should().BeTrue();
-        _shutdownCalled.Should().BeTrue();
-    }
-
-    [Fact]
     public async Task CheckOperationsAndCloseAsync_WhenBeforeShutdownThrows_PreservesTheApplication()
     {
         var service = CreateService();
@@ -60,42 +41,6 @@ public class ApplicationCloseServiceTests
         _mockLogService.Verify(
             l => l.LogError(It.Is<string>(s => s.Contains("Error in CheckOperationsAndCloseAsync")), It.IsAny<Exception>()),
             Times.Once);
-    }
-
-    [Fact]
-    public async Task CheckOperationsAndCloseAsync_WhenTaskRunning_UserCancels_ReturnsFailedResult()
-    {
-        var service = CreateService();
-
-        _mockTaskProgressService.Setup(t => t.IsTaskRunning).Returns(true);
-        _mockTaskProgressService.Setup(t => t.CurrentStatusText).Returns("Installing apps");
-
-        _mockDialogService
-            .Setup(d => d.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>()))
-            .ReturnsAsync(new ConfirmationResponse { Confirmed = false }); // User clicks Cancel
-
-        var result = await service.CheckOperationsAndCloseAsync();
-
-        result.Success.Should().BeFalse();
-        result.ErrorMessage.Should().Be("User cancelled application close");
-        _shutdownCalled.Should().BeFalse();
-    }
-
-    [Fact]
-    public async Task CheckOperationsAndCloseAsync_WhenTaskRunning_UserConfirms_CancelsTask()
-    {
-        var service = CreateService();
-
-        _mockTaskProgressService.Setup(t => t.IsTaskRunning).Returns(true);
-        _mockTaskProgressService.Setup(t => t.CurrentStatusText).Returns("Applying settings");
-
-        _mockDialogService
-            .Setup(d => d.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>()))
-            .ReturnsAsync(new ConfirmationResponse { Confirmed = true }); // User clicks Yes
-
-        await service.CheckOperationsAndCloseAsync();
-
-        _mockTaskProgressService.Verify(t => t.CancelCurrentTask(), Times.Once);
     }
 
     [Fact]
@@ -117,21 +62,6 @@ public class ApplicationCloseServiceTests
             d => d.ShowConfirmationAsync(
                 It.Is<ConfirmationRequest>(r => r.Message.Contains("an operation"))),
             Times.Once);
-    }
-
-    [Fact]
-    public async Task CheckOperationsAndCloseAsync_NoRunningTask_DoesNotShowConfirmationDialog()
-    {
-        var service = CreateService();
-
-        _mockTaskProgressService.Setup(t => t.IsTaskRunning).Returns(false);
-
-        await service.CheckOperationsAndCloseAsync();
-
-        _mockDialogService.Verify(
-            d => d.ShowConfirmationAsync(
-                It.Is<ConfirmationRequest>(r => r.Title.Contains("Operation in Progress"))),
-            Times.Never);
     }
 
     // Shutdown completes through the production close path for idle and active work.
@@ -181,16 +111,24 @@ public class ApplicationCloseServiceTests
     }
 
     [Fact]
-    public async Task DecliningCloseNeverRunsCleanupOrCancelsTheOperation()
+    public async Task DecliningClosePreservesTheApplicationAndTheOperation()
     {
         var service = CreateService();
         var cleanup = false;
         service.BeforeShutdown = () => { cleanup = true; return Task.CompletedTask; };
         _mockTaskProgressService.Setup(tasks => tasks.IsTaskRunning).Returns(true);
+        _mockTaskProgressService.Setup(tasks => tasks.CurrentStatusText).Returns("Installing apps");
         _mockDialogService.Setup(dialog => dialog.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>()))
             .ReturnsAsync(new ConfirmationResponse { Confirmed = false });
-        Assert.False((await service.CheckOperationsAndCloseAsync()).Success);
+
+        var result = await service.CheckOperationsAndCloseAsync();
+
+        Assert.False(result.Success);
+        Assert.Equal("User cancelled application close", result.ErrorMessage);
+        Assert.False(_shutdownCalled);
         Assert.False(cleanup);
+        _mockDialogService.Verify(dialog => dialog.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>()), Times.Once);
+        _mockDialogService.VerifyNoOtherCalls();
         _mockTaskProgressService.Verify(tasks => tasks.CancelCurrentTask(), Times.Never);
     }
 

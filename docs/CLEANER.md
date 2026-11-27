@@ -11,7 +11,8 @@
 4. Select a category on the left.
 5. Select the items to clean on the right.
 6. Select **Clean selected items**.
-7. Confirm the operation.
+7. Review the selected operations and any backup or restart information, then
+   confirm the cleanup.
 
 Use **Select all results** or **Clear selection** to change selections across
 the scan. Each category shows the numbers of items found, selected, and

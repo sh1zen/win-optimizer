@@ -80,8 +80,7 @@ Downloaded versions follow Microsoft's current distribution and are not pinned.
   embedded script composition. Existing Autorun tests cover the shared transport.
 - The [native UI suite](../../../../tests/README.md#focused-checks) builds the actual WinUI page and runs
   view-model cases plus EN/IT, light/dark, three widths, all four tabs and short
-  windows. Previews are under `build/process-monitor-preview`. Data is synthetic:
-  these tests do not enumerate live processes, download Handle or start ETW.
+  windows. The suite uses synthetic process, handle and network data.
 
 Native acquisition, protected-process coverage and ETW availability depend on the
 Windows host and privileges and require integration verification on that host.

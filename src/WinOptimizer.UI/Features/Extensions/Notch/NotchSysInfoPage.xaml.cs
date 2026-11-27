@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Navigation;
 
@@ -13,6 +14,6 @@ public sealed partial class NotchSysInfoPage : Page
     protected override void OnNavigatedTo(NavigationEventArgs args)
     {
         base.OnNavigatedTo(args);
-        ViewModel = (NotchExtension)args.Parameter;
+        ViewModel = args.Parameter as NotchExtension ?? App.Services.GetRequiredService<NotchExtension>();
     }
 }

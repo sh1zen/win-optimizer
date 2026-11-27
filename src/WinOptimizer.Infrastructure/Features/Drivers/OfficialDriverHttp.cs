@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using WinOptimizer.Core.Features.Common.Constants;
 using WinOptimizer.Core.Features.Drivers.Models;
 
@@ -17,6 +18,9 @@ internal sealed class OfficialDriverHttp(HttpClient client, string? cacheDirecto
     private DateTimeOffset _lastPrune;
     private static readonly TimeSpan Freshness = TimeSpan.FromHours(12);
     private static readonly TimeSpan Retention = TimeSpan.FromDays(14);
+    private static readonly Regex Challenge = new(
+        @"<title[^>]*>\s*(Access Denied|Just a moment|Request Rejected|Attention Required)|cf-chl-|_Incapsula_Resource|verify you are human",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.NonBacktracking, TimeSpan.FromSeconds(2));
     private sealed record CacheEntry(DateTimeOffset Retrieved, string? Tag, DateTimeOffset? Modified, byte[] Body);
     private sealed record CatalogEntry(DateTimeOffset Saved, DriverUpdateSearchResult Result);
     internal sealed record Metadata(byte[] Body, DateTimeOffset Retrieved, string? StaleReason = null)
@@ -94,25 +98,30 @@ internal sealed class OfficialDriverHttp(HttpClient client, string? cacheDirecto
             try { entry = await JsonSerializer.DeserializeAsync<CacheEntry>(input, cancellationToken: ct).ConfigureAwait(false); }
             catch (JsonException) { /* Refresh an unreadable cache entry from its source. */ }
         }
+        if (entry is not null && IsChallenge(entry.Body)) entry = null;
         if (entry is not null && now - entry.Retrieved < Freshness) return new(entry.Body, entry.Retrieved);
         CacheEntry refreshed;
-        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        deadline.CancelAfter(TimeSpan.FromSeconds(35));
         try
         {
-            using var response = await SendAsync(source, url, deadline.Token, form, entry?.Tag, entry?.Modified).ConfigureAwait(false);
+            using var response = await SendAsync(source, url, ct, form, entry?.Tag, entry?.Modified).ConfigureAwait(false);
             if (response.StatusCode == HttpStatusCode.NotModified && entry is not null) refreshed = entry with { Retrieved = now };
             else
             {
                 response.EnsureSuccessStatusCode();
                 using var buffer = new MemoryStream();
-                await CopyAsync(response, buffer, 32L * 1024 * 1024, deadline.Token).ConfigureAwait(false);
+                await CopyAsync(response, buffer, 32L * 1024 * 1024, ct).ConfigureAwait(false);
                 refreshed = new(now, response.Headers.ETag?.ToString(), response.Content.Headers.LastModified, buffer.ToArray());
+                if (IsChallenge(refreshed.Body))
+                {
+                    var reason = $"{url.Host} blocked automated access or requires a CAPTCHA.";
+                    if (entry is not null && now - entry.Retrieved <= Retention) return new(entry.Body, entry.Retrieved, reason);
+                    throw new DriverScanException(reason);
+                }
             }
         }
         catch (Exception ex) when (!ct.IsCancellationRequested && ex is HttpRequestException or IOException or OperationCanceledException)
         {
-            var reason = ex is OperationCanceledException ? "The source request timed out." : ex.Message;
+            var reason = ex.Message;
             if (entry is not null && now - entry.Retrieved <= Retention) return new(entry.Body, entry.Retrieved, reason);
             throw new DriverScanException($"{source}: {reason}", ex);
         }
@@ -120,6 +129,10 @@ internal sealed class OfficialDriverHttp(HttpClient client, string? cacheDirecto
             .ConfigureAwait(false);
         return new(refreshed.Body, refreshed.Retrieved);
     }
+
+    // CAB metadata is binary; HTML challenges can replace any of the text or CAB endpoints.
+    private static bool IsChallenge(byte[] body) => !body.AsSpan().StartsWith("MSCF"u8) &&
+        Challenge.IsMatch(Encoding.UTF8.GetString(body));
 
     private string CachePath(string identity)
     {
@@ -138,7 +151,8 @@ internal sealed class OfficialDriverHttp(HttpClient client, string? cacheDirecto
             ? context.Options.NvidiaChannels : NvidiaChannels.Both });
         var now = _clock.GetUtcNow();
         await PruneAsync(now, ct).ConfigureAwait(false);
-        var path = CachePath($"catalog-v1\n{source}\n{target}");
+        var schema = source is DriverSources.Nvidia or DriverSources.MicrosoftCatalog ? 2 : 1;
+        var path = CachePath($"catalog-v{schema}\n{source}\n{target}");
         if (fresh is not null)
         {
             await WriteAtomicAsync(path, (stream, token) => JsonSerializer.SerializeAsync(stream, new CatalogEntry(now, fresh), cancellationToken: token), ct)
@@ -173,7 +187,8 @@ internal sealed class OfficialDriverHttp(HttpClient client, string? cacheDirecto
         finally { _maintenance.Release(); }
     }
 
-    internal static async Task CopyAsync(HttpResponseMessage response, Stream output, long limit, CancellationToken ct)
+    internal static async Task CopyAsync(HttpResponseMessage response, Stream output, long limit, CancellationToken ct,
+        Action<long>? copied = null)
     {
         if (response.Content.Headers.ContentLength > limit) throw new DriverScanException("The driver response exceeds its size limit.");
         await using var input = await response.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
@@ -185,6 +200,7 @@ internal sealed class OfficialDriverHttp(HttpClient client, string? cacheDirecto
             size += count;
             if (size > limit) throw new DriverScanException("The driver response exceeds its size limit.");
             await output.WriteAsync(buffer.AsMemory(0, count), ct).ConfigureAwait(false);
+            copied?.Invoke(size);
         }
         if (response.Content.Headers.ContentLength is long expected && size != expected)
             throw new IOException("The driver response ended before its published content length.");

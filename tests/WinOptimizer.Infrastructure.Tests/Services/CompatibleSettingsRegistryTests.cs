@@ -104,24 +104,12 @@ public class CompatibleSettingsRegistryTests
     }
 
     [Fact]
-    public async Task GetFilteredSettings_WhenFilterEnabled_ReturnsFilteredResults()
-    {
-        // Unknown features have no registered provider.
-        await _sut.InitializeAsync();
-
-        var result = _sut.GetFilteredSettings("NonExistentFeature");
-
-        result.Should().BeEmpty();
-    }
-
-    [Fact]
-    public async Task GetBypassedSettings_ReturnsUnfilteredSettingsForFeature()
+    public async Task CatalogueLookup_UnknownFeatureReturnsEmptyResults()
     {
         await _sut.InitializeAsync();
 
-        var result = _sut.GetBypassedSettings("NonExistentFeature");
-
-        result.Should().BeEmpty();
+        _sut.GetFilteredSettings("NonExistentFeature").Should().BeEmpty();
+        _sut.GetBypassedSettings("NonExistentFeature").Should().BeEmpty();
     }
 
     [Fact]

@@ -205,6 +205,7 @@ public class MainWindowViewModelTests : IDisposable
     {
         var sut = CreateSut();
         sut.Initialize();
+        _mockLocalizationService.Setup(service => service.GetString("WindowsStatus_Title")).Returns("Riparazione");
 
         var changedProperties = new List<string>();
         sut.PropertyChanged += (_, e) => changedProperties.Add(e.PropertyName!);
@@ -216,6 +217,8 @@ public class MainWindowViewModelTests : IDisposable
         changedProperties.Should().Contain(nameof(sut.DonateTooltip));
         changedProperties.Should().Contain(nameof(sut.BugReportTooltip));
         changedProperties.Should().Contain(nameof(sut.DocsTooltip));
+        changedProperties.Should().Contain(nameof(sut.NavRepairText));
+        sut.NavRepairText.Should().Be("Riparazione");
     }
 
     [Fact]

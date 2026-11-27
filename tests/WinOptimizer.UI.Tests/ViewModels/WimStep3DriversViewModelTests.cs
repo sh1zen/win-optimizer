@@ -55,24 +55,13 @@ public class WimStep3DriversViewModelTests : IDisposable
         _currentTask?.Dispose();
     }
 
-    [Fact]
-    public async Task ExtractAndAddSystemDriversCommand_WhenWorkingDirectoryEmpty_ShowsWarningAndReturns()
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task AddDriversCommands_WhenWorkingDirectoryIsEmpty_ShowWarningAndReturn(bool useSystemDrivers)
     {
-        await _sut.ExtractAndAddSystemDriversCommand.ExecuteAsync(null);
-
-        _mockDialogService.Verify(d => d.ShowWarningAsync(
-            "WIMUtil_Msg_WorkingDirectoryRequired",
-            It.IsAny<string>()), Times.Once);
-        _mockWimCustomizationService.Verify(s => s.AddDriversAsync(
-            It.IsAny<string>(), It.IsAny<string?>(),
-            It.IsAny<IProgress<TaskProgressDetail>>(), It.IsAny<CancellationToken>()), Times.Never);
-        _sut.AreDriversAdded.Should().BeFalse();
-    }
-
-    [Fact]
-    public async Task SelectAndAddCustomDriversCommand_WhenWorkingDirectoryEmpty_ShowsWarningAndReturns()
-    {
-        await _sut.SelectAndAddCustomDriversCommand.ExecuteAsync(null);
+        var command = useSystemDrivers ? _sut.ExtractAndAddSystemDriversCommand : _sut.SelectAndAddCustomDriversCommand;
+        await command.ExecuteAsync(null);
 
         _mockDialogService.Verify(d => d.ShowWarningAsync(
             "WIMUtil_Msg_WorkingDirectoryRequired",

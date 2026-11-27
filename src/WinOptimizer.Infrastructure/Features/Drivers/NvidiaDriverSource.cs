@@ -7,6 +7,8 @@ namespace WinOptimizer.Infrastructure.Features.Drivers;
 internal sealed class NvidiaDriverSource(OfficialDriverHttp http) : OfficialDriverSource(http, DriverSources.Nvidia)
 {
     protected override Uri SupportPage { get; } = new("https://www.nvidia.com/en-us/drivers/");
+    private static readonly Uri GeForceLicense = new("https://www.nvidia.com/content/DriverDownloads/licence.php?lang=us&type=GeForce");
+    private static readonly Uri ProfessionalLicense = new("https://www.nvidia.com/content/DriverDownloads/licence.php?acirc=&lang=us");
     private const string Matrix = "https://www.nvidia.com/Download/API/lookupValueSearch.aspx";
     private const string Lookup = "https://gfwsl.geforce.com/services_toolkit/services/com/nvidia/services/AjaxDriverService.php?func=DriverManualLookup";
 
@@ -130,7 +132,8 @@ internal sealed class NvidiaDriverSource(OfficialDriverHttp http) : OfficialDriv
             query.Add($"{series}/{product}/{id}/{studio}/{dch}", title, "NVIDIA", Text(row, "Version"),
                 Text(row, "ReleaseDateTime"), device.Name, ClientTarget(system), landing, download is null ? [] : [new(download, [])],
                 Size(Text(row, "DownloadURLFileSize")), channel, endpoint, device.HardwareIds,
-                Text(row, "IsWHQL") == "1" || download is not null && Contains(download.AbsolutePath, "-whql.exe"), license: true);
+                Text(row, "IsWHQL") == "1" || download is not null && Contains(download.AbsolutePath, "-whql.exe"),
+                license: true, scanLicensePage: branch == "Professional" ? ProfessionalLicense : GeForceLicense);
             any = true;
         }
         return any;

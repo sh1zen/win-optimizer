@@ -4,6 +4,7 @@ using WinOptimizer.Application.Extensions.DI;
 using WinOptimizer.Core.Features.AdvancedTools.Experimental;
 using WinOptimizer.Core.Features.Common.Events;
 using WinOptimizer.Core.Features.Common.Interfaces;
+using WinOptimizer.Core.Features.Disks;
 using WinOptimizer.Core.Features.Optimize.Interfaces;
 using WinOptimizer.Infrastructure.Extensions.DI;
 using Xunit;
@@ -68,6 +69,7 @@ public class InfrastructureContainerSmokeTests
             typeof(IInteractiveUserService),
             typeof(IProcessExecutor),
             typeof(IInternetSpeedTest),
+            typeof(IDiskToolsService),
             typeof(WinOptimizer.Core.Features.Cleaner.Interfaces.ICleanerService),
             typeof(IUserPreferencesService),
             typeof(ICompatibleSettingsRegistry),

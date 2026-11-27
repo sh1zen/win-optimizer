@@ -143,12 +143,10 @@
                                 </Button>
                                 <Button x:Name="ActionsButton" Style="{StaticResource AutorunToolButtonStyle}" AutomationProperties.Name="{x:Bind ViewModel.ActionsLabel, Mode=OneWay}">
                                     <SymbolIcon Symbol="More"/>
-                                    <Button.Flyout>
-                                        <MenuFlyout>
-                                            <MenuFlyoutItem Text="{x:Bind ViewModel.WindowsSettingsLabel, Mode=OneWay}" Command="{x:Bind ViewModel.OpenWindowsSettingsCommand}"/>
-                                            <MenuFlyoutItem Text="{x:Bind ViewModel.ClearFiltersLabel, Mode=OneWay}" Command="{x:Bind ViewModel.ClearFiltersCommand}"/>
-                                        </MenuFlyout>
-                                    </Button.Flyout>
+                                    <Button.Resources>
+                                        <MenuFlyoutItem x:Key="WindowsStartupSettings" Text="{x:Bind ViewModel.WindowsSettingsLabel, Mode=OneWay}" Command="{x:Bind ViewModel.OpenWindowsSettingsCommand}"/>
+                                        <MenuFlyoutItem x:Key="ClearStartupFilters" Text="{x:Bind ViewModel.ClearFiltersLabel, Mode=OneWay}" Command="{x:Bind ViewModel.ClearFiltersCommand}"/>
+                                    </Button.Resources>
                                 </Button>
                             </StackPanel>
                         </Grid>

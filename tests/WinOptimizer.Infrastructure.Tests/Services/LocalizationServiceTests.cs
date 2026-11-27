@@ -94,6 +94,38 @@ public class LocalizationServiceTests
     // ── SetLanguage ──
 
     [Fact]
+    public void ReadTranslations_UsesEveryInstalledLanguageAndPreservesTheCurrentLanguage()
+    {
+        var files = new Dictionary<string, string>
+        {
+            ["en.json"] = "{\"Repair\":\"Repair\",\"Other\":\"unrequested\"}",
+            ["es.json"] = "{\"Repair\":\"Reparación\"}",
+            ["it.json"] = "{\"Repair\":\"Ripara\"}",
+            ["ja.json"] = "{\"Repair\":\"修復\"}",
+            ["pt.json"] = "{\"Repair\":\"  \"}",
+            ["ru.json"] = "{\"Repair\":\"Repair\"}"
+        };
+        _mockFileSystem.Setup(f => f.DirectoryExists(It.IsAny<string>())).Returns(true);
+        _mockFileSystem.Setup(f => f.GetFiles(It.IsAny<string>(), "*.json")).Returns(files.Keys.ToArray());
+        _mockFileSystem.Setup(f => f.GetFileNameWithoutExtension(It.IsAny<string>())).Returns((string file) => Path.GetFileNameWithoutExtension(file));
+        _mockFileSystem.Setup(f => f.FileExists(It.IsAny<string>())).Returns((string file) => files.ContainsKey(Path.GetFileName(file)));
+        _mockFileSystem.Setup(f => f.ReadAllText(It.IsAny<string>())).Returns((string file) => files[Path.GetFileName(file)]);
+        var localization = new LocalizationService(_mockFileSystem.Object);
+        var originalLanguage = localization.CurrentLanguage;
+        var originalText = localization.GetString("Repair");
+        var languageChanged = false;
+        localization.LanguageChanged += (_, _) => languageChanged = true;
+
+        var translations = localization.ReadTranslations(new HashSet<string> { "Repair", "Missing" });
+
+        Assert.Equal(["Repair"], translations.Keys);
+        Assert.Equivalent(new[] { "Repair", "Reparación", "Ripara", "修復" }, translations["Repair"], strict: true);
+        Assert.Equal(originalLanguage, localization.CurrentLanguage);
+        Assert.Equal(originalText, localization.GetString("Repair"));
+        Assert.False(languageChanged);
+    }
+
+    [Fact]
     public void SetLanguage_ValidLanguageCode_UpdatesStateAndNotifies()
     {
         var previousUiCulture = CultureInfo.CurrentUICulture;

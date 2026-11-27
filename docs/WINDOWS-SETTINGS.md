@@ -34,18 +34,21 @@ Open **Internet** in the sidebar and select **Start test**. The test estimates
 download, upload, and HTTPS latency to Cloudflare using up to about 70 MB of
 traffic. Run it again after making a change to compare successful measurements.
 
-Use **Enhance network performance** to restore normal TCP receive-window
-auto-tuning and enable RSS. Limit Delivery Optimization bandwidth if Windows
-background downloads compete with other traffic. Select **Clear override** to
-remove the local limit or enter **0** to explicitly request automatic adjustment.
-Use **DNS servers** in the **Network** card to jump to DNS configuration for all
-adapters. Select **Apply DNS to all connections** to save the selection, or
-choose **Automatic (DHCP)** to
-restore the network-provided DNS settings. **Windows VPN profiles** lists the
+In the **Network** card, choose a configuration under **DNS servers** and select
+**Apply DNS to all connections**. Choose **Automatic (DHCP)** to restore the
+network-provided DNS settings. **Windows VPN profiles** lists the
 signed-in user's and all-users profiles. Select **Manage VPN in Windows** to
 open Windows Settings.
 
 Use **Reload** to reread VPN profiles and current Windows network settings.
+In **Network settings → TCP behavior**, use **TCP receive-window auto-tuning** to
+choose a level such as **Normal**. In **Network settings → Network offloading**,
+use **Receive-side scaling (RSS)** to turn RSS on or off. Confirm each change.
+
+Limit Delivery Optimization bandwidth if Windows background downloads compete
+with other traffic. Select **Clear override** to remove the local limit or enter
+**0** to explicitly request automatic adjustment.
+
 Under **Network settings**, search DNS, VPN, and the individual tuning
 controls by group, name, description, or Windows parameter. Each tuning row
 shows the first value the app successfully read on this PC next to its

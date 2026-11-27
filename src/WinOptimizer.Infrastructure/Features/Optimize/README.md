@@ -3,7 +3,7 @@
 The Internet sidebar page exposes individually confirmed controls. Core's
 `NetworkTuningCatalog` is the allowlist. `OptimizationToolsService` owns
 batched discovery, baseline comparisons, writes and readback.
-**Enhance network performance** applies normal TCP auto-tuning and enabled RSS.
+Adjust TCP auto-tuning and RSS in their individual rows under **Network settings**.
 
 Each tuning row displays the saved **Original** and **Suggested** values beside
 each other. The first successful read of each setting is saved under
@@ -68,8 +68,8 @@ and [native UI commands](../../../../tests/README.md#focused-checks).
 Infrastructure tests execute generated production scripts with fake native cmdlets
 and registry handles and exercise the speed test with fake HTTP and time. The
 native host runs the main UI view-model tests, exercises speed test results and
-network edits on the production Internet page, and renders
-English/Italian previews at 620 and 1300 pixels under `build/network-preview/`.
+network edits on the production Internet page, and checks the English and
+Italian layouts at three widths.
 Both suites use fake Windows boundaries and make no host network changes.
 
 ## Native references

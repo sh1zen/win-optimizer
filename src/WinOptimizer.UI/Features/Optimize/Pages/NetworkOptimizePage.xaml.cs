@@ -32,18 +32,6 @@ public sealed partial class NetworkOptimizePage : Page
         InternetSummary.RowSpacing = wide ? 0 : 12;
     }
 
-    /// <summary>Brings the existing DNS settings into view within the page.</summary>
-    private void DnsShortcut_Click(object sender, RoutedEventArgs e)
-    {
-        if (!ViewModel.ShowDnsSettings)
-        {
-            ViewModel.SettingsSearchText = "";
-            DnsCard.UpdateLayout();
-        }
-        DnsCard.StartBringIntoView(new BringIntoViewOptions { VerticalAlignmentRatio = 0, AnimationDesired = false });
-        DnsSelector.Focus(FocusState.Programmatic);
-    }
-
     private async void Setting_Toggled(object sender, RoutedEventArgs e)
     {
         if (sender is ToggleSwitch { IsLoaded: true, DataContext: NetworkTuningChoice { IsUpdating: false } choice } toggle)

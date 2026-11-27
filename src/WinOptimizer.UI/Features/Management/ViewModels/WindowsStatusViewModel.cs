@@ -1,10 +1,14 @@
+using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using FluentIcons.Common;
 using Microsoft.UI.Xaml.Controls;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.Core.Features.Management;
 using WinOptimizer.UI.Features.Common.Interfaces;
+using WinOptimizer.UI.Features.Common.Services;
+using WinOptimizer.UI.Features.Common.Utilities;
 using WinOptimizer.UI.Features.Utilities.ViewModels;
 
 namespace WinOptimizer.UI.Features.Management.ViewModels;
@@ -12,26 +16,53 @@ namespace WinOptimizer.UI.Features.Management.ViewModels;
 /// <summary>Owns explicit servicing requests, repair options and retained operation reports.</summary>
 public partial class WindowsStatusViewModel : UtilityViewModel
 {
+    private const string RepairTitleKey = "WindowsStatus_Title";
     private readonly IWindowsServicingService _service;
     private readonly IDialogService _dialogs;
     private readonly IFilePickerService _pickers;
     private readonly ITaskProgressService _tasks;
-    protected override string TitleKey => "WindowsStatus_Title";
+    private readonly ScanCancellationNotifications? _scanNotifications;
+    private CancellationTokenSource? _activeTask;
+    protected override string TitleKey => RepairTitleKey;
     [ObservableProperty] public partial string SourcePath { get; set; } = "";
     [ObservableProperty] public partial double WimIndex { get; set; } = 1;
     [ObservableProperty] public partial bool LimitAccess { get; set; }
     [ObservableProperty] public partial bool ResetBase { get; set; }
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(HasReport), nameof(ReportSummary), nameof(ReportSeverity), nameof(HealthSummary))]
-    [NotifyPropertyChangedFor(nameof(NeedsRepair), nameof(PrimaryAction), nameof(PrimaryActionLabel), nameof(IntroTitle), nameof(IntroDescription))]
+    [NotifyPropertyChangedFor(nameof(DiagnosisAction))]
+    public partial bool UseQuickCheck { get; set; }
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasReport), nameof(ReportTitle), nameof(ReportSummary), nameof(ReportSeverity), nameof(ReportIcon), nameof(ReportActionLabel))]
+    [NotifyPropertyChangedFor(nameof(NeedsRepair), nameof(ReportHealthNote), nameof(ProblemCount), nameof(ProblemCategory), nameof(StoreSize), nameof(StoreCleanupAdvice))]
     public partial WindowsServicingReport? Report { get; private set; }
-    [ObservableProperty] public partial IReadOnlyList<WindowsServicingStepViewModel> Steps { get; private set; } = [];
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsOperationRunning), nameof(OperationLabel), nameof(ProgressTitle))]
+    [NotifyCanExecuteChangedFor(nameof(CancelOperationCommand))]
+    public partial WindowsServicingAction? ActiveAction { get; private set; }
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ProgressTitle), nameof(ProgressCaption), nameof(ProgressPercent), nameof(IsProgressIndeterminate))]
+    public partial WindowsServicingProgress? OperationProgress { get; private set; }
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ProgressCaption))]
+    [NotifyCanExecuteChangedFor(nameof(CancelOperationCommand))]
+    public partial bool IsCancelling { get; private set; }
+
     public bool HasReport => Report != null;
+    public bool IsOperationRunning => ActiveAction.HasValue;
+    public string OperationLabel => GetActionLabel(ActiveAction);
+    public string ProgressTitle => OperationProgress is { } progress ? Text("WindowsStatus_Step" + progress.Step) : OperationLabel;
+    public string ProgressCaption => IsCancelling ? Text("Progress_Cancelling")
+        : OperationProgress is { } progress ? $"{progress.Completed:N0} / {progress.Total:N0}" : "";
+    public double ProgressPercent => OperationProgress is { Total: > 0 } progress ? 100.0 * progress.Completed / progress.Total : 0;
+    public bool IsProgressIndeterminate => OperationProgress is not { Total: > 1 };
+    public string CancelLabel => Text("Button_Cancel");
+    public string ReportActionLabel => GetActionLabel(Report?.Request.Action);
     public string Hint => Text("WindowsStatus_Hint");
     public string QuickCheckLabel => Text("WindowsStatus_QuickCheck");
-    public string DiagnosisLabel => Text("WindowsStatus_Diagnosis");
+    public string DiagnosisLabel => Text("WindowsStatus_DiagnosisShort");
     public string AnalyzeLabel => Text("WindowsStatus_AnalyzeStore");
     public string RepairLabel => Text("WindowsStatus_Repair");
+    public string ReportRepairLabel => Text("WindowsStatus_RepairShort");
     public string CleanupLabel => Text("WindowsStatus_Cleanup");
     public string CleanupDescription => Text("WindowsStatus_CleanupDescription");
     public string SourceLabel => Text("WindowsStatus_Source");
@@ -48,10 +79,31 @@ public partial class WindowsStatusViewModel : UtilityViewModel
     public string RepairOptionsLabel => Text("WindowsStatus_RepairOptions");
     public string MaintenanceLabel => Text("WindowsStatus_Maintenance");
     public bool NeedsRepair => Report is { State: WindowsServicingState.NeedsAttention, ImageHealth: WindowsImageHealth.Repairable };
-    public string PrimaryAction => NeedsRepair ? "Repair" : "Diagnosis";
-    public string PrimaryActionLabel => Text(NeedsRepair ? "WindowsStatus_RepairShort" : "WindowsStatus_DiagnosisShort");
-    public string IntroTitle => Text(NeedsRepair ? "WindowsStatus_RepairTitle" : "WindowsStatus_ScanTitle");
-    public string IntroDescription => Text(NeedsRepair ? "WindowsStatus_RepairDescription" : "WindowsStatus_ScanDescription");
+    /// <summary>Selects the servicing action for the overview's Diagnose button.</summary>
+    public string DiagnosisAction => UseQuickCheck ? nameof(WindowsServicingAction.QuickCheck) : nameof(WindowsServicingAction.Diagnosis);
+    public string IntroTitle => Text("WindowsStatus_ScanTitle");
+    public string IntroDescription => Text("WindowsStatus_ScanDescription");
+
+    /// <summary>Names the requested operation consistently in progress and completed reports.</summary>
+    private string GetActionLabel(WindowsServicingAction? action) => action switch
+    {
+        WindowsServicingAction.QuickCheck => QuickCheckLabel,
+        WindowsServicingAction.Diagnosis => Text("WindowsStatus_Diagnosis"),
+        WindowsServicingAction.AnalyzeStore => AnalyzeLabel,
+        WindowsServicingAction.Repair => RepairLabel,
+        WindowsServicingAction.Cleanup => CleanupLabel,
+        _ => ""
+    };
+
+    public string ReportTitle => Report switch
+    {
+        null => "",
+        { State: WindowsServicingState.RestartRequired } => Text("WindowsStatus_RestartRequiredTitle"),
+        { State: WindowsServicingState.Failed } => Text("WindowsStatus_OperationFailed"),
+        { State: WindowsServicingState.NeedsAttention } report => Text("WindowsStatus_Health" + report.ImageHealth),
+        { Request.Action: WindowsServicingAction.QuickCheck, ImageHealth: WindowsImageHealth.Healthy } => Text("WindowsStatus_HealthHealthy"),
+        _ => Text("WindowsStatus_OperationCompleted")
+    };
 
     /// <summary>Distinguishes detected corruption from a repair or cleanup that actually stopped.</summary>
     public string ReportSummary => Report switch
@@ -65,10 +117,36 @@ public partial class WindowsStatusViewModel : UtilityViewModel
                 _ => "WindowsStatus_StateRepairable"
             }),
         { State: WindowsServicingState.NeedsAttention, ImageHealth: WindowsImageHealth.NonRepairable } => Text("WindowsStatus_StateNonRepairable"),
+        { State: WindowsServicingState.Completed, Request.Action: WindowsServicingAction.QuickCheck } => "",
+        { State: WindowsServicingState.Completed, Request.Action: WindowsServicingAction.AnalyzeStore } =>
+            StoreAnalysis == null ? Text("WindowsStatus_AnalysisUnavailable") : "",
         _ => Text("WindowsStatus_State" + Report.State)
     };
-    public string HealthSummary => Report == null ? "" : string.Format(Text("WindowsStatus_HealthSummary"),
-        Report.CompletedAt.ToLocalTime().ToString("g"), Text("WindowsStatus_Health" + Report.ImageHealth));
+    public string ReportActionError => Text("WindowsStatus_StateFailed");
+    public string ReportHealthNote => Report is { State: WindowsServicingState.RestartRequired or WindowsServicingState.Failed or WindowsServicingState.ReviewFileResults,
+        ImageHealth: not WindowsImageHealth.Unknown } report ? Text("WindowsStatus_Health" + report.ImageHealth) : "";
+    private bool HasStoreProblems => Report?.ImageHealth is WindowsImageHealth.Repairable or WindowsImageHealth.NonRepairable;
+    private WindowsComponentStoreFindings? StoreFindings => Report?.Steps.FirstOrDefault(step => step.StoreFindings != null)?.StoreFindings;
+
+    /// <summary>Distinguishes a component count from a count of corruption findings.</summary>
+    public string ProblemCount => !HasStoreProblems ? "" : StoreFindings switch
+    {
+        { AffectedComponents: { } count } => string.Format(Text("WindowsStatus_AffectedComponentCount"), count),
+        { DetectedProblems: var count } => string.Format(Text("WindowsStatus_DetectedProblemCount"), count),
+        _ => Text(Report?.Request.Action == WindowsServicingAction.QuickCheck
+            ? "WindowsStatus_QuickCheckDetails" : "WindowsStatus_ComponentCountUnavailable")
+    };
+    public string ProblemCategory => HasStoreProblems ? StoreFindings?.SingleComponentName ?? Text("WindowsStatus_ProblemCategory") : "";
+    private WindowsComponentStoreAnalysis? StoreAnalysis => Report is { Request.Action: not WindowsServicingAction.Cleanup } report
+        ? report.Steps.FirstOrDefault(step => step.StoreAnalysis != null)?.StoreAnalysis : null;
+    public string StoreSize => StoreAnalysis?.SizeBytes is { } size
+        ? string.Format(Text("WindowsStatus_StoreSize"), ByteSizeFormatter.FormatBytes(size, CultureInfo.CurrentCulture)) : "";
+    public string StoreCleanupAdvice => StoreAnalysis?.CleanupRecommended switch
+    {
+        true => Text("WindowsStatus_CleanupRecommended"),
+        false => Text("WindowsStatus_CleanupNotRecommended"),
+        null => ""
+    };
     public InfoBarSeverity ReportSeverity => Report?.State switch
     {
         WindowsServicingState.Failed => InfoBarSeverity.Error,
@@ -76,11 +154,19 @@ public partial class WindowsStatusViewModel : UtilityViewModel
         WindowsServicingState.Completed => InfoBarSeverity.Success,
         _ => InfoBarSeverity.Informational
     };
+    public Icon ReportIcon => Report?.State == WindowsServicingState.RestartRequired ? Icon.ArrowClockwise : ReportSeverity switch
+    {
+        InfoBarSeverity.Error => Icon.ErrorCircle,
+        InfoBarSeverity.Warning => Icon.Warning,
+        InfoBarSeverity.Success => Icon.CheckmarkCircle,
+        _ => Icon.Info
+    };
 
     public WindowsStatusViewModel(IWindowsServicingService service, IDialogService dialogs, IFilePickerService pickers,
-        ILocalizationService localization, IApplicationModeService mode, IDispatcherService dispatcher, ITaskProgressService tasks)
-        : base(localization, mode, dispatcher, tasks, "Nav_Management")
-    { _service = service; _dialogs = dialogs; _pickers = pickers; _tasks = tasks; }
+        ILocalizationService localization, IApplicationModeService mode, IDispatcherService dispatcher, ITaskProgressService tasks,
+        ScanCancellationNotifications? scanNotifications = null)
+        : base(localization, mode, dispatcher, tasks, RepairTitleKey)
+    { _service = service; _dialogs = dialogs; _pickers = pickers; _tasks = tasks; _scanNotifications = scanNotifications; }
 
     [RelayCommand(CanExecute = nameof(IsIdle))]
     private void BrowseWim()
@@ -125,29 +211,50 @@ public partial class WindowsStatusViewModel : UtilityViewModel
             if (!confirmation.Confirmed || request.ResetBase && !confirmation.CheckboxChecked) return;
         }
         var task = _tasks.CurrentTaskCancellationSource ?? throw new InvalidOperationException("The servicing task was not started.");
-        var progress = new Progress<WindowsServicingProgress>(value =>
+        WindowsServicingReport report;
+        _activeTask = task;
+        ActiveAction = action;
+        try
         {
-            if (ReferenceEquals(_tasks.CurrentTaskCancellationSource, task))
-                _tasks.UpdateDetailedProgress(new TaskProgressDetail { StatusText = Text("WindowsStatus_Step" + value.Step), IsIndeterminate = true });
-        });
-        try { Report = await _service.RunAsync(request, progress, task.Token); }
+            var progress = new Progress<WindowsServicingProgress>(value =>
+            {
+                if (ReferenceEquals(_activeTask, task) && !task.IsCancellationRequested) OperationProgress = value;
+            });
+            report = await _service.RunAsync(request, progress, task.Token);
+        }
         catch (OperationCanceledException) when (task.IsCancellationRequested)
-        { Status = Text("WindowsStatus_StateCancelled"); return; }
-        Steps = Report.Steps.Select(step => new WindowsServicingStepViewModel(step, Text("WindowsStatus_Step" + step.Step),
-            Text(step.Succeeded ? "WindowsStatus_CommandCompleted" : "WindowsStatus_CommandFailed"))).ToArray();
-    }, write: true, canCancel: true);
+        { NotifyCancellation(action); return; }
+        finally
+        {
+            _activeTask = null;
+            ActiveAction = null;
+            OperationProgress = null;
+            IsCancelling = false;
+        }
+        if (report.State == WindowsServicingState.Cancelled)
+        {
+            NotifyCancellation(action);
+            return;
+        }
+        Report = report;
+    }, write: true, canCancel: true, showInTaskBar: false);
+
+    private void NotifyCancellation(WindowsServicingAction action) =>
+        _scanNotifications?.Publish(this, GetActionLabel(action), Text("WindowsStatus_StateCancelled"));
+
+    private bool CanCancelOperation() => IsOperationRunning && !IsCancelling;
+
+    /// <summary>Requests cancellation from the inline progress card for the active servicing command.</summary>
+    [RelayCommand(CanExecute = nameof(CanCancelOperation))]
+    private void CancelOperation()
+    {
+        if (_activeTask is not { } task || !CanCancelOperation()) return;
+        IsCancelling = true;
+        task.Cancel();
+    }
 
     protected override void NotifyActions()
     {
         RunCommand.NotifyCanExecuteChanged(); BrowseWimCommand.NotifyCanExecuteChanged(); BrowseFolderCommand.NotifyCanExecuteChanged();
     }
-}
-
-/// <summary>Formats an original phase receipt without inferring SFC integrity from its exit code.</summary>
-public sealed class WindowsServicingStepViewModel(WindowsServicingStepResult result, string title, string status)
-{
-    public WindowsServicingStepResult Result { get; } = result;
-    public string Title => title;
-    public string Output => Result.Output;
-    public string Status => Result.ExitCode is { } code ? $"{status} · {code} (0x{code:X8})" : status;
 }

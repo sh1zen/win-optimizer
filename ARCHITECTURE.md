@@ -71,6 +71,15 @@ presentation separately from inventory discovery.
 `LogService.StartLogAsync` owns shared diagnostic initialization and its writer.
 UI's `StartupOrchestrator` owns shell setup, deferred inventory and the initial
 configuration backup; `StartupUiCoordinator` owns first-frame navigation/readiness.
+It opens `DashboardPage` before starting deferred Windows Apps inventory and backup.
+The Bench quick action opens `BenchmarkPage` in the shell journal under Dashboard.
+`BenchmarkViewModel` owns the displayed results, test sequence, and cancellation from the page.
+Infrastructure's `WindowsBenchmarkService` reuses the system inventory, reads CPU and
+graphics metadata, and runs bounded workloads off the UI thread. Disk writes use an
+exclusive delete-on-close file on a validated fixed volume.
+The GPU test resolves the chosen DXGI adapter by its local identifier and uses
+Direct3D 11 timestamp queries to time bounded batches of FP32 shader work.
+The Software & Apps page initializes its tabs when visited.
 The settings catalogue overlaps the power compatibility checks with construction
 of the other features, and publishes all completed snapshots in catalogue order.
 `WindowsAppsViewModel` shares its load task. Infrastructure's `AppStatusDiscoveryService`
@@ -99,7 +108,11 @@ running the enabled checks. `RemovalScriptUpdateService` refreshes the shared
 sign-in script under the same lock used for saving removal selections.
 Infrastructure's `VersionService` owns release lookup and installer acquisition.
 The scheduler reports successful release lookups to `UpdateCheckViewModel`, which
-owns UI dispatch, cancellation and the title-bar summary.
+owns UI dispatch, cancellation, the title-bar summary and update notification state.
+`UpdateToast` presents that state over the shell and dismisses the up-to-date notice.
+`ScanCancellationPresentation` displays stopped scan notices over the shell and
+returns an active interrupted review to its originating page, pruning the review
+entry from the navigation history. View models publish once their scan stops.
 Release lookup failures propagate to the manual check's error presentation.
 `VersionService` pins the installer download to the tag that supplies its
 GitHub SHA-256 digest. It verifies the staged file against that digest and
@@ -203,6 +216,8 @@ registration edits and readback.
 including the machine policy for Delivery Optimization background bandwidth.
 `NetworkTuningOriginalStore` saves each first available value under the protected
 machine state directory. The service supplies it alongside live Windows readback.
+The Network card summarizes TCP auto-tuning and RSS from the same readback used
+by the individual editors in Network settings.
 The [network guide](src/WinOptimizer.Infrastructure/Features/Optimize/README.md)
 defines their boundary formats. The Internet page uses `IInternetSpeedTest` for
 explicit, cancellable measurements. `CloudflareInternetSpeedTest` owns HTTPS
@@ -218,8 +233,8 @@ for Windows VPN inventory and settings navigation. Its DNS control uses
 | `PageHeader`, `NavigationCard`, `PageStyles.xaml` | Shared card, segmented control and page layout styles, including a 12-DIP gap between page blocks and cards |
 | `InteractiveSurfaceResources.xaml` | Shared hover and pressed colors resolved by the toolkit card and WinUI templates |
 | `AppColorResources`, `FeatureIcons.xaml`, `CustomIconCatalog` | Theme-aware canvas, surfaces and live accent brushes, original vector artwork and semantic icon-name lookup |
-| `PopupHandler`, `PopupStyles.xaml`, `DialogService` | Modal queue, native popup construction, theme/bounds and domain dialog adapter |
-| `TaskProgressService` / `TaskProgressViewModel` | Shared task state, queue position, task output and cancellation in the shell footer; pages can own presentation |
+| `PopupHandler`, `PopupStyles.xaml`, `DialogService` | Modal queue, native popup construction, placement, theme/bounds and domain dialog adapter |
+| `TaskProgressService` / `TaskProgressViewModel` / `TaskProgressControl` | Shared task state, queue position, output and cancellation in the title-bar task popup. Pages can present their own progress. |
 | `TerminalProgressBar` | Block character recognition shared by WinGet, task progress and the terminal dialog |
 | `ScrollBarAutoHide` | Control-scoped idle visibility and input subscriptions |
 | `AppBranding` | UI image URI and shell icon path; [application artwork](src/WinOptimizer.UI/Assets/ICON-ATTRIBUTION.md) |
@@ -421,6 +436,28 @@ Cleaner's Events cleanup card opens `EventsCleanupPage` with Cleaner as its side
 owner. `EventLogCleanupService` owns serialization, selection authorization and mode
 reservations; `WindowsEventLogStore` owns local channel APIs and protected EVTX storage.
 
+## Disks
+
+The WinUI Disks overview lists tool destinations using the shared navigation
+cards. The sidebar, cards, and program search use the shell's navigation
+journal. Each tool page owns file and volume selection and confirmations.
+Its session retains progress and results across navigation. System-changing
+commands hold the application's Normal mode operation reservation and use
+shared task progress. The Core disk contract exposes file locks, USB ejection
+results, shadow versions, hash verification, and volume operations.
+
+Infrastructure owns local path validation and the Windows boundaries. It uses
+Restart Manager and verified file handles for deletion, icacls for inherited
+permissions, VSS for previous versions, Configuration Manager and Kernel-PnP
+events for USB, and the installed Microsoft Windows File Recovery package for
+deleted-file scans. Shadow restores copy to a new path on a user-selected
+volume. Cleaner and Disks share the Windows volume analysis and media-aware
+optimization implementation.
+
+The disk file workflow opens one Restart Manager session per operation that
+queries or releases locks on a verified file. The session owns native lock
+enumeration, shutdown requests, and cleanup.
+
 ## Security
 
 Core's `SecurityScanService` owns serialized scans/fixes and immutable report
@@ -442,24 +479,30 @@ receipts and active native write units finish before stopping.
 Core's `DriverScanService` shares the inventory and immutable preferences with each
 enabled source, bounds concurrent discovery and collects per-source outcomes. It
 reports workflow phases to `DriversViewModel` for the page's progress card. The
-card shares task cancellation and live output with the shell footer.
+card shares task cancellation and live output with the title-bar task popup.
 `DriverCatalogMatching` owns candidate applicability, INF-level comparisons,
-branch-aware newest releases and the identity rules for source revisions and verified
-payloads. WUA applicability and INF match evidence have separate states. Source
-metadata, package digests and contained INF/catalog evidence retain their provenance.
+selection of verified upgrades per device and release channel, and the identity
+rules for source revisions and verified payloads. `DriverScanService` prioritizes
+package inspection across device groups, requests scan-scoped license confirmation
+through the UI, and reports active stages across concurrent HTTP packages.
+Discovery and automatic package verification share the scan's cancellation token.
+WUA applicability and INF match evidence
+have separate states. Source metadata, package digests and contained INF/catalog
+evidence retain their provenance.
 `DriverRemovalService` owns selection revalidation and per-item results.
 
 Infrastructure supplies PnP, DISM and SMBIOS inventory and uses native WUA for offers
 and exact-revision exports. Other adapters collect metadata through `OfficialDriverHttp`,
 which confines each request and redirect to publisher distribution hosts and caches
-raw responses and usable scoped catalogs. Publisher parsers and descriptor resolution
+usable raw responses and scoped catalogs. Publisher parsers and descriptor resolution
 remain with their adapters. `OfficialDriverPackageService` owns archive acquisition,
 hash checks, the content cache and atomic download publication. `DriverPackageInspector`
-uses `DriverScanWorkspace` for isolated extraction and `WindowsDriverInfInspector` for
-SetupAPI Models selection. The catalog signature worker releases Windows trust
+reports extraction and INF verification as it starts each operation. It uses
+`DriverScanWorkspace` for isolated extraction and `WindowsDriverInfInspector` for
+SetupAPI Models and DDInstall selection. The catalog signature worker releases Windows trust
 handles before workspace cleanup. `WindowsDriverRemovalBackend`
-executes PnPUtil identities. UI's transient `DriversViewModel` owns tasks, result
-filters and selection. `DriverResultItem` projects scan evidence into display rows,
+executes PnPUtil identities. UI's transient `DriversViewModel` owns tasks and
+selection. `DriverResultItem` projects scan evidence into display rows,
 and `DriverResultsView` arranges candidate comparisons and inventory at the
 available width. Removal rechecks exact package/device
 identities; bound, inbox and boot-critical packages remain protected. Cancellation
@@ -509,11 +552,23 @@ journal. The WinUI page owns search, presentation and explicit user actions.
 Unfinished recovery can be deferred across Windows updates and resumed only
 on the receipt's original release.
 
-## Extension and Control
+## Extension, Control, and Repair
 
-`UtilitiesPage` presents SysMonitor, Preview and Notch in Extensions. `ManagementPage` presents the
-environment editor, hosts editor and battery charge controls alongside the other
-Control tools. Detail pages retain their owning sidebar section in the shell journal.
+`UtilitiesPage` presents SysMonitor, Preview and Notch. The overview and
+extension settings share the Extension sidebar selection in the shell journal.
+`ManagementPage` presents the environment editor, hosts
+editor and battery charge controls alongside the other Control tools. Detail
+pages retain their owning sidebar section in the shell journal.
+The Repair sidebar opens `WindowsStatusPage`. `WindowsStatusViewModel` owns
+inline progress, cancellation and the latest servicing receipt. Its report page
+uses the Repair entry in the shell journal and presents a localized outcome and
+next action. The servicing backend reads component-store measurements and cleanup
+advice from the analysis output for the report.
+It reads findings from the part of the CBS log appended during the full
+component-store scan. The report shows a distinct component count when the scan
+identifies every finding.
+The overview's primary command uses the selected diagnosis mode. The receipt
+drives the report's repair recommendation.
 
 Singleton utility view models retain drafts across navigation. `UtilityViewModel`
 owns mode/localization subscriptions and operation presentation. Explicit page
@@ -701,6 +756,18 @@ four independent queries and publishes sections in catalogue order. Transient
 page view models reuse that snapshot; explicit refresh replaces it. Typed values, availability and
 timestamp cross the UI boundary unchanged. `ISystemInfoProvider` serves the
 separate diagnostic-log summary.
+
+`DashboardViewModel` requests the inventory categories it displays and reuses
+its completed summary for 30 seconds across cached page visits. The full inventory
+keeps its own snapshot. `DashboardPage` owns the visible sampling session. Its
+reader collects CPU and memory counters, and metric gauges publish changes at
+their displayed precision. Quick actions use the shell journal.
+The shell title bar hosts `ProgramSearch` across pages. It presents results over
+the shell content with an in-app acrylic backdrop. `ProgramSearchService` builds
+the on-demand index from installed translations, registered Windows settings and
+localized tool destinations. Results use the
+active language and mode. Selecting a result records its destination in the shell
+journal, including category and setting details where the page supports them.
 
 `RestoreViewModel` owns configuration commands and restore-point presentation.
 `IConfigurationService` handles configurations; `ISystemRestoreService` owns

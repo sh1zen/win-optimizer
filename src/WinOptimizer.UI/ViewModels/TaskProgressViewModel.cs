@@ -8,8 +8,7 @@ using WinOptimizer.UI.Features.Common.Interfaces;
 namespace WinOptimizer.UI.ViewModels;
 
 /// <summary>
-/// Child ViewModel for task progress display in the main window.
-/// Manages footer progress, queue information and task controls.
+/// Presents shared progress, queue information and task controls in the title bar.
 /// </summary>
 public partial class TaskProgressViewModel : ObservableObject, IDisposable
 {
@@ -23,12 +22,22 @@ public partial class TaskProgressViewModel : ObservableObject, IDisposable
     public partial bool IsLoading { get; set; }
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowDismissAction))]
     public partial bool IsTaskFailed { get; set; }
 
-    [ObservableProperty] public partial bool IsTaskRunning { get; set; }
-    [ObservableProperty] public partial bool CanCancel { get; set; } = true;
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowCancelAction), nameof(ShowDismissAction))]
+    public partial bool IsTaskRunning { get; set; }
+
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ShowCancelAction))]
+    public partial bool CanCancel { get; set; } = true;
+
     [ObservableProperty] public partial double ProgressValue { get; set; }
     [ObservableProperty] public partial bool IsIndeterminate { get; set; } = true;
+
+    public bool ShowCancelAction => IsTaskRunning && CanCancel;
+    public bool ShowDismissAction => !IsTaskRunning && IsTaskFailed;
 
     private CancellationTokenSource? _hideDelayCts;
     private CancellationTokenSource? _presentationOwner;
@@ -53,6 +62,9 @@ public partial class TaskProgressViewModel : ObservableObject, IDisposable
 
     public string CloseButtonLabel =>
         _localizationService.GetString("Button_Close") ?? "Close";
+
+    public string OutputLabel =>
+        _localizationService.GetString("Dialog_TerminalOutput_Title") ?? "Terminal Output";
 
     public TaskProgressViewModel(
         ITaskProgressService taskProgressService,
@@ -89,6 +101,7 @@ public partial class TaskProgressViewModel : ObservableObject, IDisposable
     {
         OnPropertyChanged(nameof(CancelButtonLabel));
         OnPropertyChanged(nameof(CloseButtonLabel));
+        OnPropertyChanged(nameof(OutputLabel));
     }
 
     [RelayCommand]
@@ -111,8 +124,7 @@ public partial class TaskProgressViewModel : ObservableObject, IDisposable
     private async Task ShowDetailsAsync()
     {
         var terminalLines = _taskProgressService.GetTerminalOutputLines();
-        var title = _localizationService.GetString("Dialog_TerminalOutput_Title");
-        await _dialogService.ShowTaskOutputDialogAsync(title, terminalLines);
+        await _dialogService.ShowTaskOutputDialogAsync(OutputLabel, terminalLines);
 
         // After the dialog is closed, dismiss the progress control if the task is no longer running
         if (!_taskProgressService.IsTaskRunning)
@@ -214,7 +226,7 @@ public partial class TaskProgressViewModel : ObservableObject, IDisposable
     }
 
     /// <summary>
-    /// Hides the TaskProgressControl after a 2-second delay, unless a new task starts.
+    /// Hides the task indicator after a 2-second delay, unless a new task starts.
     /// </summary>
     private async Task ScheduleHideProgressAsync()
     {

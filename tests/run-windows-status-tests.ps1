@@ -8,5 +8,5 @@ if (-not $BuildRoot) { $BuildRoot = Join-Path $statusRoot 'build/windows-status-
 $statusExecutable = & (Join-Path $PSScriptRoot 'Build-NativeTestHost.ps1') `
     -ProjectName WinOptimizer.WindowsStatus.Tests -BuildRoot $BuildRoot -MSBuildPath $MSBuildPath
 & $statusExecutable `
-    (Join-Path $statusRoot 'build/windows-status-preview')
+    (Join-Path $statusRoot 'build/test-results/windows-status')
 if ($LASTEXITCODE -ne 0) { throw "Windows status checks failed: $LASTEXITCODE" }

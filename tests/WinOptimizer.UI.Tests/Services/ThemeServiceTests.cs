@@ -56,32 +56,20 @@ public class ThemeServiceTests
             Times.Once);
     }
 
-    [Fact]
-    public void LoadSavedTheme_WithValidPreference_SetsCurrentTheme()
+    [Theory]
+    [InlineData("DarkNative", WinOptimizerTheme.DarkNative)]
+    [InlineData("LightNative", WinOptimizerTheme.LightNative)]
+    public void LoadSavedTheme_WithValidPreference_SetsCurrentTheme(string savedTheme, WinOptimizerTheme theme)
     {
         _mockUserPreferences
             .Setup(u => u.GetPreference<string>("Theme", string.Empty))
-            .Returns("DarkNative");
+            .Returns(savedTheme);
 
         var service = CreateService();
 
         service.LoadSavedTheme();
 
-        service.CurrentTheme.Should().Be(WinOptimizerTheme.DarkNative);
-    }
-
-    [Fact]
-    public void LoadSavedTheme_WithLightNativePreference_SetsLightNative()
-    {
-        _mockUserPreferences
-            .Setup(u => u.GetPreference<string>("Theme", string.Empty))
-            .Returns("LightNative");
-
-        var service = CreateService();
-
-        service.LoadSavedTheme();
-
-        service.CurrentTheme.Should().Be(WinOptimizerTheme.LightNative);
+        service.CurrentTheme.Should().Be(theme);
     }
 
     [Fact]

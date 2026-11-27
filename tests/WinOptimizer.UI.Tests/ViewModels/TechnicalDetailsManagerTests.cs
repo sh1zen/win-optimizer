@@ -115,29 +115,15 @@ public class TechnicalDetailsManagerTests : IDisposable
         _mockRegeditLauncher.Verify(r => r.OpenAtPath(@"HKLM\SOFTWARE\Test"), Times.Once);
     }
 
-    [Fact]
-    public void OpenRegeditCommand_WithNullPath_DoesNotCallRegeditLauncher()
+    [Theory]
+    [InlineData((string?)null)]
+    [InlineData("")]
+    public void OpenRegeditCommand_WithoutPath_DoesNotCallRegeditLauncher(string? path)
     {
-        // Arrange
-        var manager = CreateManager();
+        using var manager = CreateManager();
 
-        // Act
-        manager.OpenRegeditCommand.Execute(null);
+        manager.OpenRegeditCommand.Execute(path);
 
-        // Assert
-        _mockRegeditLauncher.Verify(r => r.OpenAtPath(It.IsAny<string>()), Times.Never);
-    }
-
-    [Fact]
-    public void OpenRegeditCommand_WithEmptyPath_DoesNotCallRegeditLauncher()
-    {
-        // Arrange
-        var manager = CreateManager();
-
-        // Act
-        manager.OpenRegeditCommand.Execute(string.Empty);
-
-        // Assert
         _mockRegeditLauncher.Verify(r => r.OpenAtPath(It.IsAny<string>()), Times.Never);
     }
 

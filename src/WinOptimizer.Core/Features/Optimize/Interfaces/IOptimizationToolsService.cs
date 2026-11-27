@@ -13,14 +13,9 @@ public enum WindowsFeatureOptimization
     Advertising,
 }
 
-/// <summary>Current global TCP settings, read from the Windows networking cmdlets.</summary>
-public sealed record NetworkPerformanceState(string AutoTuningLevel, bool ReceiveSideScaling);
-
 /// <summary>Runs on-demand network and feature operations outside portable configuration presets.</summary>
 public interface IOptimizationToolsService
 {
-    Task<NetworkPerformanceState> ReadNetworkAsync();
-    Task<NetworkPerformanceState> EnhanceNetworkAsync();
     Task<IReadOnlyList<NetworkTuningState>> ReadNetworkTuningsAsync();
     /// <summary>Checks the expected live value, changes one setting and returns verified native readback.</summary>
     Task<IReadOnlyList<NetworkTuningState>> SetNetworkTuningAsync(string id, string? value, string? expectedValue);

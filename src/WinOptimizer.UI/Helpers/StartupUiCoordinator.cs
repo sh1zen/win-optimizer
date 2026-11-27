@@ -9,7 +9,7 @@ using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.Core.Features.Common.Services;
 using WinOptimizer.UI.Features.Common.Controls;
-using WinOptimizer.UI.Features.SoftwareApps;
+using WinOptimizer.UI.Features.Dashboard;
 using WinOptimizer.UI.ViewModels;
 using System;
 using System.Threading;
@@ -100,11 +100,8 @@ internal sealed class StartupUiCoordinator
         // Always complete startup on the UI thread so the app is usable.
         // A bare DispatcherQueue.TryEnqueue callback runs on the UI thread but
         // installs no SynchronizationContext — so every `await` of background
-        // work inside CompleteStartupAsync (SoftwareApps load, icon resolution)
-        // would resume on a thread-pool thread and mutate bound UI off-thread,
-        // leaving the Windows/External Apps lists stuck on "Loaded N items"
-        // with stale install status. Install the dispatcher SynchronizationContext
-        // so continuations marshal back to the UI thread for the whole chain.
+        // work inside CompleteStartupAsync would resume on a thread-pool thread.
+        // Install the dispatcher context for shell updates and startup notifications.
         _dispatcherQueue.TryEnqueue(() =>
         {
             if (SynchronizationContext.Current is null)
@@ -118,7 +115,7 @@ internal sealed class StartupUiCoordinator
     }
 
     /// <summary>
-    /// Presents SoftwareApps before starting its inventory and the initial full backup.
+    /// Presents the dashboard before starting deferred inventory and the initial full backup.
     /// </summary>
     private async Task CompleteStartupAsync(
         Frame contentFrame,
@@ -131,14 +128,13 @@ internal sealed class StartupUiCoordinator
 
         try
         {
-            // Navigation creates the page without starting discovery before its first frame.
-            navSidebar.SelectedTag = "SoftwareApps";
-            contentFrame.Navigate(typeof(SoftwareAppsPage), "startup", new SuppressNavigationTransitionInfo());
+            if (contentFrame.Navigate(typeof(DashboardPage), null, new SuppressNavigationTransitionInfo()))
+                navSidebar.SelectedTag = NavigationRouter.DashboardTag;
         }
         catch (Exception ex)
         {
-            StartupLogger.Log("StartupUiCoordinator", $"SoftwareApps initialization failed: {ex.Message}");
-            _logService?.LogWarning($"SoftwareApps init failed: {ex.Message}");
+            StartupLogger.Log("StartupUiCoordinator", $"Dashboard initialization failed: {ex.Message}");
+            _logService?.LogWarning($"Dashboard initialization failed: {ex.Message}");
         }
 
         // Keep the loader visible until bindings, zoom and the initial page have been laid out.
@@ -153,12 +149,6 @@ internal sealed class StartupUiCoordinator
         {
             await RunAfterFirstRenderAsync(contentFrame, async () =>
             {
-                var page = contentFrame.Content as SoftwareAppsPage;
-                if (page is not null)
-                {
-                    await page.ViewModel.InitializeWindowsAppsAsync();
-                    page.ViewModel.InitializeExternalAppsAsync().FireAndForget(_logService!);
-                }
                 IsFirstLaunch = (await App.Services.GetRequiredService<IStartupOrchestrator>()
                     .RunDeferredInitializationAsync()).IsFirstLaunch;
             });

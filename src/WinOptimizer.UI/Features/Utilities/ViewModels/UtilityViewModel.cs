@@ -48,8 +48,8 @@ public abstract partial class UtilityViewModel : ObservableObject, IDisposable
     /// <summary>Lets the existing shutdown hook drain an in-flight write without saving an uncommitted draft.</summary>
     public Task WaitForWriteAsync() => _pendingWrite;
 
-    /// <summary>Shows reads locally and writes in the shared footer with explicitly supported cancellation.</summary>
-    protected async Task ExecuteAsync(Func<Task> operation, bool write = false, bool canCancel = false)
+    /// <summary>Coordinates writes and lets their owner choose where task progress is displayed.</summary>
+    protected async Task ExecuteAsync(Func<Task> operation, bool write = false, bool canCancel = false, bool showInTaskBar = true)
     {
         if (IsBusy || (write && !CanWrite)) return;
         if (write && _tasks.IsTaskRunning) { Status = Text("Utilities_Wait"); IsError = true; return; }
@@ -59,7 +59,7 @@ public abstract partial class UtilityViewModel : ObservableObject, IDisposable
         if (completion != null) _pendingWrite = completion.Task;
         try
         {
-            if (write) task = _tasks.StartTask(Title, true, true, canCancel);
+            if (write) task = _tasks.StartTask(Title, true, showInTaskBar, canCancel);
             await operation();
         }
         catch (Exception ex) when (ex is UtilityOperationException or IOException or UnauthorizedAccessException or

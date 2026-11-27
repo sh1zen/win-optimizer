@@ -147,7 +147,7 @@ public class WinGetInstaller
                         if (!IsWinGetOutputNoise(line) && displayLine != null)
                             _logService?.LogInformation($"[bundled-winget] {displayLine}");
 
-                        // Parse progress and report to the TaskProgressControl terminal output
+                        // Parse progress and report it to the task output.
                         var parsed = WinGetProgressParser.ParseLine(line);
                         if (parsed != null)
                         {

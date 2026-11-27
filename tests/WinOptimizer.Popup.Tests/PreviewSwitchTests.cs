@@ -101,7 +101,6 @@ public sealed partial class PreviewApplication
             Require(opacityRange.Minimum == 0 && opacityRange.Maximum == 10 && opacitySlider.StepFrequency == 1 &&
                 options.BackgroundOpacity == 8 && opacityValue.Text == "8/10" && opacityRequests.Count == 0,
                 "Preview did not display the default opacity without writing a setting.");
-            await CaptureAsync(options, "preview-opacity-slider.png");
 
             Toggle(overviewSwitch);
             Require(requests.SequenceEqual([(false, "en")]) && !overviewSwitch.IsEnabled && !options.IsEnabled,

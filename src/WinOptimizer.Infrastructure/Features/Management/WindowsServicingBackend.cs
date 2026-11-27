@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Principal;
 using System.Text;
 using System.Text.Json;
@@ -50,12 +51,17 @@ internal sealed class WindowsServicingBackend(IProcessExecutor processes, IDismP
                 (step == WindowsServicingStep.AnalyzeStore ? "/AnalyzeComponentStore" : "/StartComponentCleanup" + (request.ResetBase ? " /ResetBase" : ""));
             var (code, output) = await dism.RunProcessWithProgressAsync(Path.Combine(Environment.SystemDirectory, "dism.exe"),
                 arguments, null, cancellationToken).ConfigureAwait(false);
-            return new(step, code is 0 or 3010, code, WindowsImageHealth.Unknown, code == 3010, output);
+            var succeeded = code is 0 or 3010;
+            return new(step, succeeded, code, WindowsImageHealth.Unknown, code == 3010, output)
+            {
+                StoreAnalysis = succeeded && step == WindowsServicingStep.AnalyzeStore ? ReadStoreAnalysis(output) : null
+            };
         }
         var payload = Convert.ToBase64String(JsonSerializer.SerializeToUtf8Bytes(new
         { Step = step.ToString(), request.SourcePath, request.WimIndex, request.LimitAccess }));
         var script = "$request = [Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('" + payload + "')) | ConvertFrom-Json\n" + ToolScript;
         var encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
+        using var scan = step == WindowsServicingStep.ScanHealth ? WindowsComponentStoreScan.Open(files) : null;
         var result = await processes.ExecuteWithStreamingAsync(Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe"),
             "-NoProfile -NonInteractive -EncodedCommand " + encoded, ct: cancellationToken).ConfigureAwait(false);
         if (!result.Succeeded)
@@ -72,9 +78,48 @@ internal sealed class WindowsServicingBackend(IProcessExecutor processes, IDismP
                 "NonRepairable" => WindowsImageHealth.NonRepairable,
                 _ => WindowsImageHealth.Unknown
             };
-            return new(step, response.Success, response.ExitCode, health, response.RestartNeeded, response.Output);
+            return new(step, response.Success, response.ExitCode, health, response.RestartNeeded, response.Output)
+            {
+                StoreFindings = scan != null && response.Success && health is WindowsImageHealth.Repairable or WindowsImageHealth.NonRepairable
+                    ? await scan.ReadFindingsAsync(cancellationToken).ConfigureAwait(false) : null
+            };
         }
         catch (JsonException ex) { throw new UtilityOperationException("Windows servicing returned invalid result data. " + result.StandardError, ex); }
+    }
+
+    /// <summary>Reads the two user-facing values from the DISM runner's English analysis.</summary>
+    private static WindowsComponentStoreAnalysis? ReadStoreAnalysis(string output)
+    {
+        decimal? size = null;
+        bool? cleanup = null;
+        foreach (var line in output.AsSpan().EnumerateLines())
+        {
+            var separator = line.IndexOf(':');
+            if (separator < 0) continue;
+            var label = line[..separator].Trim();
+            var value = line[(separator + 1)..].Trim();
+            if (label.SequenceEqual("Actual Size of Component Store"))
+            {
+                var space = value.IndexOf(' ');
+                if (space <= 0 || !decimal.TryParse(value[..space], NumberStyles.AllowDecimalPoint,
+                    CultureInfo.InvariantCulture, out var amount)) continue;
+                var unit = value[space..].Trim() switch
+                {
+                    "bytes" or "B" => 1L,
+                    "KB" => 1L << 10,
+                    "MB" => 1L << 20,
+                    "GB" => 1L << 30,
+                    "TB" => 1L << 40,
+                    _ => 0L
+                };
+                if (unit > 0 && amount <= long.MaxValue / (decimal)unit) size = amount * unit;
+            }
+            else if (label.SequenceEqual("Component Store Cleanup Recommended"))
+            {
+                cleanup = value switch { "Yes" => true, "No" => false, _ => null };
+            }
+        }
+        return size.HasValue || cleanup.HasValue ? new(size, cleanup) : null;
     }
 
     private sealed record ToolResponse(bool Success, int ExitCode, string Health, bool RestartNeeded, string Output);

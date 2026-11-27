@@ -18,6 +18,7 @@ public sealed class AppUninstallWorkflowTests
     private readonly Mock<IExternalAppsService> _external = new();
     private readonly Mock<ITaskProgressService> _tasks = new();
     private readonly Mock<IApplicationModeService> _mode = new();
+    private readonly Mock<IScanCancellationNotifications> _notifications = new();
     private readonly List<string> _events = [];
     private readonly ItemDefinition[] _apps = [new() { Id = "one", Name = "One", Description = "First" }, new() { Id = "two", Name = "Two", Description = "Second" }];
     private readonly AppUninstallResult _verification = new([new("one", "One", UninstallVerificationState.Removed, "Verified")], []);
@@ -35,7 +36,8 @@ public sealed class AppUninstallWorkflowTests
         _review.Setup(review => review.ShowAsync(_session.Object, _verification, It.IsAny<CancellationToken>()))
             .Callback(() => _events.Add("review")).ReturnsAsync(UninstallReviewDisposition.Completed);
         var text = new Mock<ILocalizationService>(); text.Setup(text => text.GetString(It.IsAny<string>())).Returns((string key) => key);
-        _sut = new(_residues.Object, _review.Object, _windows.Object, _external.Object, _tasks.Object, _mode.Object, text.Object);
+        _sut = new(_residues.Object, _review.Object, _windows.Object, _external.Object, _tasks.Object, _mode.Object, text.Object,
+            _notifications.Object);
     }
 
     [Fact]
@@ -92,7 +94,7 @@ public sealed class AppUninstallWorkflowTests
     [Theory]
     [InlineData(AppUninstallKind.Windows)]
     [InlineData(AppUninstallKind.External)]
-    public async Task FooterCancellationStillVerifiesAndShowsCompletedRemovals(AppUninstallKind kind)
+    public async Task TaskCancellationStillVerifiesAndShowsCompletedRemovals(AppUninstallKind kind)
     {
         using var footer = new CancellationTokenSource();
         using var capture = new CancellationTokenSource();
@@ -158,6 +160,29 @@ public sealed class AppUninstallWorkflowTests
         _review.Verify(review => review.ShowAsync(It.IsAny<IUninstallResidueSession>(), It.IsAny<AppUninstallResult>(), It.IsAny<CancellationToken>()), Times.Never);
         Assert.Contains("release", _events);
         _tasks.Verify(tasks => tasks.CompleteTask(), Times.Exactly(2));
+    }
+
+    [Fact]
+    public async Task CancellingVerificationPublishesOneNoticeAndClosesTheResidueSession()
+    {
+        using var cancellation = new CancellationTokenSource();
+        _tasks.Setup(tasks => tasks.StartTask("UninstallResidue_Verifying", true)).Returns(cancellation);
+        _external.Setup(service => service.UninstallAppAsync(It.IsAny<ItemDefinition>(), It.IsAny<IProgress<TaskProgressDetail>>()))
+            .ReturnsAsync(OperationResult<bool>.Succeeded(true));
+        _session.Setup(session => session.VerifyAsync(It.IsAny<IReadOnlyList<UninstallNativeOutcome>>(),
+            It.IsAny<IProgress<UninstallResidueProgress>>(), It.IsAny<CancellationToken>()))
+            .Returns((IReadOnlyList<UninstallNativeOutcome> _, IProgress<UninstallResidueProgress> _, CancellationToken token) =>
+            {
+                cancellation.Cancel();
+                return Task.FromCanceled<AppUninstallResult>(token);
+            });
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => _sut.UninstallAsync(_apps, AppUninstallKind.External));
+
+        _notifications.Verify(notifications => notifications.Publish("UninstallResidue_Verifying", "Restore_Cancelled"), Times.Once);
+        _review.VerifyNoOtherCalls();
+        _session.Verify(session => session.DisposeAsync(), Times.Once);
+        Assert.Contains("release", _events);
     }
 
     [Fact]

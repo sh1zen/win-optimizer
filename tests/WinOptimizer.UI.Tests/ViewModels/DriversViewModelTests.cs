@@ -4,6 +4,8 @@ using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
 using Microsoft.UI.Xaml.Media;
 using Moq;
+using WinOptimizer.UI.Features.Common.Helpers;
+using WinOptimizer.UI.Features.Common.Services;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.Core.Features.Common.Enums;
@@ -39,10 +41,11 @@ public sealed class DriversViewModelTests : IDisposable
         _tasks.Setup(x => x.StartTask(It.IsAny<string>(), true)).Returns(() => _owner = new CancellationTokenSource());
         _tasks.SetupGet(x => x.CurrentTaskCancellationSource).Returns(() => _owner);
         _dispatcher.Setup(x => x.RunOnUIThread(It.IsAny<Action>())).Callback<Action>(action => action());
+        _dispatcher.Setup(x => x.RunOnUIThreadAsync(It.IsAny<Func<Task>>())).Returns((Func<Task> action) => action());
         _settings = new(_preferences.Object, _localization.Object);
         _vm = new(_scanner.Object, _settings, _localization.Object, _tasks.Object, _dispatcher.Object, _removal.Object, _dialogs.Object, _mode.Object,
             _packages.Object);
-        _scanner.Setup(x => x.ScanAsync(It.IsAny<DriverScanOptions>(), It.IsAny<IProgress<DriverScanProgress>?>(), It.IsAny<CancellationToken>()))
+        _scanner.Setup(x => x.ScanAsync(It.IsAny<DriverScanOptions>(), It.IsAny<IProgress<DriverScanProgress>?>(), It.IsAny<CancellationToken>(), It.IsAny<ConfirmDriverLicenseAsync?>()))
             .ReturnsAsync(Report(new()));
     }
     private static DriverScanReport Report(DriverScanOptions options, bool online = true) => new(new([], [], true, []),
@@ -72,6 +75,27 @@ public sealed class DriversViewModelTests : IDisposable
         Assert.Equal("Drivers_Disconnected", _vm.DisconnectedDevicesLabel);
         Assert.Equal("Drivers_Updates", _vm.OfficialUpdatesLabel);
         _scanner.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public async Task ScanRequestsNvidiaLicenseReviewBeforeConfirmingAcquisition()
+    {
+        var license = new Uri("https://www.nvidia.com/license");
+        _dialogs.Setup(dialog => dialog.ShowConfirmationAsync(It.Is<ConfirmationRequest>(request =>
+            request.ReferenceLink.HasValue && request.ReferenceLink.Value.Uri == license && request.Message == "Drivers_ScanLicenseConfirm")))
+            .ReturnsAsync(new ConfirmationResponse { Confirmed = true });
+        _scanner.Setup(scanner => scanner.ScanAsync(It.IsAny<DriverScanOptions>(), It.IsAny<IProgress<DriverScanProgress>?>(),
+                It.IsAny<CancellationToken>(), It.IsAny<ConfirmDriverLicenseAsync?>()))
+            .Returns(async (DriverScanOptions options, IProgress<DriverScanProgress>? _, CancellationToken ct, ConfirmDriverLicenseAsync? confirm) =>
+            {
+                Assert.True(await confirm!(license, ct));
+                return Report(options);
+            });
+
+        await _vm.ScanCommand.ExecuteAsync(null);
+
+        _dialogs.Verify(dialog => dialog.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>()), Times.Once);
+        Assert.True(_vm.HasReport);
     }
 
     [Fact]
@@ -124,12 +148,22 @@ public sealed class DriversViewModelTests : IDisposable
     public async Task DownloadSelectionCannotSelectRemovalAndUsesDedicatedPackageOperation()
     {
         var report = Report(new() { OnlyWhqlUpdates = false });
-        var match = Assert.Single(report.Updates);
+        var device = new DriverDevice("device", "Network", "Net", "oem3.inf", true, "1.0", [@"PCI\TEST"]);
         var payload = new Uri("https://download.windowsupdate.com/driver.cab");
-        var update = match.Update with { Catalog = new([new(DriverSources.MicrosoftCatalog, "update", "1",
-            DateTimeOffset.UnixEpoch, null, null, [payload])], [new(payload, [])]) };
-        _scanner.Setup(scanner => scanner.ScanAsync(It.IsAny<DriverScanOptions>(), It.IsAny<IProgress<DriverScanProgress>?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(report with { Updates = [match with { Update = update }] });
+        var component = new DriverComponent("net.inf", "Net", "OEM", "2.0", "2026-01-03",
+            [new(@"PCI\TEST", DriverIdentifierKind.Hardware, 0)], ["Models.NTamd64"], "inf", "cat", "Windows", true, DriverCertification.Whql);
+        var update = Assert.Single(report.Updates).Update with
+        {
+            Catalog = new([new(DriverSources.MicrosoftCatalog, "update", "1", DateTimeOffset.UnixEpoch, null, null, [payload])],
+                [new(payload, [])]) { Verification = DriverVerification.Verified, Components = [component] }
+        };
+        report = report with
+        {
+            Inventory = report.Inventory with { Devices = [device] },
+            Updates = [new(update, [device]) { Applicability = DriverApplicability.PackageMatch }]
+        };
+        _scanner.Setup(scanner => scanner.ScanAsync(It.IsAny<DriverScanOptions>(), It.IsAny<IProgress<DriverScanProgress>?>(), It.IsAny<CancellationToken>(), It.IsAny<ConfirmDriverLicenseAsync?>()))
+            .ReturnsAsync(report);
         _packages.Setup(service => service.AcquireAsync(update, report.Inventory, true, It.IsAny<IProgress<DriverScanProgress>?>(),
             It.IsAny<CancellationToken>(), false)).ReturnsAsync(new DriverPackageResult(update, @"C:\Drivers\fixture"));
         await _vm.ScanCommand.ExecuteAsync(null);
@@ -143,9 +177,12 @@ public sealed class DriversViewModelTests : IDisposable
         download.IsDownloadSelected = true;
         Assert.True(_vm.DownloadCommand.CanExecute(null));
         Assert.Equal(1, _vm.SelectedCount);
+        _vm.SelectedGroup = _vm.ResultGroups[2];
         await _vm.DownloadCommand.ExecuteAsync(null);
         Assert.Equal(1, _vm.SelectedCount);
         Assert.False(_vm.DownloadCommand.CanExecute(null));
+        Assert.True(_vm.IsCandidateCategory);
+        Assert.Equal("2.0", Assert.Single(_vm.VisibleRows).CandidateVersion);
         Assert.Contains(@"C:\Drivers\fixture", _vm.Status);
         _packages.VerifyAll();
         _removal.VerifyNoOtherCalls();
@@ -172,15 +209,15 @@ public sealed class DriversViewModelTests : IDisposable
         _settings.OnlyWhqlUpdates = false;
         var scan = _vm.ScanCommand.ExecuteAsync(null);
         Assert.False(scan.IsCompleted);
-        _scanner.Verify(x => x.ScanAsync(It.IsAny<DriverScanOptions>(), It.IsAny<IProgress<DriverScanProgress>?>(), It.IsAny<CancellationToken>()), Times.Never);
+        _scanner.Verify(x => x.ScanAsync(It.IsAny<DriverScanOptions>(), It.IsAny<IProgress<DriverScanProgress>?>(), It.IsAny<CancellationToken>(), It.IsAny<ConfirmDriverLicenseAsync?>()), Times.Never);
         write.SetResult(OperationResult.Failed("write failed"));
         await scan;
         Assert.Equal("write failed", _vm.Status);
-        _scanner.Verify(x => x.ScanAsync(It.IsAny<DriverScanOptions>(), It.IsAny<IProgress<DriverScanProgress>?>(), It.IsAny<CancellationToken>()), Times.Never);
+        _scanner.Verify(x => x.ScanAsync(It.IsAny<DriverScanOptions>(), It.IsAny<IProgress<DriverScanProgress>?>(), It.IsAny<CancellationToken>(), It.IsAny<ConfirmDriverLicenseAsync?>()), Times.Never);
         _preferences.Setup(x => x.SetPreferenceAsync("Drivers", It.IsAny<DriverScanOptions>())).ReturnsAsync(OperationResult.Succeeded());
         Assert.True(await _settings.ResetAsync());
         await _vm.ScanCommand.ExecuteAsync(null);
-        _scanner.Verify(x => x.ScanAsync(It.Is<DriverScanOptions>(options => options.OnlyWhqlUpdates), It.IsAny<IProgress<DriverScanProgress>?>(), It.IsAny<CancellationToken>()), Times.Once);
+        _scanner.Verify(x => x.ScanAsync(It.Is<DriverScanOptions>(options => options.OnlyWhqlUpdates), It.IsAny<IProgress<DriverScanProgress>?>(), It.IsAny<CancellationToken>(), It.IsAny<ConfirmDriverLicenseAsync?>()), Times.Once);
     }
     [Fact]
     public async Task PreferenceLoadFailure_BlocksScan_AndCanBeRetried()
@@ -193,7 +230,7 @@ public sealed class DriversViewModelTests : IDisposable
         Assert.True(_vm.ShowEmptyState);
         Assert.False(_vm.HasReport);
         Assert.True(_vm.ShowScanInformation);
-        _scanner.Verify(x => x.ScanAsync(It.IsAny<DriverScanOptions>(), It.IsAny<IProgress<DriverScanProgress>?>(), It.IsAny<CancellationToken>()), Times.Never);
+        _scanner.Verify(x => x.ScanAsync(It.IsAny<DriverScanOptions>(), It.IsAny<IProgress<DriverScanProgress>?>(), It.IsAny<CancellationToken>(), It.IsAny<ConfirmDriverLicenseAsync?>()), Times.Never);
         await _vm.ScanCommand.ExecuteAsync(null);
         Assert.Equal(3, _vm.ResultGroups.Count);
     }
@@ -231,7 +268,7 @@ public sealed class DriversViewModelTests : IDisposable
     public async Task Presentation_TracksThePendingScan_AndNotifiesWhenAReportArrives()
     {
         var pending = new TaskCompletionSource<DriverScanReport>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _scanner.Setup(x => x.ScanAsync(It.IsAny<DriverScanOptions>(), It.IsAny<IProgress<DriverScanProgress>?>(), It.IsAny<CancellationToken>()))
+        _scanner.Setup(x => x.ScanAsync(It.IsAny<DriverScanOptions>(), It.IsAny<IProgress<DriverScanProgress>?>(), It.IsAny<CancellationToken>(), It.IsAny<ConfirmDriverLicenseAsync?>()))
             .Returns(pending.Task);
         var changed = new List<string?>();
         _vm.PropertyChanged += (_, e) => changed.Add(e.PropertyName);
@@ -257,7 +294,7 @@ public sealed class DriversViewModelTests : IDisposable
     [Fact]
     public async Task OnlineFailure_IsShownAsIncomplete_AndKeepsLocalEvidence()
     {
-        _scanner.Setup(x => x.ScanAsync(It.IsAny<DriverScanOptions>(), It.IsAny<IProgress<DriverScanProgress>?>(), It.IsAny<CancellationToken>()))
+        _scanner.Setup(x => x.ScanAsync(It.IsAny<DriverScanOptions>(), It.IsAny<IProgress<DriverScanProgress>?>(), It.IsAny<CancellationToken>(), It.IsAny<ConfirmDriverLicenseAsync?>()))
             .ReturnsAsync(Report(new(), false));
         await _vm.ScanCommand.ExecuteAsync(null);
         _vm.SelectedGroup = _vm.ResultGroups[2];
@@ -269,9 +306,12 @@ public sealed class DriversViewModelTests : IDisposable
     [Fact]
     public async Task WhqlFilteredEmptyUpdates_ExplainTheActiveFilter_WithoutChangingOtherCategories()
     {
-        _scanner.Setup(x => x.ScanAsync(It.IsAny<DriverScanOptions>(), It.IsAny<IProgress<DriverScanProgress>?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(Report(new()) with { Updates = [], ExcludedUpdates = 2 });
+        var source = new DriverSourceOutcome(DriverSources.WindowsUpdate, DriverSourceState.Success, 2, [], null);
+        _scanner.Setup(x => x.ScanAsync(It.IsAny<DriverScanOptions>(), It.IsAny<IProgress<DriverScanProgress>?>(), It.IsAny<CancellationToken>(), It.IsAny<ConfirmDriverLicenseAsync?>()))
+            .ReturnsAsync(Report(new()) with { Updates = [], ExcludedUpdates = 2, Sources = [source] });
         await _vm.ScanCommand.ExecuteAsync(null);
+        Assert.Equal(["Drivers_Unreferenced", "Drivers_Disconnected", "Drivers_Updates", "Drivers_Sources"],
+            _vm.ResultGroups.Select(group => group.LabelKey));
         _vm.SelectedGroup = _vm.ResultGroups[2];
         Assert.True(_vm.HasEmptyCategory);
         Assert.Equal("Drivers_FilterWhql", _vm.CategoryEmptyDescription);
@@ -303,8 +343,8 @@ public sealed class DriversViewModelTests : IDisposable
         var gate = new TaskCompletionSource<DriverScanReport>();
         IProgress<DriverScanProgress>? reporter = null;
         CancellationToken token = default;
-        _scanner.Setup(x => x.ScanAsync(It.IsAny<DriverScanOptions>(), It.IsAny<IProgress<DriverScanProgress>?>(), It.IsAny<CancellationToken>()))
-            .Returns((DriverScanOptions _, IProgress<DriverScanProgress>? progress, CancellationToken ct) => { reporter = progress; token = ct; return gate.Task; });
+        _scanner.Setup(x => x.ScanAsync(It.IsAny<DriverScanOptions>(), It.IsAny<IProgress<DriverScanProgress>?>(), It.IsAny<CancellationToken>(), It.IsAny<ConfirmDriverLicenseAsync?>()))
+            .Returns((DriverScanOptions _, IProgress<DriverScanProgress>? progress, CancellationToken ct, ConfirmDriverLicenseAsync? _) => { reporter = progress; token = ct; return gate.Task; });
         var operation = _vm.ScanCommand.ExecuteAsync(null);
         _vm.Dispose();
         Assert.True(token.IsCancellationRequested);
@@ -373,7 +413,7 @@ public sealed class DriversViewModelTests : IDisposable
             Comparisons = [new(device, component, identifier, identifier, DriverVersionRelation.Newer, false)]
         };
         const string coverageNotice = "Catalog query limit reached.";
-        _scanner.Setup(scanner => scanner.ScanAsync(It.IsAny<DriverScanOptions>(), It.IsAny<IProgress<DriverScanProgress>?>(), It.IsAny<CancellationToken>()))
+        _scanner.Setup(scanner => scanner.ScanAsync(It.IsAny<DriverScanOptions>(), It.IsAny<IProgress<DriverScanProgress>?>(), It.IsAny<CancellationToken>(), It.IsAny<ConfirmDriverLicenseAsync?>()))
             .ReturnsAsync(report with
             {
                 DisconnectedDevices = [device, other],
@@ -421,7 +461,10 @@ public sealed class DriversViewModelTests : IDisposable
             Assert.Contains(VisibleLabels(rows), label => label.Text == strings["Drivers_WhqlVerified"]);
             var filter = Assert.IsType<Button>(results.FindName("FilterSettingsButton"));
             var flyout = Assert.IsType<Flyout>(filter.Flyout);
-            Assert.Same(_settings, Assert.IsType<DriverSettingsControl>(Assert.IsType<ScrollViewer>(flyout.Content).Content).ViewModel);
+            Assert.Equal(FlyoutPlacementMode.BottomEdgeAlignedRight, flyout.Placement);
+            var filterContent = Assert.IsType<ScrollViewer>(flyout.Content);
+            Assert.Same(filterContent, PopupHandler.GetContent(filter));
+            Assert.Same(_settings, Assert.IsType<DriverSettingsControl>(filterContent.Content).ViewModel);
             var selected = Assert.IsType<ListViewItem>(tabs.ContainerFromItem(tabs.SelectedItem));
             var tabRoot = Assert.IsType<Grid>(VisualTreeHelper.GetChild(selected, 0));
             Assert.Equal(1, Assert.IsType<Border>(tabRoot.Children[1]).Opacity);
@@ -465,8 +508,8 @@ public sealed class DriversViewModelTests : IDisposable
         var strings = await UseEnglishAsync();
         var completion = new TaskCompletionSource<DriverScanReport>();
         IProgress<DriverScanProgress>? reporter = null;
-        _scanner.Setup(scanner => scanner.ScanAsync(It.IsAny<DriverScanOptions>(), It.IsAny<IProgress<DriverScanProgress>?>(), It.IsAny<CancellationToken>()))
-            .Returns((DriverScanOptions _, IProgress<DriverScanProgress>? progress, CancellationToken _) =>
+        _scanner.Setup(scanner => scanner.ScanAsync(It.IsAny<DriverScanOptions>(), It.IsAny<IProgress<DriverScanProgress>?>(), It.IsAny<CancellationToken>(), It.IsAny<ConfirmDriverLicenseAsync?>()))
+            .Returns((DriverScanOptions _, IProgress<DriverScanProgress>? progress, CancellationToken _, ConfirmDriverLicenseAsync? _) =>
             {
                 reporter = progress;
                 return completion.Task;
@@ -519,6 +562,27 @@ public sealed class DriversViewModelTests : IDisposable
                 Assert.InRange(Math.Abs(left - (page.ActualWidth - card.ActualWidth) / 2), 0, 1);
             }
 
+            reporter.Report(new("Drivers_Downloading", 1, 4) { BytesTransferred = 2L << 20 });
+            var transfer = Assert.Single(activity.Items.Cast<DriverScanActivity>(), item => item.IsActive);
+            Assert.Contains(strings["Drivers_Downloading"], transfer.Text);
+            Assert.Contains("MB", transfer.Text);
+
+            var cancel = Assert.IsType<Button>(page.FindName("CancelScanButton"));
+            reporter.Report(new("Drivers_ExtractingPackage", 1, 4)
+            { ActivePackageStages = ["Drivers_ExtractingPackage", "Drivers_Downloading"], BytesTransferred = 2L << 20 });
+            Assert.True(cancel.IsEnabled);
+            var extraction = Assert.Single(activity.Items.Cast<DriverScanActivity>(), item => item.IsActive);
+            Assert.Contains(strings["Drivers_ExtractingPackage"], extraction.Text);
+            Assert.Contains(strings["Drivers_Downloading"], extraction.Text);
+
+            reporter.Report(new("Drivers_VerifyingInfs", 1, 4));
+            Assert.True(cancel.IsEnabled);
+            var verification = Assert.Single(activity.Items.Cast<DriverScanActivity>(), item => item.IsActive);
+            Assert.Contains(strings["Drivers_VerifyingInfs"], verification.Text);
+            Assert.DoesNotContain(strings["Drivers_Downloading"], verification.Text);
+            await StartupUiCoordinator.RunAfterFirstRenderAsync(page, () => Task.CompletedTask);
+            Assert.Contains(VisibleLabels(card), label => label.Text == verification.Text);
+
             reporter.Report(new("Drivers_PreparingResults") { Phase = DriverScanPhase.PrepareResults });
             Assert.Equal(strings["Drivers_PreparingResults"], title.Text);
             Assert.True(_vm.ResultsMilestone.IsCurrent);
@@ -556,16 +620,21 @@ public sealed class DriversViewModelTests : IDisposable
         }
     }
 
-    [Fact]
-    public async Task Scan_UsesFooterProgress_WhileRetainingLifecycleAndCancellation()
+    [Theory]
+    [InlineData("Drivers_ExtractingPackage")]
+    [InlineData("Drivers_VerifyingInfs")]
+    public async Task Scan_PublishesSharedProgress_WhileRetainingLifecycleAndCancellation(string packageStage)
     {
         var tasks = new WinOptimizer.Infrastructure.Features.Common.Services.TaskProgressService(Mock.Of<ILogService>());
         using var shell = new WinOptimizer.UI.ViewModels.TaskProgressViewModel(tasks, _dispatcher.Object, _dialogs.Object, _localization.Object, Mock.Of<ILogService>());
-        using var page = new DriversViewModel(_scanner.Object, _settings, _localization.Object, tasks, _dispatcher.Object, _removal.Object, _dialogs.Object, _mode.Object);
+        var notifications = new ScanCancellationNotifications();
+        var notices = new List<ScanCancellationNotice>();
+        notifications.Cancelled += notices.Add;
+        using var page = new DriversViewModel(_scanner.Object, _settings, _localization.Object, tasks, _dispatcher.Object, _removal.Object, _dialogs.Object, _mode.Object, scanNotifications: notifications);
         var completion = new TaskCompletionSource<DriverScanReport>();
         IProgress<DriverScanProgress>? reporter = null;
-        _scanner.Setup(scanner => scanner.ScanAsync(It.IsAny<DriverScanOptions>(), It.IsAny<IProgress<DriverScanProgress>?>(), It.IsAny<CancellationToken>()))
-            .Returns((DriverScanOptions _, IProgress<DriverScanProgress>? progress, CancellationToken _) => { reporter = progress; return completion.Task; });
+        _scanner.Setup(scanner => scanner.ScanAsync(It.IsAny<DriverScanOptions>(), It.IsAny<IProgress<DriverScanProgress>?>(), It.IsAny<CancellationToken>(), It.IsAny<ConfirmDriverLicenseAsync?>()))
+            .Returns((DriverScanOptions _, IProgress<DriverScanProgress>? progress, CancellationToken _, ConfirmDriverLicenseAsync? _) => { reporter = progress; return completion.Task; });
         var scan = page.ScanCommand.ExecuteAsync(null);
         Assert.True(tasks.IsTaskRunning);
         Assert.True(shell.IsTaskRunning);
@@ -582,10 +651,14 @@ public sealed class DriversViewModelTests : IDisposable
         await page.ShowScanDetailsCommand.ExecuteAsync(null);
         _dialogs.Verify(dialogs => dialogs.ShowTaskOutputDialogAsync("Dialog_TerminalOutput_Title",
             It.Is<IReadOnlyList<string>>(lines => lines.SequenceEqual(new[] { "Drivers_SearchingUpdates", "Drivers_VerifyingPackages (2/8)" }))), Times.Once);
+        reporter.Report(new(packageStage, 2, 8));
+        Assert.Equal($"{packageStage} (2/8)", shell.LastTerminalLine);
+        Assert.True(page.CancelScanCommand.CanExecute(null));
         page.CancelScanCommand.Execute(null);
         Assert.True(tasks.CurrentTaskCancellationSource!.IsCancellationRequested);
         Assert.True(page.IsScanCancelling);
         Assert.False(page.CancelScanCommand.CanExecute(null));
+        Assert.Empty(notices);
         completion.SetResult(Report(new()));
         await scan;
         Assert.False(tasks.IsTaskRunning);
@@ -593,20 +666,21 @@ public sealed class DriversViewModelTests : IDisposable
         Assert.False(page.IsBusy);
         Assert.False(page.HasReport);
         Assert.False(page.IsScanning);
+        Assert.Equal("Cleaner_Cancelled", Assert.Single(notices).Message);
     }
 
     [Fact]
-    public async Task ScanFailure_RemainsVisibleInTheFooter_AndOnThePage()
+    public async Task ScanFailure_RemainsVisibleInTheTaskControls_AndOnThePage()
     {
         var tasks = new WinOptimizer.Infrastructure.Features.Common.Services.TaskProgressService(Mock.Of<ILogService>());
-        using var footer = new WinOptimizer.UI.ViewModels.TaskProgressViewModel(tasks, _dispatcher.Object, _dialogs.Object, _localization.Object, Mock.Of<ILogService>());
+        using var activity = new WinOptimizer.UI.ViewModels.TaskProgressViewModel(tasks, _dispatcher.Object, _dialogs.Object, _localization.Object, Mock.Of<ILogService>());
         using var page = new DriversViewModel(_scanner.Object, _settings, _localization.Object, tasks, _dispatcher.Object, _removal.Object, _dialogs.Object, _mode.Object);
-        _scanner.Setup(scanner => scanner.ScanAsync(It.IsAny<DriverScanOptions>(), It.IsAny<IProgress<DriverScanProgress>?>(), It.IsAny<CancellationToken>()))
+        _scanner.Setup(scanner => scanner.ScanAsync(It.IsAny<DriverScanOptions>(), It.IsAny<IProgress<DriverScanProgress>?>(), It.IsAny<CancellationToken>(), It.IsAny<ConfirmDriverLicenseAsync?>()))
             .ThrowsAsync(new DriverScanException("Inventory unavailable"));
         await page.ScanCommand.ExecuteAsync(null);
         Assert.False(tasks.IsTaskRunning);
-        Assert.True(footer.IsTaskFailed);
-        Assert.True(footer.IsLoading);
+        Assert.True(activity.IsTaskFailed);
+        Assert.True(activity.IsLoading);
         Assert.Contains("Inventory unavailable", tasks.GetTerminalOutputLines());
         Assert.Equal("Inventory unavailable", page.Status);
         Assert.True(page.HasStatus);
@@ -615,14 +689,14 @@ public sealed class DriversViewModelTests : IDisposable
     [Fact]
     public async Task EmptyUpdateCategory_DistinguishesUnavailableSearchFromSuccessfulEmptyResults()
     {
-        _scanner.Setup(scanner => scanner.ScanAsync(It.IsAny<DriverScanOptions>(), It.IsAny<IProgress<DriverScanProgress>?>(), It.IsAny<CancellationToken>()))
+        _scanner.Setup(scanner => scanner.ScanAsync(It.IsAny<DriverScanOptions>(), It.IsAny<IProgress<DriverScanProgress>?>(), It.IsAny<CancellationToken>(), It.IsAny<ConfirmDriverLicenseAsync?>()))
             .ReturnsAsync(Report(new(), false) with { Updates = [] });
         await _vm.ScanCommand.ExecuteAsync(null);
         _vm.SelectedGroup = _vm.ResultGroups[2];
         Assert.True(_vm.HasEmptyCategory);
         Assert.Equal("Drivers_UpdatesUnavailableTitle", _vm.CategoryEmptyTitle);
         Assert.Equal("Drivers_UpdatesUnavailable", _vm.CategoryEmptyDescription);
-        _scanner.Setup(scanner => scanner.ScanAsync(It.IsAny<DriverScanOptions>(), It.IsAny<IProgress<DriverScanProgress>?>(), It.IsAny<CancellationToken>()))
+        _scanner.Setup(scanner => scanner.ScanAsync(It.IsAny<DriverScanOptions>(), It.IsAny<IProgress<DriverScanProgress>?>(), It.IsAny<CancellationToken>(), It.IsAny<ConfirmDriverLicenseAsync?>()))
             .ReturnsAsync(Report(new()) with { Updates = [] });
         await _vm.ScanCommand.ExecuteAsync(null);
         _vm.SelectedGroup = _vm.ResultGroups[2];

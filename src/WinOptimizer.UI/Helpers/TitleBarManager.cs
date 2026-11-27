@@ -58,6 +58,8 @@ internal sealed class TitleBarManager
     /// </summary>
     private void AddElementPassthroughRect(FrameworkElement element, double scale, List<RectInt32> rects)
     {
+        if (element.ActualWidth <= 0 || element.ActualHeight <= 0) return;
+
         try
         {
             var transform = element.TransformToVisual(null);

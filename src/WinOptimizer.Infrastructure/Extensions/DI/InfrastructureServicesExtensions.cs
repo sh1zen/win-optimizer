@@ -10,6 +10,7 @@ using WinOptimizer.Infrastructure.Features.Utilities;
 using WinOptimizer.Core.Features.Drivers.Interfaces;
 using WinOptimizer.Core.Features.Optimize.Interfaces;
 using WinOptimizer.Infrastructure.Features.Drivers;
+using WinOptimizer.Infrastructure.Features.Disks;
 using WinOptimizer.Infrastructure.Features.Optimize.Services;
 
 namespace WinOptimizer.Infrastructure.Extensions.DI;
@@ -117,6 +118,11 @@ public static class InfrastructureServicesExtensions
         services.AddSingleton<ISystemInfoProvider, SystemInfoProvider>();
         services.AddSingleton<WinOptimizer.Infrastructure.Features.SystemInformation.ISystemInformationQuery, WinOptimizer.Infrastructure.Features.SystemInformation.WindowsSystemInformationQuery>();
         services.AddSingleton<WinOptimizer.Core.Features.SystemInformation.Interfaces.ISystemInformationService, WinOptimizer.Infrastructure.Features.SystemInformation.WindowsSystemInformationService>();
+        services.AddSingleton<WinOptimizer.Core.Features.Benchmark.IBenchmarkService, WinOptimizer.Infrastructure.Features.Benchmark.WindowsBenchmarkService>();
+        services.AddSingleton<IShadowCopyCatalog, WindowsShadowCopyCatalog>();
+        services.AddSingleton<ShadowVersions>();
+        services.AddSingleton<DiskFileDeletion>(_ => new(path => new RestartManagerFileSession(path)));
+        services.AddSingleton<WinOptimizer.Core.Features.Disks.IDiskToolsService, WindowsDiskToolsService>();
         services.AddSingleton<WinOptimizer.Infrastructure.Features.Extensions.HardwareMonitorSensors>();
         services.AddSingleton<WinOptimizer.Infrastructure.Features.Extensions.ISystemMonitorProbe, WinOptimizer.Infrastructure.Features.Extensions.WindowsSystemMonitorProbe>();
         services.AddSingleton<WinOptimizer.Core.Features.Extensions.ISystemMonitorService, WinOptimizer.Infrastructure.Features.Extensions.WindowsSystemMonitorService>();

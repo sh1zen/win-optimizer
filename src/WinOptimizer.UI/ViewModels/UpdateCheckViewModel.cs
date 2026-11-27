@@ -1,6 +1,7 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using Microsoft.UI.Xaml.Controls;
+using System.Windows.Input;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.UI.Features.Common.Interfaces;
@@ -8,9 +9,9 @@ using WinOptimizer.UI.Features.Common.Interfaces;
 namespace WinOptimizer.UI.ViewModels;
 
 /// <summary>
-/// Tracks the current state of the update InfoBar for language-change re-rendering.
+/// Tracks the update notification state for language changes and action selection.
 /// </summary>
-internal enum UpdateInfoBarState
+internal enum UpdateToastState
 {
     None,
     UpdateAvailable,
@@ -23,7 +24,7 @@ internal enum UpdateInfoBarState
 
 /// <summary>
 /// Child ViewModel for update checking in the main window.
-/// Manages update InfoBar state, check/install commands.
+/// Manages update notifications and check/install commands.
 /// </summary>
 public partial class UpdateCheckViewModel : ObservableObject, IDisposable
 {
@@ -38,16 +39,15 @@ public partial class UpdateCheckViewModel : ObservableObject, IDisposable
     private Task? _backgroundTask;
 
     [ObservableProperty]
-    public partial bool IsUpdateInfoBarOpen { get; set; }
+    public partial bool IsUpdateToastOpen { get; set; }
 
     [ObservableProperty]
-    public partial string UpdateInfoBarTitle { get; set; }
+    public partial string UpdateToastTitle { get; set; }
 
     [ObservableProperty]
-    public partial string UpdateInfoBarMessage { get; set; }
+    public partial string UpdateToastMessage { get; set; }
 
-    // Tracks InfoBar state for re-rendering on language change
-    private UpdateInfoBarState _updateInfoBarState = UpdateInfoBarState.None;
+    private UpdateToastState _updateToastState;
     private string? _currentVersion;
     private VersionInfo? _latestVersion;
     private VersionInfo? _notifiedVersion;
@@ -55,16 +55,24 @@ public partial class UpdateCheckViewModel : ObservableObject, IDisposable
     private string _cachedErrorMessage = string.Empty;
 
     [ObservableProperty]
-    public partial InfoBarSeverity UpdateInfoBarSeverity { get; set; }
+    public partial InfoBarSeverity UpdateToastSeverity { get; set; }
 
-    [ObservableProperty]
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(UpdateToastHasAction), nameof(UpdateToastActionText), nameof(UpdateToastActionCommand))]
     public partial bool IsUpdateActionButtonVisible { get; set; }
 
     [ObservableProperty, NotifyPropertyChangedFor(nameof(UpdateStatusText))]
     public partial bool IsUpdateCheckInProgress { get; set; }
 
-    [ObservableProperty]
+    [ObservableProperty, NotifyPropertyChangedFor(nameof(UpdateToastHasAction), nameof(UpdateToastActionText), nameof(UpdateToastActionCommand))]
     public partial bool IsRelaunchButtonVisible { get; set; }
+
+    public bool UpdateToastHasAction => IsUpdateActionButtonVisible || IsRelaunchButtonVisible;
+    public string UpdateToastActionText => IsRelaunchButtonVisible ? RelaunchButtonText : InstallNowButtonText;
+    public ICommand? UpdateToastActionCommand => IsRelaunchButtonVisible ? RelaunchCommand
+        : IsUpdateActionButtonVisible ? InstallUpdateCommand : null;
+
+    internal bool IsUpdateToastTransient => _updateToastState == UpdateToastState.NoUpdates;
+    internal event Action? UpdateToastPresented;
 
     public string CheckForUpdatesLabel =>
         _localizationService.GetString("Menu_CheckForUpdates") ?? "Check for Updates";
@@ -114,8 +122,8 @@ public partial class UpdateCheckViewModel : ObservableObject, IDisposable
         _dispatcher = dispatcher;
         _close = close;
 
-        UpdateInfoBarTitle = string.Empty;
-        UpdateInfoBarMessage = string.Empty;
+        UpdateToastTitle = string.Empty;
+        UpdateToastMessage = string.Empty;
 
         _localizationService.LanguageChanged += OnLanguageChanged;
     }
@@ -137,9 +145,10 @@ public partial class UpdateCheckViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(UpdateStatusText));
         OnPropertyChanged(nameof(InstallNowButtonText));
         OnPropertyChanged(nameof(RelaunchButtonText));
-        if (IsUpdateInfoBarOpen)
+        OnPropertyChanged(nameof(UpdateToastActionText));
+        if (IsUpdateToastOpen)
         {
-            RefreshUpdateInfoBarText();
+            RefreshUpdateToastText();
         }
     }
 
@@ -168,11 +177,7 @@ public partial class UpdateCheckViewModel : ObservableObject, IDisposable
 
             _cachedErrorMessage = ex.Message;
             _lastCheckFailed = true;
-            _updateInfoBarState = UpdateInfoBarState.CheckError;
-            RefreshUpdateInfoBarText();
-            UpdateInfoBarSeverity = InfoBarSeverity.Error;
-            IsUpdateActionButtonVisible = false;
-            IsUpdateInfoBarOpen = true;
+            ShowUpdateToast(UpdateToastState.CheckError);
         }
         finally
         {
@@ -185,28 +190,18 @@ public partial class UpdateCheckViewModel : ObservableObject, IDisposable
     {
         try
         {
-            _updateInfoBarState = UpdateInfoBarState.Downloading;
-            RefreshUpdateInfoBarText();
-            IsUpdateActionButtonVisible = false;
-            IsRelaunchButtonVisible = false;
+            ShowUpdateToast(UpdateToastState.Downloading);
 
             await _versionService.DownloadAndInstallUpdateAsync();
 
-            _updateInfoBarState = UpdateInfoBarState.UpdateDownloaded;
-            RefreshUpdateInfoBarText();
-            UpdateInfoBarSeverity = InfoBarSeverity.Success;
-            IsRelaunchButtonVisible = true;
+            ShowUpdateToast(UpdateToastState.UpdateDownloaded);
         }
         catch (Exception ex)
         {
             _logService.Log(Core.Features.Common.Enums.LogLevel.Error, $"Error installing update: {ex.Message}");
 
             _cachedErrorMessage = ex.Message;
-            _updateInfoBarState = UpdateInfoBarState.DownloadFailed;
-            RefreshUpdateInfoBarText();
-            UpdateInfoBarSeverity = InfoBarSeverity.Error;
-            IsUpdateActionButtonVisible = false;
-            IsRelaunchButtonVisible = false;
+            ShowUpdateToast(UpdateToastState.DownloadFailed);
         }
     }
 
@@ -252,61 +247,71 @@ public partial class UpdateCheckViewModel : ObservableObject, IDisposable
     private void ShowVersionCheckNotification(VersionInfo latestVersion)
     {
         _notifiedVersion = latestVersion;
-        _updateInfoBarState = latestVersion.IsUpdateAvailable ? UpdateInfoBarState.UpdateAvailable : UpdateInfoBarState.NoUpdates;
-        RefreshUpdateInfoBarText();
-        UpdateInfoBarSeverity = InfoBarSeverity.Success;
-        IsUpdateActionButtonVisible = latestVersion.IsUpdateAvailable;
-        IsUpdateInfoBarOpen = true;
+        ShowUpdateToast(latestVersion.IsUpdateAvailable ? UpdateToastState.UpdateAvailable : UpdateToastState.NoUpdates);
     }
 
-    /// <summary>
-    /// Dismisses the update InfoBar (called from code-behind on InfoBar.Closed).
-    /// </summary>
-    public void DismissUpdateInfoBar()
+    /// <summary>Publishes one toast for every reportable update state, including after dismissal.</summary>
+    private void ShowUpdateToast(UpdateToastState state)
     {
-        IsUpdateInfoBarOpen = false;
-        _updateInfoBarState = UpdateInfoBarState.None;
-    }
-
-    /// <summary>
-    /// Re-resolves InfoBar title/message from localization based on the current state.
-    /// Called when the InfoBar state is first set and on language change.
-    /// </summary>
-    private void RefreshUpdateInfoBarText()
-    {
-        switch (_updateInfoBarState)
+        _updateToastState = state;
+        RefreshUpdateToastText();
+        UpdateToastSeverity = state switch
         {
-            case UpdateInfoBarState.UpdateAvailable:
+            UpdateToastState.CheckError or UpdateToastState.DownloadFailed => InfoBarSeverity.Error,
+            UpdateToastState.Downloading => InfoBarSeverity.Informational,
+            _ => InfoBarSeverity.Success
+        };
+        IsUpdateActionButtonVisible = state == UpdateToastState.UpdateAvailable;
+        IsRelaunchButtonVisible = state == UpdateToastState.UpdateDownloaded;
+        IsUpdateToastOpen = true;
+        UpdateToastPresented?.Invoke();
+    }
+
+    /// <summary>Dismisses the toast while keeping the verified release in the version menu.</summary>
+    public void DismissUpdateToast()
+    {
+        _updateToastState = UpdateToastState.None;
+        IsUpdateToastOpen = false;
+    }
+
+    /// <summary>
+    /// Resolves the current toast text when presenting it or changing language.
+    /// </summary>
+    private void RefreshUpdateToastText()
+    {
+        switch (_updateToastState)
+        {
+            case UpdateToastState.UpdateAvailable:
                 var message = _localizationService.GetString("Dialog_Update_Message") ?? "Good News! A New Version of win-optimizer is available.";
-                UpdateInfoBarTitle = _localizationService.GetString("Dialog_Update_Title") ?? "Update Available";
-                UpdateInfoBarMessage = $"{message}  {CurrentVersionText}  →  {LatestVersionLabel} {_notifiedVersion?.Version}";
+                UpdateToastTitle = _localizationService.GetString("Dialog_Update_Title") ?? "Update Available";
+                UpdateToastMessage = $"{message}  {CurrentVersionText}  →  {LatestVersionLabel} {_notifiedVersion?.Version}";
                 break;
 
-            case UpdateInfoBarState.NoUpdates:
-                UpdateInfoBarTitle = _localizationService.GetString("Dialog_Update_NoUpdates_Title") ?? "No Updates Available";
-                UpdateInfoBarMessage = _localizationService.GetString("Dialog_Update_NoUpdates_Message") ?? "You have the latest version of win-optimizer.";
+            case UpdateToastState.NoUpdates:
+                UpdateToastTitle = _localizationService.GetString("Dialog_Update_NoUpdates_Title") ?? "No Updates Available";
+                UpdateToastMessage = _localizationService.GetString("Dialog_Update_NoUpdates_Message") ?? "You have the latest version of win-optimizer.";
                 break;
 
-            case UpdateInfoBarState.CheckError:
-                UpdateInfoBarTitle = _localizationService.GetString("Dialog_Update_CheckError_Title") ?? "Update Check Error";
+            case UpdateToastState.CheckError:
+                UpdateToastTitle = _localizationService.GetString("Dialog_Update_CheckError_Title") ?? "Update Check Error";
                 var errorTemplate = _localizationService.GetString("Dialog_Update_CheckError_Message") ?? "An error occurred while checking for updates: {0}";
-                UpdateInfoBarMessage = string.Format(errorTemplate, _cachedErrorMessage);
+                UpdateToastMessage = string.Format(errorTemplate, _cachedErrorMessage);
                 break;
 
-            case UpdateInfoBarState.Downloading:
-                UpdateInfoBarTitle = _localizationService.GetString("Dialog_Update_Status_Downloading") ?? "Downloading update...";
-                UpdateInfoBarMessage = string.Empty;
+            case UpdateToastState.Downloading:
+                UpdateToastTitle = _localizationService.GetString("Dialog_Update_Status_Downloading") ?? "Downloading update...";
+                UpdateToastMessage = string.Empty;
                 break;
 
-            case UpdateInfoBarState.DownloadFailed:
-                UpdateInfoBarTitle = _localizationService.GetString("Dialog_Update_CheckError_Title") ?? "Update Error";
+            case UpdateToastState.DownloadFailed:
+                UpdateToastTitle = _localizationService.GetString("Dialog_Update_CheckError_Title") ?? "Update Error";
                 var downloadError = _localizationService.GetString("Dialog_Update_Status_Error") ?? "Error downloading update: {0}";
-                UpdateInfoBarMessage = string.Format(downloadError, _cachedErrorMessage);
+                UpdateToastMessage = string.Format(downloadError, _cachedErrorMessage);
                 break;
 
-            case UpdateInfoBarState.UpdateDownloaded:
-                UpdateInfoBarTitle = _localizationService.GetString("Dialog_Update_Installed_Title") ?? "Update Ready";
-                UpdateInfoBarMessage = _localizationService.GetString("Dialog_Update_Installed_Message") ?? "The update has been downloaded. Click Relaunch to install and restart win-optimizer.";
+            case UpdateToastState.UpdateDownloaded:
+                UpdateToastTitle = _localizationService.GetString("Dialog_Update_Installed_Title") ?? "Update Ready";
+                UpdateToastMessage = _localizationService.GetString("Dialog_Update_Installed_Message") ?? "The update has been downloaded. Click Relaunch to install and restart win-optimizer.";
                 break;
         }
     }

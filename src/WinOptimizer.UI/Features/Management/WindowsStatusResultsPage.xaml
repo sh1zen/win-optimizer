@@ -1,0 +1,79 @@
+<Page x:Class="WinOptimizer.UI.Features.Management.WindowsStatusResultsPage"
+    xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:common="using:WinOptimizer.UI.Features.Common.Controls"
+    xmlns:local="using:WinOptimizer.UI.Features.Management"
+    xmlns:converters="using:WinOptimizer.UI.Features.Common.Converters"
+    xmlns:fluent="using:FluentIcons.WinUI">
+    <Page.Resources>
+        <converters:BooleanToVisibilityConverter x:Key="ReportVisibilityConverter"/>
+    </Page.Resources>
+    <ScrollViewer Style="{StaticResource PageScrollViewerStyle}">
+        <StackPanel Style="{StaticResource PageStackStyle}">
+            <common:PageHeader Title="{x:Bind ViewModel.ResultsLabel, Mode=OneWay}"
+                               Description="{x:Bind ViewModel.ReportActionLabel, Mode=OneWay}" Icon="DocumentText"/>
+            <local:WindowsStatusProgressView ViewModel="{x:Bind ViewModel}"
+                Visibility="{x:Bind ViewModel.IsOperationRunning, Mode=OneWay, Converter={StaticResource ReportVisibilityConverter}}"/>
+            <InfoBar IsOpen="{x:Bind ViewModel.ShowModeNotice, Mode=OneWay}" Message="{x:Bind ViewModel.ModeNotice, Mode=OneWay}" IsClosable="False"
+                     Visibility="{x:Bind ViewModel.ShowModeNotice, Mode=OneWay, Converter={StaticResource ReportVisibilityConverter}}"/>
+            <InfoBar IsOpen="{x:Bind ViewModel.HasStatus, Mode=OneWay}" Message="{x:Bind ViewModel.ReportActionError, Mode=OneWay}"
+                     Severity="{x:Bind ViewModel.StatusSeverity, Mode=OneWay}" IsClosable="False"
+                     Visibility="{x:Bind ViewModel.HasStatus, Mode=OneWay, Converter={StaticResource ReportVisibilityConverter}}"/>
+            <Border x:Name="ReportCard" Style="{StaticResource PageCardStyle}" Padding="24"
+                    Visibility="{x:Bind ViewModel.HasReport, Mode=OneWay, Converter={StaticResource ReportVisibilityConverter}}">
+                <Grid ColumnSpacing="16" SizeChanged="ReportLayout_SizeChanged">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto"/>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="Auto"/>
+                    </Grid.RowDefinitions>
+                    <Border Width="56" Height="56" VerticalAlignment="Top" CornerRadius="{StaticResource PageIconCornerRadius}">
+                        <Grid>
+                            <Border CornerRadius="{StaticResource PageIconCornerRadius}"
+                                    Background="{ThemeResource AccentFillColorDefaultBrush}" Opacity="0.16"/>
+                            <fluent:FluentIcon Icon="{x:Bind ViewModel.ReportIcon, Mode=OneWay}" FontSize="28"
+                                               Foreground="{ThemeResource AccentTextFillColorPrimaryBrush}"
+                                               HorizontalAlignment="Center" VerticalAlignment="Center" AutomationProperties.AccessibilityView="Raw"/>
+                        </Grid>
+                    </Border>
+                    <StackPanel x:Name="ReportContent" Grid.Column="1" Spacing="8" MaxWidth="760" HorizontalAlignment="Left">
+                        <TextBlock x:Name="ReportHeading" Text="{x:Bind ViewModel.ReportTitle, Mode=OneWay}" FontSize="24" FontWeight="SemiBold"
+                                   TextWrapping="Wrap" AutomationProperties.HeadingLevel="Level2" AutomationProperties.LiveSetting="Polite"/>
+                        <TextBlock x:Name="ReportMessage" Text="{x:Bind ViewModel.ReportSummary, Mode=OneWay}" FontSize="16" TextWrapping="Wrap"
+                                   Foreground="{ThemeResource TextFillColorSecondaryBrush}"
+                                   Visibility="{x:Bind ShowText(ViewModel.ReportSummary), Mode=OneWay}"/>
+                        <TextBlock x:Name="HealthOutcome" Text="{x:Bind ViewModel.ReportHealthNote, Mode=OneWay}" TextWrapping="Wrap" FontWeight="SemiBold"
+                                   Visibility="{x:Bind ShowText(ViewModel.ReportHealthNote), Mode=OneWay}"/>
+                        <TextBlock x:Name="StoreSize" Text="{x:Bind ViewModel.StoreSize, Mode=OneWay}" TextWrapping="Wrap"
+                                   Visibility="{x:Bind ShowText(ViewModel.StoreSize), Mode=OneWay}"/>
+                        <TextBlock x:Name="StoreCleanupAdvice" Text="{x:Bind ViewModel.StoreCleanupAdvice, Mode=OneWay}" TextWrapping="Wrap"
+                                   Visibility="{x:Bind ShowText(ViewModel.StoreCleanupAdvice), Mode=OneWay}"/>
+                        <StackPanel Spacing="2" Margin="0,4,0,0" Visibility="{x:Bind ShowText(ViewModel.ProblemCount), Mode=OneWay}">
+                            <TextBlock x:Name="ProblemCount" Text="{x:Bind ViewModel.ProblemCount, Mode=OneWay}" TextWrapping="Wrap" FontWeight="SemiBold"/>
+                            <TextBlock x:Name="ProblemCategory" Text="{x:Bind ViewModel.ProblemCategory, Mode=OneWay}" TextWrapping="Wrap"
+                                       Foreground="{ThemeResource TextFillColorSecondaryBrush}"/>
+                        </StackPanel>
+                    </StackPanel>
+                    <Button x:Name="ReportRepairButton" Grid.Column="2" HorizontalAlignment="Right" VerticalAlignment="Center"
+                            Command="{x:Bind ViewModel.RunCommand}" CommandParameter="Repair"
+                            Style="{StaticResource AccentButtonStyle}" Padding="16,10" MinHeight="44"
+                            AutomationProperties.Name="{x:Bind ViewModel.ReportRepairLabel, Mode=OneWay}"
+                            Visibility="{x:Bind ViewModel.NeedsRepair, Mode=OneWay, Converter={StaticResource ReportVisibilityConverter}}">
+                        <Grid ColumnSpacing="8">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <fluent:FluentIcon Icon="Wrench" FontSize="18" VerticalAlignment="Center" AutomationProperties.AccessibilityView="Raw"/>
+                            <TextBlock Grid.Column="1" Text="{x:Bind ViewModel.ReportRepairLabel, Mode=OneWay}" FontWeight="SemiBold" TextWrapping="Wrap"/>
+                        </Grid>
+                    </Button>
+                </Grid>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</Page>

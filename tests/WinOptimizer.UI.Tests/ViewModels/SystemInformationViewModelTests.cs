@@ -2,6 +2,7 @@ using Moq;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.SystemInformation.Interfaces;
 using WinOptimizer.Core.Features.SystemInformation.Models;
+using WinOptimizer.UI.Features.Common.Services;
 using WinOptimizer.UI.Features.SystemInformation.ViewModels;
 using Xunit;
 
@@ -12,6 +13,7 @@ public sealed class SystemInformationViewModelTests : IDisposable
     private readonly Mock<ISystemInformationService> _service = new();
     private readonly Mock<ILocalizationService> _localization = new();
     private readonly SystemInformationViewModel _vm;
+    private readonly ScanCancellationNotifications _notifications = new();
 
     private static SystemInformationItem Item(string name) => new(name,
         [new("SystemInfo_Field_Model", new SystemInformationText("Example model")),
@@ -33,7 +35,7 @@ public sealed class SystemInformationViewModelTests : IDisposable
             _ => key
         });
         _service.Setup(x => x.ReadAsync(It.IsAny<CancellationToken>())).ReturnsAsync(Snapshot());
-        _vm = new(_service.Object, _localization.Object);
+        _vm = new(_service.Object, _localization.Object, _notifications);
     }
 
     private SystemInformationCategoryViewModel Category(SystemInformationCategory id) =>
@@ -231,18 +233,26 @@ public sealed class SystemInformationViewModelTests : IDisposable
     [Fact]
     public async Task Cancel_StopsCollectionAndDoesNotPublishALateSnapshot()
     {
+        var notices = new List<ScanCancellationNotice>();
+        _notifications.Cancelled += notices.Add;
+        await _vm.InitializeAsync();
+        _vm.SelectedCategory = Category(SystemInformationCategory.Drivers);
+        var previous = _vm.CollectedAt;
         var completion = new TaskCompletionSource<SystemInformationSnapshot>();
         CancellationToken token = default;
         _service.Setup(x => x.ReadAsync(It.IsAny<CancellationToken>())).Returns((CancellationToken ct) => { token = ct; return completion.Task; });
-        var operation = _vm.InitializeAsync();
+        var operation = _vm.RefreshCommand.ExecuteAsync(null);
         _vm.CancelCommand.Execute(null);
         Assert.True(token.IsCancellationRequested);
         Assert.Equal("SystemInfo_Cancelling", _vm.Status);
-        completion.SetResult(Snapshot());
+        Assert.Empty(notices);
+        completion.SetResult(Snapshot() with { CollectedAt = DateTimeOffset.UtcNow });
         await operation;
-        Assert.Empty(_vm.Categories);
+        Assert.Equal(previous, _vm.CollectedAt);
         Assert.Equal("SystemInfo_Cancelled", _vm.Status);
         Assert.True(_vm.IsIdle);
+        Assert.True(_vm.IsOverview);
+        Assert.Equal("SystemInfo_Cancelled", Assert.Single(notices).Message);
     }
 
     [Fact]

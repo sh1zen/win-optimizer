@@ -45,12 +45,15 @@ public sealed record DriverPayload(Uri Url, DriverHash[] Hashes);
 public sealed record DriverIdentifier(string Value, DriverIdentifierKind Kind, int Order);
 public sealed record DriverTarget(string Architecture = "", int? MinBuild = null, int? MaxBuild = null,
     string Oem = "", string Model = "", string Os = "");
+/// <summary>Effective DriverVer and identifiers for a platform-selected DDInstall section.</summary>
+public sealed record DriverInstallSection(string Name, string Version, string Date, DriverIdentifier[] Identifiers);
 public sealed record DriverComponent(string Inf, string ClassName, string Provider, string Version, string Date,
     DriverIdentifier[] Identifiers, string[] ModelsSections, string InfSha256, string CatalogSha256,
     string Signer, bool SignatureValid, DriverCertification Certification)
 {
     public string Catalog { get; init; } = "";
     public string ExtensionId { get; init; } = "";
+    public DriverInstallSection[] InstallSections { get; init; } = [];
 }
 
 public sealed record DriverCatalogRecord(DriverSourceReference[] References, DriverPayload[] Payloads)
@@ -64,6 +67,7 @@ public sealed record DriverCatalogRecord(DriverSourceReference[] References, Dri
     public bool ClaimsWhql { get; init; }
     public bool OemRecommended { get; init; }
     public bool LicenseRequired { get; init; }
+    public Uri? ScanLicensePage { get; init; }
     public DriverVerification Verification { get; init; }
     public string VerificationDetail { get; init; } = "";
     public string[] ContentSha256 { get; init; } = [];
@@ -76,7 +80,19 @@ public sealed record DriverCatalogRecord(DriverSourceReference[] References, Dri
 public sealed record DriverDeviceMatch(DriverDevice Device, DriverComponent Component, DriverIdentifier DeviceIdentifier,
     DriverIdentifier InfIdentifier, DriverVersionRelation VersionRelation, bool MoreSpecificIdentifier)
 {
+    public DriverInstallSection? InstallSection { get; init; }
+    public string Version => InstallSection?.Version ?? Component.Version;
+    public string Date => InstallSection?.Date ?? Component.Date;
     public bool NewestFound { get; init; }
+    public bool LessSpecificIdentifier { get; init; }
 }
 
 public sealed record DriverPackageResult(DriverUpdate Update, string? OutputPath = null);
+
+/// <summary>Transfer limits for official packages and the source-specific automatic verification policy.</summary>
+public static class DriverPackageLimits
+{
+    public const long MaximumBytes = 2L * 1024 * 1024 * 1024;
+
+    public static long AutomaticBytes(DriverSources source) => source == DriverSources.Nvidia ? MaximumBytes : 256L * 1024 * 1024;
+}

@@ -274,6 +274,45 @@ public sealed class WindowsServicingTests
         Assert.Equal(WindowsImageHealth.Unknown, result.Health);
     }
 
+    [Theory]
+    [InlineData("Detect only", 2, false, false, 2, 1)]
+    [InlineData("Detect only", 3, false, false, 3, null)]
+    [InlineData("Detect only", 2, false, true, 2, null)]
+    [InlineData("Detect only", 2, true, false, null, null)]
+    [InlineData("Detect and Repair", 2, false, false, null, null)]
+    public async Task FullScanUsesOnlyTheNewUnambiguousDetectionSummary(string operation, int total, bool duplicate, bool unidentified,
+        int? expectedProblems, int? expectedComponents)
+    {
+        using var log = new MemoryStream();
+        log.Write(Encoding.UTF8.GetBytes("Checking System Update Readiness.\nOperation: Detect only\nTotal Detected Corruption: 51\n"));
+        var files = new Mock<IFileSystemService>();
+        files.Setup(service => service.FileExists(It.IsAny<string>())).Returns(true);
+        files.Setup(service => service.OpenReadShared(It.IsAny<string>())).Returns(log);
+        var process = new Mock<IProcessExecutor>();
+        process.Setup(executor => executor.ExecuteWithStreamingAsync(It.IsAny<string>(), It.IsAny<string>(), null, null, CancellationToken.None))
+            .Callback(() =>
+            {
+                var summary = $"""
+                    2026-01-01 00:00:00, Info CBS    Checking System Update Readiness.
+                    (p) CSI Payload Corrupt (n) amd64_microsoft-windows-example_31bf3856ad364e35_10.0.26100.1_none_23b3b3ece690d77b\first.dll
+                    (p) CSI Payload Corrupt (n) amd64_microsoft-windows-example_31bf3856ad364e35_10.0.26100.1_none_23b3b3ece690d77b\second.dll
+                    {(unidentified ? "(p) CSI Store Metadata Corrupt\n" : "")}Summary:
+                    Operation: {operation}
+                    Total Detected Corruption: {total}
+                    """ + "\n";
+                log.Write(Encoding.UTF8.GetBytes(duplicate ? summary + summary : summary));
+            })
+            .ReturnsAsync(new ProcessExecutionResult { StandardOutput = """{"Success":true,"ExitCode":0,"Health":"Repairable","RestartNeeded":false,"Output":"Scan completed"}""" });
+        var backend = new WindowsServicingBackend(process.Object, Mock.Of<IDismProcessRunner>(), files.Object);
+
+        var result = await backend.RunStepAsync(WindowsServicingStep.ScanHealth, new(WindowsServicingAction.Diagnosis), CancellationToken.None);
+
+        Assert.Equal(WindowsImageHealth.Repairable, result.Health);
+        Assert.Equal(expectedProblems.HasValue
+            ? new WindowsComponentStoreFindings(expectedProblems.Value, expectedComponents, expectedComponents == 1 ? "microsoft-windows-example" : null)
+            : null, result.StoreFindings);
+    }
+
     [Fact]
     public async Task AnalysisUsesTheSharedDismRunnerWithFixedOnlineArguments()
     {
@@ -283,6 +322,29 @@ public sealed class WindowsServicingTests
         var result = await backend.RunStepAsync(WindowsServicingStep.AnalyzeStore, new(WindowsServicingAction.AnalyzeStore), CancellationToken.None);
         Assert.True(result.Succeeded); Assert.True(result.RestartNeeded);
         runner.Verify(dism => dism.RunProcessWithProgressAsync(It.IsAny<string>(), "/Online /English /NoRestart /Cleanup-Image /AnalyzeComponentStore", null, CancellationToken.None), Times.Once);
+    }
+
+    [Theory]
+    [InlineData(0, "8.25 GB", "Yes", 8858370048L, true)]
+    [InlineData(0, "512 bytes", "No", 512L, false)]
+    [InlineData(0, "unknown", "No", null, false)]
+    [InlineData(0, "1.00 KB", "unknown", 1024L, null)]
+    [InlineData(0, "unknown", "unknown", null, null)]
+    [InlineData(5, "8.25 GB", "Yes", null, null)]
+    public async Task AnalysisExposesOnlyReportedMeasurementsAndAdvice(int exitCode, string size, string advice,
+        long? expectedSize, bool? expectedAdvice)
+    {
+        var output = $"Windows Explorer Reported Size of Component Store : 15.00 GB\r\nActual Size of Component Store : {size}\r\nComponent Store Cleanup Recommended : {advice}";
+        var runner = new Mock<IDismProcessRunner>();
+        runner.Setup(dism => dism.RunProcessWithProgressAsync(It.IsAny<string>(), It.IsAny<string>(), null, CancellationToken.None))
+            .ReturnsAsync((exitCode, output));
+        var backend = new WindowsServicingBackend(Mock.Of<IProcessExecutor>(), runner.Object, Mock.Of<IFileSystemService>());
+
+        var result = await backend.RunStepAsync(WindowsServicingStep.AnalyzeStore, new(WindowsServicingAction.AnalyzeStore), CancellationToken.None);
+
+        WindowsComponentStoreAnalysis? expected = expectedSize.HasValue || expectedAdvice.HasValue ? new(expectedSize, expectedAdvice) : null;
+        Assert.Equal(expected, result.StoreAnalysis);
+        Assert.Equal(output, result.Output);
     }
 
     [Theory]

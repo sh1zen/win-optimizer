@@ -61,7 +61,6 @@ public sealed record DriverScanReport(DriverInventory Inventory, IReadOnlyList<D
     bool UpdatesChecked, int ExcludedUpdates, IReadOnlyList<string> Notices, DriverScanOptions Options)
 {
     public IReadOnlyList<DriverSourceOutcome> Sources { get; init; } = [];
-    public IReadOnlyList<DriverUpdateMatch> Filtered { get; init; } = [];
 }
 
 /// <summary>Milestones in the scan workflow. Within-stage updates leave the phase unspecified.</summary>
@@ -70,6 +69,10 @@ public enum DriverScanPhase { None, DetectDevices, CheckSources, PrepareResults 
 public sealed record DriverScanProgress(string Stage, int Completed = 0, int Total = 0)
 {
     public DriverScanPhase Phase { get; init; }
+    public long? BytesTransferred { get; init; }
+    public long? TotalBytes { get; init; }
+    /// <summary>Resource keys for the package stages active in the verification queue.</summary>
+    public IReadOnlyList<string> ActivePackageStages { get; init; } = [];
 }
 
 /// <summary>Contextual failures at the driver inventory, Windows Update or package-verification boundary.</summary>

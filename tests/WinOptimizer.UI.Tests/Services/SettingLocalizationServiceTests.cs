@@ -116,26 +116,15 @@ public class SettingLocalizationServiceTests
         result.VersionCompatibilityMessage.Should().Be("Some raw message");
     }
 
-    [Fact]
-    public void BuildCrossGroupInfoMessage_WhenNoCustomProperties_ReturnsNull()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void BuildCrossGroupInfoMessage_WithoutCrossGroupSettings_ReturnsNull(bool hasEmptyDictionary)
     {
         var sut = CreateSut();
-        var setting = CreateTestSetting();
+        var setting = CreateTestSetting(crossGroupChildSettings: hasEmptyDictionary ? new Dictionary<string, string>() : null);
 
-        var result = sut.BuildCrossGroupInfoMessage(setting);
-
-        result.Should().BeNull();
-    }
-
-    [Fact]
-    public void BuildCrossGroupInfoMessage_WhenNoCrossGroupSettings_ReturnsNull()
-    {
-        var sut = CreateSut();
-        var setting = CreateTestSetting(crossGroupChildSettings: new Dictionary<string, string>());
-
-        var result = sut.BuildCrossGroupInfoMessage(setting);
-
-        result.Should().BeNull();
+        sut.BuildCrossGroupInfoMessage(setting).Should().BeNull();
     }
 
     [Fact]

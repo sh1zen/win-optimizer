@@ -206,15 +206,18 @@ public partial class MainWindowViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(TrialModeBlockedMessage));
 
         // Nav bar text
+        OnPropertyChanged(nameof(NavDashboardText));
         OnPropertyChanged(nameof(NavSoftwareAppsText));
         OnPropertyChanged(nameof(NavOptimizeText));
         OnPropertyChanged(nameof(NavInternetText));
         OnPropertyChanged(nameof(NavCleanerText));
+        OnPropertyChanged(nameof(NavDisksText));
         OnPropertyChanged(nameof(NavDriversText));
-        OnPropertyChanged(nameof(NavFunctionalitiesText));
         OnPropertyChanged(nameof(NavManagementText));
+        OnPropertyChanged(nameof(NavRepairText));
         OnPropertyChanged(nameof(NavSecurityText));
         OnPropertyChanged(nameof(NavCustomizeText));
+        OnPropertyChanged(nameof(NavFunctionalitiesText));
         OnPropertyChanged(nameof(NavAdvancedToolsText));
         OnPropertyChanged(nameof(NavSettingsText));
 
@@ -294,6 +297,8 @@ public partial class MainWindowViewModel : ObservableObject, IDisposable
         _localizationService.GetString("Tooltip_Documentation") ?? "Documentation";
 
     // Nav bar text
+    public string NavDashboardText => _localizationService.GetString("Nav_Dashboard");
+
     public string NavSoftwareAppsText =>
         _localizationService.GetString("Nav_SoftwareAndApps") ?? "Software & Apps";
 
@@ -304,14 +309,17 @@ public partial class MainWindowViewModel : ObservableObject, IDisposable
 
     public string NavCleanerText =>
         _localizationService.GetString("Nav_Cleaner") ?? "Cleaner";
+    public string NavDisksText => _localizationService.GetString("Nav_Disks");
 
     public string NavDriversText => _localizationService.GetString("Nav_Drivers") ?? "Drivers";
-    public string NavFunctionalitiesText => _localizationService.GetString("Nav_Functionalities");
     public string NavManagementText => _localizationService.GetString("Nav_Management");
+    public string NavRepairText => _localizationService.GetString("WindowsStatus_Title");
     public string NavSecurityText => _localizationService.GetString("Security_Title");
 
     public string NavCustomizeText =>
         _localizationService.GetString("Nav_Customize") ?? "Customize";
+
+    public string NavFunctionalitiesText => _localizationService.GetString("Nav_Functionalities");
 
     public string NavAdvancedToolsText =>
         _localizationService.GetString("Nav_AdvancedTools") ?? "Advanced Tools";

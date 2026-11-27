@@ -13,8 +13,6 @@ public sealed class NetworkTuningOriginalStore(IFileSystemService files)
 
     internal NetworkTuningOriginalStore(IFileSystemService files, string directory) : this(files) => _directory = directory;
 
-    internal Task<NetworkTuningValue?> ReadAsync(string id) => ReadFileAsync(GetPath(id));
-
     /// <summary>Returns the saved original or atomically publishes the first available value.</summary>
     internal async Task<NetworkTuningValue?> GetOrCaptureAsync(NetworkTuningState state)
     {

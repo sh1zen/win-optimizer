@@ -139,42 +139,24 @@ public class WimImageFormatViewModelTests : IDisposable
         _sut.EsdFileSize.Should().NotBeEmpty();
     }
 
-    [Fact]
-    public async Task DetectImageFormatAsync_WhenNoFormatDetected_HidesConversionCard()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task DetectImageFormatAsync_HidesTheVisibleCardWhenDetectionIsEmptyOrFails(bool fails)
     {
-        var detection = new ImageDetectionResult();
+        _sut.WorkingDirectory = "Test media";
+        _mockWimImageService.Setup(service => service.DetectAllImageFormatsAsync("Test media"))
+            .ReturnsAsync(new ImageDetectionResult { WimInfo = new ImageFormatInfo { Format = ImageFormat.Wim } });
+        await _sut.DetectImageFormatAsync();
+        Assert.True(_sut.ShowConversionCard);
 
-        _mockWimImageService
-            .Setup(s => s.DetectAllImageFormatsAsync(It.IsAny<string>()))
-            .ReturnsAsync(detection);
+        var nextDetection = _mockWimImageService.Setup(service => service.DetectAllImageFormatsAsync("Test media"));
+        if (fails) nextDetection.ThrowsAsync(new IOException("Detection failed"));
+        else nextDetection.ReturnsAsync(new ImageDetectionResult());
 
         await _sut.DetectImageFormatAsync();
 
-        _sut.ShowConversionCard.Should().BeFalse();
-    }
-
-    [Fact]
-    public async Task DetectImageFormatAsync_WhenExceptionThrown_HidesConversionCard()
-    {
-        _mockWimImageService
-            .Setup(s => s.DetectAllImageFormatsAsync(It.IsAny<string>()))
-            .ThrowsAsync(new Exception("Detection error"));
-
-        await _sut.DetectImageFormatAsync();
-
-        _sut.ShowConversionCard.Should().BeFalse();
-    }
-
-    [Fact]
-    public async Task SafeDetectImageFormatAsync_SwallowsExceptions()
-    {
-        _mockWimImageService
-            .Setup(s => s.DetectAllImageFormatsAsync(It.IsAny<string>()))
-            .ThrowsAsync(new Exception("Unhandled error"));
-
-        var act = () => _sut.SafeDetectImageFormatAsync();
-
-        await act.Should().NotThrowAsync();
+        Assert.False(_sut.ShowConversionCard);
     }
 
     [Fact]

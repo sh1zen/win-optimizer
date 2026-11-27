@@ -41,37 +41,4 @@ public class ConfigRegistryInitializerTests
                 Times.Never());
     }
 
-    [Fact]
-    public async Task EnsureInitializedAsync_CalledTwice_SecondCallIsNoOp()
-    {
-        // First call: not initialized
-        var callCount = 0;
-        _mockRegistry.Setup(r => r.IsInitialized)
-            .Returns(() => callCount > 0);
-        _mockRegistry.Setup(r => r.InitializeAsync())
-            .Callback(() => callCount++)
-            .Returns(Task.CompletedTask);
-
-        var preloadCount = 0;
-        _mockPreloader.Setup(p => p.IsPreloaded)
-            .Returns(() => preloadCount > 0);
-        _mockPreloader.Setup(p => p.PreloadAllSettingsAsync())
-            .Callback(() => preloadCount++)
-            .Returns(Task.CompletedTask);
-
-        // First call initializes
-        await ConfigRegistryInitializer.EnsureInitializedAsync(
-            _mockRegistry.Object,
-            _mockPreloader.Object,
-            _mockLogService.Object);
-
-        // Second call should be idempotent
-        await ConfigRegistryInitializer.EnsureInitializedAsync(
-            _mockRegistry.Object,
-            _mockPreloader.Object,
-            _mockLogService.Object);
-
-        _mockRegistry.Verify(r => r.InitializeAsync(), Times.Once);
-        _mockPreloader.Verify(p => p.PreloadAllSettingsAsync(), Times.Once);
-    }
 }

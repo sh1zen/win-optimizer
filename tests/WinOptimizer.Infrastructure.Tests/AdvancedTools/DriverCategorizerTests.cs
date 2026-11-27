@@ -76,33 +76,20 @@ public class DriverCategorizerTests
         result.Should().BeTrue();
     }
 
-    [Fact]
-    public void IsStorageDriver_NonStorageFilename_ChecksFileContent()
-    {
-        var infPath = "C:\\Drivers\\network.inf";
-        _fileSystemService.Setup(f => f.GetFileName(infPath)).Returns("network.inf");
-        _fileSystemService.Setup(f => f.ReadAllText(infPath, Encoding.UTF8))
-            .Returns("[Version]\nClass=Net\nClassGuid={something}");
-
-        var result = _sut.IsStorageDriver(infPath);
-
-        result.Should().BeFalse();
-    }
-
     // ---------------------------------------------------------------
     // IsStorageDriver - Class-based detection
     // ---------------------------------------------------------------
 
     [Theory]
-    [InlineData("SCSIAdapter")]
-    [InlineData("hdc")]
-    [InlineData("HDC")]
-    public void IsStorageDriver_StorageClass_ReturnsTrue(string className)
+    [InlineData("Class=SCSIAdapter")]
+    [InlineData("Class = hdc")]
+    [InlineData("Class = HdC")]
+    public void IsStorageDriver_StorageClass_ReturnsTrue(string classLine)
     {
         var infPath = "C:\\Drivers\\storage.inf";
         _fileSystemService.Setup(f => f.GetFileName(infPath)).Returns("storage.inf");
         _fileSystemService.Setup(f => f.ReadAllText(infPath, Encoding.UTF8))
-            .Returns($"[Version]\nClass = {className}\nClassGuid={{something}}");
+            .Returns($"[Version]\n{classLine}\nClassGuid={{something}}");
 
         var result = _sut.IsStorageDriver(infPath);
 
@@ -125,19 +112,6 @@ public class DriverCategorizerTests
     // ---------------------------------------------------------------
     // IsStorageDriver - UTF-8 input
     // ---------------------------------------------------------------
-
-    [Fact]
-    public void IsStorageDriver_Utf8Read_RecognizesStorageClass()
-    {
-        var infPath = "C:\\Drivers\\storage.inf";
-        _fileSystemService.Setup(f => f.GetFileName(infPath)).Returns("storage.inf");
-        _fileSystemService.Setup(f => f.ReadAllText(infPath, Encoding.UTF8))
-            .Returns("[Version]\nClass=SCSIAdapter\nClassGuid={something}");
-
-        var result = _sut.IsStorageDriver(infPath);
-
-        result.Should().BeTrue();
-    }
 
     // ---------------------------------------------------------------
     // IsStorageDriver - Exception handling

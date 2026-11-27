@@ -110,52 +110,21 @@ public class ConfigLoadServiceTests
     // LoadUserBackupConfigurationAsync
     // -------------------------------------------------------
 
-    [Fact]
-    public async Task LoadUserBackupConfigurationAsync_WhenDirectoryDoesNotExist_ShowsMessageAndReturnsNull()
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task LoadUserBackupConfigurationAsync_WithoutBackups_ShowsMessageAndReturnsNull(bool directoryExists)
     {
-        _mockInteractiveUserService
-            .Setup(s => s.GetInteractiveUserFolderPath(It.IsAny<Environment.SpecialFolder>()))
-            .Returns(@"C:\Users\Test\AppData\Local");
-
-        _mockFileSystemService
-            .Setup(fs => fs.CombinePath(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
-            .Returns(@"C:\Users\Test\AppData\Local\win-optimizer\Backup");
-
-        _mockFileSystemService
-            .Setup(fs => fs.DirectoryExists(It.IsAny<string>()))
-            .Returns(false);
-
-        var service = CreateService();
-        var result = await service.LoadUserBackupConfigurationAsync();
-
-        result.Should().BeNull();
-        _mockDialogService.Verify(d => d.ShowMessage(It.IsAny<string>(), It.IsAny<string>()), Times.Once);
-    }
-
-    [Fact]
-    public async Task LoadUserBackupConfigurationAsync_WhenNoBackupFiles_ShowsMessageAndReturnsNull()
-    {
-        _mockInteractiveUserService
-            .Setup(s => s.GetInteractiveUserFolderPath(It.IsAny<Environment.SpecialFolder>()))
-            .Returns(@"C:\Users\Test\AppData\Local");
-
-        _mockFileSystemService
-            .Setup(fs => fs.CombinePath(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
-            .Returns(@"C:\Users\Test\AppData\Local\win-optimizer\Backup");
-
-        _mockFileSystemService
-            .Setup(fs => fs.DirectoryExists(It.IsAny<string>()))
-            .Returns(true);
-
-        _mockFileSystemService
-            .Setup(fs => fs.GetFiles(It.IsAny<string>(), It.IsAny<string>()))
+        _mockFileSystemService.Setup(fs => fs.DirectoryExists(It.IsAny<string>())).Returns(directoryExists);
+        _mockFileSystemService.Setup(fs => fs.GetFiles(It.IsAny<string>(), It.IsAny<string>()))
             .Returns(Array.Empty<string>());
 
-        var service = CreateService();
-        var result = await service.LoadUserBackupConfigurationAsync();
+        var result = await CreateService().LoadUserBackupConfigurationAsync();
 
         result.Should().BeNull();
         _mockDialogService.Verify(d => d.ShowMessage(It.IsAny<string>(), It.IsAny<string>()), Times.Once);
+        _mockFileSystemService.Verify(fs => fs.GetFiles(It.IsAny<string>(), It.IsAny<string>()),
+            directoryExists ? Times.Once() : Times.Never());
     }
 
     // -------------------------------------------------------

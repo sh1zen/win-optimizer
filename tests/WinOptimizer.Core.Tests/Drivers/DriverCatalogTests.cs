@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using Moq;
 using WinOptimizer.Core.Features.Drivers.Interfaces;
 using WinOptimizer.Core.Features.Drivers.Models;
@@ -65,6 +66,30 @@ public sealed class DriverCatalogTests
         Assert.True(comparison.MoreSpecificIdentifier);
     }
 
+    [Theory]
+    [InlineData("40.0.0.0", "31.0.0.0", false)]
+    [InlineData("20.0.0.0", "32.0.0.0", true)]
+    public void UsesDriverVerFromTheInstallSectionForTheMatchedDevice(string global, string effective, bool upgrade)
+    {
+        var component = Inf(Subsystem, global, date: "2025-03-01") with
+        {
+            InstallSections =
+            [
+                new("Other.NTamd64", "99.0.0.0", "2026-01-01", [new(BaseId, DriverIdentifierKind.Hardware, 0)]),
+                new("Device.NTamd64", effective, "2025-03-01", [new(Subsystem, DriverIdentifierKind.Hardware, 0)])
+            ]
+        };
+        var update = Candidate("per-device", components: [component]);
+
+        var comparisons = DriverCatalogMatching.Evaluate(update, Inventory).Comparisons;
+        var matched = Assert.Single(comparisons, item => item.DeviceIdentifier.Value == Subsystem);
+        Assert.Equal(effective, matched.Version);
+        Assert.Equal(1, matched.InfIdentifier.Order + 1);
+        var (updates, _) = DriverCatalogMatching.ClassifyCandidates([update], Inventory, new(), default);
+        if (upgrade) Assert.Equal(effective, Assert.Single(updates).Update.Version);
+        else Assert.Empty(updates);
+    }
+
     [Fact]
     public void SubsystemAndOemAndBuildAreIndependentRestrictions()
     {
@@ -106,19 +131,206 @@ public sealed class DriverCatalogTests
     }
 
     [Fact]
-    public void NewestVerifiedVersionIsCalculatedPerChannelAndDeviceMatch()
+    public void NewestVerifiedUpgradeIsSelectedPerChannelAndDeviceMatch()
     {
         var studio = Candidate("studio", components: [Inf(Subsystem, "32.1", date: "2026-03-01")]);
         var older = Candidate("studio-old", components: [Inf(Subsystem, "34.0", date: "2026-01-01")]);
         var gaming = Candidate("grd", branch: "Game Ready", components: [Inf(Subsystem, "32.0", date: "2026-02-01")]);
-        var results = DriverCatalogMatching.MarkNewest(new[] { studio, older, gaming }.Select(update => DriverCatalogMatching.Evaluate(update, Inventory)).ToArray());
+        var (results, excluded) = DriverCatalogMatching.ClassifyCandidates([studio, older, gaming], Inventory, new(), default);
+        Assert.Equal(["studio", "grd"], results.Select(result => result.Update.Id));
+        Assert.Equal(1, excluded);
         Assert.True(Assert.Single(results[0].Comparisons).NewestFound);
-        Assert.False(Assert.Single(results[1].Comparisons).NewestFound);
-        Assert.True(Assert.Single(results[2].Comparisons).NewestFound);
+        Assert.True(Assert.Single(results[1].Comparisons).NewestFound);
     }
 
     [Fact]
-    public async Task SourcesShareSnapshotAndFailureDoesNotHideCandidatesOrFilteredEvidence()
+    public void GenericUpgradeCannotDisplaceAnInstalledSubsystemMatch()
+    {
+        var inventory = Inventory with { Devices = [Device with { MatchingDeviceId = Subsystem }] };
+        var generic = Candidate("generic", components: [Inf(BaseId)]);
+
+        var (results, _) = DriverCatalogMatching.ClassifyCandidates([generic], inventory, new() { OnlyWhqlUpdates = false }, default);
+
+        Assert.Empty(results);
+    }
+
+    [Fact]
+    public void EquivalentOffersFromTheMicrosoftFeedsPreferTheNativeOffer()
+    {
+        var catalog = Candidate("catalog", DriverSources.MicrosoftCatalog, branch: "", components: [Inf(Subsystem)]);
+        var native = Candidate("native", DriverSources.WindowsUpdate, branch: "Windows Update", components: [Inf(Subsystem)]);
+
+        var (results, _) = DriverCatalogMatching.ClassifyCandidates([catalog, native], Inventory, new(), default);
+
+        Assert.Equal(native.Id, Assert.Single(results).Update.Id);
+    }
+
+    [Fact]
+    public async Task AutomaticVerificationPrioritizesMatchingHardwareAndRetriesTheGroupWithWhqlDisabled()
+    {
+        var inventory = new Mock<IDriverInventorySource>();
+        inventory.Setup(source => source.ReadAsync(It.IsAny<CancellationToken>())).ReturnsAsync(Inventory);
+        var source = new Mock<IDriverUpdateSource>();
+        source.SetupGet(item => item.Source).Returns(DriverSources.Nvidia);
+        var payload = new DriverPayload(new("https://example.test/display.cab"), []);
+        DriverUpdate Listing(string id, int day, string[] hardware)
+        {
+            var update = Candidate(id);
+            return update with { Catalog = update.Catalog! with
+            { ListedHardwareIds = hardware, ReleaseDate = new(2026, 3, day), Payloads = [payload] } };
+        }
+        var unrelated = Listing("unrelated", 3, [@"PCI\OTHER"]);
+        var newest = Listing("newest", 2, [Subsystem]);
+        var fallback = Listing("fallback", 1, [Subsystem]);
+        var installer = Listing("installer", 4, [Subsystem]);
+        installer = installer with { Catalog = installer.Catalog! with { Payloads = [new(new("https://example.test/display.msi"), [])] } };
+        source.Setup(item => item.SearchAsync(It.IsAny<DriverDiscoveryContext>(), null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new DriverUpdateSearchResult([installer, unrelated, newest, fallback], []));
+        var packages = new Mock<IDriverPackageService>(MockBehavior.Strict);
+        var attempts = new ConcurrentBag<string>();
+        packages.Setup(item => item.AcquireAsync(newest, Inventory, false, null, It.IsAny<CancellationToken>(), false))
+            .Callback(() => attempts.Add(newest.Id)).ThrowsAsync(new DriverScanException("Unavailable payload"));
+        packages.Setup(item => item.AcquireAsync(fallback, Inventory, false, null, It.IsAny<CancellationToken>(), false))
+            .Callback(() => attempts.Add(fallback.Id)).ReturnsAsync(new DriverPackageResult(fallback with
+            {
+                Catalog = fallback.Catalog! with { Verification = DriverVerification.Verified, Components =
+                    [Inf(Subsystem) with { Certification = DriverCertification.Unverified }] }
+            }));
+
+        var report = await new DriverScanService(inventory.Object, [source.Object], packages.Object)
+            .ScanAsync(new() { OnlyWhqlUpdates = false, AutomaticVerificationLimit = 2 }, null, default);
+
+        Assert.Equal(["fallback", "newest"], attempts.Order());
+        Assert.Equal(fallback.Id, Assert.Single(report.Updates).Update.Id);
+        Assert.Equal(DriverSourceState.VerificationFailed, Assert.Single(report.Sources).State);
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public async Task LargeNvidiaPackagesAreVerifiedOnlyAfterScanConsent(bool accepted)
+    {
+        var inventory = new Mock<IDriverInventorySource>();
+        inventory.Setup(item => item.ReadAsync(It.IsAny<CancellationToken>())).ReturnsAsync(Inventory);
+        var source = new Mock<IDriverUpdateSource>();
+        source.SetupGet(item => item.Source).Returns(DriverSources.Nvidia);
+        var update = Candidate("large");
+        var license = new Uri("https://www.nvidia.com/license");
+        update = update with { SizeBytes = 1100L << 20, Catalog = update.Catalog! with
+        {
+            Payloads = [new(new("https://download.nvidia.com/driver.exe"), [])], LicenseRequired = true,
+            ScanLicensePage = license, Verification = DriverVerification.LicenseRequired
+        } };
+        source.Setup(item => item.SearchAsync(It.IsAny<DriverDiscoveryContext>(), null, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new DriverUpdateSearchResult([update], []));
+        var calls = 0;
+        var packages = new Mock<IDriverPackageService>(MockBehavior.Strict);
+        packages.Setup(item => item.AcquireAsync(update, Inventory, false, null, It.IsAny<CancellationToken>(), true))
+            .ReturnsAsync(() =>
+            {
+                Assert.Equal(1, calls);
+                return new DriverPackageResult(update with { Catalog = update.Catalog! with
+                { Verification = DriverVerification.Verified, Components = [Inf(Subsystem)] } });
+            });
+
+        var report = await new DriverScanService(inventory.Object, [source.Object], packages.Object)
+            .ScanAsync(new(), null, default, (page, _) =>
+            {
+                Assert.Equal(license, page);
+                calls++;
+                return Task.FromResult(accepted);
+            });
+
+        Assert.Equal(1, calls);
+        packages.Verify(item => item.AcquireAsync(update, Inventory, false, null, It.IsAny<CancellationToken>(), true),
+            accepted ? Times.Once() : Times.Never());
+        var outcome = Assert.Single(report.Sources);
+        if (accepted)
+        {
+            Assert.Equal(update.Id, Assert.Single(report.Updates).Update.Id);
+            Assert.Equal(DriverSourceState.Success, outcome.State);
+        }
+        else
+        {
+            Assert.Empty(report.Updates);
+            Assert.Equal(DriverSourceState.Partial, outcome.State);
+            Assert.Contains("license", Assert.Single(outcome.Notices));
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task VerificationRunsTwoPackagesAndWaitsForCompletionOrCancellation(bool cancel)
+    {
+        var inventory = new Mock<IDriverInventorySource>();
+        inventory.Setup(item => item.ReadAsync(It.IsAny<CancellationToken>())).ReturnsAsync(Inventory);
+        var source = new Mock<IDriverUpdateSource>();
+        source.SetupGet(item => item.Source).Returns(DriverSources.Nvidia);
+        var failed = Candidate("unsupported");
+        failed = failed with { Catalog = failed.Catalog! with { Payloads = [new(new("https://download.nvidia.com/one.exe"), [])] } };
+        var blocked = failed with { Id = "blocked", Catalog = failed.Catalog! with
+        { References = [failed.Catalog.References[0] with { Id = "blocked" }] } };
+        var reporter = new Mock<IProgress<DriverScanProgress>>();
+        var completed = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        reporter.Setup(item => item.Report(It.Is<DriverScanProgress>(value => value.Completed == 1 && value.Total == 2)))
+            .Callback(() => completed.TrySetResult());
+        source.Setup(item => item.SearchAsync(It.IsAny<DriverDiscoveryContext>(), reporter.Object, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new DriverUpdateSearchResult([blocked, failed], []));
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var cancellation = new CancellationTokenSource();
+        var packages = new Mock<IDriverPackageService>(MockBehavior.Strict);
+        packages.Setup(item => item.AcquireAsync(blocked, Inventory, false, It.IsAny<IProgress<DriverScanProgress>>(), It.IsAny<CancellationToken>(), false))
+            .Returns(async (DriverUpdate _, DriverInventory _, bool _, IProgress<DriverScanProgress> progress, CancellationToken ct, bool _) =>
+            {
+                progress.Report(new("Drivers_Downloading") { BytesTransferred = 1024 });
+                progress.Report(new("Drivers_ExtractingPackage"));
+                started.SetResult();
+                await release.Task.WaitAsync(ct);
+                progress.Report(new("Drivers_VerifyingInfs"));
+                return new DriverPackageResult(blocked with { Catalog = blocked.Catalog! with
+                { Verification = DriverVerification.Verified, Components = [Inf(Subsystem)] } });
+            });
+        packages.Setup(item => item.AcquireAsync(failed, Inventory, false, It.IsAny<IProgress<DriverScanProgress>>(), It.IsAny<CancellationToken>(), false))
+            .Returns(async (DriverUpdate _, DriverInventory _, bool _, IProgress<DriverScanProgress> progress, CancellationToken ct, bool _) =>
+            {
+                await started.Task.WaitAsync(ct);
+                progress.Report(new("Drivers_VerifyingInfs"));
+                return new DriverPackageResult(failed with { Catalog = failed.Catalog! with
+                { Verification = DriverVerification.Unsupported, VerificationDetail = "Requires executing its installer." } });
+            });
+        var scan = new DriverScanService(inventory.Object, [source.Object], packages.Object)
+            .ScanAsync(new(), reporter.Object, cancellation.Token);
+
+        try
+        {
+            await Task.WhenAll(started.Task, completed.Task).WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.False(scan.IsCompleted);
+            reporter.Verify(item => item.Report(It.Is<DriverScanProgress>(value => value.BytesTransferred == 1024)), Times.Once);
+            reporter.Verify(item => item.Report(It.Is<DriverScanProgress>(value =>
+                value.ActivePackageStages.Contains("Drivers_ExtractingPackage") && value.ActivePackageStages.Contains("Drivers_VerifyingInfs"))), Times.Once);
+            reporter.Verify(item => item.Report(It.Is<DriverScanProgress>(value => value.Completed == 1 &&
+                value.ActivePackageStages.SequenceEqual(new[] { "Drivers_ExtractingPackage" }))), Times.Once);
+            if (cancel)
+            {
+                await cancellation.CancelAsync();
+                await Assert.ThrowsAnyAsync<OperationCanceledException>(() => scan.WaitAsync(TimeSpan.FromSeconds(10)));
+                return;
+            }
+
+            release.SetResult();
+            var result = await scan.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.Equal(blocked.Id, Assert.Single(result.Updates).Update.Id);
+            var outcome = Assert.Single(result.Sources);
+            Assert.Equal(DriverSourceState.Partial, outcome.State);
+            Assert.Contains(outcome.Notices, note => note.Contains("Requires executing", StringComparison.Ordinal));
+        }
+        finally { release.TrySetResult(); }
+    }
+
+    [Fact]
+    public async Task SourcesShareSnapshotAndFailureDoesNotHideVerifiedUpgrades()
     {
         var inventory = new Mock<IDriverInventorySource>();
         inventory.Setup(source => source.ReadAsync(It.IsAny<CancellationToken>())).ReturnsAsync(Inventory);
@@ -136,7 +348,6 @@ public sealed class DriverCatalogTests
         Assert.True(report.UpdatesChecked);
         Assert.Contains(report.Sources, item => item.Source == DriverSources.Intel && item.State == DriverSourceState.Unavailable);
         Assert.Equal("verified", Assert.Single(report.Updates).Update.Id);
-        Assert.Equal("metadata", Assert.Single(report.Filtered).Update.Id);
         Assert.Equal(1, report.ExcludedUpdates);
     }
 }

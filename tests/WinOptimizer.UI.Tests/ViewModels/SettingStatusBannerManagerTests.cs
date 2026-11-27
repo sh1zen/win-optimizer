@@ -120,8 +120,10 @@ public class SettingStatusBannerManagerTests
         result!.Value.Message.Should().BeNull();
     }
 
-    [Fact]
-    public void ComputeBannerForValue_WithCrossGroupChildSettings_CustomIndex_ShowsCrossGroupMessage()
+    [Theory]
+    [InlineData(2)]
+    [InlineData(ComboBoxConstants.CustomStateIndex)]
+    public void ComputeBannerForValue_WithCrossGroupChildSettings_CustomIndex_ShowsCrossGroupMessage(int index)
     {
         // Arrange
         var definition = new SettingDefinition
@@ -141,8 +143,7 @@ public class SettingStatusBannerManagerTests
             }
         };
 
-        // Act - select last index (Custom)
-        var result = _manager.ComputeBannerForValue(definition, 2, "Cross-group info message");
+        var result = _manager.ComputeBannerForValue(definition, index, "Cross-group info message");
 
         // Assert
         result.Should().NotBeNull();
@@ -177,36 +178,6 @@ public class SettingStatusBannerManagerTests
         // Assert
         result.Should().NotBeNull();
         result!.Value.Message.Should().BeNull();
-    }
-
-    [Fact]
-    public void ComputeBannerForValue_WithCrossGroupChildSettings_CustomStateIndex_ShowsCrossGroupMessage()
-    {
-        // Arrange
-        var definition = new SettingDefinition
-        {
-            Id = "test",
-            Name = "Test",
-            Description = "Test setting",
-            CrossGroupChildSettings = new Dictionary<string, string> { ["child1"] = "child1" },
-            ComboBox = new ComboBoxMetadata
-            {
-                Options = new[]
-                {
-                    new WinOptimizer.Core.Features.Common.Models.ComboBoxOption { DisplayName = "Option A" },
-                    new WinOptimizer.Core.Features.Common.Models.ComboBoxOption { DisplayName = "Option B" },
-                    new WinOptimizer.Core.Features.Common.Models.ComboBoxOption { DisplayName = "Custom" }
-                }
-            }
-        };
-
-        // Act - use ComboBoxConstants.CustomStateIndex (-1)
-        var result = _manager.ComputeBannerForValue(definition, ComboBoxConstants.CustomStateIndex, "Custom state message");
-
-        // Assert
-        result.Should().NotBeNull();
-        result!.Value.Message.Should().Be("Custom state message");
-        result.Value.Severity.Should().Be(InfoBarSeverity.Warning);
     }
 
     [Fact]

@@ -78,18 +78,12 @@ public class WimUtilViewModelTests : IDisposable
         _sut.Dispose();
     }
 
-    [Fact]
-    public void NavigateToStepCommand_NullParameter_DoesNotChangeStep()
+    [Theory]
+    [InlineData((string?)null)]
+    [InlineData("abc")]
+    public void NavigateToStepCommand_InvalidParameter_DoesNotChangeStep(string? parameter)
     {
-        _sut.NavigateToStepCommand.Execute(null);
-
-        _sut.Step1State.IsExpanded.Should().BeTrue();
-    }
-
-    [Fact]
-    public void NavigateToStepCommand_NonNumericString_DoesNotChangeStep()
-    {
-        _sut.NavigateToStepCommand.Execute("abc");
+        _sut.NavigateToStepCommand.Execute(parameter);
 
         _sut.Step1State.IsExpanded.Should().BeTrue();
     }

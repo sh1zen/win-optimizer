@@ -1,9 +1,7 @@
-using System.Text.Json;
 using WinOptimizer.Core.Features.Common.Enums;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.Core.Features.Optimize.Interfaces;
-using WinOptimizer.Core.Features.Optimize.Models;
 using WinOptimizer.Infrastructure.Features.SoftwareApps.Services;
 
 namespace WinOptimizer.Infrastructure.Features.Optimize.Services;
@@ -15,64 +13,6 @@ public sealed partial class OptimizationToolsService(IPowerShellRunner scripts, 
     ISystemSettingsDiscoveryService discovery, NetworkTuningOriginalStore originals) : IOptimizationToolsService
 {
     private readonly SemaphoreSlim _gate = new(1, 1);
-
-    internal const string ReadNetworkScript = """
-        $ErrorActionPreference = 'Stop'
-        $tcp = Get-NetTCPSetting -SettingName Internet -ErrorAction Stop
-        $offload = Get-NetOffloadGlobalSetting -ErrorAction Stop
-        [pscustomobject]@{
-            AutoTuningLevel = [string]$tcp.AutoTuningLevelLocal
-            ReceiveSideScaling = [string]$offload.ReceiveSideScaling
-        } | ConvertTo-Json -Compress
-        """;
-
-    internal const string EnhanceNetworkScript = $$"""
-        $ErrorActionPreference = 'Stop'
-        $netsh = Join-Path $env:SystemRoot 'System32\netsh.exe'
-        & $netsh interface tcp set global autotuninglevel={{NetworkTuningCatalog.NormalAutoTuning}} | Out-Null
-        if ($LASTEXITCODE -ne 0) { throw "TCP auto-tuning failed (netsh exit $LASTEXITCODE)." }
-        Set-NetOffloadGlobalSetting -ReceiveSideScaling {{NetworkTuningCatalog.Enabled}} -ErrorAction Stop
-        """;
-
-    public async Task<NetworkPerformanceState> ReadNetworkAsync()
-    {
-        await _gate.WaitAsync().ConfigureAwait(false);
-        try { return await ReadNetworkCoreAsync().ConfigureAwait(false); }
-        finally { _gate.Release(); }
-    }
-
-    /// <summary>Restores normal TCP window scaling and enables global RSS, then verifies native readback.</summary>
-    public async Task<NetworkPerformanceState> EnhanceNetworkAsync()
-    {
-        await _gate.WaitAsync().ConfigureAwait(false);
-        try
-        {
-            using var reservation = ReserveWrite();
-            await CaptureEnhancementOriginalsAsync().ConfigureAwait(false);
-            await scripts.RunScriptInMemoryAsync(EnhanceNetworkScript).ConfigureAwait(false);
-            var state = await ReadNetworkCoreAsync().ConfigureAwait(false);
-            if (!state.AutoTuningLevel.Equals(NetworkTuningCatalog.NormalAutoTuning, StringComparison.OrdinalIgnoreCase) || !state.ReceiveSideScaling)
-                throw new InvalidOperationException("Windows did not confirm normal TCP auto-tuning and enabled receive-side scaling. Refresh to inspect the current state.");
-            return state;
-        }
-        finally { _gate.Release(); }
-    }
-
-    private async Task<NetworkPerformanceState> ReadNetworkCoreAsync()
-    {
-        var output = await scripts.RunScriptInMemoryAsync(ReadNetworkScript).ConfigureAwait(false);
-        try
-        {
-            using var document = JsonDocument.Parse(output);
-            var autoTuning = document.RootElement.GetProperty("AutoTuningLevel").GetString();
-            var rss = document.RootElement.GetProperty("ReceiveSideScaling").GetString();
-            if (string.IsNullOrWhiteSpace(autoTuning) || rss is not ("Enabled" or "Disabled"))
-                throw new InvalidOperationException("Windows returned an unrecognized network configuration.");
-            return new(autoTuning, rss == "Enabled");
-        }
-        catch (Exception ex) when (ex is JsonException or KeyNotFoundException)
-        { throw new InvalidOperationException("Windows did not return a readable network configuration.", ex); }
-    }
 
     /// <summary>Reuses existing settings, filters absent optional services and stops on the first reported failure.</summary>
     public Task ApplyFeatureAsync(WindowsFeatureOptimization feature) => SetFeatureAsync(feature, true);

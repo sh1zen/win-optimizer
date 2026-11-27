@@ -12,6 +12,7 @@ public sealed partial class UninstallResiduePage : Page
     private readonly TaskCompletionSource _closed = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private UninstallResidueViewModel? _viewModel;
     internal Task Closed => _closed.Task;
+    internal bool OwnsReview(object? viewModel) => _viewModel is not null && ReferenceEquals(_viewModel, viewModel);
 
     public UninstallResiduePage() => InitializeComponent();
 

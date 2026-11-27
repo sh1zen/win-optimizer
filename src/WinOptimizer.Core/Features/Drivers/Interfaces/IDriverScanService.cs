@@ -25,5 +25,9 @@ public interface IDriverPackageService
 
 public interface IDriverScanService
 {
-    Task<DriverScanReport> ScanAsync(DriverScanOptions options, IProgress<DriverScanProgress>? progress, CancellationToken ct);
+    Task<DriverScanReport> ScanAsync(DriverScanOptions options, IProgress<DriverScanProgress>? progress, CancellationToken ct,
+        ConfirmDriverLicenseAsync? confirmLicense = null);
 }
+
+/// <summary>Requests permission to acquire packages covered by the publisher's license for the current scan.</summary>
+public delegate Task<bool> ConfirmDriverLicenseAsync(Uri licensePage, CancellationToken ct);

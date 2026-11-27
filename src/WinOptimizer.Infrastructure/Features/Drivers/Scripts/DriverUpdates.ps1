@@ -73,7 +73,6 @@ function Download-DriverPayloads {
 
 $entries = [Collections.Generic.List[object]]::new()
 $pending = [Collections.Generic.List[object]]::new()
-$scheduled = 0
 for ($index = 0; $index -lt $search.Updates.Count; $index++) {
     $update = $search.Updates.Item($index)
     $id = ([Guid]$update.Identity.UpdateID).ToString('D')
@@ -104,14 +103,34 @@ for ($index = 0; $index -lt $search.Updates.Count; $index++) {
         if ($requestedUpdate -and $offer.SizeBytes -gt 2147483648) {
             throw 'This Windows Update package exceeds the 2 GiB acquisition limit.'
         }
-        if ($null -ne $verificationLimit -and ($scheduled -ge $verificationLimit -or $offer.SizeBytes -gt 268435456)) {
+        if ($null -ne $verificationLimit -and $offer.SizeBytes -gt 268435456) {
             $offer.VerificationSkipped = $true
-            continue
         }
-        $scheduled++
-        if (-not $update.IsDownloaded) { $pending.Add($entry) }
     }
     catch { $offer.PayloadError = $_.Exception.Message }
+}
+
+$eligible = @($entries | Where-Object { $_.Offer.PayloadError -eq '' -and -not $_.Offer.VerificationSkipped })
+if ($null -ne $verificationLimit) {
+    # Prefer the newest driver date for each target before spending a slot on another release for that target.
+    $targets = @{}
+    $position = 0
+    $ranked = foreach ($entry in ($eligible | Sort-Object -Property { $_.Offer.Date }, { $_.Offer.ReleaseDate } -Descending)) {
+        $offer = $entry.Offer
+        $target = if ($offer.HardwareId) { $offer.ClassName + '|' + $offer.HardwareId } else { $offer.Id }
+        $turn = [int]$targets[$target]
+        $targets[$target] = $turn + 1
+        @{ Entry = $entry; Turn = $turn; Position = $position }
+        $position++
+    }
+    $scheduled = 0
+    foreach ($rank in ($ranked | Sort-Object -Property { $_.Turn }, { $_.Position })) {
+        $rank.Entry.Offer.VerificationSkipped = ($scheduled -ge $verificationLimit)
+        $scheduled++
+    }
+}
+foreach ($entry in $eligible) {
+    if (-not $entry.Offer.VerificationSkipped -and -not $entry.Update.IsDownloaded) { $pending.Add($entry) }
 }
 Download-DriverPayloads $pending.ToArray()
 

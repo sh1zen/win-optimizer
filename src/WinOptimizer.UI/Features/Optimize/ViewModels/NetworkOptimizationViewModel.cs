@@ -30,6 +30,7 @@ public partial class NetworkOptimizationViewModel : UtilityViewModel
     private readonly ILocalizationService _localization;
     private readonly NetworkTuningChoice _autoTuning;
     private readonly NetworkTuningChoice _rss;
+    private (string AutoTuningLevel, bool ReceiveSideScaling)? _networkSummary;
     private InternetSpeedTestResult? _previousMeasurement;
     protected override string TitleKey => "OptimizeNetwork_Title";
     public IReadOnlyList<NetworkTuningChoice> Choices { get; }
@@ -139,19 +140,12 @@ public partial class NetworkOptimizationViewModel : UtilityViewModel
     });
 
     public string ControlsLabel => string.Format(Text("OptimizeNetwork_Controls"), Choices.Count);
-    public string EnhanceDescription => Text("OptimizeNetwork_EnhanceDescription");
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(AutoTuningValue), nameof(RssValue), nameof(IsRssEnabled), nameof(CanEnhance))]
-    public partial NetworkPerformanceState? State { get; private set; }
-    public string EnhanceLabel => Text("OptimizeNetwork_Enhance");
-    public string NetworkResultsHint => Text("OptimizeNetwork_ResultsHint");
     public string AutoTuningLabel => Text("OptimizeNetwork_AutoTuningLabel");
     public string RssLabel => Text("OptimizeNetwork_RssLabel");
-    public string AutoTuningValue => State is { } state ? _autoTuning.FormatValue(state.AutoTuningLevel) : Text("Utilities_Unknown");
-    public string RssValue => Text(State is { } state
+    public string AutoTuningValue => _networkSummary is { } state ? _autoTuning.FormatValue(state.AutoTuningLevel) : Text("Utilities_Unknown");
+    public string RssValue => Text(_networkSummary is { } state
         ? state.ReceiveSideScaling ? "Common_On" : "Common_Off" : "Utilities_Unknown");
-    public bool IsRssEnabled => State?.ReceiveSideScaling == true;
-    public bool CanEnhance => CanWrite && State != null;
+    public bool IsRssEnabled => _networkSummary?.ReceiveSideScaling == true;
 
     [RelayCommand(CanExecute = nameof(IsIdle))]
     public Task RefreshAsync() => ExecuteAsync(() => Task.WhenAll(RefreshTuningsAsync(), RefreshConnectionSettingsAsync()));
@@ -159,7 +153,7 @@ public partial class NetworkOptimizationViewModel : UtilityViewModel
     /// <summary>Reads the current native values for the individual network tuning controls.</summary>
     private async Task RefreshTuningsAsync()
     {
-        State = null;
+        UpdateNetworkSummary(null);
         foreach (var choice in Choices) choice.Update(choice.State with { IsAvailable = false });
         ApplyStates(await _service.ReadNetworkTuningsAsync());
     }
@@ -197,8 +191,8 @@ public partial class NetworkOptimizationViewModel : UtilityViewModel
     {
         foreach (var choice in Choices)
             choice.Update(states.Single(state => state.Id == choice.Definition.Id));
-        State = _autoTuning.IsAvailable && _rss.IsAvailable && _autoTuning.State.Value != null
-            ? new(_autoTuning.State.Value, _rss.IsOn) : null;
+        UpdateNetworkSummary(_autoTuning.IsAvailable && _rss.IsAvailable && _autoTuning.State.Value is { } autoTuningLevel
+            ? (autoTuningLevel, _rss.IsOn) : null);
         var unavailable = Choices.Count(choice => !choice.IsAvailable);
         if (unavailable > 0)
         {
@@ -207,32 +201,22 @@ public partial class NetworkOptimizationViewModel : UtilityViewModel
         }
     }
 
-    [RelayCommand(CanExecute = nameof(CanEnhance))]
-    private async Task EnhanceAsync()
+    /// <summary>Publishes the verified pair shown in the read-only network summary.</summary>
+    private void UpdateNetworkSummary((string AutoTuningLevel, bool ReceiveSideScaling)? summary)
     {
-        if (!CanEnhance) return;
-        var response = await _dialogs.ShowConfirmationAsync(new ConfirmationRequest
-        {
-            Title = EnhanceLabel, Message = EnhanceDescription,
-            ConfirmButtonText = Text("Button_Continue"), CancelButtonText = Text("Button_Cancel")
-        });
-        if (!response.Confirmed) return;
-        await ExecuteAsync(async () =>
-        {
-            State = await _service.EnhanceNetworkAsync();
-            ApplyStates(await _service.ReadNetworkTuningsAsync());
-            if (!IsError) Status = Text("OptimizeNetwork_Applied");
-        }, write: true);
+        if (_networkSummary == summary) return;
+        _networkSummary = summary;
+        OnPropertyChanged(nameof(AutoTuningValue));
+        OnPropertyChanged(nameof(RssValue));
+        OnPropertyChanged(nameof(IsRssEnabled));
     }
 
     protected override void NotifyActions()
     {
-        OnPropertyChanged(nameof(CanEnhance));
         OnPropertyChanged(nameof(IsUpdatingNetwork));
-        RefreshCommand.NotifyCanExecuteChanged(); EnhanceCommand.NotifyCanExecuteChanged(); RunSpeedTestCommand.NotifyCanExecuteChanged();
+        RefreshCommand.NotifyCanExecuteChanged(); RunSpeedTestCommand.NotifyCanExecuteChanged();
         ApplyDnsCommand.NotifyCanExecuteChanged(); ManageVpnCommand.NotifyCanExecuteChanged();
     }
-    partial void OnStateChanged(NetworkPerformanceState? value) => EnhanceCommand.NotifyCanExecuteChanged();
 
     protected override void OnPropertyChanged(PropertyChangedEventArgs e)
     {

@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.Input;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.SoftwareApps.Interfaces;
 using WinOptimizer.Core.Features.SoftwareApps.Models;
+using WinOptimizer.UI.Features.Common.Services;
 
 namespace WinOptimizer.UI.Features.SoftwareApps.ViewModels;
 
@@ -15,15 +16,17 @@ public sealed partial class UninstallResidueViewModel : ObservableObject, IDispo
     private readonly IUninstallResidueService _service;
     private readonly ITaskProgressService _tasks;
     private readonly ILocalizationService _text;
+    private readonly ScanCancellationNotifications? _scanNotifications;
     private readonly List<UninstallResidue> _findings;
     private Guid? _lastBackup;
     private bool _restoring;
     private CancellationTokenSource? _operation;
 
     public UninstallResidueViewModel(IUninstallResidueSession session, AppUninstallResult verification,
-        IUninstallResidueService service, ITaskProgressService tasks, ILocalizationService text)
+        IUninstallResidueService service, ITaskProgressService tasks, ILocalizationService text, ScanCancellationNotifications? scanNotifications = null)
     {
         _session = session; _service = service; _tasks = tasks; _text = text;
+        _scanNotifications = scanNotifications;
         _findings = [];
         Summary = ApplicationSummary(verification.Applications);
         Notices = string.Join("\n", verification.Notices);
@@ -153,14 +156,20 @@ public sealed partial class UninstallResidueViewModel : ObservableObject, IDispo
     public bool CanConfirm => IsConfirming && !IsBusy;
 
     [RelayCommand(CanExecute = nameof(CanScan))]
-    private Task ScanAsync() => RunOperationAsync(async token =>
+    private async Task ScanAsync()
     {
-        _findings.Clear();
-        Rebuild();
-        Step = UninstallReviewStep.Scan;
-        ApplyScan(await _session.ScanAsync(null, token));
-        Status = _text.GetString("UninstallResidue_ScanComplete");
-    }, "UninstallResidue_Scan");
+        var cancelled = await RunOperationAsync(async token =>
+        {
+            _findings.Clear();
+            Rebuild();
+            Step = UninstallReviewStep.Scan;
+            var scan = await _session.ScanAsync(null, token);
+            token.ThrowIfCancellationRequested();
+            ApplyScan(scan);
+            Status = _text.GetString("UninstallResidue_ScanComplete");
+        }, "UninstallResidue_Scan", "Restore_Cancelled");
+        if (cancelled) _scanNotifications?.Publish(this, Title, Status);
+    }
 
     [RelayCommand(CanExecute = nameof(CanConfirm))]
     private async Task ConfirmAsync()
@@ -187,12 +196,13 @@ public sealed partial class UninstallResidueViewModel : ObservableObject, IDispo
     }
 
     /// <summary>Keeps cancellation and page lifetime tied to the awaited operation.</summary>
-    private async Task RunOperationAsync(Func<CancellationToken, Task> action, string title)
+    private async Task<bool> RunOperationAsync(Func<CancellationToken, Task> action, string title,
+        string cancellationMessage = "UninstallResidue_Cancelled")
     {
         IsBusy = true;
         _operation = _tasks.StartTask(_text.GetString(title), true);
         try { await action(_operation.Token); }
-        catch (OperationCanceledException) { Status = _text.GetString("UninstallResidue_Cancelled"); }
+        catch (OperationCanceledException) { Status = _text.GetString(cancellationMessage); return true; }
         catch (Exception ex) { Status = ex.Message; }
         finally
         {
@@ -201,6 +211,7 @@ public sealed partial class UninstallResidueViewModel : ObservableObject, IDispo
             IsConfirming = false;
             IsBusy = false;
         }
+        return false;
     }
 
     public void Dispose() => _operation?.Cancel();

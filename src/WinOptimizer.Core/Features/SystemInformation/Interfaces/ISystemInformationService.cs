@@ -10,4 +10,8 @@ public interface ISystemInformationService
 
     /// <summary>Collects fresh data and replaces the cached snapshot only after collection completes.</summary>
     Task<SystemInformationSnapshot> ReadAsync(CancellationToken ct);
+
+    /// <summary>Reads the requested categories without replacing the full inventory cache.</summary>
+    Task<IReadOnlyList<SystemInformationSection>> ReadSectionsAsync(
+        IReadOnlyCollection<SystemInformationCategory> categories, CancellationToken ct);
 }

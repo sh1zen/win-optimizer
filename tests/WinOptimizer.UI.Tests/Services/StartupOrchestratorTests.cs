@@ -126,39 +126,6 @@ public class StartupOrchestratorTests
     // --- Phase 2: User backup config ---
 
     [Fact]
-    public async Task RunDeferredInitializationAsync_WhenBackupAlreadyCompleted_SkipsBackupPhase()
-    {
-        _preferencesService.Setup(p => p.GetPreference(
-            UserPreferenceKeys.InitialConfigBackupCompleted, false))
-            .Returns(true);
-
-        var sut = CreateSut();
-        var (statusProgress, detailedProgress, _) = CreateProgressTracking();
-
-        await sut.RunDeferredInitializationAsync();
-
-        _configurationService.Verify(c => c.CreateUserBackupConfigAsync(), Times.Never);
-    }
-
-    [Fact]
-    public async Task RunDeferredInitializationAsync_WhenBackupSucceeds_SetsPreferenceToTrue()
-    {
-        _preferencesService.Setup(p => p.GetPreference(
-            UserPreferenceKeys.InitialConfigBackupCompleted, false))
-            .Returns(false);
-        _configurationService.Setup(c => c.CreateUserBackupConfigAsync())
-            .Returns(Task.CompletedTask);
-
-        var sut = CreateSut();
-        var (statusProgress, detailedProgress, _) = CreateProgressTracking();
-
-        await sut.RunDeferredInitializationAsync();
-
-        _preferencesService.Verify(p => p.SetPreferenceAsync(
-            UserPreferenceKeys.InitialConfigBackupCompleted, true), Times.Once);
-    }
-
-    [Fact]
     public async Task RunDeferredInitializationAsync_BackupFailureStillReturnsAndReportsFailure()
     {
         _preferencesService.Setup(p => p.GetPreference(
@@ -197,43 +164,13 @@ public class StartupOrchestratorTests
         var retried = await CreateSut().RunDeferredInitializationAsync();
         Assert.True(completed);
         Assert.True(retried.IsFirstLaunch);
+        _preferencesService.Verify(p => p.SetPreferenceAsync(UserPreferenceKeys.InitialConfigBackupCompleted, true), Times.Once);
         _configurationService.Verify(service => service.CreateUserBackupConfigAsync(), Times.Exactly(2));
-        await CreateSut().RunDeferredInitializationAsync();
+
+        var completedStartup = await CreateSut().RunDeferredInitializationAsync();
+        Assert.False(completedStartup.IsFirstLaunch);
         _configurationService.Verify(service => service.CreateUserBackupConfigAsync(), Times.Exactly(2));
-    }
-
-    // --- IsFirstLaunch ---
-
-    [Fact]
-    public async Task RunDeferredInitializationAsync_WhenBackupAlreadyCompleted_IsFirstLaunchIsFalse()
-    {
-        _preferencesService.Setup(p => p.GetPreference(
-            UserPreferenceKeys.InitialConfigBackupCompleted, false))
-            .Returns(true);
-
-        var sut = CreateSut();
-        var (statusProgress, detailedProgress, _) = CreateProgressTracking();
-
-        var result = await sut.RunDeferredInitializationAsync();
-
-        result.IsFirstLaunch.Should().BeFalse();
-    }
-
-    [Fact]
-    public async Task RunDeferredInitializationAsync_WhenBackupNotCompletedAndSucceeds_IsFirstLaunchIsTrue()
-    {
-        _preferencesService.Setup(p => p.GetPreference(
-            UserPreferenceKeys.InitialConfigBackupCompleted, false))
-            .Returns(false);
-        _configurationService.Setup(c => c.CreateUserBackupConfigAsync())
-            .Returns(Task.CompletedTask);
-
-        var sut = CreateSut();
-        var (statusProgress, detailedProgress, _) = CreateProgressTracking();
-
-        var result = await sut.RunDeferredInitializationAsync();
-
-        result.IsFirstLaunch.Should().BeTrue();
+        _preferencesService.Verify(p => p.SetPreferenceAsync(UserPreferenceKeys.InitialConfigBackupCompleted, true), Times.Once);
     }
 
     [Fact]

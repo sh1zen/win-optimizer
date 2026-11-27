@@ -2,6 +2,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Navigation;
+using WinOptimizer.Core.Features.SystemInformation.Models;
 using WinOptimizer.UI.Features.SystemInformation.ViewModels;
 
 namespace WinOptimizer.UI.Features.SystemInformation;
@@ -9,11 +10,23 @@ namespace WinOptimizer.UI.Features.SystemInformation;
 /// <summary>Collects details when displayed and cancels publication when the user leaves.</summary>
 public sealed partial class SystemInformationPage : Page
 {
+    private SystemInformationCategory? _requestedCategory;
     public SystemInformationViewModel ViewModel { get; } = App.Services.GetRequiredService<SystemInformationViewModel>();
     public SystemInformationPage()
     {
         InitializeComponent();
-        Loaded += async (_, _) => await ViewModel.InitializeAsync();
+        Loaded += async (_, _) =>
+        {
+            await ViewModel.InitializeAsync();
+            if (_requestedCategory is { } requested && ViewModel.Categories.FirstOrDefault(item => item.Section?.Category == requested) is { } category)
+                ViewModel.SelectedCategory = category;
+        };
+    }
+
+    protected override void OnNavigatedTo(NavigationEventArgs e)
+    {
+        base.OnNavigatedTo(e);
+        _requestedCategory = e.Parameter as SystemInformationCategory?;
     }
 
     /// <summary>Uses a compact category picker when two reading panes would be too narrow.</summary>

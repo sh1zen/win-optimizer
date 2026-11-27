@@ -1,5 +1,4 @@
 using System.Reflection;
-using System.Runtime.InteropServices.WindowsRuntime;
 using System.Text.Json;
 using Microsoft.UI;
 using Microsoft.UI.Dispatching;
@@ -7,13 +6,12 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Data;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Media.Imaging;
 using Moq;
 using Windows.Graphics;
-using Windows.Graphics.Imaging;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.Core.Features.Management;
+using WinOptimizer.UI.Features.Common.Helpers;
 using WinOptimizer.UI.Features.Common.Interfaces;
 using WinOptimizer.UI.Features.Management;
 using WinOptimizer.UI.Features.Management.ViewModels;
@@ -98,9 +96,24 @@ public sealed partial class AutorunsTestApplication(string outputDirectory) : Wi
                 .ReturnsAsync(() => new ConfirmationResponse { Confirmed = confirmed });
             using var vm = new AutorunsViewModel(service.Object, dialogs.Object, localization.Object,
                 Mock.Of<IApplicationModeService>(), new ExtensionTestDispatcher(), Mock.Of<ITaskProgressService>());
-            var page = new AutorunsPage(vm); var loaded = new TaskCompletionSource(); page.Loaded += (_, _) => loaded.TrySetResult();
+            var page = new AutorunsPage(vm); var loaded = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            page.Loaded += (_, _) => loaded.TrySetResult();
             shell.Children.Clear(); shell.Children.Add(page); await loaded.Task; await vm.LoadAsync();
             service.Verify(source => source.ReadAsync(AutorunView.Startup, false, CancellationToken.None), Times.Once);
+            var actionsButton = Assert.IsType<Button>(page.FindName("ActionsButton"));
+            var actionsMenu = Assert.IsType<MenuFlyout>(actionsButton.Flyout);
+            Assert.Collection(actionsMenu.Items, item =>
+            {
+                var settings = Assert.IsType<MenuFlyoutItem>(item);
+                Assert.Equal(vm.WindowsSettingsLabel, settings.Text);
+                Assert.Same(vm.OpenWindowsSettingsCommand, settings.Command);
+            }, item =>
+            {
+                var clear = Assert.IsType<MenuFlyoutItem>(item);
+                Assert.Equal(vm.ClearFiltersLabel, clear.Text);
+                Assert.Same(vm.ClearFiltersCommand, clear.Command);
+            });
+            var checkMenuOpening = true;
             foreach (var advanced in new[] { false, true })
             {
                 ((ToggleSwitch)page.FindName("AdvancedToggle")).IsOn = advanced;
@@ -118,6 +131,16 @@ public sealed partial class AutorunsTestApplication(string outputDirectory) : Wi
                 {
                     shell.RequestedTheme = theme; shell.Background = new SolidColorBrush(theme == ElementTheme.Light ? Colors.White : Colors.Black);
                     _window!.AppWindow.ResizeClient(new SizeInt32(width, 1050)); await Task.Delay(120); shell.UpdateLayout();
+                    if (checkMenuOpening)
+                    {
+                        var menuOpened = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+                        actionsMenu.Opened += (_, _) => menuOpened.TrySetResult();
+                        actionsMenu.ShowAt(actionsButton);
+                        await menuOpened.Task.WaitAsync(TimeSpan.FromSeconds(3));
+                        Assert.True(PopupHandler.GetIsOpen(actionsButton));
+                        actionsMenu.Hide();
+                        checkMenuOpening = false;
+                    }
                     var list = (ListView)page.FindName("EntriesList"); var details = (Border)page.FindName("DetailsPanel");
                     var grouped = (CollectionViewSource)page.FindName("GroupedEntries");
                     Assert.Equal(vm.Groups.Count, grouped.View.CollectionGroups.Count);
@@ -163,7 +186,6 @@ public sealed partial class AutorunsTestApplication(string outputDirectory) : Wi
                     if (advanced)
                         Assert.True(statePosition.Y + state.ActualHeight <= microsoft.TransformToVisual(shell).TransformPoint(default).Y);
                     Assert.Equal(width < 1050 ? 1 : 0, Grid.GetRow(details));
-                    await CaptureAsync(shell, $"autoruns-{language}-{theme}-{width}-{(advanced ? "advanced" : "startup")}.png");
                 }
                 var categoryChoices = (ComboBox)page.FindName("CategoryFilter");
                 var stateChoices = (ComboBox)page.FindName("StateFilter");
@@ -179,9 +201,6 @@ public sealed partial class AutorunsTestApplication(string outputDirectory) : Wi
                 _window!.AppWindow.ResizeClient(new SizeInt32(760, 600)); await Task.Delay(120); shell.UpdateLayout();
                 Assert.True(((ListView)page.FindName("EntriesList")).ActualHeight >= 140);
                 var scroller = (ScrollViewer)page.FindName("PageScroll"); Assert.True(scroller.ScrollableHeight > 0);
-                scroller.ChangeView(null, scroller.ScrollableHeight, null, true); await Task.Delay(80);
-                await CaptureAsync(shell, $"autoruns-{language}-short-{(advanced ? "advanced" : "startup")}.png");
-                scroller.ChangeView(null, 0, null, true);
                 if (!advanced)
                 {
                     var entry = entries[0];
@@ -224,15 +243,6 @@ public sealed partial class AutorunsTestApplication(string outputDirectory) : Wi
         new("service:example", "Example service", "Services", @"HKLM\SYSTEM\CurrentControlSet\Services\Example", "Service.exe", "Service.exe", "Example Software", "(Verified) Example Software", "System", true, false, "Automatic service"),
         new("driver:example", "Example driver", "Drivers", @"HKLM\SYSTEM\CurrentControlSet\Services\ExampleDriver", "Driver.sys", "Driver.sys", "Microsoft Corporation", "(Verified) Microsoft Windows", "System", true, false, "Kernel driver; inspect only")
     ];
-
-    private async Task CaptureAsync(UIElement root, string name)
-    {
-        var bitmap = new RenderTargetBitmap(); await bitmap.RenderAsync(root); var pixels = await bitmap.GetPixelsAsync();
-        await using var output = File.Create(Path.Combine(outputDirectory, name));
-        var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, output.AsRandomAccessStream());
-        encoder.SetPixelData(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied, (uint)bitmap.PixelWidth, (uint)bitmap.PixelHeight, 96, 96, pixels.ToArray());
-        await encoder.FlushAsync();
-    }
 
     private void Finish(string? error = null)
     {

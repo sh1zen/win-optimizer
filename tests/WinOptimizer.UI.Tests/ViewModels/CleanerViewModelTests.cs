@@ -13,16 +13,15 @@ using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Common.Models;
 using WinOptimizer.UI.Features.Cleaner.ViewModels;
 using WinOptimizer.UI.Features.Cleaner;
+using WinOptimizer.UI.Features.Common.Services;
 using WinOptimizer.UI.Features.Common.Controls;
 using WinOptimizer.UI.Features.Common.Interfaces;
+using WinOptimizer.UI.Features.Common.Helpers;
 using WinOptimizer.UI.Features.Common.Models;
 using WinOptimizer.UI.Helpers;
 using Xunit;
-using System.Runtime.InteropServices.WindowsRuntime;
 using System.Text.Json;
-using Microsoft.UI.Xaml.Media.Imaging;
 using Windows.Graphics;
-using Windows.Graphics.Imaging;
 
 namespace WinOptimizer.UI.Tests.ViewModels;
 
@@ -58,8 +57,8 @@ public sealed class CleanerViewModelTests : IDisposable
         _dispatcher.Setup(x => x.RunOnUIThread(It.IsAny<Action>())).Callback<Action>(action => action());
         _vm = CreateViewModel();
     }
-    private CleanerViewModel CreateViewModel(ITaskProgressService? tasks = null) => new(_cleaner.Object, _settings, _localization.Object,
-        _dialogs.Object, tasks ?? _tasks.Object, Mock.Of<ILogService>(), _mode.Object, _preferences.Object);
+    private CleanerViewModel CreateViewModel(ITaskProgressService? tasks = null, ScanCancellationNotifications? notifications = null) => new(_cleaner.Object, _settings, _localization.Object,
+        _dialogs.Object, tasks ?? _tasks.Object, Mock.Of<ILogService>(), _mode.Object, _preferences.Object, notifications);
     private static CleanerFinding Finding(CleanerArea area, bool actionable = true) => new(Guid.NewGuid(), area, $"Cleaner_{area}", "scan evidence", 50, actionable, new CleanerDiskTarget("C:\\"));
 
     [Fact]
@@ -161,7 +160,6 @@ public sealed class CleanerViewModelTests : IDisposable
                 Assert.Equal(new CornerRadius(10), categoryBox.CornerRadius);
                 Assert.True(results.TransformToVisual(page).TransformPoint(default).X > selector.TransformToVisual(page).TransformPoint(default).X + selector.ActualWidth);
                 Assert.True(results.ActualWidth > 200);
-                await SavePreviewAsync(surface, $"cleaner-categories-{language}-{width}.png");
             }
             Results(Finding(CleanerArea.Privacy));
             await _vm.ScanCommand.ExecuteAsync(null);
@@ -255,7 +253,7 @@ public sealed class CleanerViewModelTests : IDisposable
                 var viewport = Assert.IsType<ScrollViewer>(page.FindName("CategoryReportViewport"));
                 var cardOffset = cards[0].TransformToVisual(viewport).TransformPoint(new Windows.Foundation.Point());
                 Assert.InRange(cardOffset.Y, 0, 2);
-                await SavePreviewAsync(surface, $"cleaner-report-{language}-{width}.png");
+                await StartupUiCoordinator.RunAfterFirstRenderAsync(page, () => Task.CompletedTask).WaitAsync(TimeSpan.FromSeconds(5));
 
                 var category = width == 620 ? empty : vm.CategoryReports.Single(report => report.Area == CleanerArea.Privacy);
                 var card = Assert.Single(cards, button => ReferenceEquals(button.CommandParameter, category));
@@ -273,11 +271,10 @@ public sealed class CleanerViewModelTests : IDisposable
                     Assert.Single(Descendants<Border>(popup), border => border.Name == "CategoryFileSpace").Visibility);
                 Assert.Equal(category.HasRegistrySelection ? Visibility.Visible : Visibility.Collapsed,
                     Assert.Single(Descendants<Border>(popup), border => border.Name == "CategoryRegistryData").Visibility);
-                if (width == 1200 && language == "en")
-                    await SavePreviewAsync(Assert.Single(Descendants<ScrollViewer>(popup), scroll => scroll.Name == "CategoryDetailsScroll"),
-                        "cleaner-report-details.png");
                 Invoke(Assert.Single(Descendants<Button>(popup), button => button.Name == "CloseButton"));
                 await WaitForReportPopupAsync(page, expectedOpen: false);
+                // The popup can leave the visual tree before the shared modal queue releases it.
+                await PopupHandler.RunModalAsync(() => Task.FromResult(ContentDialogResult.None)).WaitAsync(TimeSpan.FromSeconds(5));
             }
         }
         finally { window.Close(); }
@@ -300,20 +297,6 @@ public sealed class CleanerViewModelTests : IDisposable
             page.UpdateLayout();
         }
         Assert.True(ReportPopups(page).Any() == expectedOpen, $"Expected the category popup to be {(expectedOpen ? "open" : "closed")}.");
-    }
-
-    /// <summary>Captures the rendered native page for visual review in the standard test output.</summary>
-    private static async Task SavePreviewAsync(FrameworkElement surface, string fileName)
-    {
-        var bitmap = new RenderTargetBitmap();
-        await bitmap.RenderAsync(surface);
-        Assert.True(bitmap.PixelWidth > 0 && bitmap.PixelHeight > 0);
-        var outputDirectory = Path.Combine(AppContext.BaseDirectory, "previews");
-        Directory.CreateDirectory(outputDirectory);
-        await using var output = File.Create(Path.Combine(outputDirectory, fileName));
-        var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, output.AsRandomAccessStream());
-        encoder.SetPixelData(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied, (uint)bitmap.PixelWidth, (uint)bitmap.PixelHeight, 96, 96, (await bitmap.GetPixelsAsync()).ToArray());
-        await encoder.FlushAsync();
     }
 
     [Fact]
@@ -724,30 +707,35 @@ public sealed class CleanerViewModelTests : IDisposable
     }
 
     [Fact]
-    public async Task FooterCancellation_RequestsTheActiveToken_AndWaitsForTheWorkerToStop()
+    public async Task SharedCancellation_RequestsTheActiveToken_AndWaitsForTheWorkerToStop()
     {
         var tasks = new WinOptimizer.Infrastructure.Features.Common.Services.TaskProgressService(Mock.Of<ILogService>());
-        using var page = CreateViewModel(tasks);
-        using var footer = new WinOptimizer.UI.ViewModels.TaskProgressViewModel(tasks, _dispatcher.Object, _dialogs.Object, _localization.Object, Mock.Of<ILogService>());
+        var notifications = new ScanCancellationNotifications();
+        var notices = new List<ScanCancellationNotice>();
+        notifications.Cancelled += notices.Add;
+        using var page = CreateViewModel(tasks, notifications);
+        using var activity = new WinOptimizer.UI.ViewModels.TaskProgressViewModel(tasks, _dispatcher.Object, _dialogs.Object, _localization.Object, Mock.Of<ILogService>());
         var worker = new TaskCompletionSource<CleanerScanResult>(TaskCreationOptions.RunContinuationsAsynchronously);
         _cleaner.Setup(x => x.ScanAsync(It.IsAny<CleanerOptions>(), It.IsAny<IReadOnlyCollection<CleanerArea>>(), It.IsAny<IProgress<CleanerProgress>>(), It.IsAny<CancellationToken>()))
             .Returns(worker.Task);
         var scan = page.ScanCommand.ExecuteAsync(null);
         var active = tasks.CurrentTaskCancellationSource!;
-        footer.IsLoading.Should().BeTrue();
-        footer.CancelCommand.Execute(null);
+        activity.IsLoading.Should().BeTrue();
+        activity.CancelCommand.Execute(null);
         active.IsCancellationRequested.Should().BeTrue();
         page.IsBusy.Should().BeTrue();
         page.HasStatus.Should().BeFalse();
-        footer.LastTerminalLine.Should().Be("Progress_Cancelling");
+        activity.LastTerminalLine.Should().Be("Progress_Cancelling");
+        Assert.Empty(notices);
         tasks.IsTaskRunning.Should().BeTrue();
         worker.SetCanceled(active.Token);
         await scan;
         page.IsBusy.Should().BeFalse();
         page.Status.Should().Be("Cleaner_Cancelled");
+        Assert.Equal("Cleaner_Cancelled", Assert.Single(notices).Message);
         page.Results.Should().BeEmpty();
         tasks.IsTaskRunning.Should().BeFalse();
-        footer.IsLoading.Should().BeFalse();
+        activity.IsLoading.Should().BeFalse();
     }
 
     [Fact]
@@ -863,7 +851,7 @@ public sealed class CleanerViewModelTests : IDisposable
     }
 
     [Fact]
-    public async Task BackendMeasurementsDriveTheFooterWithoutUsingOutcomeStatus()
+    public async Task BackendMeasurementsDriveSharedProgressWithoutUsingOutcomeStatus()
     {
         var worker = new TaskCompletionSource<CleanerScanResult>(TaskCreationOptions.RunContinuationsAsynchronously);
         var observed = new TaskCompletionSource<TaskProgressDetail>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -1324,6 +1312,42 @@ public sealed class CleanerViewModelTests : IDisposable
         _cleaner.Verify(x => x.ApplyAsync(It.IsAny<IReadOnlyCollection<Guid>>(), It.IsAny<IProgress<CleanerProgress>>(), It.IsAny<CancellationToken>()), Times.Never);
         _vm.IsBusy.Should().BeFalse();
     }
+
+    /// <summary>Checks the confirmation text for single and mixed selections drawn from the same scan.</summary>
+    [Theory]
+    [InlineData(CleanerArea.RegistryDefrag, true, 1, "Cleaner_RegistryDefragConfirmation")]
+    [InlineData(CleanerArea.Disk, true, 1, "Cleaner_DiskConfirmation")]
+    [InlineData(CleanerArea.Registry, false, 1, "Cleaner_RegistryConfirmation|Cleaner_BackupOff")]
+    [InlineData(null, true, 7, "Cleaner_PrivacyConfirmation|Cleaner_JunkFilesConfirmation|Cleaner_ShortcutsConfirmation|Cleaner_RegistryDefragConfirmation|Cleaner_RegistryConfirmation|Cleaner_DiskConfirmation|Cleaner_BackupOn")]
+    public async Task Apply_ConfirmationDescribesOnlySelectedOperations(CleanerArea? selectedArea, bool backupEnabled, int count, string notes)
+    {
+        _localization.Setup(x => x.GetString("Cleaner_Confirm")).Returns("Apply {0} selected operations?");
+        _preferences.Setup(x => x.GetPreferenceAsync("Cleaner", It.IsAny<CleanerOptions>()))
+            .ReturnsAsync(new CleanerOptions { BackupBeforeCleaning = backupEnabled });
+        await _vm.InitializeAsync();
+        foreach (var area in _vm.Areas) area.IsSelected = true;
+        var file = new CleanerFileTarget(@"C:\", @"C:\sample.tmp", 50, DateTime.UnixEpoch, DateTime.UnixEpoch);
+        Results(
+            Finding(CleanerArea.Privacy) with { Target = file },
+            Finding(CleanerArea.JunkFiles) with { Target = file },
+            Finding(CleanerArea.JunkFiles) with { Target = file with { Path = @"C:\other.tmp" } },
+            Finding(CleanerArea.Shortcuts) with { Target = file with { Path = @"C:\shortcut.lnk" } },
+            Finding(CleanerArea.RegistryDefrag) with { Target = new CleanerHiveTarget(@"HKEY_LOCAL_MACHINE\SOFTWARE") },
+            Finding(CleanerArea.Registry) with { Target = new CleanerRegistryTarget(@"HKEY_LOCAL_MACHINE\SOFTWARE", "Sample", "", 1, false, "") },
+            Finding(CleanerArea.Disk));
+        await _vm.ScanCommand.ExecuteAsync(null);
+        foreach (var result in _vm.Results)
+            result.IsSelected = selectedArea is null || result.Finding.Area == selectedArea;
+        _vm.SelectedCategory = _vm.CategoryReports.Single(report => report.Area == CleanerArea.Shortcuts);
+
+        var expected = string.Join(Environment.NewLine, new[] { $"Apply {count} selected operations?" }.Concat(notes.Split('|')));
+        _dialogs.Setup(x => x.ShowConfirmationAsync(It.IsAny<ConfirmationRequest>())).ReturnsAsync(new ConfirmationResponse());
+
+        await _vm.ApplyCommand.ExecuteAsync(null);
+
+        _dialogs.Verify(x => x.ShowConfirmationAsync(It.Is<ConfirmationRequest>(request => request.Message == expected)), Times.Once);
+    }
+
     [Fact]
     public async Task Apply_Confirmed_OnlyAppliesSelectedResults_ThenRequiresRescan()
     {

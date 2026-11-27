@@ -21,6 +21,12 @@ public static class PopupHandler
     public static FrameworkElement? GetContent(DependencyObject element) => (FrameworkElement?)element.GetValue(ContentProperty);
     public static void SetContent(DependencyObject element, FrameworkElement? value) => element.SetValue(ContentProperty, value);
 
+    public static readonly DependencyProperty PlacementProperty = DependencyProperty.RegisterAttached(
+        "Placement", typeof(FlyoutPlacementMode), typeof(PopupHandler), new PropertyMetadata(FlyoutPlacementMode.BottomEdgeAlignedLeft,
+            (element, args) => (element.GetValue(RegistrationProperty) as AnchorRegistration)?.SetPlacement((FlyoutPlacementMode)args.NewValue)));
+    public static FlyoutPlacementMode GetPlacement(DependencyObject element) => (FlyoutPlacementMode)element.GetValue(PlacementProperty);
+    public static void SetPlacement(DependencyObject element, FlyoutPlacementMode value) => element.SetValue(PlacementProperty, value);
+
     public static readonly DependencyProperty IsOpenProperty = DependencyProperty.RegisterAttached(
         "IsOpen", typeof(bool), typeof(PopupHandler), new PropertyMetadata(false,
             (element, _) => (element.GetValue(RegistrationProperty) as AnchorRegistration)?.SynchronizeOpenState()));
@@ -127,7 +133,7 @@ public static class PopupHandler
         RemoveRegistration(anchor);
         if (args.NewValue is FrameworkElement content)
         {
-            var flyout = new Flyout { Content = content, Placement = FlyoutPlacementMode.BottomEdgeAlignedLeft };
+            var flyout = new Flyout { Content = content, Placement = GetPlacement(anchor) };
             var registration = new AnchorRegistration(anchor, flyout, content);
             anchor.SetValue(RegistrationProperty, registration);
             registration.SynchronizeOpenState();
@@ -210,6 +216,7 @@ public static class PopupHandler
         }
 
         public void Hide() => _popup.Hide();
+        public void SetPlacement(FlyoutPlacementMode placement) => _popup.Placement = placement;
         private void Anchor_Loaded(object sender, RoutedEventArgs args) => SynchronizeOpenState();
         private void Anchor_Unloaded(object sender, RoutedEventArgs args) { _popup.Hide(); SetIsOpen(_anchor, false); DetachRoot(); }
         private void Anchor_ActualThemeChanged(FrameworkElement sender, object args) => ApplyTheme();

@@ -1,15 +1,12 @@
 using System.Reflection;
-using System.Runtime.InteropServices.WindowsRuntime;
 using System.Text.Json;
 using Microsoft.UI;
 using Microsoft.UI.Dispatching;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Media;
-using Microsoft.UI.Xaml.Media.Imaging;
 using Moq;
 using Windows.Graphics;
-using Windows.Graphics.Imaging;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.Management;
 using WinOptimizer.UI.Features.Common.Interfaces;
@@ -147,20 +144,16 @@ public sealed partial class ProcessMonitorTestApplication(string outputDirectory
                     var detailsList = (ListView)page.FindName(tab == 1 ? "PortsList" : tab == 2 ? "OpenFilesList" : "HostTrafficList");
                     Assert.True(detailsList.ActualHeight >= 90, $"Tab {tab} leaves no usable scrolling space.");
                 }
-                await CaptureAsync(shell, $"process-monitor-{language}-{theme}-{width}-tab{tab}.png");
                 if (width == 1100 && tab == 0)
                 {
                     var cpuHeader = (Button)page.FindName("CpuColumnHeader");
                     cpuHeader.Command.Execute(cpuHeader.CommandParameter); await Task.Delay(80); shell.UpdateLayout();
                     Assert.EndsWith("↓", (string)cpuHeader.Content);
-                    await CaptureAsync(shell, $"process-monitor-{language}-{theme}-{width}-cpu-sort.png");
                     vm.SortMode = 0; await Task.Delay(80);
                 }
             }
             _window!.AppWindow.ResizeClient(new SizeInt32(760, 600)); tabs.SelectedIndex = 3; await Task.Delay(650); shell.UpdateLayout();
             var scroller = (ScrollViewer)page.FindName("PageScroll"); Assert.True(scroller.ScrollableHeight > 0);
-            scroller.ChangeView(null, scroller.ScrollableHeight, null, true); await Task.Delay(80);
-            await CaptureAsync(shell, $"process-monitor-{language}-short.png");
             await vm.DeactivateAsync(); Assert.False(running); shell.Children.Clear();
         }
         Console.WriteLine("PASS: real process tree, four inspector tabs, EN/IT, light/dark, three widths, short windows and navigation cleanup. Synthetic data; no live process scan, download or ETW session.");
@@ -178,14 +171,6 @@ public sealed partial class ProcessMonitorTestApplication(string outputDirectory
     private static ProcessMetric Metric(ProcessIdentity id, int parent, string name, double? cpu, int memoryMiB) =>
         new(new(id, parent, name, "C:\\Program Files\\Example\\" + name + ".exe", 1000, memoryMiB * 1024L * 1024, memoryMiB * 2048L * 1024, 100_000, 200_000, 12, 200, ""), cpu, 65_536, 131_072);
 
-    private async Task CaptureAsync(UIElement root, string name)
-    {
-        var bitmap = new RenderTargetBitmap(); await bitmap.RenderAsync(root); var pixels = await bitmap.GetPixelsAsync();
-        await using var output = File.Create(Path.Combine(outputDirectory, name));
-        var encoder = await BitmapEncoder.CreateAsync(BitmapEncoder.PngEncoderId, output.AsRandomAccessStream());
-        encoder.SetPixelData(BitmapPixelFormat.Bgra8, BitmapAlphaMode.Premultiplied, (uint)bitmap.PixelWidth, (uint)bitmap.PixelHeight, 96, 96, pixels.ToArray());
-        await encoder.FlushAsync();
-    }
     private void Finish(string? error = null)
     {
         File.WriteAllText(Path.Combine(outputDirectory, "result.log"), error ?? "All process monitor checks passed.");

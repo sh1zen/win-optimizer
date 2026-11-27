@@ -108,17 +108,20 @@ public sealed partial class NavSidebar : UserControl, INotifyPropertyChanged
     {
         _navButtons = new Dictionary<string, NavButton>
         {
+            { "Dashboard", DashboardButton },
             { "SoftwareApps", SoftwareAppsButton },
             { "Optimize", OptimizeButton },
-            { "Internet", InternetButton },
-            { "Cleaner", CleanerButton },
             { "Drivers", DriversButton },
-            { "Functionalities", FunctionalitiesButton },
+            { "Cleaner", CleanerButton },
+            { "Disks", DisksButton },
+            { "Internet", InternetButton },
             { "Management", ManagementButton },
             { "Security", SecurityButton },
+            { "Repair", RepairButton },
             { "Customize", CustomizeButton },
-            { "AdvancedTools", AdvancedToolsButton },
             { "TimeMachine", TimeMachineButton },
+            { "Functionalities", FunctionalitiesButton },
+            { "AdvancedTools", AdvancedToolsButton },
             { "Settings", SettingsButton }
         };
     }

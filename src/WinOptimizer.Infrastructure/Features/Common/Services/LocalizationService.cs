@@ -190,6 +190,23 @@ public class LocalizationService : ILocalizationService
         }
     }
 
+    /// <inheritdoc />
+    public IReadOnlyDictionary<string, IReadOnlyList<string>> ReadTranslations(IReadOnlySet<string> keys)
+    {
+        var translations = new Dictionary<string, HashSet<string>>(StringComparer.Ordinal);
+        foreach (var code in GetAvailableLanguageCodes())
+        {
+            var strings = code == "en" ? _fallbackStrings : LoadLanguageFile(code);
+            foreach (var key in keys)
+            {
+                if (!strings.TryGetValue(key, out var value) || string.IsNullOrWhiteSpace(value)) continue;
+                if (!translations.TryGetValue(key, out var values)) translations[key] = values = new(StringComparer.Ordinal);
+                values.Add(value);
+            }
+        }
+        return translations.ToDictionary(pair => pair.Key, pair => (IReadOnlyList<string>)pair.Value.ToArray(), StringComparer.Ordinal);
+    }
+
     private Dictionary<string, string> LoadLanguageFile(string languageCode)
     {
         try

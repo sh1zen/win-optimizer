@@ -2,6 +2,7 @@ using Moq;
 using WinOptimizer.Core.Features.Common.Interfaces;
 using WinOptimizer.Core.Features.SoftwareApps.Interfaces;
 using WinOptimizer.Core.Features.SoftwareApps.Models;
+using WinOptimizer.UI.Features.Common.Services;
 using WinOptimizer.UI.Features.SoftwareApps.ViewModels;
 using Xunit;
 
@@ -137,6 +138,28 @@ public sealed class UninstallResidueViewModelTests
         Assert.False(vm.CanDelete);
         Assert.Equal(updated.Id, Assert.Single(Walk(vm.FileRoots), node => node.Finding != null).Finding!.Id);
         _tasks.Verify(tasks => tasks.CompleteTask(), Times.Exactly(2));
+    }
+
+    [Fact]
+    public async Task CancelledScanClosesTheBusyStateBeforeNotifyingAndDiscardsLateFindings()
+    {
+        var notifications = new ScanCancellationNotifications();
+        var notices = new List<ScanCancellationNotice>();
+        var pending = new TaskCompletionSource<UninstallResidueScan>();
+        using var vm = new UninstallResidueViewModel(_session.Object, new([], []), _service.Object, _tasks.Object, _text.Object,
+            notifications);
+        notifications.Cancelled += notice => { Assert.True(vm.CanClose); notices.Add(notice); };
+        _session.Setup(session => session.ScanAsync(null, It.IsAny<CancellationToken>())).Returns(pending.Task);
+
+        var running = vm.ScanCommand.ExecuteAsync(null);
+        vm.CancelCommand.Execute(null);
+        Assert.Empty(notices);
+        pending.SetResult(new([Finding(UninstallArtifactKind.File, @"C:\Recuva\late")], [], [], 0));
+        await running;
+
+        Assert.False(vm.HasResults);
+        Assert.Empty(vm.FileRoots);
+        Assert.Equal("Restore_Cancelled", Assert.Single(notices).Message);
     }
 
     [Fact]

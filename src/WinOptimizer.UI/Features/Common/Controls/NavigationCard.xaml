@@ -3,6 +3,7 @@
     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:toolkit="using:CommunityToolkit.WinUI.Controls">
     <toolkit:SettingsCard x:Name="Card" Style="{StaticResource PageSettingsCardStyle}" IsClickEnabled="True" Click="Card_Click"
+                         Command="{x:Bind Command, Mode=OneWay}"
                          AutomationProperties.Name="{x:Bind Title, Mode=OneWay}">
         <toolkit:SettingsCard.Resources>
             <ResourceDictionary Source="ms-appx:///Features/Common/Resources/InteractiveSurfaceResources.xaml"/>
